@@ -1,11 +1,15 @@
 import { spawn } from "node:child_process";
-import path from "node:path";
 import { z } from "zod";
 import {
   LocalApprovalInvalidError,
   LocalApprovalUnavailableError,
 } from "./errors.js";
 import type { AuthorityApprovalProfile } from "./authority-request-manager.js";
+import {
+  MACOS_AUTHORITY_HELPER_PATH,
+  MacOSNativeHelperTrustValidator,
+  type NativeHelperTrustValidator,
+} from "./native-helper-trust.js";
 
 export type LocalAuthorityOutcome = "authenticated" | "denied" | "cancelled" | "unavailable" | "failed";
 
@@ -36,9 +40,9 @@ export interface BrokerProcessResult {
 export type BrokerProcessRunner = (invocation: BrokerProcessInvocation) => Promise<BrokerProcessResult>;
 
 export interface MacOSLocalAuthorityBrokerOptions {
-  helperPath: string;
   platform?: NodeJS.Platform;
   runProcess?: BrokerProcessRunner;
+  trustValidator?: NativeHelperTrustValidator;
   timeoutMs?: number;
   maxOutputBytes?: number;
 }
@@ -113,25 +117,35 @@ async function defaultRunProcess(invocation: BrokerProcessInvocation): Promise<B
 export class MacOSLocalAuthorityBroker implements LocalAuthorityBroker {
   private readonly platform: NodeJS.Platform;
   private readonly runProcess: BrokerProcessRunner;
+  private readonly trustValidator: NativeHelperTrustValidator;
   private readonly timeoutMs: number;
   private readonly maxOutputBytes: number;
 
-  constructor(private readonly options: MacOSLocalAuthorityBrokerOptions) {
+  constructor(options: MacOSLocalAuthorityBrokerOptions = {}) {
     this.platform = options.platform ?? process.platform;
     this.runProcess = options.runProcess ?? defaultRunProcess;
+    this.trustValidator = options.trustValidator ?? new MacOSNativeHelperTrustValidator();
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.maxOutputBytes = options.maxOutputBytes ?? 16 * 1024;
   }
 
   async request(input: { requestId: string; profile: AuthorityApprovalProfile }): Promise<LocalAuthorityBrokerResult> {
-    if (this.platform !== "darwin" || !path.isAbsolute(this.options.helperPath)) {
-      throw new LocalApprovalUnavailableError("Local approval is only available through the configured macOS helper.");
+    if (this.platform !== "darwin") {
+      throw new LocalApprovalUnavailableError("Local approval is only available through the protected macOS helper.");
+    }
+
+    try {
+      await this.trustValidator.validate();
+    } catch {
+      throw new LocalApprovalUnavailableError(
+        "The protected macOS local approval helper is unavailable or untrusted.",
+      );
     }
 
     let processResult: BrokerProcessResult;
     try {
       processResult = await this.runProcess({
-        executable: this.options.helperPath,
+        executable: MACOS_AUTHORITY_HELPER_PATH,
         args: ["--profile", input.profile, "--request-id", input.requestId],
         timeoutMs: this.timeoutMs,
         maxOutputBytes: this.maxOutputBytes,
