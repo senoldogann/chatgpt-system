@@ -36,38 +36,27 @@ export class PathPolicy {
   async resolve(input: string): Promise<string> {
     if (!input.trim()) throw new PolicyError("Path must not be empty.");
 
-    const lexicalCandidates = path.isAbsolute(input)
-      ? [path.resolve(input)]
-      : [path.resolve(this.roots[0]!, input)];
+    const candidate = path.isAbsolute(input)
+      ? path.resolve(input)
+      : path.resolve(this.roots[0]!, input);
 
-    for (const candidate of lexicalCandidates) {
-      const lexicalRoot = this.roots.find((root) => isInside(root, candidate));
-      if (!lexicalRoot) continue;
-
+    const lexicalRoot = this.roots.find((root) => isInside(root, candidate));
+    if (lexicalRoot) {
       const canonicalRoot = await canonicalizePath(lexicalRoot);
-      const ancestor = await nearestExistingAncestor(candidate);
-      const realAncestor = await realpath(ancestor);
-      if (!isInside(canonicalRoot, realAncestor)) {
+      const canonicalCandidate = await canonicalizePath(candidate);
+      if (!isInside(canonicalRoot, canonicalCandidate)) {
         throw new PolicyError("Path escapes an allowed root through a symlink.", {
           requested: input,
           resolved: candidate,
         });
       }
-
-      try {
-        const realCandidate = await realpath(candidate);
-        if (!isInside(canonicalRoot, realCandidate)) {
-          throw new PolicyError("Resolved path is outside the allowed root.", {
-            requested: input,
-            resolved: realCandidate,
-          });
-        }
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
-      }
-
       return candidate;
+    }
+
+    const canonicalCandidate = await canonicalizePath(candidate);
+    for (const root of this.roots) {
+      const canonicalRoot = await canonicalizePath(root);
+      if (isInside(canonicalRoot, canonicalCandidate)) return candidate;
     }
 
     throw new PolicyError("Path is outside all allowed roots.", { requested: input, roots: this.roots });
