@@ -45,6 +45,36 @@ export class AuthorityDeniedError extends AppError {
   }
 }
 
+export class LocalApprovalRequiredError extends AppError {
+  constructor(message = "Local approval on the Mac is required before User or Admin authority can start.", details?: Record<string, unknown>) {
+    super(message, "LOCAL_APPROVAL_REQUIRED", details);
+  }
+}
+
+export class LocalApprovalUnavailableError extends AppError {
+  constructor(message = "Local approval is unavailable on this host.", details?: Record<string, unknown>) {
+    super(message, "LOCAL_APPROVAL_UNAVAILABLE", details);
+  }
+}
+
+export class LocalApprovalDeniedError extends AppError {
+  constructor(message = "Local approval was denied or cancelled.", details?: Record<string, unknown>) {
+    super(message, "LOCAL_APPROVAL_DENIED", details);
+  }
+}
+
+export class LocalApprovalExpiredError extends AppError {
+  constructor(message = "The local approval request has expired.", details?: Record<string, unknown>) {
+    super(message, "LOCAL_APPROVAL_EXPIRED", details);
+  }
+}
+
+export class LocalApprovalInvalidError extends AppError {
+  constructor(message = "The local approval request is invalid or no longer consumable.", details?: Record<string, unknown>) {
+    super(message, "LOCAL_APPROVAL_INVALID", details);
+  }
+}
+
 export function errorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof AppError) {
     return { error: error.code, message: error.message, details: error.details ?? {} };
