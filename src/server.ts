@@ -1,18 +1,31 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { homedir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { AuthorityManager } from "./authority.js";
+import { AuthorityRequestManager } from "./authority-request-manager.js";
 import type { AppConfig } from "./config.js";
 import { AuditLogger } from "./audit.js";
 import { FileSystemService } from "./fs-service.js";
 import { GitService } from "./git-service.js";
+import {
+  MacOSLocalAuthorityBroker,
+  type LocalAuthorityBroker,
+  type LocalAuthorityOutcome,
+} from "./local-authority-broker.js";
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { createScopedRuntime } from "./scoped-runtime.js";
-import { errorPayload } from "./errors.js";
+import {
+  LocalApprovalRequiredError,
+  errorPayload,
+} from "./errors.js";
 import {
   authorityEndOutputSchema,
   authorityLeaseOutputSchema,
+  authorityRequestOutputSchema,
+  authorityRequestStatusOutputSchema,
   fsListOutputSchema,
   fsMkdirOutputSchema,
   fsMoveOutputSchema,
@@ -26,17 +39,29 @@ import {
   terminalResultOutputSchema,
 } from "./tool-output-schemas.js";
 
+const DEFAULT_APPROVAL_HELPER_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../native/macos-authority-broker/.build/release/chatgpt-system-authority-broker",
+);
+
 export interface RuntimeServices {
   config: AppConfig;
   policy: PathPolicy;
   audit: AuditLogger;
   authority: AuthorityManager;
+  authorityRequests: AuthorityRequestManager;
+  approvalBroker: LocalAuthorityBroker;
   fs: FileSystemService;
   git: GitService;
   process: ProcessService;
 }
 
-export function createRuntimeServices(config: AppConfig): RuntimeServices {
+export interface RuntimeOptions {
+  approvalBroker?: LocalAuthorityBroker;
+  authorityRequests?: AuthorityRequestManager;
+}
+
+export function createRuntimeServices(config: AppConfig, options: RuntimeOptions = {}): RuntimeServices {
   const policy = new PathPolicy(config.roots);
   const audit = new AuditLogger(config.auditFile);
   const authority = new AuthorityManager({
@@ -61,6 +86,8 @@ export function createRuntimeServices(config: AppConfig): RuntimeServices {
     policy,
     audit,
     authority,
+    authorityRequests: options.authorityRequests ?? new AuthorityRequestManager(),
+    approvalBroker: options.approvalBroker ?? new MacOSLocalAuthorityBroker({ helperPath: DEFAULT_APPROVAL_HELPER_PATH }),
     fs: new FileSystemService(policy, audit, config.limits),
     git: new GitService(policy, audit, config),
     process: new ProcessService(policy, audit, config),
@@ -91,10 +118,30 @@ function withAuthority(runtime: RuntimeServices, authorityLeaseId: string) {
   return createScopedRuntime(runtime, authority);
 }
 
+function requestStateFromBrokerOutcome(outcome: LocalAuthorityOutcome) {
+  if (outcome === "authenticated") return "approved" as const;
+  if (outcome === "denied") return "denied" as const;
+  if (outcome === "cancelled") return "cancelled" as const;
+  return "failed" as const;
+}
+
+function settleApprovalRequest(
+  runtime: RuntimeServices,
+  requestId: string,
+  state: "approved" | "denied" | "cancelled" | "failed",
+): void {
+  try {
+    runtime.authorityRequests.complete(requestId, state);
+  } catch {
+    // Expired or already-settled requests remain fail-closed. Native completion never revives them.
+  }
+}
+
 const authorityLeaseField = { authorityLeaseId: z.string().min(40) };
 const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const nonDestructiveWriteAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const sessionStartAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+const approvalStatusAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const guardedMutationAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false };
 const destructiveAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false };
 
@@ -132,7 +179,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "session_authority_start",
     {
-      description: "Start one expiring Project/User/Admin authority lease for the current workflow. Reuse the returned leaseId only for subsequent privileged calls in this workflow.",
+      description: "Start a direct Project authority lease. User and Admin authority require a separate native Mac approval request first.",
       inputSchema: z.object({
         profile: z.enum(["project", "user", "admin"]),
         projectRoots: z.array(z.string()).optional(),
@@ -142,6 +189,12 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       annotations: sessionStartAnnotations,
     },
     async ({ profile, projectRoots, requestedTtlSeconds }) => safeCall(async () => {
+      if (profile !== "project") {
+        throw new LocalApprovalRequiredError(
+          "User and Admin authority must be approved locally on the Mac. Use session_authority_request.",
+          { profile },
+        );
+      }
       const lease = await runtime.authority.start({
         profile,
         ...(projectRoots ? { projectRoots } : {}),
@@ -149,6 +202,59 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       });
       await runtime.authority.flushAudit();
       return lease;
+    }),
+  );
+
+  server.registerTool(
+    "session_authority_request",
+    {
+      description: "Request local Mac approval for User or Admin authority. This only creates a short-lived pending request; the Mac owner must authenticate locally before any lease can be issued.",
+      inputSchema: z.object({
+        profile: z.enum(["user", "admin"]),
+        requestedTtlSeconds: z.number().int().positive().optional(),
+      }),
+      outputSchema: authorityRequestOutputSchema,
+      annotations: sessionStartAnnotations,
+    },
+    async ({ profile, requestedTtlSeconds }) => safeCall(async () => {
+      const request = runtime.authorityRequests.create({
+        profile,
+        ...(requestedTtlSeconds !== undefined ? { requestedTtlSeconds } : {}),
+      });
+
+      void runtime.approvalBroker.request({ requestId: request.requestId, profile: request.profile })
+        .then((result) => {
+          settleApprovalRequest(runtime, request.requestId, requestStateFromBrokerOutcome(result.outcome));
+        })
+        .catch(() => {
+          settleApprovalRequest(runtime, request.requestId, "failed");
+        });
+
+      return request;
+    }),
+  );
+
+  server.registerTool(
+    "session_authority_request_status",
+    {
+      description: "Check a local approval request. If native approval has completed, the first successful status call atomically consumes it and returns one User/Admin authority lease.",
+      inputSchema: z.object({ requestId: z.string().min(40) }),
+      outputSchema: authorityRequestStatusOutputSchema,
+      annotations: approvalStatusAnnotations,
+    },
+    async ({ requestId }) => safeCall(async () => {
+      const current = runtime.authorityRequests.resolve(requestId);
+      if (current.state !== "approved") return current;
+
+      const consumed = runtime.authorityRequests.consumeApproved(requestId);
+      const lease = await runtime.authority.start({
+        profile: consumed.profile,
+        ...(consumed.requestedTtlSeconds !== undefined
+          ? { requestedTtlSeconds: consumed.requestedTtlSeconds }
+          : {}),
+      });
+      await runtime.authority.flushAudit();
+      return { ...consumed, lease };
     }),
   );
 
