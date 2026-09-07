@@ -31,7 +31,8 @@ export function startStdio(runtime: RuntimeServices) {
 }
 
 export function startHttp(runtime: RuntimeServices): HttpServer {
-  if (!runtime.config.http.token) {
+  const token = runtime.config.http.token;
+  if (!token) {
     throw new Error("HTTP transport requires a bearer token. Set --token or CHATGPT_SYSTEM_HTTP_TOKEN (minimum 16 characters).");
   }
 
@@ -67,7 +68,7 @@ export function startHttp(runtime: RuntimeServices): HttpServer {
       return;
     }
 
-    if (!tokenMatches(req.headers.authorization, runtime.config.http.token)) {
+    if (!tokenMatches(req.headers.authorization, token)) {
       res.writeHead(401, {
         "content-type": "application/json; charset=utf-8",
         "www-authenticate": "Bearer",
