@@ -28,3 +28,11 @@ jobs:
         run: node scripts/setup-codex.mjs --help
       - name: Validate ChatGPT tunnel setup CLI
         run: node scripts/setup-chatgpt-tunnel.mjs --help
+
+  macos-native:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build macOS authority broker
+        run: swift build -c release --package-path native/macos-authority-broker
