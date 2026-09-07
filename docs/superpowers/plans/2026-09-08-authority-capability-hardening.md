@@ -22,6 +22,7 @@
 - helper and trust metadata are root-owned, non-symlinks, and not group/other writable.
 - helper SHA-256 must match the protected metadata before every native approval execution.
 - repository `.build/release/...` output is build input only, never a production runtime executable.
+- missing/untrusted native approval helper never disables Project authority; User/Admin approval fails closed instead.
 - no password piping, `sudo -S`, PAM edits, passwordless sudo rule, root shell, ServiceManagement/XPC root operation, or GUI computer-use tool is introduced here.
 - existing lease TTL, revocation, filesystem confinement, SHA conflict protection, Git safety, audit redaction, `shell=false`, process timeout/output bounds remain in force.
 
@@ -321,7 +322,7 @@ Documentation will instruct the human to run the installer with `sudo` explicitl
 
 - [ ] **Step 5: Update tunnel setup diagnostics**
 
-`buildTunnelSetup()` reports the fixed protected helper and metadata paths. On macOS doctor/run preflight, validate the protected installation through the compiled trust validator and fail with a concise local remediation message when absent/untrusted. Linux setup smoke remains unaffected.
+`buildTunnelSetup()` reports the repository build input separately from the fixed protected helper and metadata paths. On macOS doctor/run preflight, validate the protected installation through the compiled trust validator. If it is absent or untrusted, emit a concise remediation warning while keeping Project authority available; User/Admin approval remains fail-closed until the protected broker is installed. Linux setup smoke remains unaffected.
 
 - [ ] **Step 6: Verify GREEN and full CI**
 
@@ -330,7 +331,7 @@ npx vitest run tests/install-macos-authority-broker.test.ts tests/setup-chatgpt-
 npm run check
 ```
 
-Require GitHub Actions Node 22, Node 24, and `macos-native` Swift build jobs all green.
+Require GitHub Actions Node 22, Node 24, and `macos-native` Swift build/install jobs all green.
 
 - [ ] **Step 7: Commit**
 
