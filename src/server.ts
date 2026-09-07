@@ -34,14 +34,12 @@ function textResult(value: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
 }
 
-function guarded<TArgs>(fn: (args: TArgs) => Promise<unknown>) {
-  return async (args: TArgs) => {
-    try {
-      return textResult(await fn(args));
-    } catch (error) {
-      return { ...textResult(errorPayload(error)), isError: true };
-    }
-  };
+async function safeCall(fn: () => Promise<unknown>) {
+  try {
+    return textResult(await fn());
+  } catch (error) {
+    return { ...textResult(errorPayload(error)), isError: true };
+  }
 }
 
 const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
@@ -61,7 +59,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       inputSchema: z.object({}),
       annotations: readAnnotations,
     },
-    guarded(async () => ({
+    async () => safeCall(async () => ({
       roots: runtime.config.roots,
       auditFile: runtime.config.auditFile,
       terminal: runtime.config.terminal,
@@ -82,7 +80,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       inputSchema: z.object({ path: z.string().default(".") }),
       annotations: readAnnotations,
     },
-    guarded(({ path }) => runtime.fs.list(path)),
+    async ({ path }) => safeCall(() => runtime.fs.list(path)),
   );
 
   server.registerTool(
@@ -92,7 +90,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       inputSchema: z.object({ path: z.string() }),
       annotations: readAnnotations,
     },
-    guarded(({ path }) => runtime.fs.stat(path)),
+    async ({ path }) => safeCall(() => runtime.fs.stat(path)),
   );
 
   server.registerTool(
@@ -102,7 +100,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       inputSchema: z.object({ path: z.string(), encoding: z.enum(["utf8", "base64"]).default("utf8") }),
       annotations: readAnnotations,
     },
-    guarded(({ path, encoding }) => runtime.fs.read(path, encoding)),
+    async ({ path, encoding }) => safeCall(() => runtime.fs.read(path, encoding)),
   );
 
   server.registerTool(
@@ -117,7 +115,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       }),
       annotations: writeAnnotations,
     },
-    guarded(({ path, content, encoding, expectedSha256 }) => runtime.fs.write(path, content, encoding, expectedSha256)),
+    async ({ path, content, encoding, expectedSha256 }) => safeCall(() => runtime.fs.write(path, content, encoding, expectedSha256)),
   );
 
   server.registerTool(
@@ -131,7 +129,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       }),
       annotations: writeAnnotations,
     },
-    guarded(({ path, patch, expectedSha256 }) => runtime.fs.patch(path, patch, expectedSha256)),
+    async ({ path, patch, expectedSha256 }) => safeCall(() => runtime.fs.patch(path, patch, expectedSha256)),
   );
 
   server.registerTool(
@@ -141,7 +139,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       inputSchema: z.object({ path: z.string() }),
       annotations: writeAnnotations,
     },
-    guarded(({ path }) => runtime.fs.makeDirectory(path)),
+    async ({ path }) => safeCall(() => runtime.fs.makeDirectory(path)),
   );
 
   server.registerTool(
@@ -155,7 +153,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       }),
       annotations: writeAnnotations,
     },
-    guarded(({ source, destination, expectedSha256 }) => runtime.fs.move(source, destination, expectedSha256)),
+    async ({ source, destination, expectedSha256 }) => safeCall(() => runtime.fs.move(source, destination, expectedSha256)),
   );
 
   server.registerTool(
@@ -169,7 +167,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       }),
       annotations: destructiveAnnotations,
     },
-    guarded(({ path, expectedSha256, recursive }) => runtime.fs.remove(path, expectedSha256, recursive)),
+    async ({ path, expectedSha256, recursive }) => safeCall(() => runtime.fs.remove(path, expectedSha256, recursive)),
   );
 
   server.registerTool(
@@ -179,7 +177,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       inputSchema: z.object({ cwd: z.string().default(".") }),
       annotations: readAnnotations,
     },
-    guarded(({ cwd }) => runtime.git.status(cwd)),
+    async ({ cwd }) => safeCall(() => runtime.git.status(cwd)),
   );
 
   server.registerTool(
@@ -189,7 +187,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       inputSchema: z.object({ cwd: z.string().default("."), staged: z.boolean().default(false) }),
       annotations: readAnnotations,
     },
-    guarded(({ cwd, staged }) => runtime.git.diff(cwd, staged)),
+    async ({ cwd, staged }) => safeCall(() => runtime.git.diff(cwd, staged)),
   );
 
   server.registerTool(
@@ -199,7 +197,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       inputSchema: z.object({ cwd: z.string().default("."), limit: z.number().int().min(1).max(100).default(20) }),
       annotations: readAnnotations,
     },
-    guarded(({ cwd, limit }) => runtime.git.log(cwd, limit)),
+    async ({ cwd, limit }) => safeCall(() => runtime.git.log(cwd, limit)),
   );
 
   server.registerTool(
@@ -213,7 +211,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       }),
       annotations: destructiveAnnotations,
     },
-    guarded(({ command, args, cwd }) => runtime.process.run(command, args, cwd)),
+    async ({ command, args, cwd }) => safeCall(() => runtime.process.run(command, args, cwd)),
   );
 
   return server;
