@@ -7,6 +7,7 @@ import {
   encodeControlFrame,
   parseControlRequest,
   type AuthorizeControlRequest,
+  type RevokeControlRequest,
 } from "./control-protocol.js";
 import {
   AppError,
@@ -228,6 +229,16 @@ async function authorize(
   }
 }
 
+async function revoke(runtime: RuntimeServices, request: RevokeControlRequest) {
+  runtime.authority.end(request.authorityLeaseId);
+  await runtime.authority.flushAudit();
+  return {
+    version: CONTROL_PROTOCOL_VERSION,
+    ok: true as const,
+    revoked: true as const,
+  };
+}
+
 function handleConnection(
   socket: Socket,
   runtime: RuntimeServices,
@@ -276,6 +287,11 @@ function handleConnection(
     handled = true;
     if (request.action === "ping") {
       sendOnce({ version: CONTROL_PROTOCOL_VERSION, ok: true, pong: true });
+      return;
+    }
+
+    if (request.action === "revoke") {
+      void revoke(runtime, request).then(sendOnce).catch(fail);
       return;
     }
 
