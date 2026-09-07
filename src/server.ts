@@ -10,20 +10,14 @@ import { GitService } from "./git-service.js";
 import {
   MacOSLocalAuthorityBroker,
   type LocalAuthorityBroker,
-  type LocalAuthorityOutcome,
 } from "./local-authority-broker.js";
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { createScopedRuntime } from "./scoped-runtime.js";
-import {
-  LocalApprovalRequiredError,
-  errorPayload,
-} from "./errors.js";
+import { errorPayload } from "./errors.js";
 import {
   authorityEndOutputSchema,
   authorityLeaseOutputSchema,
-  authorityRequestOutputSchema,
-  authorityRequestStatusOutputSchema,
   fsListOutputSchema,
   fsMkdirOutputSchema,
   fsMoveOutputSchema,
@@ -128,31 +122,10 @@ function withAuthority(runtime: RuntimeServices, authorityLeaseId: string) {
   return createScopedRuntime(runtime, authority);
 }
 
-function requestStateFromBrokerOutcome(outcome: LocalAuthorityOutcome) {
-  if (outcome === "authenticated") return "approved" as const;
-  if (outcome === "denied") return "denied" as const;
-  if (outcome === "cancelled") return "cancelled" as const;
-  return "failed" as const;
-}
-
-async function settleApprovalRequest(
-  runtime: RuntimeServices,
-  requestId: string,
-  state: "approved" | "denied" | "cancelled" | "failed",
-): Promise<void> {
-  try {
-    runtime.authorityRequests.complete(requestId, state);
-    await runtime.authorityRequests.flushAudit();
-  } catch {
-    // Expired or already-settled requests remain fail-closed. Native completion never revives them.
-  }
-}
-
 const authorityLeaseField = { authorityLeaseId: z.string().min(40) };
 const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const nonDestructiveWriteAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const sessionStartAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
-const approvalStatusAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const guardedMutationAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false };
 const destructiveAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false };
 
@@ -190,87 +163,23 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "session_authority_start",
     {
-      description: "Start a direct Project authority lease. User and Admin authority require a separate native Mac approval request first.",
+      description: "Start a direct Project authority lease for explicit project roots. User/Admin leases are created locally on the Mac with chatgpt-system authorize and then supplied to existing lease-aware tools.",
       inputSchema: z.object({
-        profile: z.enum(["project", "user", "admin"]),
-        projectRoots: z.array(z.string()).optional(),
+        profile: z.literal("project"),
+        projectRoots: z.array(z.string()).min(1),
         requestedTtlSeconds: z.number().int().positive().optional(),
       }),
       outputSchema: authorityLeaseOutputSchema,
       annotations: sessionStartAnnotations,
     },
     async ({ profile, projectRoots, requestedTtlSeconds }) => safeCall(async () => {
-      if (profile !== "project") {
-        throw new LocalApprovalRequiredError(
-          "User and Admin authority must be approved locally on the Mac. Use session_authority_request.",
-          { profile },
-        );
-      }
       const lease = await runtime.authority.start({
         profile,
-        ...(projectRoots ? { projectRoots } : {}),
+        projectRoots,
         ...(requestedTtlSeconds !== undefined ? { requestedTtlSeconds } : {}),
       });
       await runtime.authority.flushAudit();
       return lease;
-    }),
-  );
-
-  server.registerTool(
-    "session_authority_request",
-    {
-      description: "Request local Mac approval for User or Admin authority. This only creates a short-lived pending request; the Mac owner must authenticate locally before any lease can be issued.",
-      inputSchema: z.object({
-        profile: z.enum(["user", "admin"]),
-        requestedTtlSeconds: z.number().int().positive().optional(),
-      }),
-      outputSchema: authorityRequestOutputSchema,
-      annotations: sessionStartAnnotations,
-    },
-    async ({ profile, requestedTtlSeconds }) => safeCall(async () => {
-      const request = runtime.authorityRequests.create({
-        profile,
-        ...(requestedTtlSeconds !== undefined ? { requestedTtlSeconds } : {}),
-      });
-      await runtime.authorityRequests.flushAudit();
-
-      void runtime.approvalBroker.request({ requestId: request.requestId, profile: request.profile })
-        .then((result) => settleApprovalRequest(
-          runtime,
-          request.requestId,
-          requestStateFromBrokerOutcome(result.outcome),
-        ))
-        .catch(() => settleApprovalRequest(runtime, request.requestId, "failed"));
-
-      return request;
-    }),
-  );
-
-  server.registerTool(
-    "session_authority_request_status",
-    {
-      description: "Check a local approval request. If native approval has completed, the first successful status call atomically consumes it and returns one User/Admin authority lease.",
-      inputSchema: z.object({ requestId: z.string().min(40) }),
-      outputSchema: authorityRequestStatusOutputSchema,
-      annotations: approvalStatusAnnotations,
-    },
-    async ({ requestId }) => safeCall(async () => {
-      const current = runtime.authorityRequests.resolve(requestId);
-      if (current.state !== "approved") {
-        await runtime.authorityRequests.flushAudit();
-        return current;
-      }
-
-      const consumed = runtime.authorityRequests.consumeApproved(requestId);
-      await runtime.authorityRequests.flushAudit();
-      const lease = await runtime.authority.start({
-        profile: consumed.profile,
-        ...(consumed.requestedTtlSeconds !== undefined
-          ? { requestedTtlSeconds: consumed.requestedTtlSeconds }
-          : {}),
-      });
-      await runtime.authority.flushAudit();
-      return { ...consumed, lease };
     }),
   );
 
