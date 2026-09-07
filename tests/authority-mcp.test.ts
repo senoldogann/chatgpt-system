@@ -123,8 +123,8 @@ describe("session authority MCP tools", () => {
         leaseId: expect.stringMatching(/^[A-Za-z0-9_-]{40,}$/),
         profile: "project",
         roots: [canonicalRoot],
-        terminalEnabled: true,
-        commands: expect.arrayContaining(["node", "git"]),
+        terminalEnabled: false,
+        commands: [],
         createdAt: expect.any(String),
         expiresAt: expect.any(String),
       });
@@ -135,7 +135,13 @@ describe("session authority MCP tools", () => {
         arguments: { authorityLeaseId: leaseId },
       });
       expect(status.isError).not.toBe(true);
-      expect(status.structuredContent).toMatchObject({ leaseId, profile: "project", roots: [canonicalRoot] });
+      expect(status.structuredContent).toMatchObject({
+        leaseId,
+        profile: "project",
+        roots: [canonicalRoot],
+        terminalEnabled: false,
+        commands: [],
+      });
 
       const ended = await client.callTool({
         name: "session_authority_end",
@@ -179,7 +185,7 @@ describe("session authority MCP tools", () => {
     }
   });
 
-  it("confines project lease reads and enables allowlisted terminal only inside scope", async () => {
+  it("confines project lease reads and rejects all terminal execution", async () => {
     const { root, sibling, client, transport } = await fixture();
     try {
       const leaseId = await startProjectLease(client, root);
@@ -198,19 +204,14 @@ describe("session authority MCP tools", () => {
       expect(outside.isError).toBe(true);
       expect(textContent(outside)).toContain("POLICY_DENIED");
 
-      const deniedCommand = await client.callTool({
-        name: "terminal_run",
-        arguments: { authorityLeaseId: leaseId, command: "sh", args: ["-c", "echo nope"], cwd: root },
-      });
-      expect(deniedCommand.isError).toBe(true);
-      expect(textContent(deniedCommand)).toContain("POLICY_DENIED");
-
-      const nodeVersion = await client.callTool({
-        name: "terminal_run",
-        arguments: { authorityLeaseId: leaseId, command: "node", args: ["--version"], cwd: root },
-      });
-      expect(nodeVersion.isError).not.toBe(true);
-      expect(nodeVersion.structuredContent).toMatchObject({ exitCode: 0, timedOut: false });
+      for (const [command, args] of [["sh", ["-c", "echo nope"]], ["node", ["--version"]]] as const) {
+        const denied = await client.callTool({
+          name: "terminal_run",
+          arguments: { authorityLeaseId: leaseId, command, args: [...args], cwd: root },
+        });
+        expect(denied.isError).toBe(true);
+        expect(textContent(denied)).toContain("POLICY_DENIED");
+      }
     } finally {
       await transport.terminateSession();
       await client.close();
