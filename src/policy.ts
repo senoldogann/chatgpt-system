@@ -23,6 +23,13 @@ async function nearestExistingAncestor(candidate: string): Promise<string> {
   }
 }
 
+async function canonicalizePath(candidate: string): Promise<string> {
+  const ancestor = await nearestExistingAncestor(candidate);
+  const realAncestor = await realpath(ancestor);
+  const suffix = path.relative(ancestor, candidate);
+  return suffix === "" ? realAncestor : path.resolve(realAncestor, suffix);
+}
+
 export class PathPolicy {
   constructor(readonly roots: string[]) {}
 
@@ -37,9 +44,10 @@ export class PathPolicy {
       const lexicalRoot = this.roots.find((root) => isInside(root, candidate));
       if (!lexicalRoot) continue;
 
+      const canonicalRoot = await canonicalizePath(lexicalRoot);
       const ancestor = await nearestExistingAncestor(candidate);
       const realAncestor = await realpath(ancestor);
-      if (!isInside(lexicalRoot, realAncestor)) {
+      if (!isInside(canonicalRoot, realAncestor)) {
         throw new PolicyError("Path escapes an allowed root through a symlink.", {
           requested: input,
           resolved: candidate,
@@ -48,7 +56,7 @@ export class PathPolicy {
 
       try {
         const realCandidate = await realpath(candidate);
-        if (!isInside(lexicalRoot, realCandidate)) {
+        if (!isInside(canonicalRoot, realCandidate)) {
           throw new PolicyError("Resolved path is outside the allowed root.", {
             requested: input,
             resolved: realCandidate,

@@ -28,6 +28,19 @@ describe("PathPolicy", () => {
     await expect(policy.resolve("file.txt")).resolves.toBe(path.join(root, "file.txt"));
   });
 
+  it("allows an approved root whose own path contains a symlink", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-policy-root-link-"));
+    cleanups.push(base);
+    const realRoot = path.join(base, "real-root");
+    const linkedRoot = path.join(base, "linked-root");
+    await mkdir(realRoot);
+    await symlink(realRoot, linkedRoot, "dir");
+    await writeFile(path.join(realRoot, "file.txt"), "ok");
+
+    const policy = new PathPolicy([linkedRoot]);
+    await expect(policy.resolve("file.txt")).resolves.toBe(path.join(linkedRoot, "file.txt"));
+  });
+
   it("rejects lexical traversal outside a root", async () => {
     const { policy } = await fixture();
     await expect(policy.resolve("../outside/secret.txt")).rejects.toBeInstanceOf(PolicyError);
