@@ -99,6 +99,12 @@ export class AuthorizationBusyError extends AppError {
   }
 }
 
+export class LeaseDeliveryFailedError extends AppError {
+  constructor(message = "Authority lease delivery failed.") {
+    super(message, "LEASE_DELIVERY_FAILED");
+  }
+}
+
 export function errorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof AppError) {
     return { error: error.code, message: error.message, details: error.details ?? {} };
