@@ -44,7 +44,7 @@ export const authorityLeaseOutputSchema = z.object({
   leaseId: z.string(),
   profile: authorityProfileSchema,
   roots: z.array(z.string()),
-  terminalEnabled: z.literal(true),
+  terminalEnabled: z.boolean(),
   commands: z.array(z.string()),
   createdAt: z.string(),
   expiresAt: z.string(),
