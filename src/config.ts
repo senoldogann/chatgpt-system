@@ -51,7 +51,7 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
 });
 
-const DEFAULT_COMMANDS = [
+export const DEFAULT_COMMANDS = [
   "git",
   "node",
   "npm",
@@ -67,7 +67,7 @@ const DEFAULT_COMMANDS = [
   "xcodebuild",
   "make",
   "cmake",
-];
+] as const;
 
 function enabled(value: string | undefined): boolean {
   return value === "true" || value === "1";
