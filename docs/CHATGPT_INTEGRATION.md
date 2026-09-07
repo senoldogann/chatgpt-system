@@ -1,54 +1,57 @@
-# ChatGPT integration
+# ChatGPT personal plugin integration
 
-This document describes the intended private connection path from ChatGPT/OpenAI products to `chatgpt-system`.
+This runbook connects `chatgpt-system` to a personal ChatGPT Developer Mode plugin through **OpenAI Secure MCP Tunnel** while keeping the Mac private.
 
-## Recommended architecture
-
-For a developer machine, prefer Secure MCP Tunnel with the server launched over **stdio**:
+The Phase 1 architecture is:
 
 ```text
-ChatGPT / supported OpenAI product
+ChatGPT personal Plugin
         |
-        | OpenAI-hosted MCP tunnel endpoint
+        | OpenAI-hosted tunnel endpoint
         v
-Secure MCP Tunnel control plane
+Secure MCP Tunnel
         ^
         | outbound HTTPS only
         |
-tunnel-client on your machine
+tunnel-client on the Mac
         |
         | stdio child process
         v
 chatgpt-system
         |
-        +-- allowed filesystem roots
+        +-- explicit filesystem root
+        +-- conflict-safe filesystem tools
         +-- read-only Git inspection
-        +-- optional allowlisted terminal execution
+        +-- terminal disabled by default
 ```
 
-This avoids publishing the local MCP listener and avoids needing a second local HTTP authentication hop.
+No raw MCP port needs to be exposed to the public internet.
 
-OpenAI's Secure MCP Tunnel is designed for private/on-premises/developer-machine MCP servers. `tunnel-client` makes outbound HTTPS connections to OpenAI, receives queued MCP work, forwards it to the local MCP server, and returns the responses through the tunnel.
+## Current OpenAI references
 
-Official references:
+- Plugin quickstart: https://developers.openai.com/plugins/quickstart
+- Secure MCP Tunnel: https://developers.openai.com/api/docs/guides/secure-mcp-tunnels
+- Plugin build guide: https://developers.openai.com/plugins/build/plugins
+- Public submission: https://developers.openai.com/plugins/deploy/submission
 
-- https://developers.openai.com/api/docs/guides/secure-mcp-tunnels
-- https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt-beta
+OpenAI's current Plugin Quickstart explicitly demonstrates a personal plugin in **ChatGPT Work**. Normal **Chat** availability is therefore an acceptance test in this project, not a claim made in advance.
 
 ## Prerequisites
 
 You need:
 
-1. A built copy of this repository (`npm install && npm run build`).
-2. A Secure MCP Tunnel `tunnel_id` from OpenAI Platform tunnel settings.
-3. A runtime OpenAI API key usable by `tunnel-client`.
-4. `tunnel-client` installed from the current OpenAI release.
-5. The required Platform tunnel permissions (`Read + Use`; `Manage` is required to create/edit tunnels).
-6. A ChatGPT workspace/product surface that supports the MCP capabilities you intend to use.
+1. ChatGPT Developer Mode enabled under **Settings → Security and login**.
+2. Node.js 22 or newer.
+3. `tunnel-client` from OpenAI's current release.
+4. A Secure MCP Tunnel ID from OpenAI Platform tunnel settings.
+5. Platform tunnel permissions required by your organization/account.
+6. A runtime credential available to `tunnel-client`, normally through `CONTROL_PLANE_API_KEY` or the credential mechanism supported by your installed tunnel-client version.
 
-ChatGPT plan/workspace availability is controlled by OpenAI and can change independently of this repository. Check the current OpenAI developer-mode documentation before rollout.
+Do not put the runtime credential in this repository, command history, `.env.example`, or a tunnel setup argument.
 
-## 1. Build chatgpt-system
+For a personal account, follow OpenAI's current tunnel documentation and use the personal Platform organization associated with that account. The tunnel must also be associated with the ChatGPT context that should be able to discover it.
+
+## 1. Install and verify the repository
 
 ```bash
 git clone https://github.com/senoldogann/chatgpt-system.git
@@ -57,83 +60,171 @@ npm install
 npm run check
 ```
 
-Choose the smallest filesystem root that contains the project ChatGPT should be allowed to access. Do not use `/`, your entire home directory, or another broad root simply for convenience.
+Choose the **smallest** project directory ChatGPT should be allowed to access. The setup helper rejects `/`, a relative path, and your entire home directory.
 
-## 2. Verify the local stdio server
+## 2. Use a disposable fixture for the first write test
 
-Run it manually first:
-
-```bash
-node dist/cli.js stdio --root /absolute/path/to/project
-```
-
-The process speaks MCP on stdin/stdout. Protocol output owns stdout; diagnostics use stderr.
-
-Terminal execution remains disabled unless you deliberately add `--enable-terminal`.
-
-## 3. Configure Secure MCP Tunnel
-
-OpenAI's current tunnel client supports a local stdio MCP command. A profile for this project follows the same pattern:
+Do not make the first experiment against a valuable repository. Create a tiny disposable Git repository instead:
 
 ```bash
-export CONTROL_PLANE_API_KEY="<runtime-api-key>"
-
-# Replace both placeholders with your real values.
-tunnel-client init \
-  --sample sample_mcp_stdio_local \
-  --profile chatgpt-system \
-  --tunnel-id "<tunnel_id>" \
-  --mcp-command "node /absolute/path/to/chatgpt-system/dist/cli.js stdio --root /absolute/path/to/project"
+mkdir -p /tmp/chatgpt-system-acceptance
+cd /tmp/chatgpt-system-acceptance
+git init
+printf 'before\n' > fixture.txt
+git add fixture.txt
+git commit -m 'test fixture'
 ```
 
-Validate the profile before connecting it to a product:
+If your Git identity is not configured, the commit is optional for read/write testing, but `git_diff` is easiest to inspect in a real Git repository.
+
+## 3. Generate and validate the Secure MCP Tunnel profile
+
+From the `chatgpt-system` repository:
 
 ```bash
-tunnel-client doctor --profile chatgpt-system --explain
+npm run setup:chatgpt -- \
+  --root /tmp/chatgpt-system-acceptance \
+  --tunnel-id tunnel_xxxxxxxxxxxxxxxx
 ```
 
-Then run it:
+Without `--doctor` or `--run`, the command is a dry setup: it validates arguments and prints the non-secret profile commands it would use. Terminal access stays disabled.
+
+When your runtime tunnel credential is available in the environment, create the profile and run OpenAI's doctor checks:
+
+```bash
+npm run setup:chatgpt -- \
+  --root /tmp/chatgpt-system-acceptance \
+  --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
+  --doctor
+```
+
+The helper performs these checks before claiming readiness:
+
+- `dist/cli.js` exists;
+- the allowed root exists and is a directory;
+- `tunnel-client` is available;
+- `tunnel-client init` succeeds;
+- `tunnel-client doctor --profile chatgpt-system --explain` succeeds.
+
+It launches the local MCP target with an equivalent command to:
+
+```text
+node /absolute/path/to/chatgpt-system/dist/cli.js stdio --root /tmp/chatgpt-system-acceptance
+```
+
+The helper never accepts or prints the control-plane API key.
+
+## 4. Run the tunnel
+
+After doctor succeeds:
 
 ```bash
 tunnel-client run --profile chatgpt-system
 ```
 
-Keep that process healthy while ChatGPT or another OpenAI surface is discovering or calling MCP tools.
+Keep this process running while ChatGPT discovers or calls the MCP tools.
 
-## 4. Connect from ChatGPT
+You can alternatively perform init + doctor + run in one invocation:
 
-Where developer-mode custom apps are available:
+```bash
+npm run setup:chatgpt -- \
+  --root /tmp/chatgpt-system-acceptance \
+  --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
+  --run
+```
 
-1. Enable developer mode for the target account/workspace.
-2. Create a custom app.
-3. Choose **Tunnel** as the connection type.
-4. Select the tunnel associated with the target ChatGPT workspace, or provide its `tunnel_id` when the UI supports it.
-5. Scan the MCP tools.
-6. Review the discovered tools and their write/destructive annotations before enabling them.
-7. Test read operations first (`system_capabilities`, `fs_list`, `fs_read`, `git_status`).
-8. Only then test guarded mutations (`fs_write`, `fs_apply_patch`).
-9. Keep `terminal_run` disabled until filesystem-only behavior is proven.
+## 5. Create the personal Plugin in ChatGPT
 
-ChatGPT may require confirmation for write/modify actions based on app permissions, context, and impact. Particularly risky actions may be blocked by the host even if the MCP server exposes them.
+In ChatGPT:
 
-## 5. Expected smoke test
+1. Open **Settings → Security and login** and confirm **Developer mode** is ON.
+2. Open **Plugins**.
+3. Select the **+** button to create a personal Developer Mode plugin.
+4. Choose **Tunnel** under **Connection**.
+5. Select the configured tunnel, or paste its valid tunnel ID if the UI offers that path.
+6. Scan/discover the MCP tools.
+7. Verify the discovered tool set before installing the plugin.
+8. Install the personal plugin.
 
-A successful connection should support this sequence:
+Expected initial tools:
 
-1. `system_capabilities` returns the configured root and limits.
-2. `fs_list` lists a project directory inside that root.
-3. `fs_read` reads a test file and returns its SHA-256.
-4. `fs_write` or `fs_apply_patch` uses that SHA-256 as `expectedSha256`.
-5. A repeated mutation using the stale hash is rejected as a conflict.
-6. `git_diff` shows the resulting change.
+```text
+system_capabilities
+fs_list
+fs_stat
+fs_read
+fs_write
+fs_apply_patch
+fs_mkdir
+fs_move
+fs_remove
+git_status
+git_diff
+git_log
+terminal_run
+```
 
-That proves the important path end to end: OpenAI product -> tunnel -> MCP protocol -> policy boundary -> filesystem -> result.
+`terminal_run` may be discoverable, but the server must report it as **disabled** in the default profile. Calling it should fail closed until the local server is deliberately restarted with terminal enabled.
 
-## HTTP mode
+## 6. Acceptance Test A: ChatGPT Work
 
-`chatgpt-system http` remains useful for trusted local MCP clients, private reverse proxies, integration tests, or environments where a tunnel client is configured to reach an HTTP MCP server.
+Open the ChatGPT homepage, switch from **Chat** to **Work**, start a fresh Work conversation, type `@`, and explicitly select the personal plugin.
 
-The default listener is loopback-only and requires a bearer token:
+Run the following sequence against the disposable fixture:
+
+1. Ask it to call `system_capabilities` and confirm the only configured root is `/tmp/chatgpt-system-acceptance`.
+2. Call `fs_list` on `.`.
+3. Call `fs_read` on `fixture.txt` and keep the returned SHA-256.
+4. Call `fs_apply_patch` or `fs_write` with that `expectedSha256` to change `before` to `after`.
+5. Repeat a mutation using the now-stale old SHA-256; it must fail with `CONFLICT`.
+6. Call `git_diff`; it must show only the intended fixture change.
+7. Attempt to read a path outside the allowed root, for example `../outside.txt`; the policy must reject it.
+8. Confirm terminal execution remains disabled.
+
+Do not proceed to a valuable project until this sequence behaves exactly as expected.
+
+## 7. Acceptance Test B: normal Chat
+
+Only after Work passes:
+
+1. Open a normal **Chat** conversation.
+2. Look for the personal plugin through `@` or the plugin picker available in that surface.
+3. If it can be invoked, repeat the read-only portion of the smoke test first.
+4. Perform one guarded write only on the disposable fixture.
+
+Record the actual observed product behavior. Do not infer support from the Work result.
+
+### If normal Chat works
+
+Phase 1 has reached the actual project goal. Keep the private tunnel architecture and do not build a cloud relay merely for entertainment.
+
+### If normal Chat does not expose or permit the personal plugin
+
+Record the exact UI limitation/error. That result triggers a separate Phase 2 design for a **submission-ready public Plugin + stable HTTPS MCP gateway + private device relay**. Do not expose the Mac directly or improvise a public reverse proxy as a permanent solution.
+
+## Terminal access is a separate decision
+
+The initial acceptance test does not require terminal execution.
+
+If terminal is deliberately enabled later:
+
+```bash
+npm run setup:chatgpt -- \
+  --root /absolute/path/to/project \
+  --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
+  --enable-terminal \
+  --allow-command git \
+  --allow-command node \
+  --allow-command npm
+```
+
+`terminal_run` uses `shell=false`, an executable allowlist, bounded output/time, and an allowed working directory. It is still **not an OS sandbox**. An interpreter, package manager, compiler, or build tool can exercise the permissions of the OS user running it.
+
+For hard process isolation, use a container, VM, or dedicated OS account.
+
+## HTTP mode remains local/trusted
+
+Authenticated Streamable HTTP is still useful for local clients and integration tests:
 
 ```bash
 node dist/cli.js http \
@@ -141,20 +232,20 @@ node dist/cli.js http \
   --token '<long-random-secret>'
 ```
 
-The endpoint is `http://127.0.0.1:4312/mcp`.
+The default endpoint is `http://127.0.0.1:4312/mcp`. It is loopback-only by default and applies Host/Origin validation guards.
 
-When bound to localhost, the server also applies the MCP SDK's Host and Origin validation guards to reduce DNS-rebinding and browser-origin attacks.
+Do **not** expose this raw listener directly to the public internet for the personal-plugin path. Secure MCP Tunnel exists specifically so that is unnecessary.
 
-Do not expose this raw listener directly to the public internet.
+## Troubleshooting order
 
-## Security rollout order
+If ChatGPT cannot discover or call the plugin:
 
-Use this order when enabling capabilities:
+1. Run `tunnel-client doctor --profile chatgpt-system --explain`.
+2. Confirm `tunnel-client run --profile chatgpt-system` is still healthy.
+3. Confirm the tunnel is associated with the intended Platform organization and ChatGPT context.
+4. Confirm Developer Mode is still enabled.
+5. Re-scan the Plugin tools after descriptor changes.
+6. Check the local `chatgpt-system` audit log for the attempted operation metadata.
+7. Test `system_capabilities` before attempting any mutation.
 
-1. Filesystem read-only tools.
-2. Hash-guarded filesystem writes.
-3. Read-only Git tools.
-4. Terminal execution only when genuinely needed.
-5. Container/VM/dedicated OS account when terminal authority must be strongly isolated.
-
-`terminal_run` is intentionally not described as a sandbox. An allowlisted interpreter or build tool can still exercise the operating-system user's permissions.
+Never respond to a connectivity problem by broadening the filesystem root or enabling terminal access. Those actions increase authority and do not repair a tunnel association.
