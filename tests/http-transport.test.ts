@@ -113,7 +113,7 @@ describe("HTTP MCP transport", () => {
   });
 
   it("completes a real MCP handshake and exposes structured, safety-described tools", async () => {
-    const { baseUrl, token } = await fixture();
+    const { root, baseUrl, token } = await fixture();
     const client = new Client({ name: "chatgpt-system-integration-test", version: "1.0.0" });
     const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`), {
       requestInit: {
@@ -142,9 +142,16 @@ describe("HTTP MCP transport", () => {
         safety: { terminalOsSandboxed: false },
       });
 
+      const started = await client.callTool({
+        name: "session_authority_start",
+        arguments: { profile: "project", projectRoots: [root], requestedTtlSeconds: 120 },
+      });
+      expect(started.isError).not.toBe(true);
+      const authorityLeaseId = (started.structuredContent as { leaseId: string }).leaseId;
+
       const compactModeStat = await client.callTool({
         name: "fs_stat",
-        arguments: { path: "compact-mode-dir" },
+        arguments: { authorityLeaseId, path: "compact-mode-dir" },
       });
       expect(compactModeStat.isError).not.toBe(true);
       expect(compactModeStat.structuredContent).toMatchObject({
@@ -154,7 +161,7 @@ describe("HTTP MCP transport", () => {
 
       const result = await client.callTool({
         name: "fs_read",
-        arguments: { path: "hello.txt", encoding: "utf8" },
+        arguments: { authorityLeaseId, path: "hello.txt", encoding: "utf8" },
       });
       expect(result.isError).not.toBe(true);
       expect(textContent(result)).toContain("hello from mcp");
