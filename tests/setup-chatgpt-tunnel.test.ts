@@ -103,4 +103,13 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.doctorArgs).toEqual(["doctor", "--profile", "chatgpt-system", "--explain"]);
     expect(setup.runArgs).toEqual(["run", "--profile", "chatgpt-system"]);
   });
+
+  it("derives deterministic native broker package and release helper paths from the repository", () => {
+    const setup = buildTunnelSetup(["--root", ROOT, "--tunnel-id", VALID_TUNNEL], {}, context);
+    expect(setup.brokerPackageDir).toBe("/opt/chatgpt-system/native/macos-authority-broker");
+    expect(setup.brokerHelperPath).toBe(
+      "/opt/chatgpt-system/native/macos-authority-broker/.build/release/chatgpt-system-authority-broker",
+    );
+    expect(JSON.stringify(setup)).not.toContain("CONTROL_PLANE_API_KEY");
+  });
 });
