@@ -43,7 +43,8 @@ async function safeCall(fn: () => Promise<unknown>) {
 }
 
 const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
-const writeAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+const nonDestructiveWriteAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+const guardedMutationAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false };
 const destructiveAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false };
 
 export function createMcpServer(runtime: RuntimeServices): McpServer {
@@ -67,7 +68,10 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       safety: {
         filesystemConfinement: true,
         symlinkEscapeProtection: true,
-        writeConflictHashing: "sha256",
+        writeConflictProtection: "optimistic-sha256",
+        atomicFileReplacement: true,
+        linearizableExternalWriterCAS: false,
+        hostileLocalFilesystemRaceProtection: false,
         terminalOsSandboxed: false,
       },
     })),
@@ -113,7 +117,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
         encoding: z.enum(["utf8", "base64"]).default("utf8"),
         expectedSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
       }),
-      annotations: writeAnnotations,
+      annotations: guardedMutationAnnotations,
     },
     async ({ path, content, encoding, expectedSha256 }) => safeCall(() => runtime.fs.write(path, content, encoding, expectedSha256)),
   );
@@ -127,7 +131,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
         patch: z.string(),
         expectedSha256: z.string().regex(/^[a-f0-9]{64}$/),
       }),
-      annotations: writeAnnotations,
+      annotations: guardedMutationAnnotations,
     },
     async ({ path, patch, expectedSha256 }) => safeCall(() => runtime.fs.patch(path, patch, expectedSha256)),
   );
@@ -137,7 +141,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     {
       description: "Create a directory and missing parents inside an allowed root.",
       inputSchema: z.object({ path: z.string() }),
-      annotations: writeAnnotations,
+      annotations: nonDestructiveWriteAnnotations,
     },
     async ({ path }) => safeCall(() => runtime.fs.makeDirectory(path)),
   );
@@ -151,7 +155,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
         destination: z.string(),
         expectedSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
       }),
-      annotations: writeAnnotations,
+      annotations: guardedMutationAnnotations,
     },
     async ({ source, destination, expectedSha256 }) => safeCall(() => runtime.fs.move(source, destination, expectedSha256)),
   );
@@ -173,7 +177,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "git_status",
     {
-      description: "Read git status without running repository hooks.",
+      description: "Read git status without running repository hooks or filesystem monitors.",
       inputSchema: z.object({ cwd: z.string().default(".") }),
       annotations: readAnnotations,
     },
@@ -193,7 +197,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "git_log",
     {
-      description: "Read recent git commits without invoking repository hooks.",
+      description: "Read recent git commits without invoking repository hooks or credential prompts.",
       inputSchema: z.object({ cwd: z.string().default("."), limit: z.number().int().min(1).max(100).default(20) }),
       annotations: readAnnotations,
     },
