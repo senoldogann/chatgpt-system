@@ -13,6 +13,7 @@ const directories: string[] = [];
 const servers: Server[] = [];
 
 async function closeServer(server: Server): Promise<void> {
+  server.closeAllConnections();
   await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
