@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
@@ -46,6 +46,9 @@ async function fixture() {
   const root = path.join(base, "root");
   await mkdir(root);
   await writeFile(path.join(root, "hello.txt"), "hello from mcp\n", "utf8");
+  const compactModeFile = path.join(root, "compact-mode.txt");
+  await writeFile(compactModeFile, "mode test\n", "utf8");
+  await chmod(compactModeFile, 0o000);
 
   const token = "integration-test-token-0123456789";
   const config: AppConfig = {
@@ -135,6 +138,13 @@ describe("HTTP MCP transport", () => {
         terminal: { enabled: false },
         safety: { terminalOsSandboxed: false },
       });
+
+      const compactModeStat = await client.callTool({
+        name: "fs_stat",
+        arguments: { path: "compact-mode.txt" },
+      });
+      expect(compactModeStat.isError).not.toBe(true);
+      expect(compactModeStat.structuredContent).toMatchObject({ mode: "00" });
 
       const result = await client.callTool({
         name: "fs_read",
