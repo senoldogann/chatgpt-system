@@ -91,10 +91,11 @@ function splitCsv(value: string | undefined): string[] | undefined {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
-function resolveControlSocketPath(value: string, homeDir: string): string {
-  let expanded = value;
-  if (value === "~") expanded = homeDir;
-  else if (value.startsWith("~/")) expanded = path.join(homeDir, value.slice(2));
+export function resolveControlSocketPath(value?: string, homeDir = homedir()): string {
+  const requested = value ?? path.join(homeDir, ".chatgpt-system", "control.sock");
+  let expanded = requested;
+  if (requested === "~") expanded = homeDir;
+  else if (requested.startsWith("~/")) expanded = path.join(homeDir, requested.slice(2));
 
   if (!path.isAbsolute(expanded)) {
     throw new Error("Control socket path must be absolute or start with '~/'.");
@@ -118,9 +119,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
   };
   const homeDir = homedir();
   const controlSocketPath = resolveControlSocketPath(
-    overrides.controlSocketPath
-      ?? env.CHATGPT_SYSTEM_CONTROL_SOCKET
-      ?? path.join(homeDir, ".chatgpt-system", "control.sock"),
+    overrides.controlSocketPath ?? env.CHATGPT_SYSTEM_CONTROL_SOCKET,
     homeDir,
   );
 
