@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
@@ -26,7 +26,11 @@ async function fixture() {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-authority-mcp-"));
   cleanups.push(base);
   const root = path.join(base, "root");
+  const sibling = path.join(base, "sibling");
   await mkdir(root);
+  await mkdir(sibling);
+  await writeFile(path.join(root, "fixture.txt"), "before\n", "utf8");
+  await writeFile(path.join(sibling, "outside.txt"), "outside\n", "utf8");
 
   const token = "authority-integration-token-0123456789";
   const config: AppConfig = {
@@ -52,7 +56,23 @@ async function fixture() {
     requestInit: { headers: { authorization: `Bearer ${token}` } },
   });
   await client.connect(transport);
-  return { root, client, transport };
+  return { base, root, sibling, client, transport };
+}
+
+function textContent(result: Awaited<ReturnType<Client["callTool"]>>): string {
+  return result.content
+    .filter((item): item is Extract<typeof item, { type: "text" }> => item.type === "text")
+    .map((item) => item.text)
+    .join("\n");
+}
+
+async function startProjectLease(client: Client, root: string): Promise<string> {
+  const started = await client.callTool({
+    name: "session_authority_start",
+    arguments: { profile: "project", projectRoots: [root], requestedTtlSeconds: 120 },
+  });
+  expect(started.isError).not.toBe(true);
+  return (started.structuredContent as { leaseId: string }).leaseId;
 }
 
 describe("session authority MCP tools", () => {
@@ -128,9 +148,110 @@ describe("session authority MCP tools", () => {
         arguments: { authorityLeaseId: leaseId },
       });
       expect(afterEnd.isError).toBe(true);
-      expect(afterEnd.content).toEqual(expect.arrayContaining([
-        expect.objectContaining({ type: "text", text: expect.stringContaining("AUTHORITY_REQUIRED") }),
-      ]));
+      expect(textContent(afterEnd)).toContain("AUTHORITY_REQUIRED");
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("requires an authority lease on every privileged filesystem, git, and terminal tool", async () => {
+    const { client, transport } = await fixture();
+    try {
+      const privileged = [
+        "fs_list", "fs_stat", "fs_read", "fs_write", "fs_apply_patch", "fs_mkdir", "fs_move", "fs_remove",
+        "git_status", "git_diff", "git_log", "terminal_run",
+      ];
+      const { tools } = await client.listTools();
+      const byName = new Map(tools.map((tool) => [tool.name, tool]));
+      for (const name of privileged) {
+        const schema = byName.get(name)?.inputSchema as { properties?: Record<string, unknown>; required?: string[] } | undefined;
+        expect(schema?.properties).toHaveProperty("authorityLeaseId");
+        expect(schema?.required).toContain("authorityLeaseId");
+      }
+
+      const noLease = await client.callTool({ name: "fs_read", arguments: { path: "fixture.txt" } });
+      expect(noLease.isError).toBe(true);
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("confines project lease reads and enables allowlisted terminal only inside scope", async () => {
+    const { root, sibling, client, transport } = await fixture();
+    try {
+      const leaseId = await startProjectLease(client, root);
+
+      const inside = await client.callTool({
+        name: "fs_read",
+        arguments: { authorityLeaseId: leaseId, path: "fixture.txt", encoding: "utf8" },
+      });
+      expect(inside.isError).not.toBe(true);
+      expect(inside.structuredContent).toMatchObject({ content: "before\n" });
+
+      const outside = await client.callTool({
+        name: "fs_read",
+        arguments: { authorityLeaseId: leaseId, path: path.join(sibling, "outside.txt"), encoding: "utf8" },
+      });
+      expect(outside.isError).toBe(true);
+      expect(textContent(outside)).toContain("POLICY_DENIED");
+
+      const deniedCommand = await client.callTool({
+        name: "terminal_run",
+        arguments: { authorityLeaseId: leaseId, command: "sh", args: ["-c", "echo nope"], cwd: root },
+      });
+      expect(deniedCommand.isError).toBe(true);
+      expect(textContent(deniedCommand)).toContain("POLICY_DENIED");
+
+      const nodeVersion = await client.callTool({
+        name: "terminal_run",
+        arguments: { authorityLeaseId: leaseId, command: "node", args: ["--version"], cwd: root },
+      });
+      expect(nodeVersion.isError).not.toBe(true);
+      expect(nodeVersion.structuredContent).toMatchObject({ exitCode: 0, timedOut: false });
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("revokes guarded writes immediately when a lease ends", async () => {
+    const { root, client, transport } = await fixture();
+    try {
+      const leaseId = await startProjectLease(client, root);
+      const read = await client.callTool({
+        name: "fs_read",
+        arguments: { authorityLeaseId: leaseId, path: "fixture.txt", encoding: "utf8" },
+      });
+      const sha256 = (read.structuredContent as { sha256: string }).sha256;
+
+      const written = await client.callTool({
+        name: "fs_write",
+        arguments: {
+          authorityLeaseId: leaseId,
+          path: "fixture.txt",
+          content: "after\n",
+          encoding: "utf8",
+          expectedSha256: sha256,
+        },
+      });
+      expect(written.isError).not.toBe(true);
+
+      await client.callTool({ name: "session_authority_end", arguments: { authorityLeaseId: leaseId } });
+
+      const afterEnd = await client.callTool({
+        name: "fs_write",
+        arguments: {
+          authorityLeaseId: leaseId,
+          path: "fixture.txt",
+          content: "forbidden\n",
+          encoding: "utf8",
+          expectedSha256: (written.structuredContent as { sha256: string }).sha256,
+        },
+      });
+      expect(afterEnd.isError).toBe(true);
+      expect(textContent(afterEnd)).toContain("AUTHORITY_REQUIRED");
     } finally {
       await transport.terminateSession();
       await client.close();
