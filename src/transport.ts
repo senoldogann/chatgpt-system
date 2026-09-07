@@ -57,7 +57,15 @@ export function startHttp(runtime: RuntimeServices): HttpServer {
       return;
     }
 
-    void nodeHandler(req, res);
+    if (!req.method) {
+      res.writeHead(400, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ error: "missing_http_method" }));
+      return;
+    }
+
+    // @modelcontextprotocol/node requires a definite method string. Node's runtime
+    // request always has one here; the guard above narrows the SDK adapter boundary.
+    void nodeHandler(req as typeof req & { method: string }, res);
   });
 
   server.listen(runtime.config.http.port, runtime.config.http.host);
