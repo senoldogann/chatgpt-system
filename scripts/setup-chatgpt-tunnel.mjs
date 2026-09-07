@@ -25,6 +25,12 @@ Options:
   --run                   Create the profile, run doctor, then run the tunnel.
   --help                  Show this help.
 
+The generated ChatGPT tunnel target always enables the private local authority
+control socket at ~/.chatgpt-system/control.sock. User/Admin leases are created
+outside ChatGPT with:
+  chatgpt-system authorize user
+  chatgpt-system authorize admin
+
 User/Admin session authority on macOS requires the protected native broker.
 Build and install it separately:
   npm run build:broker:macos
@@ -131,7 +137,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   if (options.help) return { help: true };
 
   const repoDir = path.resolve(context.repoDir ?? defaultRepoDir);
-  const homeDir = context.homeDir ?? homedir();
+  const homeDir = path.resolve(context.homeDir ?? homedir());
   const root = normalizeRoot(options.root, homeDir);
 
   if (!options.tunnelId || !/^tunnel_[A-Za-z0-9_-]{8,}$/.test(options.tunnelId)) {
@@ -156,7 +162,15 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     "release",
     "chatgpt-system-authority-broker",
   );
-  const commandParts = [process.execPath, serverPath, "stdio", "--root", root];
+  const controlSocketPath = path.join(homeDir, ".chatgpt-system", "control.sock");
+  const commandParts = [
+    process.execPath,
+    serverPath,
+    "stdio",
+    "--root", root,
+    "--enable-control",
+    "--control-socket", controlSocketPath,
+  ];
   if (options.terminal) commandParts.push("--enable-terminal");
   for (const command of options.commands) commandParts.push("--allow-command", command);
   const mcpCommand = commandParts.map(quoteCommandArg).join(" ");
@@ -166,6 +180,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     root,
     tunnelId: options.tunnelId,
     serverPath,
+    controlSocketPath,
     brokerPackageDir,
     brokerBuildPath,
     brokerHelperPath: protectedBrokerHelperPath,
@@ -224,7 +239,7 @@ async function validateRuntime(setup) {
   const broker = await inspectProtectedBroker();
   if (process.platform === "darwin" && !broker.available) {
     console.warn(
-      "[chatgpt-system] Protected macOS authority broker is missing or untrusted. Project authority remains available; User/Admin approval will fail closed until you run 'npm run build:broker:macos' and 'sudo npm run install:broker:macos'.",
+      "[chatgpt-system] Protected macOS authority broker is missing or untrusted. Project authority remains available; User/Admin local authorization will fail closed until you run 'npm run build:broker:macos' and 'sudo npm run install:broker:macos'.",
     );
   }
 
@@ -248,6 +263,7 @@ async function main() {
   console.log(`  Root: ${setup.root}`);
   console.log(`  Profile: ${setup.profile}`);
   console.log(`  MCP command: ${setup.mcpCommand}`);
+  console.log(`  Local authority control socket: ${setup.controlSocketPath}`);
   console.log(`  Native broker build: ${setup.brokerBuildPath}`);
   console.log(`  Protected native broker: ${setup.brokerHelperPath}`);
   console.log(`  Protected broker metadata: ${setup.brokerMetadataPath}`);
@@ -255,6 +271,7 @@ async function main() {
   console.log(`  Doctor: ${printableCommand("tunnel-client", setup.doctorArgs)}`);
   console.log(`  Run: ${printableCommand("tunnel-client", setup.runArgs)}`);
   console.log("  Bootstrap terminal: " + (setup.mcpCommand.includes("--enable-terminal") ? "EXPLICITLY ENABLED" : "disabled"));
+  console.log("  Local User/Admin authorization: enabled through private Unix socket");
 
   if (!setup.executeDoctor && !setup.executeRun) {
     console.log("\nDry setup only. Re-run with --doctor to validate local components and create the profile, or --run to also start it.");
