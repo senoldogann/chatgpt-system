@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
+import { homedir } from "node:os";
 import { z } from "zod";
+import { AuthorityManager } from "./authority.js";
 import type { AppConfig } from "./config.js";
 import { AuditLogger } from "./audit.js";
 import { FileSystemService } from "./fs-service.js";
@@ -8,6 +10,8 @@ import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { errorPayload } from "./errors.js";
 import {
+  authorityEndOutputSchema,
+  authorityLeaseOutputSchema,
   fsListOutputSchema,
   fsMkdirOutputSchema,
   fsMoveOutputSchema,
@@ -25,6 +29,7 @@ export interface RuntimeServices {
   config: AppConfig;
   policy: PathPolicy;
   audit: AuditLogger;
+  authority: AuthorityManager;
   fs: FileSystemService;
   git: GitService;
   process: ProcessService;
@@ -37,6 +42,7 @@ export function createRuntimeServices(config: AppConfig): RuntimeServices {
     config,
     policy,
     audit,
+    authority: new AuthorityManager({ homeDir: homedir(), commands: config.terminal.commands }),
     fs: new FileSystemService(policy, audit, config.limits),
     git: new GitService(policy, audit, config),
     process: new ProcessService(policy, audit, config),
@@ -64,6 +70,7 @@ async function safeCall<T extends object>(fn: () => Promise<T>) {
 
 const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const nonDestructiveWriteAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+const sessionStartAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
 const guardedMutationAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false };
 const destructiveAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false };
 
@@ -96,6 +103,47 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
         terminalOsSandboxed: false as const,
       },
     })),
+  );
+
+  server.registerTool(
+    "session_authority_start",
+    {
+      description: "Start one expiring Project/User/Admin authority lease for the current workflow. Reuse the returned leaseId only for subsequent privileged calls in this workflow.",
+      inputSchema: z.object({
+        profile: z.enum(["project", "user", "admin"]),
+        projectRoots: z.array(z.string()).optional(),
+        requestedTtlSeconds: z.number().int().positive().optional(),
+      }),
+      outputSchema: authorityLeaseOutputSchema,
+      annotations: sessionStartAnnotations,
+    },
+    async ({ profile, projectRoots, requestedTtlSeconds }) => safeCall(() => runtime.authority.start({
+      profile,
+      ...(projectRoots ? { projectRoots } : {}),
+      ...(requestedTtlSeconds !== undefined ? { requestedTtlSeconds } : {}),
+    })),
+  );
+
+  server.registerTool(
+    "session_authority_status",
+    {
+      description: "Inspect an active authority lease without changing it.",
+      inputSchema: z.object({ authorityLeaseId: z.string().min(1) }),
+      outputSchema: authorityLeaseOutputSchema,
+      annotations: readAnnotations,
+    },
+    async ({ authorityLeaseId }) => safeCall(async () => runtime.authority.status(authorityLeaseId)),
+  );
+
+  server.registerTool(
+    "session_authority_end",
+    {
+      description: "Revoke an active authority lease immediately. The same leaseId cannot be used again.",
+      inputSchema: z.object({ authorityLeaseId: z.string().min(1) }),
+      outputSchema: authorityEndOutputSchema,
+      annotations: guardedMutationAnnotations,
+    },
+    async ({ authorityLeaseId }) => safeCall(async () => runtime.authority.end(authorityLeaseId)),
   );
 
   server.registerTool(
