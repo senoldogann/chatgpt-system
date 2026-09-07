@@ -11,6 +11,7 @@
 5. **Auditability**: operations are appended to a local JSONL audit log. File contents and command output are not copied into the audit log.
 6. **Terminal is opt-in**: `terminal_run` is disabled by default. It uses `shell=false`, a command allowlist, a constrained cwd, sanitized environment variables, timeouts, and output limits.
 7. **HTTP authentication**: HTTP transport refuses to start without a bearer token and binds to loopback by default.
+8. **Loopback request validation**: the localhost HTTP listener applies the MCP SDK's Host and Origin validation guards before routing requests, reducing DNS-rebinding and hostile browser-origin exposure.
 
 ## Threat model and filesystem race limitation
 
@@ -41,6 +42,10 @@ The audit log is intended for operator visibility and debugging. It is not tampe
 ## HTTP / remote access
 
 Do not bind directly to a public interface unless you also provide a properly authenticated, TLS-terminating reverse proxy and understand the threat model. The default design is loopback-only and suitable for a trusted local MCP host or a secure tunnel.
+
+For a developer machine connected to OpenAI products, prefer Secure MCP Tunnel with `chatgpt-system` launched as a local **stdio** child process. That keeps the MCP server off the public network entirely and lets the tunnel client maintain outbound-only connectivity. See [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md).
+
+The localhost Host/Origin guards are defense in depth. They do not replace bearer authentication for HTTP mode, and they do not turn a deliberately non-loopback listener into a secure public service.
 
 ## Reporting vulnerabilities
 
