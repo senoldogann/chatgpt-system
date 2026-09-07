@@ -1,6 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
-import { toNodeHandler } from "@modelcontextprotocol/node";
+import {
+  toNodeHandler,
+  type NodeIncomingMessageLike,
+  type NodeServerResponseLike,
+} from "@modelcontextprotocol/node";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import type { RuntimeServices } from "./server.js";
@@ -57,15 +61,15 @@ export function startHttp(runtime: RuntimeServices): HttpServer {
       return;
     }
 
-    if (!req.method) {
-      res.writeHead(400, { "content-type": "application/json; charset=utf-8" });
-      res.end(JSON.stringify({ error: "missing_http_method" }));
-      return;
-    }
-
-    // @modelcontextprotocol/node requires a definite method string. Node's runtime
-    // request always has one here; the guard above narrows the SDK adapter boundary.
-    void nodeHandler(req as typeof req & { method: string }, res);
+    // The adapter is explicitly designed for node:http. With
+    // exactOptionalPropertyTypes enabled, Node's IncomingMessage declaration and
+    // the SDK's minimal structural interface are not assignable even though the
+    // runtime shapes are compatible. Keep that compatibility cast at this one
+    // transport boundary rather than weakening strictness for the whole project.
+    void nodeHandler(
+      req as unknown as NodeIncomingMessageLike,
+      res as unknown as NodeServerResponseLike,
+    );
   });
 
   server.listen(runtime.config.http.port, runtime.config.http.host);
