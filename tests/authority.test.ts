@@ -1,0 +1,124 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtemp, mkdir, realpath, rm, symlink } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import {
+  AuthorityManager,
+  type AuthorityContext,
+} from "../src/authority.js";
+import {
+  AuthorityDeniedError,
+  AuthorityExpiredError,
+  AuthorityRequiredError,
+} from "../src/errors.js";
+
+describe("AuthorityManager", () => {
+  let fixtureRoot: string;
+  let home: string;
+  let projectA: string;
+  let projectB: string;
+  let now: number;
+
+  beforeEach(async () => {
+    fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "chatgpt-system-authority-"));
+    home = path.join(fixtureRoot, "home");
+    projectA = path.join(home, "project-a");
+    projectB = path.join(home, "project-b");
+    await mkdir(projectA, { recursive: true });
+    await mkdir(projectB, { recursive: true });
+    now = Date.parse("2026-09-07T20:00:00.000Z");
+  });
+
+  afterEach(async () => {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  });
+
+  function manager(): AuthorityManager {
+    return new AuthorityManager({
+      homeDir: home,
+      commands: ["git", "node"],
+      now: () => now,
+    });
+  }
+
+  it("issues an opaque project lease and resolves immutable canonical scope", async () => {
+    const authority = manager();
+    const canonicalProject = await realpath(projectA);
+
+    const lease = await authority.start({
+      profile: "project",
+      projectRoots: [projectA],
+      requestedTtlSeconds: 60,
+    });
+
+    expect(lease.leaseId).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+    expect(lease.profile).toBe("project");
+    expect(lease.roots).toEqual([canonicalProject]);
+    expect(lease.terminalEnabled).toBe(true);
+
+    const resolved = authority.resolve(lease.leaseId);
+    expect(resolved).toMatchObject({ profile: "project", roots: [canonicalProject] });
+
+    lease.roots.push(projectB);
+    expect(authority.resolve(lease.leaseId).roots).toEqual([canonicalProject]);
+  });
+
+  it("clamps ttl by profile and expires fail closed", async () => {
+    const authority = manager();
+    const lease = await authority.start({ profile: "admin", requestedTtlSeconds: 99_999 });
+
+    expect(Date.parse(lease.expiresAt) - Date.parse(lease.createdAt)).toBe(3_600_000);
+
+    now += 3_600_001;
+    expect(() => authority.resolve(lease.leaseId)).toThrowError(AuthorityExpiredError);
+    expect(() => authority.status(lease.leaseId)).toThrowError(AuthorityRequiredError);
+  });
+
+  it("revokes ended leases immediately", async () => {
+    const authority = manager();
+    const lease = await authority.start({ profile: "project", projectRoots: [projectA] });
+
+    expect(authority.end(lease.leaseId)).toEqual({ ended: true });
+    expect(() => authority.resolve(lease.leaseId)).toThrowError(AuthorityRequiredError);
+  });
+
+  it("rejects blank or unknown lease ids", () => {
+    const authority = manager();
+    expect(() => authority.resolve(" ")).toThrowError(AuthorityRequiredError);
+    expect(() => authority.resolve("not-a-real-lease")).toThrowError(AuthorityRequiredError);
+  });
+
+  it("rejects broad project roots including symlink aliases of home", async () => {
+    const authority = manager();
+    const homeAlias = path.join(fixtureRoot, "home-alias");
+    await symlink(home, homeAlias, "dir");
+
+    await expect(authority.start({ profile: "project", projectRoots: [home] })).rejects.toThrowError(AuthorityDeniedError);
+    await expect(authority.start({ profile: "project", projectRoots: [homeAlias] })).rejects.toThrowError(AuthorityDeniedError);
+    await expect(authority.start({ profile: "project", projectRoots: [path.parse(home).root] })).rejects.toThrowError(AuthorityDeniedError);
+    await expect(authority.start({ profile: "project" })).rejects.toThrowError(AuthorityDeniedError);
+  });
+
+  it("maps user and admin profiles to canonical fixed scopes", async () => {
+    const authority = manager();
+
+    const userLease = await authority.start({ profile: "user" });
+    const adminLease = await authority.start({ profile: "admin" });
+
+    expect(userLease.roots).toEqual([await realpath(home)]);
+    expect(adminLease.roots).toEqual([path.parse(home).root]);
+  });
+
+  it("keeps concurrent leases isolated", async () => {
+    const authority = manager();
+    const leaseA = await authority.start({ profile: "project", projectRoots: [projectA] });
+    const leaseB = await authority.start({ profile: "project", projectRoots: [projectB] });
+
+    const resolvedA: AuthorityContext = authority.resolve(leaseA.leaseId);
+    const resolvedB: AuthorityContext = authority.resolve(leaseB.leaseId);
+
+    expect(resolvedA.roots).toEqual([await realpath(projectA)]);
+    expect(resolvedB.roots).toEqual([await realpath(projectB)]);
+    expect(resolvedA.roots).not.toEqual(resolvedB.roots);
+  });
+});
