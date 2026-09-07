@@ -1,0 +1,32 @@
+{
+  "name": "chatgpt-system",
+  "version": "0.1.0",
+  "description": "Secure local MCP bridge for controlled filesystem, Git, and process access.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "chatgpt-system": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
+    "test": "vitest run",
+    "check": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "diff": "^8.0.2",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^6.0.0",
+    "vitest": "^3.2.0"
+  }
+}
