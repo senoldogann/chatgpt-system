@@ -18,12 +18,12 @@ describe("AuthorityRequestManager", () => {
     };
   }
 
-  it("creates opaque pending requests with a maximum two-minute ttl", () => {
+  it("creates opaque pending requests with a fixed two-minute approval lifetime while preserving lease ttl intent", () => {
     const { manager } = fixture();
     const request = manager.create({ profile: "user", requestedTtlSeconds: 999 });
 
     expect(request.requestId).toMatch(/^[A-Za-z0-9_-]{40,}$/);
-    expect(request).toMatchObject({ profile: "user", state: "pending" });
+    expect(request).toMatchObject({ profile: "user", state: "pending", requestedTtlSeconds: 999 });
     expect(Date.parse(request.expiresAt) - Date.parse(request.createdAt)).toBe(120_000);
   });
 
@@ -64,10 +64,10 @@ describe("AuthorityRequestManager", () => {
     }
   });
 
-  it("expires fail closed and cannot be completed or consumed after expiry", () => {
+  it("expires approval requests fail closed after two minutes regardless of requested lease ttl", () => {
     const { manager, advance } = fixture();
     const request = manager.create({ profile: "admin", requestedTtlSeconds: 1 });
-    advance(1_001);
+    advance(120_001);
 
     expect(() => manager.resolve(request.requestId)).toThrowError(LocalApprovalExpiredError);
     expect(() => manager.complete(request.requestId, "approved")).toThrowError(LocalApprovalInvalidError);
