@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import type { Writable } from "node:stream";
-import { AppError } from "./errors.js";
+import { AppError, LeaseDeliveryFailedError } from "./errors.js";
 import {
   CONTROL_PROTOCOL_VERSION,
   type ControlRequest,
@@ -10,6 +10,9 @@ import {
   requestControl as defaultRequestControl,
   type ControlClientOptions,
 } from "./control-client.js";
+
+export const AUTHORIZE_CONTROL_TIMEOUT_MS = 130_000;
+export const REVOKE_CONTROL_TIMEOUT_MS = 5_000;
 
 export interface AuthorizeArgs {
   profile: "user" | "admin";
@@ -123,6 +126,26 @@ export async function copyLeaseToClipboard(
   });
 }
 
+async function revokeUndeliveredLease(
+  leaseId: string,
+  socketPath: string,
+  requestControl: ControlRequester,
+): Promise<boolean> {
+  try {
+    const response = await requestControl({
+      version: CONTROL_PROTOCOL_VERSION,
+      action: "revoke",
+      authorityLeaseId: leaseId,
+    }, {
+      socketPath,
+      timeoutMs: REVOKE_CONTROL_TIMEOUT_MS,
+    });
+    return response.ok && "revoked" in response && response.revoked === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function runAuthorizeCommand(
   args: AuthorizeArgs,
   dependencies: AuthorizeCommandDependencies,
@@ -138,7 +161,10 @@ export async function runAuthorizeCommand(
     ...(args.requestedTtlSeconds !== undefined
       ? { requestedTtlSeconds: args.requestedTtlSeconds }
       : {}),
-  }, { socketPath: dependencies.socketPath });
+  }, {
+    socketPath: dependencies.socketPath,
+    timeoutMs: AUTHORIZE_CONTROL_TIMEOUT_MS,
+  });
 
   if (!response.ok) {
     throw new AppError(response.message, response.error);
@@ -153,7 +179,24 @@ export async function runAuthorizeCommand(
     return;
   }
 
-  await copyLease(lease.leaseId);
+  try {
+    await copyLease(lease.leaseId);
+  } catch {
+    const revoked = await revokeUndeliveredLease(
+      lease.leaseId,
+      dependencies.socketPath,
+      requestControl,
+    );
+    if (revoked) {
+      throw new LeaseDeliveryFailedError(
+        "Failed to copy the authority lease to the clipboard; the undelivered lease was revoked.",
+      );
+    }
+    throw new LeaseDeliveryFailedError(
+      "Authority lease delivery failed and local lease cleanup could not be confirmed.",
+    );
+  }
+
   const displayProfile = lease.profile === "user" ? "User" : "Admin";
   writeStdout(`${displayProfile} authority approved.\n`);
   writeStdout(`Expires: ${lease.expiresAt}\n`);
