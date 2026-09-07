@@ -8,6 +8,7 @@ import { FileSystemService } from "./fs-service.js";
 import { GitService } from "./git-service.js";
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
+import { createScopedRuntime } from "./scoped-runtime.js";
 import { errorPayload } from "./errors.js";
 import {
   authorityEndOutputSchema,
@@ -68,6 +69,12 @@ async function safeCall<T extends object>(fn: () => Promise<T>) {
   }
 }
 
+function withAuthority(runtime: RuntimeServices, authorityLeaseId: string) {
+  const authority = runtime.authority.resolve(authorityLeaseId);
+  return createScopedRuntime(runtime, authority);
+}
+
+const authorityLeaseField = { authorityLeaseId: z.string().min(40) };
 const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const nonDestructiveWriteAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const sessionStartAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
@@ -83,7 +90,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "system_capabilities",
     {
-      description: "Show allowed filesystem roots, safety limits, audit path, and whether terminal execution is enabled.",
+      description: "Show bootstrap filesystem roots, safety limits, audit path, and startup terminal configuration. Session leases can grant broader scoped authority.",
       inputSchema: z.object({}),
       outputSchema: systemCapabilitiesOutputSchema,
       annotations: readAnnotations,
@@ -128,7 +135,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     "session_authority_status",
     {
       description: "Inspect an active authority lease without changing it.",
-      inputSchema: z.object({ authorityLeaseId: z.string().min(1) }),
+      inputSchema: z.object(authorityLeaseField),
       outputSchema: authorityLeaseOutputSchema,
       annotations: readAnnotations,
     },
@@ -139,7 +146,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     "session_authority_end",
     {
       description: "Revoke an active authority lease immediately. The same leaseId cannot be used again.",
-      inputSchema: z.object({ authorityLeaseId: z.string().min(1) }),
+      inputSchema: z.object(authorityLeaseField),
       outputSchema: authorityEndOutputSchema,
       annotations: guardedMutationAnnotations,
     },
@@ -149,41 +156,42 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "fs_list",
     {
-      description: "List one directory inside an allowed root without following directory entries.",
-      inputSchema: z.object({ path: z.string().default(".") }),
+      description: "List one directory inside the active authority lease scope without following directory entries.",
+      inputSchema: z.object({ ...authorityLeaseField, path: z.string().default(".") }),
       outputSchema: fsListOutputSchema,
       annotations: readAnnotations,
     },
-    async ({ path }) => safeCall(() => runtime.fs.list(path)),
+    async ({ authorityLeaseId, path }) => safeCall(() => withAuthority(runtime, authorityLeaseId).fs.list(path)),
   );
 
   server.registerTool(
     "fs_stat",
     {
-      description: "Inspect a path. Small regular files include a SHA-256 hash for conflict-safe writes.",
-      inputSchema: z.object({ path: z.string() }),
+      description: "Inspect a path inside the active authority lease scope. Small regular files include a SHA-256 hash for conflict-safe writes.",
+      inputSchema: z.object({ ...authorityLeaseField, path: z.string() }),
       outputSchema: fsStatOutputSchema,
       annotations: readAnnotations,
     },
-    async ({ path }) => safeCall(() => runtime.fs.stat(path)),
+    async ({ authorityLeaseId, path }) => safeCall(() => withAuthority(runtime, authorityLeaseId).fs.stat(path)),
   );
 
   server.registerTool(
     "fs_read",
     {
-      description: "Read a regular file and return its content plus SHA-256. Use that hash for later modifications.",
-      inputSchema: z.object({ path: z.string(), encoding: z.enum(["utf8", "base64"]).default("utf8") }),
+      description: "Read a regular file inside the active authority lease scope and return its content plus SHA-256. Use that hash for later modifications.",
+      inputSchema: z.object({ ...authorityLeaseField, path: z.string(), encoding: z.enum(["utf8", "base64"]).default("utf8") }),
       outputSchema: fsReadOutputSchema,
       annotations: readAnnotations,
     },
-    async ({ path, encoding }) => safeCall(() => runtime.fs.read(path, encoding)),
+    async ({ authorityLeaseId, path, encoding }) => safeCall(() => withAuthority(runtime, authorityLeaseId).fs.read(path, encoding)),
   );
 
   server.registerTool(
     "fs_write",
     {
-      description: "Create or atomically replace a file. Replacing an existing file requires expectedSha256 from a prior read/stat.",
+      description: "Create or atomically replace a file inside the active authority lease scope. Replacing an existing file requires expectedSha256 from a prior read/stat.",
       inputSchema: z.object({
+        ...authorityLeaseField,
         path: z.string(),
         content: z.string(),
         encoding: z.enum(["utf8", "base64"]).default("utf8"),
@@ -192,14 +200,15 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       outputSchema: fsWriteOutputSchema,
       annotations: guardedMutationAnnotations,
     },
-    async ({ path, content, encoding, expectedSha256 }) => safeCall(() => runtime.fs.write(path, content, encoding, expectedSha256)),
+    async ({ authorityLeaseId, path, content, encoding, expectedSha256 }) => safeCall(() => withAuthority(runtime, authorityLeaseId).fs.write(path, content, encoding, expectedSha256)),
   );
 
   server.registerTool(
     "fs_apply_patch",
     {
-      description: "Apply a unified diff to a UTF-8 file only if its current SHA-256 matches expectedSha256.",
+      description: "Apply a unified diff inside the active authority lease scope only if the file's current SHA-256 matches expectedSha256.",
       inputSchema: z.object({
+        ...authorityLeaseField,
         path: z.string(),
         patch: z.string(),
         expectedSha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -207,25 +216,26 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       outputSchema: fsPatchOutputSchema,
       annotations: guardedMutationAnnotations,
     },
-    async ({ path, patch, expectedSha256 }) => safeCall(() => runtime.fs.patch(path, patch, expectedSha256)),
+    async ({ authorityLeaseId, path, patch, expectedSha256 }) => safeCall(() => withAuthority(runtime, authorityLeaseId).fs.patch(path, patch, expectedSha256)),
   );
 
   server.registerTool(
     "fs_mkdir",
     {
-      description: "Create a directory and missing parents inside an allowed root.",
-      inputSchema: z.object({ path: z.string() }),
+      description: "Create a directory and missing parents inside the active authority lease scope.",
+      inputSchema: z.object({ ...authorityLeaseField, path: z.string() }),
       outputSchema: fsMkdirOutputSchema,
       annotations: nonDestructiveWriteAnnotations,
     },
-    async ({ path }) => safeCall(() => runtime.fs.makeDirectory(path)),
+    async ({ authorityLeaseId, path }) => safeCall(() => withAuthority(runtime, authorityLeaseId).fs.makeDirectory(path)),
   );
 
   server.registerTool(
     "fs_move",
     {
-      description: "Move a file or directory inside allowed roots. Existing file sources require expectedSha256.",
+      description: "Move a file or directory inside the active authority lease scope. Existing file sources require expectedSha256.",
       inputSchema: z.object({
+        ...authorityLeaseField,
         source: z.string(),
         destination: z.string(),
         expectedSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
@@ -233,14 +243,15 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       outputSchema: fsMoveOutputSchema,
       annotations: guardedMutationAnnotations,
     },
-    async ({ source, destination, expectedSha256 }) => safeCall(() => runtime.fs.move(source, destination, expectedSha256)),
+    async ({ authorityLeaseId, source, destination, expectedSha256 }) => safeCall(() => withAuthority(runtime, authorityLeaseId).fs.move(source, destination, expectedSha256)),
   );
 
   server.registerTool(
     "fs_remove",
     {
-      description: "Remove a file or directory. Files require expectedSha256; directories require recursive=true. Allowed roots can never be removed.",
+      description: "Remove a file or directory inside the active authority lease scope. Files require expectedSha256; directories require recursive=true. Allowed roots can never be removed.",
       inputSchema: z.object({
+        ...authorityLeaseField,
         path: z.string(),
         expectedSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
         recursive: z.boolean().default(false),
@@ -248,47 +259,48 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       outputSchema: fsRemoveOutputSchema,
       annotations: destructiveAnnotations,
     },
-    async ({ path, expectedSha256, recursive }) => safeCall(() => runtime.fs.remove(path, expectedSha256, recursive)),
+    async ({ authorityLeaseId, path, expectedSha256, recursive }) => safeCall(() => withAuthority(runtime, authorityLeaseId).fs.remove(path, expectedSha256, recursive)),
   );
 
   server.registerTool(
     "git_status",
     {
-      description: "Read git status without running repository hooks or filesystem monitors.",
-      inputSchema: z.object({ cwd: z.string().default(".") }),
+      description: "Read git status inside the active authority lease scope without running repository hooks or filesystem monitors.",
+      inputSchema: z.object({ ...authorityLeaseField, cwd: z.string().default(".") }),
       outputSchema: gitResultOutputSchema,
       annotations: readAnnotations,
     },
-    async ({ cwd }) => safeCall(() => runtime.git.status(cwd)),
+    async ({ authorityLeaseId, cwd }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.status(cwd)),
   );
 
   server.registerTool(
     "git_diff",
     {
-      description: "Read a git diff with external diff/textconv disabled.",
-      inputSchema: z.object({ cwd: z.string().default("."), staged: z.boolean().default(false) }),
+      description: "Read a git diff inside the active authority lease scope with external diff/textconv disabled.",
+      inputSchema: z.object({ ...authorityLeaseField, cwd: z.string().default("."), staged: z.boolean().default(false) }),
       outputSchema: gitResultOutputSchema,
       annotations: readAnnotations,
     },
-    async ({ cwd, staged }) => safeCall(() => runtime.git.diff(cwd, staged)),
+    async ({ authorityLeaseId, cwd, staged }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.diff(cwd, staged)),
   );
 
   server.registerTool(
     "git_log",
     {
-      description: "Read recent git commits without invoking repository hooks or credential prompts.",
-      inputSchema: z.object({ cwd: z.string().default("."), limit: z.number().int().min(1).max(100).default(20) }),
+      description: "Read recent git commits inside the active authority lease scope without invoking repository hooks or credential prompts.",
+      inputSchema: z.object({ ...authorityLeaseField, cwd: z.string().default("."), limit: z.number().int().min(1).max(100).default(20) }),
       outputSchema: gitResultOutputSchema,
       annotations: readAnnotations,
     },
-    async ({ cwd, limit }) => safeCall(() => runtime.git.log(cwd, limit)),
+    async ({ authorityLeaseId, cwd, limit }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.log(cwd, limit)),
   );
 
   server.registerTool(
     "terminal_run",
     {
-      description: "Run an allowlisted executable with shell=false in an allowed cwd. Disabled by default and NOT an OS sandbox.",
+      description: "Run an allowlisted executable with shell=false inside the active authority lease scope. Session authority enables this tool; it is NOT an OS sandbox.",
       inputSchema: z.object({
+        ...authorityLeaseField,
         command: z.string(),
         args: z.array(z.string()).default([]),
         cwd: z.string().default("."),
@@ -296,7 +308,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       outputSchema: terminalResultOutputSchema,
       annotations: destructiveAnnotations,
     },
-    async ({ command, args, cwd }) => safeCall(() => runtime.process.run(command, args, cwd)),
+    async ({ authorityLeaseId, command, args, cwd }) => safeCall(() => withAuthority(runtime, authorityLeaseId).process.run(command, args, cwd)),
   );
 
   return server;
