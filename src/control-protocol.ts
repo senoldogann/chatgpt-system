@@ -16,7 +16,17 @@ const authorizeRequestSchema = z.object({
   requestedTtlSeconds: z.number().int().positive().optional(),
 }).strict();
 
-const controlRequestSchema = z.union([pingRequestSchema, authorizeRequestSchema]);
+const revokeRequestSchema = z.object({
+  version: z.literal(CONTROL_PROTOCOL_VERSION),
+  action: z.literal("revoke"),
+  authorityLeaseId: z.string().min(40),
+}).strict();
+
+const controlRequestSchema = z.union([
+  pingRequestSchema,
+  authorizeRequestSchema,
+  revokeRequestSchema,
+]);
 
 const leaseSchema = z.object({
   leaseId: z.string().min(1),
@@ -39,6 +49,12 @@ const leaseResponseSchema = z.object({
   lease: leaseSchema,
 }).strict();
 
+const revokeResponseSchema = z.object({
+  version: z.literal(CONTROL_PROTOCOL_VERSION),
+  ok: z.literal(true),
+  revoked: z.literal(true),
+}).strict();
+
 const errorResponseSchema = z.object({
   version: z.literal(CONTROL_PROTOCOL_VERSION),
   ok: z.literal(false),
@@ -49,12 +65,14 @@ const errorResponseSchema = z.object({
 const controlResponseSchema = z.union([
   pongResponseSchema,
   leaseResponseSchema,
+  revokeResponseSchema,
   errorResponseSchema,
 ]);
 
 export type ControlRequest = z.infer<typeof controlRequestSchema>;
 export type PingControlRequest = z.infer<typeof pingRequestSchema>;
 export type AuthorizeControlRequest = z.infer<typeof authorizeRequestSchema>;
+export type RevokeControlRequest = z.infer<typeof revokeRequestSchema>;
 export type ControlResponse = z.infer<typeof controlResponseSchema>;
 export type ControlLease = z.infer<typeof leaseSchema>;
 
