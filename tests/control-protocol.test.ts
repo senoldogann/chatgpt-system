@@ -6,8 +6,10 @@ import {
   parseControlResponse,
 } from "../src/control-protocol.js";
 
+const leaseId = "lease_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
 describe("local authority control protocol", () => {
-  it("accepts only versioned ping and user/admin authorize requests", () => {
+  it("accepts only versioned ping, user/admin authorize, and lease revoke requests", () => {
     expect(parseControlRequest('{"version":1,"action":"ping"}')).toEqual({
       version: 1,
       action: "ping",
@@ -28,6 +30,16 @@ describe("local authority control protocol", () => {
       profile: "admin",
     });
 
+    expect(parseControlRequest(JSON.stringify({
+      version: 1,
+      action: "revoke",
+      authorityLeaseId: leaseId,
+    }))).toEqual({
+      version: 1,
+      action: "revoke",
+      authorityLeaseId: leaseId,
+    });
+
     expect(() => parseControlRequest('{"version":1,"action":"authorize","profile":"project"}')).toThrow();
     expect(() => parseControlRequest(
       '{"version":1,"action":"authorize","profile":"admin","helperPath":"/tmp/fake"}',
@@ -35,6 +47,12 @@ describe("local authority control protocol", () => {
     expect(() => parseControlRequest(
       '{"version":1,"action":"authorize","profile":"user","reason":"approve this please"}',
     )).toThrow();
+    expect(() => parseControlRequest(JSON.stringify({
+      version: 1,
+      action: "revoke",
+      authorityLeaseId: leaseId,
+      command: "node",
+    }))).toThrow();
   });
 
   it("encodes exactly one newline-terminated bounded JSON frame", () => {
@@ -50,6 +68,12 @@ describe("local authority control protocol", () => {
       version: 1,
       ok: true,
       pong: true,
+    });
+
+    expect(parseControlResponse('{"version":1,"ok":true,"revoked":true}')).toEqual({
+      version: 1,
+      ok: true,
+      revoked: true,
     });
 
     expect(parseControlResponse(
