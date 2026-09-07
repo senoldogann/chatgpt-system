@@ -46,9 +46,9 @@ async function fixture() {
   const root = path.join(base, "root");
   await mkdir(root);
   await writeFile(path.join(root, "hello.txt"), "hello from mcp\n", "utf8");
-  const compactModeFile = path.join(root, "compact-mode.txt");
-  await writeFile(compactModeFile, "mode test\n", "utf8");
-  await chmod(compactModeFile, 0o000);
+  const compactModeDirectory = path.join(root, "compact-mode-dir");
+  await mkdir(compactModeDirectory);
+  await chmod(compactModeDirectory, 0o000);
 
   const token = "integration-test-token-0123456789";
   const config: AppConfig = {
@@ -141,10 +141,13 @@ describe("HTTP MCP transport", () => {
 
       const compactModeStat = await client.callTool({
         name: "fs_stat",
-        arguments: { path: "compact-mode.txt" },
+        arguments: { path: "compact-mode-dir" },
       });
       expect(compactModeStat.isError).not.toBe(true);
-      expect(compactModeStat.structuredContent).toMatchObject({ mode: "00" });
+      expect(compactModeStat.structuredContent).toMatchObject({
+        type: "directory",
+        mode: "00",
+      });
 
       const result = await client.callTool({
         name: "fs_read",
