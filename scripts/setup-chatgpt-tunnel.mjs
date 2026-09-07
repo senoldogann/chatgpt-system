@@ -14,14 +14,18 @@ function usage() {
   npm run setup:chatgpt -- --root /absolute/path/to/project --tunnel-id tunnel_... [options]
 
 Options:
-  --root <path>           Explicit filesystem root. Required.
+  --root <path>           Explicit bootstrap filesystem root. Required.
   --tunnel-id <id>        OpenAI Secure MCP Tunnel ID. Required.
   --profile <name>        tunnel-client profile name (default: chatgpt-system).
-  --enable-terminal       Opt in to terminal_run. Disabled by default.
-  --allow-command <name>  Allowlisted terminal executable basename. Repeatable.
+  --enable-terminal       Opt in to bootstrap terminal_run. Disabled by default.
+  --allow-command <name>  Allowlisted bootstrap terminal executable basename. Repeatable.
   --doctor                Create the profile, then run tunnel-client doctor.
   --run                   Create the profile, run doctor, then run the tunnel.
   --help                  Show this help.
+
+On macOS, --doctor/--run builds the native LocalAuthentication authority broker
+used for locally approved User/Admin session authority. Project authority does
+not depend on native approval.
 
 Credentials are not accepted as command-line arguments. tunnel-client reads
 CONTROL_PLANE_API_KEY (or its currently supported credential mechanism) from
@@ -137,6 +141,13 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   }
 
   const serverPath = path.join(repoDir, "dist", "cli.js");
+  const brokerPackageDir = path.join(repoDir, "native", "macos-authority-broker");
+  const brokerHelperPath = path.join(
+    brokerPackageDir,
+    ".build",
+    "release",
+    "chatgpt-system-authority-broker",
+  );
   const commandParts = [process.execPath, serverPath, "stdio", "--root", root];
   if (options.terminal) commandParts.push("--enable-terminal");
   for (const command of options.commands) commandParts.push("--allow-command", command);
@@ -147,6 +158,8 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     root,
     tunnelId: options.tunnelId,
     serverPath,
+    brokerPackageDir,
+    brokerHelperPath,
     mcpCommand,
     initArgs: [
       "init",
@@ -183,9 +196,26 @@ function assertSuccessful(result, label) {
   }
 }
 
+function prepareMacOSBroker(setup) {
+  if (process.platform !== "darwin") return;
+  const result = spawnSync("swift", ["build", "-c", "release", "--package-path", setup.brokerPackageDir], {
+    shell: false,
+    encoding: "utf8",
+    env: process.env,
+    stdio: "inherit",
+  });
+  if (result.error?.code === "ENOENT") {
+    throw new Error("Swift toolchain was not found. Install Xcode command-line tools before enabling local User/Admin approval.");
+  }
+  if (result.status !== 0) {
+    throw new Error(`macOS authority broker build failed with exit code ${result.status}.`);
+  }
+}
+
 async function validateRuntime(setup) {
   await access(setup.serverPath);
   await validateRootBoundary(setup.root, homedir());
+  if (process.platform === "darwin") await access(setup.brokerHelperPath);
 
   const versionCheck = runTunnelClient(["help", "quickstart"], { capture: true });
   assertSuccessful(versionCheck, "tunnel-client preflight");
@@ -207,16 +237,18 @@ async function main() {
   console.log(`  Root: ${setup.root}`);
   console.log(`  Profile: ${setup.profile}`);
   console.log(`  MCP command: ${setup.mcpCommand}`);
+  console.log(`  Native broker: ${setup.brokerHelperPath}`);
   console.log(`  Init: ${printableCommand("tunnel-client", setup.initArgs)}`);
   console.log(`  Doctor: ${printableCommand("tunnel-client", setup.doctorArgs)}`);
   console.log(`  Run: ${printableCommand("tunnel-client", setup.runArgs)}`);
-  console.log("  Terminal: " + (setup.mcpCommand.includes("--enable-terminal") ? "EXPLICITLY ENABLED" : "disabled"));
+  console.log("  Bootstrap terminal: " + (setup.mcpCommand.includes("--enable-terminal") ? "EXPLICITLY ENABLED" : "disabled"));
 
   if (!setup.executeDoctor && !setup.executeRun) {
-    console.log("\nDry setup only. Re-run with --doctor to create/validate the profile, or --run to create, validate, and start it.");
+    console.log("\nDry setup only. Re-run with --doctor to build/validate local components and create the profile, or --run to also start it.");
     return;
   }
 
+  prepareMacOSBroker(setup);
   await validateRuntime(setup);
 
   assertSuccessful(runTunnelClient(setup.initArgs), "tunnel-client init");
