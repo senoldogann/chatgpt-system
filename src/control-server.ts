@@ -6,11 +6,15 @@ import {
   CONTROL_PROTOCOL_VERSION,
   encodeControlFrame,
   parseControlRequest,
+  type AuthorizeControlRequest,
 } from "./control-protocol.js";
 import {
   AppError,
+  AuthorizationBusyError,
   ControlProtocolInvalidError,
   ControlSocketInUseError,
+  LocalApprovalDeniedError,
+  LocalApprovalUnavailableError,
 } from "./errors.js";
 import type { RuntimeServices } from "./server.js";
 
@@ -26,6 +30,10 @@ export interface ControlServerHandle {
 }
 
 type ExistingSocketProbe = "live" | "stale" | "occupied";
+
+interface ControlServerState {
+  authorizationInFlight: boolean;
+}
 
 function isNotFound(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
@@ -125,29 +133,125 @@ async function prepareSocketPath(socketPath: string, currentUid: number): Promis
 
   const probe = await probeExistingSocket(socketPath);
   if (probe !== "stale") throw new ControlSocketInUseError();
-
   await unlink(socketPath);
 }
 
-function respond(socket: Socket, value: unknown): void {
-  if (socket.destroyed) return;
+function respond(socket: Socket, value: unknown): boolean {
+  if (socket.destroyed) return false;
   socket.end(encodeControlFrame(value));
+  return true;
 }
 
-function handleConnection(socket: Socket): void {
+function completionState(outcome: "authenticated" | "denied" | "cancelled" | "unavailable" | "failed") {
+  if (outcome === "authenticated") return "approved" as const;
+  if (outcome === "denied") return "denied" as const;
+  if (outcome === "cancelled") return "cancelled" as const;
+  return "failed" as const;
+}
+
+async function authorize(
+  runtime: RuntimeServices,
+  request: AuthorizeControlRequest,
+  socket: Socket,
+  state: ControlServerState,
+) {
+  if (state.authorizationInFlight) throw new AuthorizationBusyError();
+  state.authorizationInFlight = true;
+
+  try {
+    const pending = runtime.authorityRequests.create({
+      profile: request.profile,
+      ...(request.requestedTtlSeconds !== undefined
+        ? { requestedTtlSeconds: request.requestedTtlSeconds }
+        : {}),
+    });
+    await runtime.authorityRequests.flushAudit();
+
+    let native;
+    try {
+      native = await runtime.approvalBroker.request({
+        requestId: pending.requestId,
+        profile: pending.profile,
+      });
+    } catch (error) {
+      try {
+        runtime.authorityRequests.complete(pending.requestId, "failed");
+        await runtime.authorityRequests.flushAudit();
+      } catch {
+        // The request may already have expired. Either way no lease can be minted.
+      }
+      if (error instanceof AppError) throw error;
+      throw new LocalApprovalUnavailableError();
+    }
+
+    const completedState = completionState(native.outcome);
+    runtime.authorityRequests.complete(pending.requestId, completedState);
+    await runtime.authorityRequests.flushAudit();
+
+    if (completedState !== "approved") {
+      if (completedState === "denied" || completedState === "cancelled") {
+        throw new LocalApprovalDeniedError();
+      }
+      throw new LocalApprovalUnavailableError();
+    }
+
+    const consumed = runtime.authorityRequests.consumeApproved(pending.requestId);
+    await runtime.authorityRequests.flushAudit();
+    const lease = await runtime.authority.start({
+      profile: consumed.profile,
+      ...(consumed.requestedTtlSeconds !== undefined
+        ? { requestedTtlSeconds: consumed.requestedTtlSeconds }
+        : {}),
+    });
+    await runtime.authority.flushAudit();
+
+    if (socket.destroyed) {
+      runtime.authority.end(lease.leaseId);
+      await runtime.authority.flushAudit();
+      return undefined;
+    }
+
+    return {
+      version: CONTROL_PROTOCOL_VERSION,
+      ok: true as const,
+      lease: {
+        leaseId: lease.leaseId,
+        profile: lease.profile,
+        roots: lease.roots,
+        terminalEnabled: lease.terminalEnabled,
+        createdAt: lease.createdAt,
+        expiresAt: lease.expiresAt,
+      },
+    };
+  } finally {
+    state.authorizationInFlight = false;
+  }
+}
+
+function handleConnection(
+  socket: Socket,
+  runtime: RuntimeServices,
+  state: ControlServerState,
+): void {
   let buffer = Buffer.alloc(0);
-  let responded = false;
+  let handled = false;
+  let responseSent = false;
+
+  const sendOnce = (value: unknown) => {
+    if (responseSent) return false;
+    responseSent = true;
+    return respond(socket, value);
+  };
 
   const fail = (error: unknown) => {
-    if (responded) return;
-    responded = true;
-    respond(socket, safeErrorResponse(error));
+    sendOnce(safeErrorResponse(error));
   };
 
   socket.on("data", (chunk: Buffer) => {
-    if (responded) return;
+    if (handled) return;
     buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
     if (buffer.byteLength > CONTROL_MAX_FRAME_BYTES) {
+      handled = true;
       fail(new ControlProtocolInvalidError());
       return;
     }
@@ -155,6 +259,7 @@ function handleConnection(socket: Socket): void {
     const newline = buffer.indexOf(0x0a);
     if (newline === -1) return;
     if (newline !== buffer.byteLength - 1) {
+      handled = true;
       fail(new ControlProtocolInvalidError());
       return;
     }
@@ -163,23 +268,29 @@ function handleConnection(socket: Socket): void {
     try {
       request = parseControlRequest(buffer.subarray(0, newline).toString("utf8"));
     } catch (error) {
+      handled = true;
       fail(error);
       return;
     }
 
-    responded = true;
+    handled = true;
     if (request.action === "ping") {
-      respond(socket, { version: CONTROL_PROTOCOL_VERSION, ok: true, pong: true });
+      sendOnce({ version: CONTROL_PROTOCOL_VERSION, ok: true, pong: true });
       return;
     }
 
-    respond(socket, safeErrorResponse(new ControlProtocolInvalidError(
-      "Authorization is not available through the local control server yet.",
-    )));
+    void authorize(runtime, request, socket, state)
+      .then((response) => {
+        if (response !== undefined) sendOnce(response);
+      })
+      .catch(fail);
   });
 
   socket.on("end", () => {
-    if (!responded && buffer.byteLength > 0) fail(new ControlProtocolInvalidError());
+    if (!handled && buffer.byteLength > 0) {
+      handled = true;
+      fail(new ControlProtocolInvalidError());
+    }
   });
 
   socket.on("error", () => {
@@ -220,7 +331,14 @@ export async function startControlServer(options: ControlServerOptions): Promise
   const currentUid = options.currentUid ?? process.getuid?.() ?? 0;
   await prepareSocketPath(options.socketPath, currentUid);
 
-  const server = createServer(handleConnection);
+  const state: ControlServerState = { authorizationInFlight: false };
+  const sockets = new Set<Socket>();
+  const server = createServer((socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+    handleConnection(socket, options.runtime, state);
+  });
+
   try {
     await listen(server, options.socketPath);
     await chmod(options.socketPath, 0o600);
@@ -235,6 +353,7 @@ export async function startControlServer(options: ControlServerOptions): Promise
     async close() {
       if (closed) return;
       closed = true;
+      for (const socket of sockets) socket.destroy();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       });
