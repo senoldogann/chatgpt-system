@@ -81,12 +81,29 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
       });
     },
   });
+  const authorityRequests = options.authorityRequests ?? new AuthorityRequestManager({
+    audit: async (event) => {
+      await audit.record({
+        action: event.event,
+        outcome: "ok",
+        durationMs: 0,
+        metadata: {
+          profile: event.profile,
+          state: event.state,
+          ...(event.requestedTtlSeconds !== undefined
+            ? { requestedTtlSeconds: event.requestedTtlSeconds }
+            : {}),
+          ...(event.expiresAt ? { expiresAt: event.expiresAt } : {}),
+        },
+      });
+    },
+  });
   return {
     config,
     policy,
     audit,
     authority,
-    authorityRequests: options.authorityRequests ?? new AuthorityRequestManager(),
+    authorityRequests,
     approvalBroker: options.approvalBroker ?? new MacOSLocalAuthorityBroker({ helperPath: DEFAULT_APPROVAL_HELPER_PATH }),
     fs: new FileSystemService(policy, audit, config.limits),
     git: new GitService(policy, audit, config),
@@ -125,13 +142,14 @@ function requestStateFromBrokerOutcome(outcome: LocalAuthorityOutcome) {
   return "failed" as const;
 }
 
-function settleApprovalRequest(
+async function settleApprovalRequest(
   runtime: RuntimeServices,
   requestId: string,
   state: "approved" | "denied" | "cancelled" | "failed",
-): void {
+): Promise<void> {
   try {
     runtime.authorityRequests.complete(requestId, state);
+    await runtime.authorityRequests.flushAudit();
   } catch {
     // Expired or already-settled requests remain fail-closed. Native completion never revives them.
   }
@@ -221,14 +239,15 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
         profile,
         ...(requestedTtlSeconds !== undefined ? { requestedTtlSeconds } : {}),
       });
+      await runtime.authorityRequests.flushAudit();
 
       void runtime.approvalBroker.request({ requestId: request.requestId, profile: request.profile })
-        .then((result) => {
-          settleApprovalRequest(runtime, request.requestId, requestStateFromBrokerOutcome(result.outcome));
-        })
-        .catch(() => {
-          settleApprovalRequest(runtime, request.requestId, "failed");
-        });
+        .then((result) => settleApprovalRequest(
+          runtime,
+          request.requestId,
+          requestStateFromBrokerOutcome(result.outcome),
+        ))
+        .catch(() => settleApprovalRequest(runtime, request.requestId, "failed"));
 
       return request;
     }),
@@ -244,9 +263,13 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     },
     async ({ requestId }) => safeCall(async () => {
       const current = runtime.authorityRequests.resolve(requestId);
-      if (current.state !== "approved") return current;
+      if (current.state !== "approved") {
+        await runtime.authorityRequests.flushAudit();
+        return current;
+      }
 
       const consumed = runtime.authorityRequests.consumeApproved(requestId);
+      await runtime.authorityRequests.flushAudit();
       const lease = await runtime.authority.start({
         profile: consumed.profile,
         ...(consumed.requestedTtlSeconds !== undefined
