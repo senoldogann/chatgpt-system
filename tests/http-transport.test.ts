@@ -112,12 +112,28 @@ describe("HTTP MCP transport", () => {
         "terminal_run",
       ]));
 
+      for (const tool of tools) {
+        expect(tool.annotations).toMatchObject({
+          readOnlyHint: expect.any(Boolean),
+          destructiveHint: expect.any(Boolean),
+          openWorldHint: expect.any(Boolean),
+        });
+        expect(tool.outputSchema).toMatchObject({ type: "object" });
+      }
+
       const result = await client.callTool({
         name: "fs_read",
         arguments: { path: "hello.txt", encoding: "utf8" },
       });
       expect(result.isError).not.toBe(true);
       expect(textContent(result)).toContain("hello from mcp");
+      expect(result.structuredContent).toMatchObject({
+        path: "hello.txt",
+        encoding: "utf8",
+        content: "hello from mcp\n",
+        bytes: 15,
+        sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
     } finally {
       await transport.terminateSession();
       await client.close();
