@@ -39,11 +39,28 @@ export interface RuntimeServices {
 export function createRuntimeServices(config: AppConfig): RuntimeServices {
   const policy = new PathPolicy(config.roots);
   const audit = new AuditLogger(config.auditFile);
+  const authority = new AuthorityManager({
+    homeDir: homedir(),
+    commands: config.terminal.commands,
+    audit: async (event) => {
+      await audit.record({
+        action: event.event,
+        outcome: "ok",
+        durationMs: 0,
+        metadata: {
+          profile: event.profile,
+          rootCount: event.rootCount,
+          scopeDigest: event.scopeDigest,
+          ...(event.expiresAt ? { expiresAt: event.expiresAt } : {}),
+        },
+      });
+    },
+  });
   return {
     config,
     policy,
     audit,
-    authority: new AuthorityManager({ homeDir: homedir(), commands: config.terminal.commands }),
+    authority,
     fs: new FileSystemService(policy, audit, config.limits),
     git: new GitService(policy, audit, config),
     process: new ProcessService(policy, audit, config),
@@ -124,11 +141,15 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       outputSchema: authorityLeaseOutputSchema,
       annotations: sessionStartAnnotations,
     },
-    async ({ profile, projectRoots, requestedTtlSeconds }) => safeCall(() => runtime.authority.start({
-      profile,
-      ...(projectRoots ? { projectRoots } : {}),
-      ...(requestedTtlSeconds !== undefined ? { requestedTtlSeconds } : {}),
-    })),
+    async ({ profile, projectRoots, requestedTtlSeconds }) => safeCall(async () => {
+      const lease = await runtime.authority.start({
+        profile,
+        ...(projectRoots ? { projectRoots } : {}),
+        ...(requestedTtlSeconds !== undefined ? { requestedTtlSeconds } : {}),
+      });
+      await runtime.authority.flushAudit();
+      return lease;
+    }),
   );
 
   server.registerTool(
@@ -150,7 +171,11 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       outputSchema: authorityEndOutputSchema,
       annotations: guardedMutationAnnotations,
     },
-    async ({ authorityLeaseId }) => safeCall(async () => runtime.authority.end(authorityLeaseId)),
+    async ({ authorityLeaseId }) => safeCall(async () => {
+      const result = runtime.authority.end(authorityLeaseId);
+      await runtime.authority.flushAudit();
+      return result;
+    }),
   );
 
   server.registerTool(
