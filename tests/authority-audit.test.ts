@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { AuthorityManager, type AuthorityLifecycleEvent } from "../src/authority.js";
+import { AuthorityManager, type AuthorityAuditEvent } from "../src/authority.js";
 import type { AppConfig } from "../src/config.js";
 import { AuthorityExpiredError } from "../src/errors.js";
 import { createRuntimeServices } from "../src/server.js";
@@ -25,7 +25,7 @@ async function fixture() {
 describe("authority lifecycle audit", () => {
   it("emits start, end, and expiry events without raw lease ids", async () => {
     const { home, project } = await fixture();
-    const events: AuthorityLifecycleEvent[] = [];
+    const events: AuthorityAuditEvent[] = [];
     let now = Date.parse("2026-09-07T20:00:00.000Z");
     const manager = new AuthorityManager({
       homeDir: home,
