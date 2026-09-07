@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { access, stat } from "node:fs/promises";
+import { access, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -95,6 +95,25 @@ function normalizeRoot(requestedRoot, homeDir) {
   return root;
 }
 
+export async function validateRootBoundary(root, homeDir) {
+  const [canonicalRoot, canonicalHome] = await Promise.all([
+    realpath(root),
+    realpath(homeDir),
+  ]);
+
+  const filesystemRoot = path.parse(canonicalRoot).root;
+  if (canonicalRoot === filesystemRoot) {
+    throw new Error("Refusing to grant the filesystem root directory to ChatGPT, including through a symlink alias.");
+  }
+  if (canonicalRoot === canonicalHome) {
+    throw new Error("Refusing to grant the entire home directory to ChatGPT, including through a symlink alias. Choose a narrower project root.");
+  }
+
+  const rootInfo = await stat(canonicalRoot);
+  if (!rootInfo.isDirectory()) throw new Error(`Configured --root is not a directory: ${root}`);
+  return canonicalRoot;
+}
+
 export function buildTunnelSetup(argv, _env = {}, context = {}) {
   const options = parseArgs(argv);
   if (options.help) return { help: true };
@@ -166,8 +185,7 @@ function assertSuccessful(result, label) {
 
 async function validateRuntime(setup) {
   await access(setup.serverPath);
-  const rootInfo = await stat(setup.root);
-  if (!rootInfo.isDirectory()) throw new Error(`Configured --root is not a directory: ${setup.root}`);
+  await validateRootBoundary(setup.root, homedir());
 
   const versionCheck = runTunnelClient(["help", "quickstart"], { capture: true });
   assertSuccessful(versionCheck, "tunnel-client preflight");
