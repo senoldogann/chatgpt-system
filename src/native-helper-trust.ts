@@ -73,8 +73,9 @@ function assertProtected(
 function parseExpectedHash(metadata: Buffer): Buffer {
   const text = metadata.toString("utf8");
   const match = /^([a-f0-9]{64})\n?$/.exec(text);
-  if (!match) throw new NativeHelperTrustError("Invalid native authority trust metadata.");
-  return Buffer.from(match[1], "hex");
+  const hash = match?.[1];
+  if (!hash) throw new NativeHelperTrustError("Invalid native authority trust metadata.");
+  return Buffer.from(hash, "hex");
 }
 
 export class MacOSNativeHelperTrustValidator implements NativeHelperTrustValidator {
