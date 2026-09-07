@@ -1,4 +1,4 @@
-# chatgpt-system
+# Chatgpt-system
 
 Secure local MCP bridge for controlled filesystem, Git, and process access from ChatGPT-compatible MCP clients.
 
