@@ -1,6 +1,6 @@
 # chatgpt-system
 
-Secure local MCP authority gateway for controlled filesystem, Git, and process access from ChatGPT-compatible MCP clients.
+Secure local MCP authority gateway for controlled filesystem, Git, process, and future computer-use access from ChatGPT-compatible MCP clients.
 
 The project deliberately does not turn an LLM into a permanently privileged shell. Authority is explicit, scoped, expiring, revocable, auditable, and enforced on the local machine.
 
@@ -11,10 +11,12 @@ Current foundation:
 - MCP TypeScript SDK v2 / 2026-07-28 protocol support
 - stdio and Streamable HTTP transports
 - personal ChatGPT Plugin path through OpenAI Secure MCP Tunnel
-- per-workflow Project / User / Admin authority
+- Project / User / Admin authority leases
+- direct Project authority from MCP with no terminal capability
+- local `chatgpt-system authorize user|admin` path for broad authority
+- private Unix-domain control socket shared with the running tunnel runtime
 - native macOS approval for User/Admin via LocalAuthentication
 - Touch ID / Apple Watch / password fallback handled entirely by macOS
-- one-time approval requests and expiring opaque authority leases
 - protected root-owned native approval helper with pinned SHA-256 metadata
 - filesystem confinement with symlink-escape protection
 - SHA-256 optimistic locking for destructive file changes
@@ -26,7 +28,7 @@ Current foundation:
 - real MCP client integration coverage
 - Node 22 / Node 24 CI plus native macOS build/install verification
 
-The implementation is still on the `feat/local-authority-broker` development branch until real-Mac Touch ID acceptance is completed. Automated CI does not substitute for that physical-device gate.
+The Local Authority CLI is being completed on `feat/local-authority-cli`. It is stacked on the native authority-broker work until final real-Mac acceptance is complete.
 
 ## Requirements
 
@@ -64,13 +66,19 @@ npm run setup:chatgpt -- \
   --doctor
 ```
 
+The generated tunnel target automatically enables the private local authority control socket at:
+
+```text
+~/.chatgpt-system/control.sock
+```
+
 Keep the tunnel running while ChatGPT uses the plugin:
 
 ```bash
 tunnel-client run --profile chatgpt-system
 ```
 
-ChatGPT Web is the canonical first acceptance surface. Desktop uses the same installed plugin/backend afterwards.
+ChatGPT Web is the canonical first acceptance surface. ChatGPT Desktop uses the same installed plugin and tunnel backend. Normal Chat is tested separately from Work because product safety routing can differ.
 
 See [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md) for the full runbook.
 
@@ -78,13 +86,13 @@ See [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md) for the full runb
 
 Every privileged filesystem/Git/process call carries an opaque `authorityLeaseId`. The capability mapping is fixed by local trusted code and cannot be overridden by MCP input.
 
-| Profile | Scope | Maximum lease | Terminal | Local Mac approval |
+| Profile | Scope | Maximum lease | Terminal | Authority creation |
 | --- | --- | ---: | --- | --- |
-| `project` | Explicit project root(s) | 8 hours | **No** | No |
-| `user` | Canonical current-user home | 4 hours | **No** | **Yes** |
-| `admin` | `/` host-wide scope under current OS user | 1 hour | **Yes** | **Yes** |
+| `project` | Explicit project root(s) | 8 hours | **No** | MCP `session_authority_start` |
+| `user` | Canonical current-user home | 4 hours | **No** | Local CLI + macOS authentication |
+| `admin` | `/` host-wide scope under current OS user | 1 hour | **Yes** | Local CLI + macOS authentication |
 
-Why Project/User have no terminal: restricting only a child process's working directory does not restrict what Node, Python, package managers, compilers, or similar programs can access with the OS user's permissions. Giving them terminal capability would silently bypass the filesystem scope.
+Project/User have no terminal because restricting only a child process's working directory does not restrict what Node, Python, package managers, compilers, or similar programs can access with the OS user's permissions. Giving them terminal capability would silently bypass filesystem scope.
 
 ### Project authority
 
@@ -99,28 +107,54 @@ session_authority_start({
 
 It supports filesystem and built-in Git tools inside the selected roots. `/` and the entire user home directory are rejected as Project roots.
 
-### User/Admin native approval
+### User/Admin local authorization
 
-User/Admin cannot be started directly. ChatGPT first creates a short-lived approval request:
+ChatGPT does not advertise tools that create User/Admin authority. Broad authority starts physically on the Mac:
 
-```text
-session_authority_request({ profile: "user" | "admin" })
-        |
-        v
-macOS LocalAuthentication
-        |
-        | Touch ID / Apple Watch / password fallback
-        v
-session_authority_request_status({ requestId })
-        |
-        | first approved status consumes approval once
-        v
-User/Admin authorityLeaseId
+```bash
+chatgpt-system authorize user
 ```
 
-Direct `session_authority_start({ profile: "user" | "admin" })` fails with `LOCAL_APPROVAL_REQUIRED`.
+or:
 
-Approval requests expire after two minutes. Approval and lease lifetimes are separate. One approved request can mint at most one lease.
+```bash
+chatgpt-system authorize admin
+```
+
+The flow is:
+
+```text
+local CLI
+   |
+   v
+~/.chatgpt-system/control.sock
+   |
+   | same running tunnel-target process
+   v
+protected root-owned LocalAuthentication helper
+   |
+   v
+Touch ID / Apple Watch / normal macOS device-owner fallback
+   |
+   v
+same in-memory AuthorityManager
+   |
+   v
+expiring User/Admin lease
+   |
+   v
+pbcopy -> paste once into the ChatGPT workflow
+```
+
+The default CLI does not print the raw lease. It copies it to the clipboard. `--print-lease` is an explicit diagnostic escape hatch and disables clipboard copy.
+
+Optional shorter TTL:
+
+```bash
+chatgpt-system authorize user --ttl 1800
+```
+
+The control socket is local-only, uses one bounded newline-delimited JSON request per connection, has a private `0700` parent directory and `0600` socket, and never accepts a helper path, shell command, password, biometric material, or arbitrary native-auth reason from a client.
 
 ## Protected native approval helper
 
@@ -161,7 +195,7 @@ The installer never accepts a password, destination override, helper override, o
 
 An Admin lease provides host-wide filesystem scope where the current OS account has permission and enables the structured `terminal_run` tool. It does **not** grant UID 0 and it does not cache or expose a sudo credential.
 
-True root-only operations are intentionally deferred to a future typed macOS ServiceManagement/XPC privileged helper. This project does not use password piping, `sudo -S`, PAM edits, passwordless sudo rules, or a reusable root shell.
+True root-only operations are intentionally deferred to a typed macOS ServiceManagement/XPC privileged helper. This project does not use password piping, `sudo -S`, PAM edits, passwordless sudo rules, or a reusable root shell.
 
 ## Tools
 
@@ -169,9 +203,7 @@ True root-only operations are intentionally deferred to a future typed macOS Ser
 | --- | --- | --- |
 | `system_capabilities` | Bootstrap roots, limits, audit location and startup state | None |
 | `session_authority_start` | Create a direct Project lease | None |
-| `session_authority_request` | Request native User/Admin approval | None |
-| `session_authority_request_status` | Inspect/consume one local approval and mint a lease once | Request ID |
-| `session_authority_status` | Inspect an active lease | Lease ID |
+| `session_authority_status` | Inspect an active Project/User/Admin lease | Lease ID |
 | `session_authority_end` | Revoke an active lease | Lease ID |
 | `fs_list` | List a directory | Lease ID |
 | `fs_stat` | Inspect metadata and small-file SHA-256 | Lease ID |
@@ -186,7 +218,7 @@ True root-only operations are intentionally deferred to a future typed macOS Ser
 | `git_log` | Read recent commits | Lease ID |
 | `terminal_run` | Run one allowlisted executable with `shell=false` | **Admin lease only** |
 
-Every tool declares explicit MCP safety annotations and an output schema. Successful calls return readable text plus validated `structuredContent`.
+Every MCP tool declares explicit safety annotations and an output schema. Successful calls return readable text plus validated `structuredContent`.
 
 ## Conflict-safe file editing
 
@@ -228,6 +260,15 @@ Default location:
 ```
 
 Authority logs contain categorical lifecycle metadata only. Raw lease IDs, approval request IDs, passwords, API keys, biometric material, secure-field contents, file contents, and command output are not copied into authority audit metadata.
+
+## Capability roadmap
+
+The next capability layers are intentionally separate instead of becoming one giant unrestricted shell:
+
+1. **Process Supervisor**: `process_start`, `process_list`, `process_status`, `process_stop`, `process_logs`, with an opaque process registry, bounded logs, process-group cleanup, and authority-aware policies.
+2. **Computer-Use Bridge**: adapter over the existing `senoldogann/computer-use` typed IPC for `open_app`, `open_url`, screenshot, active-window inspection, mouse, scroll, keyboard/hotkeys, and bounded GUI goals. Existing kill-switch, credential blocking, human-presence and grant safeguards remain authoritative.
+3. **Browser Diagnostics**: browser session tools for page open/status, console errors, network errors, render/DOM state, and screenshot. Console/network inspection should use a browser automation/CDP boundary rather than pretending pixels are a network debugger.
+4. **Privileged macOS operations**: narrow ServiceManagement/XPC operations for true root-only tasks. No reusable root shell.
 
 ## Separate local route: Codex
 
