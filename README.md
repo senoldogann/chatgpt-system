@@ -18,6 +18,7 @@ The point of this project is not to give an LLM a root shell and hope everyone h
 - JSONL audit trail
 - localhost Host/Origin request validation for HTTP mode
 - real MCP client integration coverage for authenticated Streamable HTTP
+- one-command Codex local MCP registration for ChatGPT-plan users
 - regression/security tests and GitHub Actions CI
 
 ## Requirements
@@ -40,6 +41,22 @@ For development:
 ```bash
 npm run dev -- stdio --root /absolute/path/to/project
 ```
+
+## Plus-compatible local route: Codex
+
+Full custom MCP inside ordinary ChatGPT web conversations can be plan-gated. Codex local is a separate supported OpenAI surface and can launch local stdio MCP servers directly.
+
+After signing in to Codex with your ChatGPT account, register `chatgpt-system` with one command:
+
+```bash
+npm run setup:codex -- --root /absolute/path/to/project
+```
+
+Then open a new Codex local session and inspect `/mcp`.
+
+This route does not require Secure MCP Tunnel because Codex launches the MCP server locally. Terminal access remains disabled unless you explicitly opt in.
+
+See [docs/CODEX_PLUS.md](docs/CODEX_PLUS.md) for setup, verification, multiple roots, and terminal options.
 
 ## Quick start: stdio
 

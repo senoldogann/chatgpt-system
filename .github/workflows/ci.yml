@@ -24,3 +24,5 @@ jobs:
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Build and test
         run: npm run check
+      - name: Validate Codex setup CLI
+        run: node scripts/setup-codex.mjs --help
