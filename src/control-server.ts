@@ -118,6 +118,10 @@ async function probeExistingSocket(socketPath: string): Promise<ExistingSocketPr
 async function prepareSocketPath(socketPath: string, currentUid: number): Promise<void> {
   const parent = path.dirname(socketPath);
   await mkdir(parent, { recursive: true, mode: 0o700 });
+  const parentInfo = await lstat(parent);
+  if (!parentInfo.isDirectory() || parentInfo.uid !== currentUid) {
+    throw new ControlSocketInUseError("The local authority control socket parent is not a trusted private directory.");
+  }
   await chmod(parent, 0o700);
 
   let info;
