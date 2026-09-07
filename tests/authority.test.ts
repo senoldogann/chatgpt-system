@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -165,5 +165,44 @@ describe("AuthorityManager", () => {
     const adminLease = await authority.start({ profile: "admin" });
     const adminRuntime = createScopedRuntime(base, authority.resolve(adminLease.leaseId));
     expect((await adminRuntime.fs.read(adminReadable, "utf8")).content).toBe("admin\n");
+  });
+
+  it("audits authority lifecycle without logging raw lease ids", async () => {
+    const config = baseConfig();
+    const audit = new AuditLogger(config.auditFile);
+    await writeFile(path.join(projectA, "audited.txt"), "safe\n");
+
+    const authority = new AuthorityManager({
+      homeDir: home,
+      commands: ["git", "node"],
+      now: () => now,
+      audit: async (event) => {
+        await audit.record({
+          action: event.event,
+          outcome: "ok",
+          durationMs: 0,
+          metadata: {
+            profile: event.profile,
+            rootCount: event.rootCount,
+            scopeDigest: event.scopeDigest,
+            ...(event.expiresAt ? { expiresAt: event.expiresAt } : {}),
+          },
+        });
+      },
+    });
+
+    const lease = await authority.start({ profile: "project", projectRoots: [projectA] });
+    const scoped = createScopedRuntime({ config, audit }, authority.resolve(lease.leaseId));
+    await scoped.fs.read("audited.txt", "utf8");
+    authority.end(lease.leaseId);
+    await authority.flushAudit();
+
+    const log = await readFile(config.auditFile, "utf8");
+    expect(log).not.toContain(lease.leaseId);
+    expect(log).toContain('"action":"authority.start"');
+    expect(log).toContain('"action":"authority.end"');
+    expect(log).toContain('"profile":"project"');
+    expect(log).toMatch(/"scopeDigest":"[a-f0-9]{64}"/);
+    expect(log).toContain('"action":"fs.read"');
   });
 });
