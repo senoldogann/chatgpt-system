@@ -7,7 +7,7 @@ import {
   runAuthorizeCommand,
   type ClipboardSpawn,
 } from "../src/authorize-cli.js";
-import type { ControlResponse } from "../src/control-protocol.js";
+import type { ControlRequest, ControlResponse } from "../src/control-protocol.js";
 
 const leaseId = "lease_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
@@ -54,7 +54,7 @@ describe("local authorize CLI", () => {
     }
   });
 
-  it("copies the raw lease by default while keeping it out of stdout", async () => {
+  it("waits long enough for native authentication, copies the lease, and does not revoke successful delivery", async () => {
     const copied: string[] = [];
     let stdout = "";
     const requestControl = vi.fn(async () => success("user"));
@@ -69,9 +69,10 @@ describe("local authorize CLI", () => {
       },
     );
 
+    expect(requestControl).toHaveBeenCalledTimes(1);
     expect(requestControl).toHaveBeenCalledWith(
       { version: 1, action: "authorize", profile: "user" },
-      { socketPath: "/tmp/control.sock" },
+      { socketPath: "/tmp/control.sock", timeoutMs: 130_000 },
     );
     expect(copied).toEqual([leaseId]);
     expect(stdout).toContain("User authority approved.");
@@ -80,22 +81,83 @@ describe("local authorize CLI", () => {
     expect(stdout).not.toContain(leaseId);
   });
 
-  it("prints only the raw lease in explicit print mode and never touches clipboard", async () => {
+  it("prints only the raw lease in explicit print mode and never touches clipboard or revoke", async () => {
     const copyLease = vi.fn(async () => {});
     let stdout = "";
+    const requestControl = vi.fn(async () => success("admin"));
 
     await runAuthorizeCommand(
       { profile: "admin", requestedTtlSeconds: 1800, printLease: true },
       {
         socketPath: "/tmp/control.sock",
-        requestControl: async () => success("admin"),
+        requestControl,
         copyLease,
         writeStdout: (value) => { stdout += value; },
       },
     );
 
+    expect(requestControl).toHaveBeenCalledTimes(1);
     expect(copyLease).not.toHaveBeenCalled();
     expect(stdout).toBe(`${leaseId}\n`);
+  });
+
+  it("revokes a delivered lease when clipboard delivery fails without exposing the lease", async () => {
+    let stdout = "";
+    const requests: ControlRequest[] = [];
+    const requestControl = vi.fn(async (request: ControlRequest): Promise<ControlResponse> => {
+      requests.push(request);
+      if (request.action === "authorize") return success("user");
+      if (request.action === "revoke") return { version: 1, ok: true, revoked: true };
+      return { version: 1, ok: true, pong: true };
+    });
+
+    await expect(runAuthorizeCommand(
+      { profile: "user", printLease: false },
+      {
+        socketPath: "/tmp/control.sock",
+        requestControl,
+        copyLease: async () => { throw new Error(`clipboard failed ${leaseId}`); },
+        writeStdout: (value) => { stdout += value; },
+      },
+    )).rejects.toMatchObject({ code: "LEASE_DELIVERY_FAILED" });
+
+    expect(requests).toEqual([
+      { version: 1, action: "authorize", profile: "user" },
+      { version: 1, action: "revoke", authorityLeaseId: leaseId },
+    ]);
+    expect(requestControl.mock.calls[1]?.[1]).toEqual({ socketPath: "/tmp/control.sock", timeoutMs: 5_000 });
+    expect(stdout).not.toContain(leaseId);
+  });
+
+  it("reports unconfirmed cleanup safely when clipboard delivery and revoke both fail", async () => {
+    const requestControl = vi.fn(async (request: ControlRequest): Promise<ControlResponse> => {
+      if (request.action === "authorize") return success("admin");
+      return {
+        version: 1,
+        ok: false,
+        error: "AUTHORITY_REQUIRED",
+        message: "An active authority lease is required.",
+      };
+    });
+
+    let caught: unknown;
+    try {
+      await runAuthorizeCommand(
+        { profile: "admin", printLease: false },
+        {
+          socketPath: "/tmp/control.sock",
+          requestControl,
+          copyLease: async () => { throw new Error(`do not leak ${leaseId}`); },
+          writeStdout: () => {},
+        },
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({ code: "LEASE_DELIVERY_FAILED" });
+    expect(caught instanceof Error ? caught.message : String(caught)).toMatch(/cleanup could not be confirmed/i);
+    expect(caught instanceof Error ? caught.message : String(caught)).not.toContain(leaseId);
   });
 
   it("surfaces stable control errors without producing clipboard output", async () => {
