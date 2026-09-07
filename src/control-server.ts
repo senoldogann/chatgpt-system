@@ -205,7 +205,7 @@ async function authorize(
     });
     await runtime.authority.flushAudit();
 
-    if (socket.destroyed) {
+    if (socket.destroyed || socket.readableEnded) {
       runtime.authority.end(lease.leaseId);
       await runtime.authority.flushAudit();
       return undefined;
