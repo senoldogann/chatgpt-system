@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
@@ -113,6 +113,7 @@ describe("session authority MCP tools", () => {
   it("starts, inspects, and revokes a project authority lease", async () => {
     const { root, client, transport } = await fixture();
     try {
+      const canonicalRoot = await realpath(root);
       const started = await client.callTool({
         name: "session_authority_start",
         arguments: { profile: "project", projectRoots: [root], requestedTtlSeconds: 120 },
@@ -121,7 +122,7 @@ describe("session authority MCP tools", () => {
       expect(started.structuredContent).toMatchObject({
         leaseId: expect.stringMatching(/^[A-Za-z0-9_-]{40,}$/),
         profile: "project",
-        roots: [root],
+        roots: [canonicalRoot],
         terminalEnabled: true,
         commands: expect.arrayContaining(["node", "git"]),
         createdAt: expect.any(String),
@@ -134,7 +135,7 @@ describe("session authority MCP tools", () => {
         arguments: { authorityLeaseId: leaseId },
       });
       expect(status.isError).not.toBe(true);
-      expect(status.structuredContent).toMatchObject({ leaseId, profile: "project", roots: [root] });
+      expect(status.structuredContent).toMatchObject({ leaseId, profile: "project", roots: [canonicalRoot] });
 
       const ended = await client.callTool({
         name: "session_authority_end",
