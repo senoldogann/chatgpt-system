@@ -1,7 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { homedir } from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { AuthorityManager } from "./authority.js";
 import { AuthorityRequestManager } from "./authority-request-manager.js";
@@ -38,11 +36,6 @@ import {
   systemCapabilitiesOutputSchema,
   terminalResultOutputSchema,
 } from "./tool-output-schemas.js";
-
-const DEFAULT_APPROVAL_HELPER_PATH = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../native/macos-authority-broker/.build/release/chatgpt-system-authority-broker",
-);
 
 export interface RuntimeServices {
   config: AppConfig;
@@ -104,7 +97,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     audit,
     authority,
     authorityRequests,
-    approvalBroker: options.approvalBroker ?? new MacOSLocalAuthorityBroker({ helperPath: DEFAULT_APPROVAL_HELPER_PATH }),
+    approvalBroker: options.approvalBroker ?? new MacOSLocalAuthorityBroker(),
     fs: new FileSystemService(policy, audit, config.limits),
     git: new GitService(policy, audit, config),
     process: new ProcessService(policy, audit, config),
@@ -452,7 +445,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "terminal_run",
     {
-      description: "Run an allowlisted executable with shell=false inside the active authority lease scope. Session authority enables this tool; it is NOT an OS sandbox.",
+      description: "Run an allowlisted executable with shell=false inside an active Admin authority lease scope. Project/User leases do not have terminal capability; it is NOT an OS sandbox.",
       inputSchema: z.object({
         ...authorityLeaseField,
         command: z.string(),
