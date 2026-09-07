@@ -6,10 +6,11 @@ The point of this project is not to give an LLM a root shell and hope everyone h
 
 ## Status
 
-`0.1.0` foundation:
+`0.1.x` foundation:
 
 - MCP TypeScript SDK v2 / 2026-07-28 protocol support
 - stdio and Streamable HTTP transports
+- structured MCP outputs with explicit output schemas
 - filesystem root confinement with symlink-escape protection
 - SHA-256 optimistic locking for destructive file changes
 - atomic file replacement and unified-diff patching
@@ -18,7 +19,8 @@ The point of this project is not to give an LLM a root shell and hope everyone h
 - JSONL audit trail
 - localhost Host/Origin request validation for HTTP mode
 - real MCP client integration coverage for authenticated Streamable HTTP
-- one-command Codex local MCP registration for ChatGPT-plan users
+- personal ChatGPT Plugin path through OpenAI Secure MCP Tunnel
+- one-command Codex local MCP registration as a separate local route
 - regression/security tests and GitHub Actions CI
 
 ## Requirements
@@ -26,6 +28,7 @@ The point of this project is not to give an LLM a root shell and hope everyone h
 - Node.js 22 or newer
 - npm
 - Git for the built-in Git inspection tools
+- `tunnel-client` only when using the personal ChatGPT Plugin route
 
 ## Install
 
@@ -33,7 +36,7 @@ The point of this project is not to give an LLM a root shell and hope everyone h
 git clone https://github.com/senoldogann/chatgpt-system.git
 cd chatgpt-system
 npm install
-npm run build
+npm run check
 ```
 
 For development:
@@ -42,19 +45,68 @@ For development:
 npm run dev -- stdio --root /absolute/path/to/project
 ```
 
-## Plus-compatible local route: Codex
+## Personal ChatGPT Plugin: recommended route
 
-Full custom MCP inside ordinary ChatGPT web conversations can be plan-gated. Codex local is a separate supported OpenAI surface and can launch local stdio MCP servers directly.
+If your ChatGPT account exposes **Developer mode**, the preferred private route is a personal Plugin over **OpenAI Secure MCP Tunnel**. The Mac does not need a public inbound MCP port.
 
-After signing in to Codex with your ChatGPT account, register `chatgpt-system` with one command:
+First create a Secure MCP Tunnel in your OpenAI Platform context, then from this repository run:
+
+```bash
+npm run setup:chatgpt -- \
+  --root /absolute/path/to/disposable-test-project \
+  --tunnel-id tunnel_xxxxxxxxxxxxxxxx
+```
+
+That first command is a dry setup and prints only non-secret configuration. With the runtime credential available to `tunnel-client`, create and validate the profile:
+
+```bash
+npm run setup:chatgpt -- \
+  --root /absolute/path/to/disposable-test-project \
+  --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
+  --doctor
+```
+
+Then keep the tunnel running:
+
+```bash
+tunnel-client run --profile chatgpt-system
+```
+
+In ChatGPT:
+
+1. **Settings → Security and login → Developer mode** ON.
+2. **Plugins → +**.
+3. Choose **Tunnel** under Connection.
+4. Select/paste the configured tunnel and scan the MCP tools.
+5. Install the personal plugin.
+6. Test it in **Work** first, because that is the current documented personal-plugin flow.
+7. Test normal **Chat** separately. This repository intentionally does not claim that surface works until it has been observed on the real account.
+
+The first write test should use a disposable Git repository and follow:
+
+```text
+system_capabilities
+  -> fs_list
+  -> fs_read
+  -> fs_apply_patch/fs_write with expectedSha256
+  -> stale-hash CONFLICT
+  -> git_diff
+  -> path-escape rejection
+```
+
+Terminal remains disabled throughout this initial acceptance test.
+
+See [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md) for the full runbook and troubleshooting sequence.
+
+## Separate local route: Codex
+
+Codex local is a different OpenAI surface and can launch local stdio MCP servers directly. It does not require Secure MCP Tunnel:
 
 ```bash
 npm run setup:codex -- --root /absolute/path/to/project
 ```
 
 Then open a new Codex local session and inspect `/mcp`.
-
-This route does not require Secure MCP Tunnel because Codex launches the MCP server locally. Terminal access remains disabled unless you explicitly opt in.
 
 See [docs/CODEX_PLUS.md](docs/CODEX_PLUS.md) for setup, verification, multiple roots, and terminal options.
 
@@ -78,7 +130,7 @@ Relative tool paths resolve against the first root. Absolute tool paths may targ
 
 ## Quick start: local HTTP
 
-HTTP mode is intended for a trusted local host or secure tunnel. It refuses to start without a bearer token:
+HTTP mode is intended for a trusted local host or secure private environment. It refuses to start without a bearer token:
 
 ```bash
 node dist/cli.js http \
@@ -106,14 +158,6 @@ Authorization: Bearer <token>
 
 When the listener is bound to localhost, the server also applies the MCP SDK's Host and Origin validation guards. Do not expose the raw HTTP listener to the public internet.
 
-## ChatGPT connection model
-
-ChatGPT does not connect directly to an arbitrary localhost MCP URL. For a developer machine, the recommended private path is **OpenAI Secure MCP Tunnel with `chatgpt-system` launched over stdio**. This keeps the MCP server off the public network while the tunnel client maintains outbound-only connectivity.
-
-See the complete setup and smoke-test procedure in [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md).
-
-The MCP server itself is client-agnostic, so local MCP clients can use the stdio transport directly and trusted local clients can use authenticated Streamable HTTP.
-
 ## Tools
 
 | Tool | Purpose | Mutation |
@@ -131,6 +175,8 @@ The MCP server itself is client-agnostic, so local MCP clients can use the stdio
 | `git_diff` | Read working/staged diff | No |
 | `git_log` | Read recent commits | No |
 | `terminal_run` | Run an allowlisted executable | High authority |
+
+Every tool declares explicit MCP safety annotations and an output schema. Successful tool calls return both readable text content and `structuredContent` validated by the MCP SDK.
 
 ## Conflict-safe file editing
 
@@ -209,9 +255,10 @@ Each line includes operation name, target, outcome, duration, and limited metada
 npm run build
 npm test
 npm run check
+node scripts/setup-chatgpt-tunnel.mjs --help
 ```
 
-CI runs the build and test suite on Node 22 and Node 24. The test suite includes a real MCP client handshake over authenticated Streamable HTTP, tool discovery, and an `fs_read` call in addition to the filesystem/process security regressions.
+CI runs the build and test suite on Node 22 and Node 24. Coverage includes a real MCP client handshake over authenticated Streamable HTTP, strict tool metadata/output-schema checks, structured tool results, filesystem/process security regressions, and the tunnel setup helper.
 
 ## Security model
 
