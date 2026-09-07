@@ -19,20 +19,21 @@ Options:
   --root <path>           Explicit bootstrap filesystem root. Required.
   --tunnel-id <id>        OpenAI Secure MCP Tunnel ID. Required.
   --profile <name>        tunnel-client profile name (default: chatgpt-system).
-  --enable-terminal       Opt in to bootstrap terminal_run. Disabled by default.
+  --enable-terminal       Opt in to bootstrap terminal configuration. Disabled by default.
   --allow-command <name>  Allowlisted executable basename. Repeatable.
   --doctor                Create the profile, then run tunnel-client doctor.
   --run                   Create the profile, run doctor, then run the tunnel.
   --help                  Show this help.
 
 User/Admin session authority on macOS requires the protected native broker.
-Build and install it separately before --doctor/--run:
+Build and install it separately:
   npm run build:broker:macos
   sudo npm run install:broker:macos
 
-Project authority does not depend on native approval and has no terminal capability.
-User authority requires local approval and has no terminal capability.
-Admin authority requires local approval and is the only Phase-1 terminal-capable profile.
+Project authority remains available when the protected broker is absent and has
+no terminal capability. User authority requires local approval and has no
+terminal capability. Admin authority requires local approval and is the only
+Phase-1 terminal-capable profile.
 
 Credentials are not accepted as command-line arguments. tunnel-client reads
 CONTROL_PLANE_API_KEY (or its currently supported credential mechanism) from
@@ -205,23 +206,27 @@ function assertSuccessful(result, label) {
   }
 }
 
-async function validateProtectedBroker() {
-  if (process.platform !== "darwin") return;
+async function inspectProtectedBroker() {
+  if (process.platform !== "darwin") return { available: false, reason: "not-macos" };
   try {
     const module = await import("../dist/native-helper-trust.js");
     const validator = new module.MacOSNativeHelperTrustValidator();
     await validator.validate();
+    return { available: true };
   } catch {
-    throw new Error(
-      "Protected macOS authority broker is missing or untrusted. Run 'npm run build:broker:macos' and then 'sudo npm run install:broker:macos'.",
-    );
+    return { available: false, reason: "missing-or-untrusted" };
   }
 }
 
 async function validateRuntime(setup) {
   await access(setup.serverPath);
   await validateRootBoundary(setup.root, homedir());
-  await validateProtectedBroker();
+  const broker = await inspectProtectedBroker();
+  if (process.platform === "darwin" && !broker.available) {
+    console.warn(
+      "[chatgpt-system] Protected macOS authority broker is missing or untrusted. Project authority remains available; User/Admin approval will fail closed until you run 'npm run build:broker:macos' and 'sudo npm run install:broker:macos'.",
+    );
+  }
 
   const versionCheck = runTunnelClient(["help", "quickstart"], { capture: true });
   assertSuccessful(versionCheck, "tunnel-client preflight");
