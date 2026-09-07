@@ -12,6 +12,22 @@ import { startHttp } from "../src/transport.js";
 const cleanups: string[] = [];
 const servers: ReturnType<typeof startHttp>[] = [];
 
+const expectedAnnotations = {
+  system_capabilities: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  fs_list: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  fs_stat: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  fs_read: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  fs_write: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  fs_apply_patch: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  fs_mkdir: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  fs_move: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  fs_remove: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  git_status: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  git_diff: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  git_log: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  terminal_run: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+} as const;
+
 async function closeServer(server: ReturnType<typeof startHttp>): Promise<void> {
   if (!server.listening) return;
   await new Promise<void>((resolve, reject) => {
@@ -90,7 +106,7 @@ describe("HTTP MCP transport", () => {
     expect(response.status).toBe(403);
   });
 
-  it("completes a real MCP handshake, lists tools, and calls fs_read", async () => {
+  it("completes a real MCP handshake and exposes structured, safety-described tools", async () => {
     const { baseUrl, token } = await fixture();
     const client = new Client({ name: "chatgpt-system-integration-test", version: "1.0.0" });
     const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`), {
@@ -104,22 +120,21 @@ describe("HTTP MCP transport", () => {
       expect(client.getServerVersion()).toMatchObject({ name: "chatgpt-system", version: "0.1.0" });
 
       const { tools } = await client.listTools();
-      expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
-        "system_capabilities",
-        "fs_read",
-        "fs_write",
-        "git_status",
-        "terminal_run",
-      ]));
+      expect(tools.map((tool) => tool.name).sort()).toEqual(Object.keys(expectedAnnotations).sort());
 
       for (const tool of tools) {
-        expect(tool.annotations).toMatchObject({
-          readOnlyHint: expect.any(Boolean),
-          destructiveHint: expect.any(Boolean),
-          openWorldHint: expect.any(Boolean),
-        });
+        const expected = expectedAnnotations[tool.name as keyof typeof expectedAnnotations];
+        expect(expected, `unexpected tool ${tool.name}`).toBeDefined();
+        expect(tool.annotations).toMatchObject(expected);
         expect(tool.outputSchema).toMatchObject({ type: "object" });
       }
+
+      const capabilities = await client.callTool({ name: "system_capabilities", arguments: {} });
+      expect(capabilities.isError).not.toBe(true);
+      expect(capabilities.structuredContent).toMatchObject({
+        terminal: { enabled: false },
+        safety: { terminalOsSandboxed: false },
+      });
 
       const result = await client.callTool({
         name: "fs_read",
