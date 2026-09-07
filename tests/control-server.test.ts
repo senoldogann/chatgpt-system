@@ -101,7 +101,7 @@ async function sendRaw(socketPath: string, payload: string): Promise<string> {
     const socket = createConnection(socketPath);
     const chunks: Buffer[] = [];
     socket.setTimeout(2_000);
-    socket.on("connect", () => socket.end(payload, "utf8"));
+    socket.on("connect", () => socket.write(payload, "utf8"));
     socket.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
     socket.on("timeout", () => socket.destroy(new Error("timeout")));
     socket.on("error", reject);
