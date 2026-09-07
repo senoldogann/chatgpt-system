@@ -81,7 +81,7 @@ export class AuthorityManager {
   private readonly now: () => number;
   private readonly homeDirInput: string;
   private readonly commands: string[];
-  private readonly audit?: (event: AuthorityAuditEvent) => void | Promise<void>;
+  private readonly audit: ((event: AuthorityAuditEvent) => void | Promise<void>) | undefined;
   private auditChain: Promise<void> = Promise.resolve();
 
   constructor(options: AuthorityManagerOptions) {
