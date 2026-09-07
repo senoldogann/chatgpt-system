@@ -23,7 +23,7 @@ export interface AuthorityRequestView {
   requestId: string;
   profile: AuthorityApprovalProfile;
   state: AuthorityRequestState;
-  requestedTtlSeconds: number;
+  requestedTtlSeconds?: number;
   createdAt: string;
   expiresAt: string;
 }
@@ -35,13 +35,13 @@ export interface AuthorityRequestManagerOptions {
 interface StoredAuthorityRequest {
   profile: AuthorityApprovalProfile;
   state: AuthorityRequestState;
-  requestedTtlSeconds: number;
+  requestedTtlSeconds?: number;
   createdAt: string;
   expiresAt: string;
   expiresAtMs: number;
 }
 
-const MAX_REQUEST_TTL_SECONDS = 120;
+const APPROVAL_REQUEST_TTL_SECONDS = 120;
 
 function newRequestId(): string {
   return randomBytes(32).toString("base64url");
@@ -56,7 +56,9 @@ function cloneView(requestId: string, stored: StoredAuthorityRequest): Authority
     requestId,
     profile: stored.profile,
     state: stored.state,
-    requestedTtlSeconds: stored.requestedTtlSeconds,
+    ...(stored.requestedTtlSeconds !== undefined
+      ? { requestedTtlSeconds: stored.requestedTtlSeconds }
+      : {}),
     createdAt: stored.createdAt,
     expiresAt: stored.expiresAt,
   };
@@ -72,16 +74,14 @@ export class AuthorityRequestManager {
 
   create(input: CreateAuthorityRequest): AuthorityRequestView {
     const nowMs = this.now();
-    const requestedTtlSeconds = Math.max(
-      1,
-      Math.min(input.requestedTtlSeconds ?? MAX_REQUEST_TTL_SECONDS, MAX_REQUEST_TTL_SECONDS),
-    );
-    const expiresAtMs = nowMs + requestedTtlSeconds * 1000;
+    const expiresAtMs = nowMs + APPROVAL_REQUEST_TTL_SECONDS * 1000;
     const requestId = newRequestId();
     const stored: StoredAuthorityRequest = {
       profile: input.profile,
       state: "pending",
-      requestedTtlSeconds,
+      ...(input.requestedTtlSeconds !== undefined
+        ? { requestedTtlSeconds: input.requestedTtlSeconds }
+        : {}),
       createdAt: new Date(nowMs).toISOString(),
       expiresAt: new Date(expiresAtMs).toISOString(),
       expiresAtMs,
