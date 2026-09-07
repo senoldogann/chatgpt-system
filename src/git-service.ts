@@ -1,8 +1,8 @@
+import { spawn } from "node:child_process";
 import { AuditLogger } from "./audit.js";
+import type { AppConfig } from "./config.js";
 import { PolicyError } from "./errors.js";
 import { PathPolicy } from "./policy.js";
-import type { AppConfig } from "./config.js";
-import { spawn } from "node:child_process";
 
 interface GitResult {
   cwd: string;
@@ -22,12 +22,28 @@ export class GitService {
     const cwd = await this.policy.resolve(cwdInput);
     return this.audit.run("git.read", this.policy.display(cwd), async () => {
       return new Promise<GitResult>((resolve, reject) => {
-        const child = spawn("git", ["-c", "core.hooksPath=/dev/null", ...args], {
-          cwd,
-          shell: false,
-          env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", PAGER: "cat" },
-          stdio: ["ignore", "pipe", "pipe"],
-        });
+        const child = spawn(
+          "git",
+          [
+            "-c", "core.hooksPath=/dev/null",
+            "-c", "core.fsmonitor=false",
+            "-c", "diff.external=",
+            "-c", "interactive.diffFilter=",
+            ...args,
+          ],
+          {
+            cwd,
+            shell: false,
+            env: {
+              ...process.env,
+              GIT_OPTIONAL_LOCKS: "0",
+              GIT_PAGER: "cat",
+              PAGER: "cat",
+              GIT_TERMINAL_PROMPT: "0",
+            },
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        );
         const stdout: Buffer[] = [];
         const stderr: Buffer[] = [];
         let bytes = 0;
