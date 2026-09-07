@@ -26,6 +26,8 @@ Current foundation:
 - real MCP client integration coverage
 - Node 22 / Node 24 CI plus native macOS build/install verification
 
+The implementation is still on the `feat/local-authority-broker` development branch until real-Mac Touch ID acceptance is completed. Automated CI does not substitute for that physical-device gate.
+
 ## Requirements
 
 - Node.js 22 or newer
