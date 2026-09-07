@@ -14,6 +14,20 @@ export type AuthorityRequestState =
   | "expired"
   | "consumed";
 
+export type AuthorityRequestAuditEventName =
+  | "authority.request.created"
+  | "authority.request.completed"
+  | "authority.request.expired"
+  | "authority.request.consumed";
+
+export interface AuthorityRequestAuditEvent {
+  event: AuthorityRequestAuditEventName;
+  profile: AuthorityApprovalProfile;
+  state: AuthorityRequestState;
+  requestedTtlSeconds?: number;
+  expiresAt?: string;
+}
+
 export interface CreateAuthorityRequest {
   profile: AuthorityApprovalProfile;
   requestedTtlSeconds?: number;
@@ -30,6 +44,7 @@ export interface AuthorityRequestView {
 
 export interface AuthorityRequestManagerOptions {
   now?: () => number;
+  audit?: (event: AuthorityRequestAuditEvent) => void | Promise<void>;
 }
 
 interface StoredAuthorityRequest {
@@ -67,9 +82,12 @@ function cloneView(requestId: string, stored: StoredAuthorityRequest): Authority
 export class AuthorityRequestManager {
   private readonly requests = new Map<string, StoredAuthorityRequest>();
   private readonly now: () => number;
+  private readonly audit: ((event: AuthorityRequestAuditEvent) => void | Promise<void>) | undefined;
+  private auditChain: Promise<void> = Promise.resolve();
 
   constructor(options: AuthorityRequestManagerOptions = {}) {
     this.now = options.now ?? Date.now;
+    this.audit = options.audit;
   }
 
   create(input: CreateAuthorityRequest): AuthorityRequestView {
@@ -88,6 +106,7 @@ export class AuthorityRequestManager {
     };
 
     this.requests.set(digestRequestId(requestId), stored);
+    this.emitAudit(stored, "authority.request.created");
     return cloneView(requestId, stored);
   }
 
@@ -104,12 +123,13 @@ export class AuthorityRequestManager {
     const stored = this.requests.get(key);
     if (!stored) throw new LocalApprovalInvalidError();
     if (this.now() > stored.expiresAtMs) {
-      this.requests.delete(key);
+      this.expire(key, stored);
       throw new LocalApprovalExpiredError();
     }
     if (stored.state !== "pending") throw new LocalApprovalInvalidError();
 
     stored.state = state;
+    this.emitAudit(stored, "authority.request.completed");
     return cloneView(requestId, stored);
   }
 
@@ -118,13 +138,18 @@ export class AuthorityRequestManager {
     const stored = this.requests.get(key);
     if (!stored) throw new LocalApprovalInvalidError();
     if (this.now() > stored.expiresAtMs) {
-      this.requests.delete(key);
+      this.expire(key, stored);
       throw new LocalApprovalExpiredError();
     }
     if (stored.state !== "approved") throw new LocalApprovalInvalidError();
 
     stored.state = "consumed";
+    this.emitAudit(stored, "authority.request.consumed");
     return cloneView(requestId, stored);
+  }
+
+  async flushAudit(): Promise<void> {
+    await this.auditChain;
   }
 
   private lookup(requestId: string): StoredAuthorityRequest {
@@ -132,10 +157,36 @@ export class AuthorityRequestManager {
     const stored = this.requests.get(key);
     if (!stored) throw new LocalApprovalInvalidError();
     if (this.now() > stored.expiresAtMs) {
-      this.requests.delete(key);
+      this.expire(key, stored);
       throw new LocalApprovalExpiredError();
     }
     return stored;
+  }
+
+  private expire(key: string, stored: StoredAuthorityRequest): void {
+    stored.state = "expired";
+    this.emitAudit(stored, "authority.request.expired");
+    this.requests.delete(key);
+  }
+
+  private emitAudit(stored: StoredAuthorityRequest, event: AuthorityRequestAuditEventName): void {
+    if (!this.audit) return;
+    const record: AuthorityRequestAuditEvent = {
+      event,
+      profile: stored.profile,
+      state: stored.state,
+      ...(stored.requestedTtlSeconds !== undefined
+        ? { requestedTtlSeconds: stored.requestedTtlSeconds }
+        : {}),
+      ...(event === "authority.request.created" ? { expiresAt: stored.expiresAt } : {}),
+    };
+    this.auditChain = this.auditChain.then(async () => {
+      try {
+        await this.audit?.(record);
+      } catch {
+        // Approval enforcement never depends on audit storage availability.
+      }
+    });
   }
 
   private requireKey(requestId: string): string {
