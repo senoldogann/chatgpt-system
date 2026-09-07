@@ -19,25 +19,29 @@ tunnel-client on the Mac
         |
         | stdio
         v
-chatgpt-system
+chatgpt-system runtime
         |
-        v
-Session Authority Gateway
+        +-- MCP Project authority: direct, filesystem/Git, no terminal
         |
-        +-- Project: direct, filesystem/Git, no terminal
-        |
-        +-- User: native local approval, home scope, no terminal
-        |
-        +-- Admin: native local approval, host scope, terminal enabled
-                         |
-                         v
-              protected root-owned helper
-                         |
-                         v
-              macOS LocalAuthentication
+        +-- private Unix control socket ~/.chatgpt-system/control.sock
+                     ^
+                     |
+          chatgpt-system authorize user|admin
+                     |
+                     v
+          protected root-owned helper
+                     |
+                     v
+          macOS LocalAuthentication
+                     |
+                     v
+          same in-memory AuthorityManager
+                     |
+                     +-- User: home scope, no terminal
+                     +-- Admin: host scope, terminal enabled
 ```
 
-ChatGPT Web is the canonical first acceptance surface. Desktop uses the same installed plugin/backend after Web is verified.
+ChatGPT Web is the canonical first acceptance surface. Desktop uses the same installed plugin/backend after Web is verified. Normal Chat and Work are tested independently because product safety routing can differ.
 
 ## 1. Prerequisites
 
@@ -58,7 +62,7 @@ For the current development branch:
 ```bash
 cd ~/chatgpt-system
 git fetch origin
-git checkout feat/local-authority-broker
+git checkout feat/local-authority-cli
 git pull --ff-only
 npm install
 npm run check
@@ -115,7 +119,15 @@ npm run setup:chatgpt -- \
   --doctor
 ```
 
-The setup command prints both the repository build path and the protected runtime broker path so they are visibly distinct. On macOS it warns if the protected broker is unavailable, but does not disable Project authority.
+The generated stdio target includes:
+
+```text
+--enable-control --control-socket ~/.chatgpt-system/control.sock
+```
+
+The setup command also prints the repository build path and the protected runtime broker path so they are visibly distinct. On macOS it warns if the protected broker is unavailable, but does not disable Project authority.
+
+If the tunnel profile existed before Local Authority CLI support, rerun this setup step so the stored MCP command gains the control-socket flags.
 
 ## 6. Run the tunnel
 
@@ -125,18 +137,28 @@ tunnel-client run --profile chatgpt-system
 
 Keep it running while ChatGPT discovers or calls tools.
 
+Once the MCP child is live, verify the socket on the Mac:
+
+```bash
+ls -l ~/.chatgpt-system/control.sock
+```
+
+Expected file type/mode is a Unix socket owned by the current user with `0600` permissions. The parent `~/.chatgpt-system` is forced to `0700` by the control server.
+
 After any MCP tool/schema change, restart the local tunnel target and use **Refresh** on the ChatGPT plugin.
 
 ## 7. Expected authority tools
 
+The default ChatGPT MCP catalog intentionally exposes only:
+
 ```text
 system_capabilities
 session_authority_start
-session_authority_request
-session_authority_request_status
 session_authority_status
 session_authority_end
 ```
+
+There is no ChatGPT-facing `session_authority_request` or `session_authority_request_status`. User/Admin authority creation begins locally on the Mac instead of asking the remote model to expand its own authority.
 
 Privileged tools:
 
@@ -159,11 +181,11 @@ Every filesystem/Git/terminal tool requires `authorityLeaseId`.
 
 ## 8. Privilege ladder
 
-| Profile | Scope | TTL max | Terminal | Approval |
+| Profile | Scope | TTL max | Terminal | Creation |
 | --- | --- | ---: | --- | --- |
-| Project | explicit project roots | 8 h | No | direct |
-| User | current user's canonical home | 4 h | No | native LocalAuthentication |
-| Admin | `/` as current OS user | 1 h | Yes | native LocalAuthentication |
+| Project | explicit project roots | 8 h | No | MCP direct |
+| User | current user's canonical home | 4 h | No | local CLI + native auth |
+| Admin | `/` as current OS user | 1 h | Yes | local CLI + native auth |
 
 The MCP caller cannot set `terminalEnabled` or command capability directly.
 
@@ -173,7 +195,7 @@ Admin is not UID 0. Root-only operations are not part of this phase.
 
 ## 9. Project acceptance
 
-In a fresh ChatGPT Web/Work conversation, select `chatgpt-system-local` and run:
+In a fresh ChatGPT Web normal conversation with `chatgpt-system-local` selected:
 
 ```text
 session_authority_start:
@@ -184,74 +206,114 @@ projectRoots:
 
 Keep the returned lease ID internal to the workflow and verify:
 
-1. `fs_read` on `fixture.txt` succeeds.
+1. `fs_read` on `fixture.txt` succeeds and returns `before`.
 2. `git_status` inside the fixture succeeds.
 3. reading a sibling/outside path returns `POLICY_DENIED`.
 4. `terminal_run` with even an allowlisted `node --version` returns `POLICY_DENIED`.
 5. `session_authority_end` succeeds.
 6. reusing the ended lease returns `AUTHORITY_REQUIRED`.
 
-## 10. User acceptance with Touch ID
+Repeat the benign path in Desktop normal Chat after Web is verified. If ChatGPT offers a Work transition, that is product UI behavior; staying in Chat is acceptable only when the plugin actually continues making MCP calls. Do not count a prose-only result as acceptance evidence.
 
-In a fresh conversation:
+## 10. User acceptance with local Touch ID
 
-```text
-session_authority_request:
-profile: user
+Do **not** ask ChatGPT to create User authority.
+
+With the tunnel running, open a separate Mac Terminal and run:
+
+```bash
+cd ~/chatgpt-system
+node dist/cli.js authorize user
 ```
 
-Expected flow:
+Expected behavior:
 
-1. Tool returns a short-lived `requestId` with `state=pending`.
-2. macOS displays native LocalAuthentication UI.
-3. Approve locally with Touch ID when available. macOS may offer its normal device-owner fallback.
-4. Call `session_authority_request_status` with the request ID.
-5. The first approved status returns `state=consumed` plus exactly one User lease.
-6. Read `/Users/dogan/chatgpt-system/package.json` with that lease.
-7. Read `/etc/hosts`; it must return `POLICY_DENIED` because it is outside home.
-8. Call `terminal_run`; it must return `POLICY_DENIED` even for `node`.
-9. End the lease and verify reuse returns `AUTHORITY_REQUIRED`.
-10. Calling request status again must not mint another lease.
+1. CLI connects to `~/.chatgpt-system/control.sock`.
+2. The already-running tunnel runtime invokes the protected native broker.
+3. macOS displays LocalAuthentication UI.
+4. Approve locally with Touch ID when available. macOS may offer its normal device-owner fallback.
+5. The same runtime mints one User lease.
+6. CLI prints safe metadata only and copies the lease to the clipboard.
 
-Direct `session_authority_start(profile=user)` is intentionally unsupported and must fail with `LOCAL_APPROVAL_REQUIRED` if it reaches the local MCP server.
-
-## 11. Admin acceptance with Touch ID
-
-In another fresh conversation:
+Expected output resembles:
 
 ```text
-session_authority_request:
-profile: admin
+User authority approved.
+Expires: <ISO timestamp>
+Terminal: disabled
+Lease copied to clipboard.
 ```
 
-Approve through native macOS authentication, then call `session_authority_request_status`.
+The raw lease should not appear in normal stdout.
 
-Verify:
+Now paste the lease once into a fresh ChatGPT workflow and instruct ChatGPT to use it as `authorityLeaseId`. Verify:
 
-1. returned lease profile is `admin`;
+1. `session_authority_status` reports `profile=user`, root `/Users/dogan`, terminal disabled.
+2. `fs_read` on `/Users/dogan/chatgpt-system/package.json` succeeds.
+3. `fs_read` on `/etc/hosts` returns `POLICY_DENIED`.
+4. `terminal_run` returns `POLICY_DENIED` even for `node`.
+5. `session_authority_end` succeeds.
+6. reusing the ended lease returns `AUTHORITY_REQUIRED`.
+
+If ChatGPT independently blocks one of these later operations with a product-level safety result, record that separately from MCP error codes. Do not widen the local authority model to work around product safety.
+
+## 11. Admin acceptance with local Touch ID
+
+With the same tunnel runtime alive:
+
+```bash
+cd ~/chatgpt-system
+node dist/cli.js authorize admin
+```
+
+Approve through native macOS authentication. The lease is copied to the clipboard.
+
+Paste it once into a fresh ChatGPT workflow and verify:
+
+1. `session_authority_status` reports `profile=admin`;
 2. root scope is `/`;
 3. `terminalEnabled=true`;
 4. `/etc/hosts` can be read because it is system-readable;
 5. a harmless allowlisted command such as `node --version` succeeds;
 6. shell syntax or a non-allowlisted executable remains rejected;
-7. end the lease and verify reuse fails.
+7. `session_authority_end` revokes the lease and reuse fails.
 
 Do not use this acceptance test for destructive system changes.
 
 ## 12. Cancellation acceptance
 
-Create a User or Admin request and cancel the macOS authentication UI.
+Run:
 
-Expected result:
-
-```text
-state: cancelled
-lease: absent
+```bash
+node dist/cli.js authorize user
 ```
 
-Cancellation, denial, failure, timeout, malformed helper output, trust failure, or server restart must never produce a lease.
+Cancel the macOS authentication UI.
 
-## 13. Protected-helper tamper check
+Expected result: the CLI exits non-zero with a safe categorical error and no lease is produced or copied.
+
+Cancellation, denial, failure, timeout, malformed helper output, trust failure, control-client disconnect, or server restart must never leave an undisclosed live lease behind.
+
+## 13. Control-socket acceptance
+
+While the tunnel runtime is alive:
+
+```bash
+stat -f '%N | owner=%Su | uid=%u | mode=%Sp' \
+  ~/.chatgpt-system \
+  ~/.chatgpt-system/control.sock
+```
+
+Expected:
+
+```text
+~/.chatgpt-system                current user, drwx------
+~/.chatgpt-system/control.sock   current user, srw-------
+```
+
+Stop the tunnel cleanly and verify the socket disappears. Restarting must recreate it. A stale owned socket from a crashed process may be replaced; a regular file, symlink, unexpected-owner socket, or live socket at the configured path must fail closed.
+
+## 14. Protected-helper tamper check
 
 Repository build output is not trusted at runtime. After protected installation, modifying or rebuilding:
 
@@ -263,13 +325,13 @@ must not change which executable the production broker uses.
 
 Do not deliberately tamper with the protected `/Library/Application Support/...` installation during normal acceptance. Trust-failure cases are covered automatically in tests.
 
-## 14. Web and Desktop
+## 15. Web and Desktop
 
 Validate ChatGPT Web first. Once the Web plugin path works, open Desktop and use the same installed `chatgpt-system-local` plugin. Do not create a second permanent authority mechanism for Desktop.
 
-A locally listed Desktop STDIO MCP entry by itself is not proof that a normal Chat session routes to it. The plugin + Secure MCP Tunnel path remains canonical.
+Empirical acceptance has shown the plugin can execute in normal Chat on both Web and Desktop, although Desktop may still offer a transition to Work for some requests. Treat actual tool calls as evidence, not the UI label alone.
 
-## 15. Terminal security
+## 16. Terminal security
 
 Only an Admin lease has terminal capability in this phase.
 
@@ -283,7 +345,7 @@ Only an Admin lease has terminal capability in this phase.
 
 It is not an OS sandbox. Admin child processes run with the actual permissions of the OS account running `chatgpt-system`.
 
-## 16. Audit behavior
+## 17. Audit behavior
 
 Default audit location:
 
@@ -293,40 +355,42 @@ Default audit location:
 
 Authority/approval audit records contain only non-secret categorical metadata such as profile, state, root count, scope digest, and expiry where applicable.
 
-Raw lease IDs, approval request IDs, passwords, API keys, Touch ID/biometric material, LocalAuthentication diagnostics, file contents, and command stdout/stderr are not copied into authority lifecycle audit metadata.
+Raw lease IDs, internal approval request IDs, passwords, API keys, Touch ID/biometric material, LocalAuthentication diagnostics, file contents, and command stdout/stderr are not copied into authority lifecycle audit metadata.
 
-## 17. Troubleshooting order
+## 18. Troubleshooting order
 
 1. `npm run check`
 2. `npm run build:broker:macos`
 3. `sudo npm run install:broker:macos`
-4. `tunnel-client doctor --profile chatgpt-system --explain`
-5. restart `tunnel-client run --profile chatgpt-system`
-6. Refresh the ChatGPT plugin tool catalog
-7. `system_capabilities`
-8. Project acceptance
-9. User native approval
-10. Admin native approval
-11. inspect `~/.chatgpt-system/audit.jsonl` for non-secret evidence
+4. rerun `npm run setup:chatgpt -- ... --doctor` so the profile contains `--enable-control`
+5. `tunnel-client doctor --profile chatgpt-system --explain`
+6. restart `tunnel-client run --profile chatgpt-system`
+7. verify `~/.chatgpt-system/control.sock`
+8. Refresh the ChatGPT plugin tool catalog
+9. Project acceptance
+10. `node dist/cli.js authorize user` and User acceptance
+11. `node dist/cli.js authorize admin` and Admin acceptance
+12. inspect `~/.chatgpt-system/audit.jsonl` for non-secret evidence
 
-A connectivity problem is not fixed by widening authority.
+A connectivity problem is not fixed by widening authority. The universe has already tried enough variants of that strategy.
 
 ## Current phase boundary
 
 Implemented now:
 
 - Project/User/Admin filesystem and Git authority
-- native User/Admin approval
-- protected approval helper trust chain
+- direct Project authority in MCP
+- local User/Admin authorization CLI
+- private same-runtime Unix control plane
+- protected native User/Admin approval helper
 - Admin-only structured terminal execution
 - lease expiry/revoke/isolation
 - audit redaction
 
-Not implemented yet:
+Next capability layers:
 
-- arbitrary shell language
-- UID 0 / root-only typed operations
-- ServiceManagement/XPC privileged helper
-- computer-use screenshot/mouse/keyboard bridge
-- autonomous developer executor
-- launchd-managed persistent runtime
+- managed process supervisor: start/list/status/stop/logs
+- adapter to the existing `computer-use` repository for `open_app`, `open_url`, screenshot, active window, mouse and keyboard
+- browser diagnostics for console errors, network failures, render/DOM state and screenshots
+- typed root-only ServiceManagement/XPC operations
+- autonomous developer executor and persistent launchd runtime
