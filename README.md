@@ -16,6 +16,8 @@ The point of this project is not to give an LLM a root shell and hope everyone h
 - read-only Git status/diff/log tools
 - terminal execution behind an explicit opt-in switch
 - JSONL audit trail
+- localhost Host/Origin request validation for HTTP mode
+- real MCP client integration coverage for authenticated Streamable HTTP
 - regression/security tests and GitHub Actions CI
 
 ## Requirements
@@ -85,13 +87,15 @@ The MCP endpoint requires:
 Authorization: Bearer <token>
 ```
 
-Do not expose the raw HTTP listener to the public internet.
+When the listener is bound to localhost, the server also applies the MCP SDK's Host and Origin validation guards. Do not expose the raw HTTP listener to the public internet.
 
 ## ChatGPT connection model
 
-ChatGPT does not connect directly to an arbitrary localhost MCP URL. For current ChatGPT custom MCP/app workflows, use the supported remote/private connectivity mechanism (for example Secure MCP Tunnel where available) and keep this server bound to loopback unless your deployment has a deliberate authenticated TLS boundary.
+ChatGPT does not connect directly to an arbitrary localhost MCP URL. For a developer machine, the recommended private path is **OpenAI Secure MCP Tunnel with `chatgpt-system` launched over stdio**. This keeps the MCP server off the public network while the tunnel client maintains outbound-only connectivity.
 
-The MCP server itself is client-agnostic, so local MCP clients can use the stdio transport directly.
+See the complete setup and smoke-test procedure in [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md).
+
+The MCP server itself is client-agnostic, so local MCP clients can use the stdio transport directly and trusted local clients can use authenticated Streamable HTTP.
 
 ## Tools
 
@@ -190,7 +194,7 @@ npm test
 npm run check
 ```
 
-CI runs the build and test suite on Node 22 and Node 24.
+CI runs the build and test suite on Node 22 and Node 24. The test suite includes a real MCP client handshake over authenticated Streamable HTTP, tool discovery, and an `fs_read` call in addition to the filesystem/process security regressions.
 
 ## Security model
 
