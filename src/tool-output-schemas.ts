@@ -41,7 +41,7 @@ export const fsStatOutputSchema = z.object({
   path: z.string(),
   type: pathTypeSchema,
   size: nonNegativeInt,
-  mode: z.string().regex(/^0[0-7]{3}$/),
+  mode: z.string().regex(/^0[0-7]{1,3}$/),
   modifiedAt: z.string(),
   sha256: sha256Schema.optional(),
 });
