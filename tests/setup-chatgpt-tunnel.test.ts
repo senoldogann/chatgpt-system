@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { buildTunnelSetup } from "../scripts/setup-chatgpt-tunnel.mjs";
+import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { buildTunnelSetup, validateRootBoundary } from "../scripts/setup-chatgpt-tunnel.mjs";
 
 const VALID_TUNNEL = "tunnel_0123456789abcdef";
 const ROOT = "/tmp/chatgpt-system-fixture";
@@ -7,6 +10,11 @@ const context = {
   repoDir: "/opt/chatgpt-system",
   homeDir: "/home/tester",
 };
+const cleanups: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
+});
 
 describe("ChatGPT Secure MCP Tunnel setup", () => {
   it("requires an explicit absolute root", () => {
@@ -17,6 +25,17 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
   it("rejects dangerously broad roots", () => {
     expect(() => buildTunnelSetup(["--root", "/", "--tunnel-id", VALID_TUNNEL], {}, context)).toThrow(/root directory/i);
     expect(() => buildTunnelSetup(["--root", context.homeDir, "--tunnel-id", VALID_TUNNEL], {}, context)).toThrow(/home directory/i);
+  });
+
+  it("rejects a symlink alias of the entire home directory", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-tunnel-root-"));
+    cleanups.push(base);
+    const fakeHome = path.join(base, "home");
+    const homeAlias = path.join(base, "project-link");
+    await mkdir(fakeHome);
+    await symlink(fakeHome, homeAlias, "dir");
+
+    await expect(validateRootBoundary(homeAlias, fakeHome)).rejects.toThrow(/home directory/i);
   });
 
   it("requires a plausible tunnel id", () => {
