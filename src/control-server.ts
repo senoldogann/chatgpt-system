@@ -333,7 +333,7 @@ export async function startControlServer(options: ControlServerOptions): Promise
 
   const state: ControlServerState = { authorizationInFlight: false };
   const sockets = new Set<Socket>();
-  const server = createServer((socket) => {
+  const server = createServer({ allowHalfOpen: true }, (socket) => {
     sockets.add(socket);
     socket.once("close", () => sockets.delete(socket));
     handleConnection(socket, options.runtime, state);
