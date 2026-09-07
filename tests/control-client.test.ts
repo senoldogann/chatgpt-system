@@ -10,11 +10,11 @@ import {
 import { requestControl } from "../src/control-client.js";
 
 const directories: string[] = [];
-const servers: Server[] = [];
+const servers: Array<{ server: Server; sockets: Set<Socket> }> = [];
 
-async function closeServer(server: Server): Promise<void> {
-  server.closeAllConnections();
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+async function closeServer(entry: { server: Server; sockets: Set<Socket> }): Promise<void> {
+  for (const socket of entry.sockets) socket.destroy();
+  await new Promise<void>((resolve) => entry.server.close(() => resolve()));
 }
 
 afterEach(async () => {
@@ -26,8 +26,13 @@ async function socketFixture(handler: (socket: Socket) => void) {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-control-client-"));
   directories.push(base);
   const socketPath = path.join(base, "control.sock");
-  const server = createServer({ allowHalfOpen: true }, handler);
-  servers.push(server);
+  const sockets = new Set<Socket>();
+  const server = createServer({ allowHalfOpen: true }, (socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+    handler(socket);
+  });
+  servers.push({ server, sockets });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(socketPath, resolve);
