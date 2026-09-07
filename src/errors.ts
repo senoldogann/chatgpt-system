@@ -27,6 +27,24 @@ export class LimitError extends AppError {
   }
 }
 
+export class AuthorityRequiredError extends AppError {
+  constructor(message = "An active authority lease is required.", details?: Record<string, unknown>) {
+    super(message, "AUTHORITY_REQUIRED", details);
+  }
+}
+
+export class AuthorityExpiredError extends AppError {
+  constructor(message = "The authority lease has expired.", details?: Record<string, unknown>) {
+    super(message, "AUTHORITY_EXPIRED", details);
+  }
+}
+
+export class AuthorityDeniedError extends AppError {
+  constructor(message = "The authority lease does not permit this operation.", details?: Record<string, unknown>) {
+    super(message, "AUTHORITY_DENIED", details);
+  }
+}
+
 export function errorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof AppError) {
     return { error: error.code, message: error.message, details: error.details ?? {} };
