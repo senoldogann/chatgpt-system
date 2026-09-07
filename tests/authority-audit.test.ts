@@ -31,15 +31,16 @@ describe("authority lifecycle audit", () => {
       homeDir: home,
       commands: ["node"],
       now: () => now,
-      onEvent: async (event) => { events.push(event); },
+      audit: async (event) => { events.push(event); },
     });
 
     const endedLease = await manager.start({ profile: "project", projectRoots: [project], requestedTtlSeconds: 60 });
-    await manager.end(endedLease.leaseId);
+    manager.end(endedLease.leaseId);
 
     const expiringLease = await manager.start({ profile: "project", projectRoots: [project], requestedTtlSeconds: 1 });
     now += 1_001;
-    await expect(manager.resolve(expiringLease.leaseId)).rejects.toBeInstanceOf(AuthorityExpiredError);
+    expect(() => manager.resolve(expiringLease.leaseId)).toThrowError(AuthorityExpiredError);
+    await manager.flushAudit();
 
     expect(events.map((event) => event.event)).toEqual([
       "authority.start",
@@ -74,7 +75,8 @@ describe("authority lifecycle audit", () => {
     };
     const runtime = createRuntimeServices(config);
     const lease = await runtime.authority.start({ profile: "project", projectRoots: [project], requestedTtlSeconds: 60 });
-    await runtime.authority.end(lease.leaseId);
+    runtime.authority.end(lease.leaseId);
+    await runtime.authority.flushAudit();
 
     const audit = await readFile(auditFile, "utf8");
     expect(audit).toContain('"action":"authority.start"');
