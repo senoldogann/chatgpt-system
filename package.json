@@ -12,6 +12,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:broker:macos": "swift build -c release --package-path native/macos-authority-broker",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "setup:codex": "npm run build && node scripts/setup-codex.mjs",
