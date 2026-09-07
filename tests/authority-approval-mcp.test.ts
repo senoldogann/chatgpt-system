@@ -125,15 +125,19 @@ describe("local authority approval MCP flow", () => {
         arguments: { profile: "project", projectRoots: [root], requestedTtlSeconds: 60 },
       });
       expect(project.isError).not.toBe(true);
-      expect(project.structuredContent).toMatchObject({ profile: "project" });
+      expect(project.structuredContent).toMatchObject({
+        profile: "project",
+        terminalEnabled: false,
+        commands: [],
+      });
     } finally {
       await transport.terminateSession();
       await client.close();
     }
   });
 
-  it("returns pending, then consumes one native-approved user request into one lease", async () => {
-    const { broker, client, transport } = await fixture();
+  it("returns pending, then consumes one native-approved user request into one non-terminal lease", async () => {
+    const { root, broker, client, transport } = await fixture();
     try {
       const requested = await client.callTool({
         name: "session_authority_request",
@@ -164,9 +168,18 @@ describe("local authority approval MCP flow", () => {
         lease: {
           leaseId: expect.stringMatching(/^[A-Za-z0-9_-]{40,}$/),
           profile: "user",
-          terminalEnabled: true,
+          terminalEnabled: false,
+          commands: [],
         },
       });
+
+      const userLeaseId = (approved.structuredContent as { lease: { leaseId: string } }).lease.leaseId;
+      const deniedTerminal = await client.callTool({
+        name: "terminal_run",
+        arguments: { authorityLeaseId: userLeaseId, command: "node", args: ["--version"], cwd: root },
+      });
+      expect(deniedTerminal.isError).toBe(true);
+      expect(textContent(deniedTerminal)).toContain("POLICY_DENIED");
 
       const secondStatus = await client.callTool({
         name: "session_authority_request_status",
@@ -175,6 +188,46 @@ describe("local authority approval MCP flow", () => {
       expect(secondStatus.isError).not.toBe(true);
       expect(secondStatus.structuredContent).toMatchObject({ requestId, state: "consumed" });
       expect(secondStatus.structuredContent).not.toHaveProperty("lease");
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("mints a terminal-capable admin lease only after native approval", async () => {
+    const { root, broker, client, transport } = await fixture();
+    try {
+      const requested = await client.callTool({
+        name: "session_authority_request",
+        arguments: { profile: "admin", requestedTtlSeconds: 60 },
+      });
+      const requestId = (requested.structuredContent as { requestId: string }).requestId;
+      await broker.complete(requestId, "authenticated");
+
+      const approved = await client.callTool({
+        name: "session_authority_request_status",
+        arguments: { requestId },
+      });
+      expect(approved.isError).not.toBe(true);
+      expect(approved.structuredContent).toMatchObject({
+        requestId,
+        profile: "admin",
+        state: "consumed",
+        lease: {
+          leaseId: expect.stringMatching(/^[A-Za-z0-9_-]{40,}$/),
+          profile: "admin",
+          terminalEnabled: true,
+          commands: expect.arrayContaining(["node", "git"]),
+        },
+      });
+
+      const adminLeaseId = (approved.structuredContent as { lease: { leaseId: string } }).lease.leaseId;
+      const nodeVersion = await client.callTool({
+        name: "terminal_run",
+        arguments: { authorityLeaseId: adminLeaseId, command: "node", args: ["--version"], cwd: root },
+      });
+      expect(nodeVersion.isError).not.toBe(true);
+      expect(nodeVersion.structuredContent).toMatchObject({ exitCode: 0, timedOut: false });
     } finally {
       await transport.terminateSession();
       await client.close();
