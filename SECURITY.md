@@ -6,17 +6,47 @@
 
 1. **Explicit session authority**: privileged filesystem, Git, and process calls require an active opaque authority lease. Leases expire, can be revoked immediately, and are stored internally only by hash.
 2. **Fixed privilege ladder**: Project has project filesystem/Git access and no terminal; User has home filesystem/Git access and no terminal; Admin has host-wide scope under the current OS user and is the only terminal-capable profile.
-3. **Local approval for broad authority**: User/Admin cannot be started directly. A short-lived request must be approved through native macOS LocalAuthentication before one lease can be minted.
-4. **One-time approvals**: an approved native request is consumed exactly once and cannot mint a second lease.
-5. **Protected native helper**: production native approval executes only from the fixed root-owned installation under `/Library/Application Support/chatgpt-system`, never from mutable repository build output. Ownership, type, permissions, and SHA-256 metadata are verified before each approval execution.
-6. **Filesystem confinement**: filesystem requests are resolved against the active lease roots with symlink-target validation.
-7. **No blind overwrite**: modifying or deleting an existing regular file requires its current SHA-256 from `fs_read` or `fs_stat`.
-8. **Atomic replacement**: file writes use temporary sibling files plus rename to reduce partial-write risk.
-9. **Bounded I/O**: file reads/writes, directory listings, native helper output, command output, and command duration have limits.
-10. **Audit redaction**: authority/approval lifecycle records contain categorical metadata only. Raw lease IDs, request IDs, credentials, biometric material, file contents, and command output are not copied into authority audit metadata.
-11. **Structured terminal execution**: Admin `terminal_run` uses `shell=false`, an executable basename allowlist, cwd checks, sanitized environment variables, timeouts, and output limits.
-12. **HTTP authentication**: HTTP transport refuses to start without a bearer token and binds to loopback by default.
-13. **Loopback request validation**: the localhost HTTP listener applies Host and Origin validation before routing requests.
+3. **Local creation of broad authority**: ChatGPT's default MCP catalog can create Project authority only. User/Admin authority is created from the Mac through `chatgpt-system authorize user|admin`, a private Unix control socket, and native LocalAuthentication.
+4. **Shared authoritative runtime**: the CLI never creates a shadow `AuthorityManager`. The control socket talks to the same running process that serves MCP, so a locally created lease exists in exactly one authoritative in-memory lease store.
+5. **Private local control plane**: the default control socket is `~/.chatgpt-system/control.sock`; its parent is `0700`, the socket is `0600`, frames are bounded/versioned JSON, only one request is accepted per connection, stale/live socket ownership is checked, and only `ping` plus `authorize(user|admin)` exist.
+6. **No credential-shaped control input**: the local control protocol accepts no helper path, free-form authentication reason, shell command, password, sudo credential, API key, cookie, or biometric material. The lease capability itself is intentionally returned to the local CLI after successful authorization.
+7. **Single-flight native approval**: only one User/Admin LocalAuthentication flow may be in flight. A concurrent request fails with `AUTHORIZATION_BUSY`.
+8. **No orphan lease on disconnect**: if the local CLI disconnects after native approval but before successful lease delivery, the newly created lease is immediately revoked.
+9. **Protected native helper**: production native approval executes only from the fixed root-owned installation under `/Library/Application Support/chatgpt-system`, never from mutable repository build output. Ownership, type, permissions, and SHA-256 metadata are verified before each approval execution.
+10. **Filesystem confinement**: filesystem requests are resolved against the active lease roots with symlink-target validation.
+11. **No blind overwrite**: modifying or deleting an existing regular file requires its current SHA-256 from `fs_read` or `fs_stat`.
+12. **Atomic replacement**: file writes use temporary sibling files plus rename to reduce partial-write risk.
+13. **Bounded I/O**: file reads/writes, directory listings, native helper output, control frames, command output, and command duration have limits.
+14. **Audit redaction**: authority/approval lifecycle records contain categorical metadata only. Raw lease IDs, request IDs, credentials, biometric material, file contents, and command output are not copied into authority audit metadata.
+15. **Structured terminal execution**: Admin `terminal_run` uses `shell=false`, an executable basename allowlist, cwd checks, sanitized environment variables, timeouts, and output limits.
+16. **HTTP authentication**: HTTP transport refuses to start without a bearer token and binds to loopback by default.
+17. **Loopback request validation**: the localhost HTTP listener applies Host and Origin validation before routing requests.
+
+## Why User/Admin creation is local
+
+A model-mediated request to expand its own authority may be rejected by independent product safety controls before the MCP server receives it. More importantly, authority creation is a local trust decision and should not depend on whether a remote product chooses to forward an escalation-shaped tool call.
+
+Therefore User/Admin creation begins on the physical Mac:
+
+```text
+chatgpt-system authorize user|admin
+        |
+        v
+private Unix socket
+        |
+        v
+same running MCP/tunnel runtime
+        |
+        v
+protected macOS LocalAuthentication helper
+        |
+        v
+expiring lease
+```
+
+The CLI copies the resulting lease to the clipboard by default using `/usr/bin/pbcopy` with `shell=false` and the lease on stdin. The lease is not placed in argv, environment variables, a temp file, or authority audit metadata. `--print-lease` is explicit diagnostic opt-in.
+
+Independent ChatGPT/OpenAI product safety checks can still block a specific later action. That is not treated as a local authority bypass opportunity.
 
 ## Why Project/User do not have terminal capability
 
@@ -59,6 +89,20 @@ The production broker rejects missing, symlinked, non-root-owned, group/other-wr
 
 The installer is intentionally separate from ChatGPT/MCP authority. It is human-run with explicit macOS administrator authorization and accepts no password or path override arguments.
 
+## Control socket boundary
+
+The local Unix socket is a capability-creation control plane, not a second MCP transport. It intentionally supports only a tiny protocol:
+
+```text
+ping
+authorize user [bounded TTL]
+authorize admin [bounded TTL]
+```
+
+The server owns the socket path. Existing regular files/symlinks are never unlinked as "stale" sockets. A compatible live socket is treated as in use. Only an owned stale socket may be removed before bind.
+
+A client connection stays open while native approval runs. If the connection disappears before a success response can deliver the lease, the server revokes that lease rather than leaving an authority capability with no recipient.
+
 ## Filesystem race limitation
 
 The filesystem policy protects against accidental or agent-driven root escape but is not a kernel-level linearizable compare-and-swap boundary.
@@ -78,6 +122,15 @@ If stronger process isolation is required, run the bridge inside a container, VM
 Built-in Git tools are read-only. They disable repository hooks, filesystem monitors, external diff/textconv, pagers, and interactive credential prompts for exposed operations.
 
 The bridge assumes its startup environment, including executable search paths, is trusted. An actor that can replace executables found through `PATH` already operates at or near the bridge process's OS authority.
+
+## Future process, GUI and browser capabilities
+
+Future process supervision, computer-use, and browser diagnostics must preserve the same authority model rather than tunneling around it.
+
+- managed process tools need opaque process IDs, bounded logs, process-group cleanup, and explicit authority mapping;
+- GUI actions will be adapters over the existing separate `computer-use` system so its kill switch, credential blocking, human-presence detection, grants, and verification remain active;
+- browser console/network diagnostics should use a browser automation/CDP boundary and must not become a cookie/token extraction channel;
+- true root operations remain typed ServiceManagement/XPC operations, not a reusable root shell.
 
 ## Audit limitation
 
