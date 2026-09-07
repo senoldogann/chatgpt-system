@@ -14,6 +14,9 @@ const servers: ReturnType<typeof startHttp>[] = [];
 
 const expectedAnnotations = {
   system_capabilities: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  session_authority_start: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  session_authority_status: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  session_authority_end: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   fs_list: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   fs_stat: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   fs_read: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
