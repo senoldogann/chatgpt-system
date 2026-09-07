@@ -162,12 +162,15 @@ Successful authorization returns:
 }
 ```
 
+The lease is intentionally transmitted over this local mode-`0600` socket to the local CLI. Native authentication secrets are not.
+
 The server never accepts:
 
 - arbitrary executable paths;
 - free-form LocalAuthentication reason text;
 - passwords;
-- Touch ID data;
+- Touch ID/biometric data;
+- reusable LocalAuthentication/authorization material;
 - sudo credentials;
 - arbitrary shell commands through the control protocol.
 
@@ -205,6 +208,12 @@ Optional TTL:
 chatgpt-system authorize user --ttl 3600
 ```
 
+When running directly from the repository during development, the equivalent is:
+
+```text
+node dist/cli.js authorize user
+```
+
 The CLI does **not** create a second runtime. It connects to the existing control socket and asks that runtime to authorize.
 
 Default success behavior:
@@ -220,7 +229,7 @@ The raw lease ID is not printed by default.
 
 On macOS, copy the exact lease ID to the clipboard using `pbcopy` with `shell=false` and stdin. No shell command string is constructed.
 
-For diagnostic/automation use, an explicit `--print-lease` option may print the lease to stdout instead of copying it. It must be opt-in and documented as exposing the capability to terminal history/log capture.
+For diagnostic/automation use, an explicit `--print-lease` option may print the lease to stdout instead of copying it. It must be opt-in and documented as exposing the capability to terminal logs/capture.
 
 The CLI must never write a lease to disk.
 
@@ -282,7 +291,8 @@ If benign User/Admin calls are still systematically blocked even with a pre-appr
 - An Admin lease can execute commands, but obtaining that Admin lease already required local authentication.
 - The control server is local Unix-socket-only and mode `0600`.
 - Native approval still executes only the protected root-owned, hash-verified helper.
-- No secret authentication material crosses MCP, control JSON, audit logs, or environment variables.
+- Passwords, Touch ID/biometric data, native LocalAuthentication internals, sudo credentials, and reusable native authorization material never cross MCP, the control protocol, audit logs, or environment variables.
+- The opaque authority lease intentionally crosses the local control socket and later the ChatGPT conversation because it is the workflow capability handle.
 - Raw leases are never stored on disk by the CLI/runtime.
 - Clipboard contains the lease after authorization until replaced by the user/system; documentation must state this explicitly.
 - Leases remain opaque, expiring, revocable, and invalid after runtime restart.
@@ -306,7 +316,7 @@ Rules:
 - stale/untrusted socket path: fail closed unless it is provably an owned stale socket;
 - Touch ID cancellation: no lease;
 - helper trust failure: no lease;
-- control disconnect during approval: complete safely, then revoke/discard any lease rather than orphaning a capability with no recipient;
+- control disconnect during approval: if no lease has been created, do not create one for an absent client; if creation races the disconnect, revoke/discard it immediately;
 - runtime shutdown: close control server and invalidate all leases with process state.
 
 ## 13. Testing
