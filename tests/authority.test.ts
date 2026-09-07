@@ -1,16 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, realpath, rm, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
   AuthorityManager,
   type AuthorityContext,
 } from "../src/authority.js";
+import { AuditLogger } from "../src/audit.js";
+import type { AppConfig } from "../src/config.js";
 import {
   AuthorityDeniedError,
   AuthorityExpiredError,
   AuthorityRequiredError,
+  PolicyError,
 } from "../src/errors.js";
+import { createScopedRuntime } from "../src/scoped-runtime.js";
 
 describe("AuthorityManager", () => {
   let fixtureRoot: string;
@@ -39,6 +43,22 @@ describe("AuthorityManager", () => {
       commands: ["git", "node"],
       now: () => now,
     });
+  }
+
+  function baseConfig(): AppConfig {
+    return {
+      roots: [projectA],
+      auditFile: path.join(fixtureRoot, "audit.jsonl"),
+      terminal: { enabled: false, commands: ["node"] },
+      http: { host: "127.0.0.1", port: 4312 },
+      limits: {
+        maxReadBytes: 1024 * 1024,
+        maxWriteBytes: 1024 * 1024,
+        maxDirectoryEntries: 100,
+        maxCommandOutputBytes: 1024 * 1024,
+        commandTimeoutMs: 2_000,
+      },
+    };
   }
 
   it("issues an opaque project lease and resolves immutable canonical scope", async () => {
@@ -120,5 +140,30 @@ describe("AuthorityManager", () => {
     expect(resolvedA.roots).toEqual([await realpath(projectA)]);
     expect(resolvedB.roots).toEqual([await realpath(projectB)]);
     expect(resolvedA.roots).not.toEqual(resolvedB.roots);
+  });
+
+  it("builds isolated filesystem runtimes from lease scopes", async () => {
+    await writeFile(path.join(projectA, "inside.txt"), "inside\n");
+    await writeFile(path.join(projectB, "outside.txt"), "outside\n");
+    await writeFile(path.join(home, "user.txt"), "user\n");
+    const adminReadable = path.join(fixtureRoot, "admin-readable.txt");
+    await writeFile(adminReadable, "admin\n");
+
+    const authority = manager();
+    const config = baseConfig();
+    const base = { config, audit: new AuditLogger(config.auditFile) };
+
+    const projectLease = await authority.start({ profile: "project", projectRoots: [projectA] });
+    const projectRuntime = createScopedRuntime(base, authority.resolve(projectLease.leaseId));
+    expect((await projectRuntime.fs.read("inside.txt", "utf8")).content).toBe("inside\n");
+    await expect(projectRuntime.fs.read(path.join(projectB, "outside.txt"), "utf8")).rejects.toBeInstanceOf(PolicyError);
+
+    const userLease = await authority.start({ profile: "user" });
+    const userRuntime = createScopedRuntime(base, authority.resolve(userLease.leaseId));
+    expect((await userRuntime.fs.read(path.join(home, "user.txt"), "utf8")).content).toBe("user\n");
+
+    const adminLease = await authority.start({ profile: "admin" });
+    const adminRuntime = createScopedRuntime(base, authority.resolve(adminLease.leaseId));
+    expect((await adminRuntime.fs.read(adminReadable, "utf8")).content).toBe("admin\n");
   });
 });
