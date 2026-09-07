@@ -1,5 +1,7 @@
 # Local Authority Broker Implementation Plan
 
+> **Superseded for security hardening:** This original Phase 1B plan is retained as implementation history. The approved privilege ladder, protected root-owned helper trust chain, and current acceptance requirements are defined in `docs/superpowers/plans/2026-09-08-authority-capability-hardening.md` and the updated design spec. Where this document conflicts with those newer documents, the newer hardening plan and spec are authoritative.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Gate User/Admin session authority behind native macOS local authentication while preserving direct Project leases and all existing local enforcement.
