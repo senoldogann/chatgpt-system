@@ -21,6 +21,7 @@ Options:
   --profile <name>        tunnel-client profile name (default: chatgpt-system).
   --enable-terminal       Opt in to bootstrap terminal configuration. Disabled by default.
   --allow-command <name>  Allowlisted executable basename. Repeatable.
+  --force                 Replace an existing tunnel-client profile. Never implied.
   --doctor                Create the profile, then run tunnel-client doctor.
   --run                   Create the profile, run doctor, then run the tunnel.
   --help                  Show this help.
@@ -53,6 +54,7 @@ function parseArgs(argv) {
     profile: "chatgpt-system",
     terminal: false,
     commands: [],
+    force: false,
     doctor: false,
     run: false,
     help: false,
@@ -66,6 +68,10 @@ function parseArgs(argv) {
     }
     if (arg === "--enable-terminal") {
       options.terminal = true;
+      continue;
+    }
+    if (arg === "--force") {
+      options.force = true;
       continue;
     }
     if (arg === "--doctor") {
@@ -192,6 +198,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
       "--profile", options.profile,
       "--tunnel-id", options.tunnelId,
       "--mcp-command", mcpCommand,
+      ...(options.force ? ["--force"] : []),
     ],
     doctorArgs: ["doctor", "--profile", options.profile, "--explain"],
     runArgs: ["run", "--profile", options.profile],
