@@ -1,8 +1,51 @@
 # chatgpt-system
 
+<p align="center">
+  <a href="https://github.com/senoldogann/chatgpt-system/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/senoldogann/chatgpt-system/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="macOS" src="https://img.shields.io/badge/platform-macOS-111111?logo=apple&logoColor=white">
+  <img alt="Node.js 22 and 24" src="https://img.shields.io/badge/Node.js-22%20%7C%2024-339933?logo=nodedotjs&logoColor=white">
+  <img alt="MCP" src="https://img.shields.io/badge/MCP-local%20authority%20gateway-5B5BD6">
+  <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-blue">
+</p>
+
 Secure local MCP authority gateway for controlled filesystem, Git, process, and future computer-use access from ChatGPT-compatible MCP clients.
 
 The project deliberately does not turn an LLM into a permanently privileged shell. Authority is explicit, scoped, expiring, revocable, auditable, and enforced on the local machine.
+
+## At a glance
+
+| Capability | What it provides |
+| --- | --- |
+| **Secure MCP Tunnel** | Outbound-only personal ChatGPT connectivity without exposing a raw public MCP port |
+| **Scoped authority** | Project, User, and Admin profiles with fixed local privilege boundaries |
+| **Filesystem + Git** | Confined file operations plus safe `status` / `diff` / `log` tooling |
+| **Admin execution** | Allowlisted `shell=false` commands and managed development processes |
+| **macOS trust** | LocalAuthentication for broad authority and Keychain-backed daily-driver credentials |
+| **Daily driver** | LaunchAgent startup, automatic tunnel reconnect, bounded logs, and no routine Terminal ceremony |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    ChatGPT["ChatGPT"] --> Tunnel["OpenAI Secure MCP Tunnel"]
+    Tunnel --> Client["tunnel-client on macOS"]
+    Client --> Runtime["chatgpt-system MCP runtime"]
+
+    Runtime --> Authority["Authority Manager"]
+    Authority --> Project["Project<br/>repo scoped"]
+    Authority --> User["User<br/>home scoped"]
+    Authority --> Admin["Admin<br/>host scope as current user"]
+
+    Runtime --> Files["Filesystem"]
+    Runtime --> Git["Git status / diff / log"]
+    Runtime --> Exec["Admin terminal + managed processes"]
+    Runtime --> Audit["Redacted audit log"]
+
+    LocalAuth["macOS LocalAuthentication"] --> Authority
+    Keychain["macOS Keychain"] --> Client
+```
+
+The tunnel is transport, not authority. Privilege decisions remain local to the Mac, leases stay bounded and revocable, and Admin still runs as the current macOS user rather than root.
 
 ## Status
 
@@ -107,13 +150,30 @@ See [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md) for the full runb
 
 After the tunnel profile is configured with `--enable-terminal --personal-admin`, the optional daily-driver service can keep the tunnel running automatically at login. The one-time installer stores `CONTROL_PLANE_API_KEY` in the macOS login Keychain and installs a user LaunchAgent. The key authenticates `tunnel-client` to the Secure MCP Tunnel control plane; `chatgpt-system` does not use it to make model API calls.
 
+```mermaid
+sequenceDiagram
+    participant macOS
+    participant LaunchAgent
+    participant Keychain
+    participant Tunnel as tunnel-client
+    participant MCP as chatgpt-system
+    participant ChatGPT
+
+    macOS->>LaunchAgent: User session becomes active
+    LaunchAgent->>Keychain: Read tunnel credential
+    LaunchAgent->>Tunnel: Start / keep alive
+    Tunnel->>MCP: Launch stdio MCP child
+    Tunnel->>ChatGPT: Connect through Secure MCP Tunnel
+    ChatGPT->>MCP: Invoke authorized tools
+```
+
 Before installing, stop any manually running `tunnel-client run --profile chatgpt-system` instance. Then, from the shell where `CONTROL_PLANE_API_KEY` is already available, run once:
 
 ```bash
 npm run setup:daily-driver
 ```
 
-After that, normal use is simply: log into the Mac, open ChatGPT, and use the plugin. No Terminal window or manually pasted Admin lease is required in personal-admin mode.
+After that, normal use is simply: once the macOS user session is active, open ChatGPT and use the plugin. Sleep/wake does not require reinstalling anything, and no Terminal window or manually pasted Admin lease is required in personal-admin mode.
 
 Maintenance commands are intentionally small:
 
@@ -395,6 +455,10 @@ CI runs Node 22/24 build/tests and a macOS job that builds, installs into the pr
 ## Security model
 
 Read [SECURITY.md](SECURITY.md) before granting broad authority. The deeper design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Contributing
+
+Focused pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and [SECURITY.md](SECURITY.md) for vulnerability reporting and privilege-boundary expectations.
 
 ## License
 
