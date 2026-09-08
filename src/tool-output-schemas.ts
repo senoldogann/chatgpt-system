@@ -22,6 +22,10 @@ export const systemCapabilitiesOutputSchema = z.object({
     enabled: z.boolean(),
     commands: z.array(z.string()),
   }),
+  personalAdmin: z.object({
+    enabled: z.boolean(),
+    adminLeaseMaxTtlSeconds: z.literal(3600),
+  }),
   limits: z.object({
     maxReadBytes: z.number().int().positive(),
     maxWriteBytes: z.number().int().positive(),

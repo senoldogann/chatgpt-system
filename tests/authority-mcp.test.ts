@@ -22,7 +22,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-async function fixture() {
+async function fixture(options: { personalAdmin?: boolean; terminalEnabled?: boolean } = {}) {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-authority-mcp-"));
   cleanups.push(base);
   const root = path.join(base, "root");
@@ -36,7 +36,8 @@ async function fixture() {
   const config: AppConfig = {
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
-    terminal: { enabled: false, commands: ["node", "git"] },
+    terminal: { enabled: options.terminalEnabled ?? false, commands: ["node", "git"] },
+    personalAdmin: { enabled: options.personalAdmin ?? false },
     http: { host: "127.0.0.1", port: 0, token },
     limits: {
       maxReadBytes: 1024 * 1024,
@@ -44,6 +45,9 @@ async function fixture() {
       maxDirectoryEntries: 100,
       maxCommandOutputBytes: 1024 * 1024,
       commandTimeoutMs: 2_000,
+      maxManagedProcesses: 8,
+      maxProcessLogBytesPerStream: 4096,
+      processStopGraceMs: 100,
     },
   };
 
@@ -76,6 +80,42 @@ async function startProjectLease(client: Client, root: string): Promise<string> 
 }
 
 describe("session authority MCP tools", () => {
+  it("reports personal admin capability state", async () => {
+    const { client, transport } = await fixture({ personalAdmin: true });
+    try {
+      const capabilities = await client.callTool({ name: "system_capabilities", arguments: {} });
+      expect(capabilities.isError).not.toBe(true);
+      expect(capabilities.structuredContent).toMatchObject({
+        personalAdmin: { enabled: true, adminLeaseMaxTtlSeconds: 3600 },
+      });
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("mints personal Admin without bypassing the runtime terminal gate", async () => {
+    for (const terminalEnabled of [false, true]) {
+      const { client, transport } = await fixture({ personalAdmin: true, terminalEnabled });
+      try {
+        const started = await client.callTool({
+          name: "session_authority_start",
+          arguments: { profile: "admin", requestedTtlSeconds: 60 },
+        });
+        expect(started.isError).not.toBe(true);
+        expect(started.structuredContent).toMatchObject({
+          profile: "admin",
+          roots: ["/"],
+          terminalEnabled,
+          commands: terminalEnabled ? ["node", "git"] : [],
+        });
+      } finally {
+        await transport.terminateSession();
+        await client.close();
+      }
+    }
+  });
+
   it("discovers explicit session tools with schemas and annotations", async () => {
     const { client, transport } = await fixture();
     try {

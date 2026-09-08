@@ -15,7 +15,7 @@ import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { ProcessSupervisor } from "./process-supervisor.js";
 import { createScopedRuntime } from "./scoped-runtime.js";
-import { errorPayload } from "./errors.js";
+import { errorPayload, PolicyError } from "./errors.js";
 import {
   authorityEndOutputSchema,
   authorityLeaseOutputSchema,
@@ -132,6 +132,18 @@ function withAuthority(runtime: RuntimeServices, authorityLeaseId: string) {
 
 const authorityLeaseField = { authorityLeaseId: z.string().min(40) };
 const processIdField = { processId: z.string().min(40) };
+const projectAuthorityStartInputSchema = z.object({
+  profile: z.literal("project"),
+  projectRoots: z.array(z.string()).min(1),
+  requestedTtlSeconds: z.number().int().positive().optional(),
+}).strict();
+const adminAuthorityStartInputSchema = z.object({
+  profile: z.literal("admin"),
+  requestedTtlSeconds: z.number().int().positive().optional(),
+}).strict();
+type AuthorityStartInput =
+  | z.infer<typeof projectAuthorityStartInputSchema>
+  | z.infer<typeof adminAuthorityStartInputSchema>;
 const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const nonDestructiveWriteAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const sessionStartAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
@@ -139,6 +151,10 @@ const guardedMutationAnnotations = { readOnlyHint: false, destructiveHint: true,
 const destructiveAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false };
 
 export function createMcpServer(runtime: RuntimeServices): McpServer {
+  const personalAdminEnabled = runtime.config.personalAdmin?.enabled === true;
+  const authorityStartInputSchema = personalAdminEnabled
+    ? z.discriminatedUnion("profile", [projectAuthorityStartInputSchema, adminAuthorityStartInputSchema])
+    : projectAuthorityStartInputSchema;
   const server = new McpServer(
     { name: "chatgpt-system", version: "0.1.0" },
     { capabilities: { tools: {} } },
@@ -156,6 +172,10 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       roots: runtime.config.roots,
       auditFile: runtime.config.auditFile,
       terminal: runtime.config.terminal,
+      personalAdmin: {
+        enabled: personalAdminEnabled,
+        adminLeaseMaxTtlSeconds: 3600 as const,
+      },
       limits: runtime.config.limits,
       safety: {
         filesystemConfinement: true as const,
@@ -172,20 +192,32 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "session_authority_start",
     {
-      description: "Start a direct Project authority lease for explicit project roots. User/Admin leases are created locally on the Mac with chatgpt-system authorize and then supplied to existing lease-aware tools.",
-      inputSchema: z.object({
-        profile: z.literal("project"),
-        projectRoots: z.array(z.string()).min(1),
-        requestedTtlSeconds: z.number().int().positive().optional(),
-      }),
+      description: personalAdminEnabled
+        ? "Start a Project lease or, in explicit Personal Admin mode, a short-lived Admin lease for normal daily-driver work. User authority remains locally approved."
+        : "Start a direct Project authority lease for explicit project roots. User/Admin leases are created locally on the Mac with chatgpt-system authorize and then supplied to existing lease-aware tools.",
+      inputSchema: authorityStartInputSchema,
       outputSchema: authorityLeaseOutputSchema,
       annotations: sessionStartAnnotations,
     },
-    async ({ profile, projectRoots, requestedTtlSeconds }) => safeCall(async () => {
+    async (input: AuthorityStartInput) => safeCall(async () => {
+      if (input.profile === "admin") {
+        if (!personalAdminEnabled) throw new PolicyError("Personal Admin authority is disabled.");
+        const lease = await runtime.authority.start({
+          profile: "admin",
+          ...(input.requestedTtlSeconds !== undefined
+            ? { requestedTtlSeconds: input.requestedTtlSeconds }
+            : {}),
+        });
+        await runtime.authority.flushAudit();
+        return lease;
+      }
+
       const lease = await runtime.authority.start({
-        profile,
-        projectRoots,
-        ...(requestedTtlSeconds !== undefined ? { requestedTtlSeconds } : {}),
+        profile: "project",
+        projectRoots: input.projectRoots,
+        ...(input.requestedTtlSeconds !== undefined
+          ? { requestedTtlSeconds: input.requestedTtlSeconds }
+          : {}),
       });
       await runtime.authority.flushAudit();
       return lease;
