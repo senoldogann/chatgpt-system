@@ -58,7 +58,7 @@ async function fixture() {
   const config: AppConfig = {
     roots: [bootstrapRoot],
     auditFile: path.join(base, "audit.jsonl"),
-    terminal: { enabled: false, commands: ["node", "git"] },
+    terminal: { enabled: true, commands: ["node", "git"] },
     control: { enabled: false, socketPath },
     http: { host: "127.0.0.1", port: 0, token },
     limits: {

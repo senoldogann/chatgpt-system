@@ -71,7 +71,10 @@ class DeferredBroker implements LocalAuthorityBroker {
   }
 }
 
-async function fixture(approvalBroker: LocalAuthorityBroker = new ImmediateBroker()) {
+async function fixture(
+  approvalBroker: LocalAuthorityBroker = new ImmediateBroker(),
+  terminalEnabled = false,
+) {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-control-"));
   cleanups.push(base);
   const root = path.join(base, "root");
@@ -79,7 +82,7 @@ async function fixture(approvalBroker: LocalAuthorityBroker = new ImmediateBroke
   const config: AppConfig = {
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
-    terminal: { enabled: false, commands: ["node", "git"] },
+    terminal: { enabled: terminalEnabled, commands: ["node", "git"] },
     http: { host: "127.0.0.1", port: 4312 },
     limits: {
       maxReadBytes: 1024,
@@ -260,7 +263,7 @@ describe("local authority control server", () => {
   });
 
   it("mints a terminal-capable admin lease only after local authentication", async () => {
-    const { base, runtime } = await fixture(new ImmediateBroker("authenticated"));
+    const { base, runtime } = await fixture(new ImmediateBroker("authenticated"), true);
     const socketPath = path.join(base, "control.sock");
     const handle = await startControlServer({ socketPath, runtime });
     handles.push(handle);

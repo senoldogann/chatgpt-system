@@ -59,6 +59,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
   const authority = new AuthorityManager({
     homeDir: homedir(),
     commands: config.terminal.commands,
+    terminalEnabled: config.terminal.enabled,
     audit: async (event) => {
       await audit.record({
         action: event.event,

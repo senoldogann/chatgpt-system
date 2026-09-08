@@ -39,6 +39,7 @@ export interface AuthorityAuditEvent {
 export interface AuthorityManagerOptions {
   homeDir: string;
   commands: string[];
+  terminalEnabled: boolean;
   now?: () => number;
   audit?: (event: AuthorityAuditEvent) => void | Promise<void>;
 }
@@ -81,12 +82,14 @@ export class AuthorityManager {
   private readonly now: () => number;
   private readonly homeDirInput: string;
   private readonly commands: string[];
+  private readonly terminalGateEnabled: boolean;
   private readonly audit: ((event: AuthorityAuditEvent) => void | Promise<void>) | undefined;
   private auditChain: Promise<void> = Promise.resolve();
 
   constructor(options: AuthorityManagerOptions) {
     this.homeDirInput = options.homeDir;
     this.commands = [...new Set(options.commands)];
+    this.terminalGateEnabled = options.terminalEnabled;
     this.now = options.now ?? Date.now;
     this.audit = options.audit;
   }
@@ -99,7 +102,7 @@ export class AuthorityManager {
     const ttlSeconds = Math.max(1, Math.min(requestedTtl, maxTtl));
     const expiresAtMs = nowMs + ttlSeconds * 1000;
     const leaseId = newLeaseId();
-    const terminalEnabled = request.profile === "admin";
+    const terminalEnabled = request.profile === "admin" && this.terminalGateEnabled;
 
     const stored: StoredLease = {
       profile: request.profile,
