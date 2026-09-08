@@ -13,6 +13,7 @@ import {
 } from "./local-authority-broker.js";
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
+import { ProcessSupervisor } from "./process-supervisor.js";
 import { createScopedRuntime } from "./scoped-runtime.js";
 import { errorPayload } from "./errors.js";
 import {
@@ -27,6 +28,9 @@ import {
   fsStatOutputSchema,
   fsWriteOutputSchema,
   gitResultOutputSchema,
+  processListOutputSchema,
+  processLogsOutputSchema,
+  processSummaryOutputSchema,
   systemCapabilitiesOutputSchema,
   terminalResultOutputSchema,
 } from "./tool-output-schemas.js";
@@ -41,6 +45,7 @@ export interface RuntimeServices {
   fs: FileSystemService;
   git: GitService;
   process: ProcessService;
+  processSupervisor: ProcessSupervisor;
 }
 
 export interface RuntimeOptions {
@@ -85,6 +90,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
       });
     },
   });
+  const processSupervisor = new ProcessSupervisor({ limits: config.limits, audit });
   return {
     config,
     policy,
@@ -95,6 +101,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     fs: new FileSystemService(policy, audit, config.limits),
     git: new GitService(policy, audit, config),
     process: new ProcessService(policy, audit, config),
+    processSupervisor,
   };
 }
 
@@ -123,6 +130,7 @@ function withAuthority(runtime: RuntimeServices, authorityLeaseId: string) {
 }
 
 const authorityLeaseField = { authorityLeaseId: z.string().min(40) };
+const processIdField = { processId: z.string().min(40) };
 const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const nonDestructiveWriteAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const sessionStartAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
@@ -365,6 +373,66 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       annotations: destructiveAnnotations,
     },
     async ({ authorityLeaseId, command, args, cwd }) => safeCall(() => withAuthority(runtime, authorityLeaseId).process.run(command, args, cwd)),
+  );
+
+  server.registerTool(
+    "process_start",
+    {
+      description: "Start an allowlisted long-running child process with shell=false inside an active Admin authority scope. Returns an opaque managed-process ID, never an OS PID.",
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        command: z.string(),
+        args: z.array(z.string()).default([]),
+        cwd: z.string().default("."),
+      }).strict(),
+      outputSchema: processSummaryOutputSchema,
+      annotations: sessionStartAnnotations,
+    },
+    async ({ authorityLeaseId, command, args, cwd }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.start(command, args, cwd)),
+  );
+
+  server.registerTool(
+    "process_list",
+    {
+      description: "List managed processes visible to the active terminal-capable authority scope. Hidden or out-of-scope records are omitted.",
+      inputSchema: z.object(authorityLeaseField).strict(),
+      outputSchema: processListOutputSchema,
+      annotations: readAnnotations,
+    },
+    async ({ authorityLeaseId }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.list()),
+  );
+
+  server.registerTool(
+    "process_status",
+    {
+      description: "Read one manageable process state by opaque managed-process ID. Unknown and unauthorized IDs return the same error.",
+      inputSchema: z.object({ ...authorityLeaseField, ...processIdField }).strict(),
+      outputSchema: processSummaryOutputSchema,
+      annotations: readAnnotations,
+    },
+    async ({ authorityLeaseId, processId }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.status(processId)),
+  );
+
+  server.registerTool(
+    "process_logs",
+    {
+      description: "Read bounded in-memory stdout/stderr tails for one manageable process. No log files or OS PID access are exposed.",
+      inputSchema: z.object({ ...authorityLeaseField, ...processIdField }).strict(),
+      outputSchema: processLogsOutputSchema,
+      annotations: readAnnotations,
+    },
+    async ({ authorityLeaseId, processId }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.logs(processId)),
+  );
+
+  server.registerTool(
+    "process_stop",
+    {
+      description: "Idempotently stop one manageable process. The daemon chooses SIGTERM/grace/SIGKILL internally; callers cannot provide PIDs or signals.",
+      inputSchema: z.object({ ...authorityLeaseField, ...processIdField }).strict(),
+      outputSchema: processSummaryOutputSchema,
+      annotations: guardedMutationAnnotations,
+    },
+    async ({ authorityLeaseId, processId }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.stop(processId)),
   );
 
   return server;
