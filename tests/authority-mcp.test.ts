@@ -207,7 +207,9 @@ describe("session authority MCP tools", () => {
     try {
       const privileged = [
         "fs_list", "fs_stat", "fs_read", "fs_write", "fs_apply_patch", "fs_mkdir", "fs_move", "fs_remove",
-        "git_status", "git_diff", "git_log", "terminal_run",
+        "git_status", "git_diff", "git_log",
+        "git_create_branch", "git_switch_branch", "git_stage_paths", "git_commit", "git_merge_branch", "git_push",
+        "terminal_run",
       ];
       const { tools } = await client.listTools();
       const byName = new Map(tools.map((tool) => [tool.name, tool]));
