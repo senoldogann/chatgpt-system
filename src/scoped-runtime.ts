@@ -36,7 +36,7 @@ export function createScopedRuntime(base: ScopedRuntimeBase, authority: Authorit
   return {
     policy,
     fs: new FileSystemService(policy, base.audit, config.limits),
-    git: new GitService(policy, base.audit, config),
+    git: new GitService(policy, base.audit, config, { remoteWriteEnabled: authority.profile === "admin" }),
     process: new ProcessService(policy, base.audit, config),
     processes: new ManagedProcessService(policy, config.terminal, base.processSupervisor),
   };
