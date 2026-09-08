@@ -114,10 +114,13 @@ npm run setup:chatgpt -- \
   --root /tmp/chatgpt-system-acceptance \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
   --enable-terminal \
+  --personal-admin \
   --doctor
 ```
 
 This daily-driver acceptance profile explicitly opts into the runtime terminal gate because later Admin acceptance requires `terminal_run` and managed process execution. The secure default remains disabled when `--enable-terminal` is omitted, and Project/User leases still cannot use terminal or `process_start` even when the runtime gate is enabled.
+
+For the user's private daily-driver Mac, the profile also explicitly opts into `--personal-admin`. This lets ChatGPT mint bounded in-memory Admin leases directly instead of asking the user to copy/paste a locally approved Admin lease. The mode is disabled by default, does not bypass `--enable-terminal`, and should not be enabled on a shared or untrusted workstation.
 
 If the `chatgpt-system` tunnel profile already exists and its child command is stale, replacement is intentionally explicit. Reuse the same root and tunnel ID, and add `--force`:
 
@@ -127,6 +130,7 @@ npm run setup:chatgpt -- \
   --root /tmp/chatgpt-system-acceptance \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
   --enable-terminal \
+  --personal-admin \
   --force \
   --doctor
 ```
@@ -136,18 +140,36 @@ npm run setup:chatgpt -- \
 The generated stdio target includes:
 
 ```text
---enable-control --control-socket ~/.chatgpt-system/control.sock --enable-terminal
+--enable-control --control-socket ~/.chatgpt-system/control.sock --enable-terminal --personal-admin
 ```
 
 If the profile predates local authorization support, managed-process support, or the terminal opt-in required by this acceptance flow, replace the stale profile explicitly as above rather than hand-editing its child command.
 
 ## 5. Run the tunnel
 
+For manual acceptance:
+
 ```bash
 tunnel-client run --profile chatgpt-system
 ```
 
-Keep it running while ChatGPT discovers or calls tools. Verify the local socket:
+For the permanent personal daily-driver setup, stop the manual tunnel after acceptance and run the one-time installer from a shell where `CONTROL_PLANE_API_KEY` is already exported:
+
+```bash
+cd ~/chatgpt-system
+npm run setup:daily-driver
+```
+
+The installer stores the tunnel control-plane credential in the macOS login Keychain, writes a user LaunchAgent, and starts the service. The key authenticates `tunnel-client` to OpenAI's Secure MCP Tunnel control plane; it is not used by `chatgpt-system` to make model API calls. Normal daily use after installation does not require Terminal or a pasted Admin lease when `--personal-admin` is enabled.
+
+Service inspection and removal are:
+
+```bash
+npm run daily-driver:status
+npm run daily-driver:uninstall
+```
+
+Keep the tunnel service running while ChatGPT discovers or calls tools. Verify the local socket:
 
 ```bash
 ls -ld ~/.chatgpt-system
@@ -174,7 +196,7 @@ session_authority_status
 session_authority_end
 ```
 
-User/Admin creation tools are intentionally absent. Broad authority starts locally on the Mac.
+User authority creation tools are intentionally absent. Admin creation is local by default; in explicit `--personal-admin` mode, `session_authority_start` also accepts `profile="admin"` and returns the same bounded in-memory Admin lease shape.
 
 Filesystem/Git/one-shot process tools:
 
@@ -211,7 +233,7 @@ Every privileged tool takes `authorityLeaseId`. Managed-process MCP schemas do n
 | --- | --- | ---: | --- | --- |
 | Project | explicit project roots | 8 h | No | MCP direct |
 | User | current user's canonical home | 4 h | No | local CLI + native auth |
-| Admin | `/` as current OS user | 1 h | Yes | local CLI + native auth |
+| Admin | `/` as current OS user | 1 h | Yes | local CLI + native auth by default; MCP direct in personal-admin mode |
 
 Admin is not UID 0. Root-only operations are not part of this boundary.
 

@@ -21,6 +21,9 @@ export interface AppConfig {
     enabled: boolean;
     commands: string[];
   };
+  personalAdmin: {
+    enabled: boolean;
+  };
   control: {
     enabled: boolean;
     socketPath: string;
@@ -37,6 +40,7 @@ export interface ConfigOverrides {
   roots?: string[];
   auditFile?: string;
   terminalEnabled?: boolean;
+  personalAdminEnabled?: boolean;
   commands?: string[];
   controlEnabled?: boolean;
   controlSocketPath?: string;
@@ -49,6 +53,7 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_ROOTS: z.string().optional(),
   CHATGPT_SYSTEM_AUDIT_FILE: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_TERMINAL: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_PERSONAL_ADMIN: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ALLOW_COMMANDS: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_CONTROL: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_CONTROL_SOCKET: z.string().optional(),
@@ -137,6 +142,9 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     terminal: {
       enabled: overrides.terminalEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_TERMINAL),
       commands: [...new Set(overrides.commands ?? splitCsv(env.CHATGPT_SYSTEM_ALLOW_COMMANDS) ?? DEFAULT_COMMANDS)],
+    },
+    personalAdmin: {
+      enabled: overrides.personalAdminEnabled ?? enabled(env.CHATGPT_SYSTEM_PERSONAL_ADMIN),
     },
     control: {
       enabled: overrides.controlEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_CONTROL),

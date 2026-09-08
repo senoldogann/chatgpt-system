@@ -17,7 +17,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-async function fixture() {
+async function fixture(personalAdmin = false) {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-authority-catalog-"));
   cleanups.push(base);
   const root = path.join(base, "root");
@@ -27,6 +27,7 @@ async function fixture() {
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: false, commands: ["node", "git"] },
+    personalAdmin: { enabled: personalAdmin },
     control: { enabled: false, socketPath: path.join(base, "control.sock") },
     http: { host: "127.0.0.1", port: 0, token },
     limits: {
@@ -72,4 +73,25 @@ describe("default authority MCP catalog", () => {
       await client.close();
     }
   });
+  it("advertises and accepts direct Admin creation only in personal-admin mode", async () => {
+    const { client, transport } = await fixture(true);
+    try {
+      const { tools } = await client.listTools();
+      const start = tools.find((tool) => tool.name === "session_authority_start");
+      expect(JSON.stringify(start?.inputSchema)).toContain('"admin"');
+
+      const admin = await client.callTool({
+        name: "session_authority_start",
+        arguments: { profile: "admin", requestedTtlSeconds: 60 },
+      });
+      expect(admin.isError).not.toBe(true);
+      expect(admin.structuredContent).toMatchObject({
+        profile: "admin", roots: ["/"], terminalEnabled: false, commands: [],
+      });
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
 });

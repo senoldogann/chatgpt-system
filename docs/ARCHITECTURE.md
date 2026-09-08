@@ -72,7 +72,7 @@ User    -> current-user home, filesystem/Git, no terminal
 Admin   -> host scope as current OS user, terminal/process capability
 ```
 
-Project authority may be created directly through MCP. User/Admin authority begins locally on the Mac through the private Unix control socket and protected LocalAuthentication helper. Broad authority is never minted by changing MCP input fields.
+Project authority may be created directly through MCP. By default, User/Admin authority begins locally on the Mac through the private Unix control socket and protected LocalAuthentication helper. An explicit `--personal-admin` runtime mode is the one intentional exception: on a private daily-driver workstation, MCP may request the existing fixed Admin profile directly. The lease remains short-lived, in-memory, and governed by the same `AuthorityManager`; the mode does not create arbitrary roots and does not bypass the separate `--enable-terminal` gate.
 
 ## MCP transports
 
@@ -82,6 +82,7 @@ The project targets the MCP TypeScript SDK v2 and the 2026-07-28 protocol line.
 - **HTTP** uses `createMcpHandler(factory)` wrapped with `@modelcontextprotocol/node`'s `toNodeHandler`.
 - HTTP creates MCP servers from the same shared runtime and requires bearer authentication at the outer Node HTTP layer.
 - ChatGPT personal Plugin usage normally reaches stdio through OpenAI Secure MCP Tunnel, so the workstation does not need a public inbound MCP listener.
+- Optional macOS daily-driver mode runs `tunnel-client` under a user LaunchAgent. A small Node runner retrieves the tunnel control-plane credential from the login Keychain, injects it only into the tunnel child environment, bounds stdout/stderr tail logs, and exits with the tunnel so launchd can restart it.
 
 ## One-shot process boundary
 

@@ -20,6 +20,7 @@ Server options:
   --root <path>             Allow a filesystem root (repeatable). Defaults to cwd.
   --audit-file <path>       JSONL audit log path.
   --enable-terminal         Enable bootstrap terminal_run. Disabled by default.
+  --personal-admin          Allow this MCP client to mint short-lived Admin leases directly. Disabled by default.
   --allow-command <name>    Terminal executable allowlist (repeatable).
   --enable-control          Start the private local authority Unix socket.
   --control-socket <path>   Override the private Unix socket path; requires --enable-control.
@@ -36,6 +37,7 @@ Security:
   Filesystem tools are confined to active authority lease roots and reject symlink escapes.
   Existing file writes/removals require the SHA-256 returned by fs_read/fs_stat.
   Project and User authority have no terminal capability. Admin alone can use the bounded terminal/process allowlist.
+  Personal Admin is an explicit private-workstation opt-in and does not bypass the runtime terminal gate.
   Managed process tools expose opaque IDs only; callers cannot provide OS PIDs, signals, shell mode, or child environments.
   User/Admin authority is approved locally through the protected macOS broker; credentials and biometric material never enter MCP.
 `);

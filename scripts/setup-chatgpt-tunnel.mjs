@@ -20,6 +20,7 @@ Options:
   --tunnel-id <id>        OpenAI Secure MCP Tunnel ID. Required.
   --profile <name>        tunnel-client profile name (default: chatgpt-system).
   --enable-terminal       Opt in to bootstrap terminal configuration. Disabled by default.
+  --personal-admin        Allow ChatGPT to mint short-lived Admin leases directly. Disabled by default.
   --allow-command <name>  Allowlisted executable basename. Repeatable.
   --force                 Replace an existing tunnel-client profile. Never implied.
   --doctor                Create the profile, then run tunnel-client doctor.
@@ -27,10 +28,13 @@ Options:
   --help                  Show this help.
 
 The generated ChatGPT tunnel target always enables the private local authority
-control socket at ~/.chatgpt-system/control.sock. User/Admin leases are created
+control socket at ~/.chatgpt-system/control.sock. By default User/Admin leases are created
 outside ChatGPT with:
   chatgpt-system authorize user
   chatgpt-system authorize admin
+
+With --personal-admin, ChatGPT may mint short-lived Admin leases directly.
+User authority remains locally approved.
 
 User/Admin session authority on macOS requires the protected native broker.
 Build and install it separately:
@@ -53,6 +57,7 @@ function parseArgs(argv) {
     tunnelId: undefined,
     profile: "chatgpt-system",
     terminal: false,
+    personalAdmin: false,
     commands: [],
     force: false,
     doctor: false,
@@ -68,6 +73,10 @@ function parseArgs(argv) {
     }
     if (arg === "--enable-terminal") {
       options.terminal = true;
+      continue;
+    }
+    if (arg === "--personal-admin") {
+      options.personalAdmin = true;
       continue;
     }
     if (arg === "--force") {
@@ -178,6 +187,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     "--control-socket", controlSocketPath,
   ];
   if (options.terminal) commandParts.push("--enable-terminal");
+  if (options.personalAdmin) commandParts.push("--personal-admin");
   for (const command of options.commands) commandParts.push("--allow-command", command);
   const mcpCommand = commandParts.map(quoteCommandArg).join(" ");
 
@@ -278,6 +288,7 @@ async function main() {
   console.log(`  Doctor: ${printableCommand("tunnel-client", setup.doctorArgs)}`);
   console.log(`  Run: ${printableCommand("tunnel-client", setup.runArgs)}`);
   console.log("  Bootstrap terminal: " + (setup.mcpCommand.includes("--enable-terminal") ? "EXPLICITLY ENABLED" : "disabled"));
+  console.log("  Personal Admin: " + (setup.mcpCommand.includes("--personal-admin") ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Local User/Admin authorization: enabled through private Unix socket");
 
   if (!setup.executeDoctor && !setup.executeRun) {
