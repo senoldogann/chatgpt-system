@@ -65,10 +65,13 @@ npm run setup:chatgpt -- \
   --root /absolute/path/to/disposable-test-project \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
   --enable-terminal \
+  --personal-admin \
   --doctor
 ```
 
 The daily-driver profile explicitly opts into the runtime terminal gate so an authenticated Admin lease can run bounded one-shot commands and managed development processes. Omitting `--enable-terminal` keeps the secure startup default disabled, and Project/User leases still cannot use terminal or `process_start` even when the runtime gate is enabled.
+
+The personal daily-driver profile also explicitly opts into `--personal-admin`. In that mode ChatGPT can mint short-lived Admin leases itself, so normal use does not require copying a lease from Terminal. This is intentionally less restrictive than the default local-approval model and should be enabled only on a private workstation you control. Omitting `--personal-admin` preserves the existing local User/Admin approval flow.
 
 If a `chatgpt-system` tunnel profile already exists and its child command is stale, replacement is intentionally explicit. Re-run setup with the same root and tunnel ID plus `--force`:
 
@@ -77,6 +80,7 @@ npm run setup:chatgpt -- \
   --root /absolute/path/to/disposable-test-project \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
   --enable-terminal \
+  --personal-admin \
   --force \
   --doctor
 ```

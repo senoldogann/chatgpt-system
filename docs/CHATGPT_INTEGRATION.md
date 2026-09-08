@@ -114,10 +114,13 @@ npm run setup:chatgpt -- \
   --root /tmp/chatgpt-system-acceptance \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
   --enable-terminal \
+  --personal-admin \
   --doctor
 ```
 
 This daily-driver acceptance profile explicitly opts into the runtime terminal gate because later Admin acceptance requires `terminal_run` and managed process execution. The secure default remains disabled when `--enable-terminal` is omitted, and Project/User leases still cannot use terminal or `process_start` even when the runtime gate is enabled.
+
+For the user's private daily-driver Mac, the profile also explicitly opts into `--personal-admin`. This lets ChatGPT mint bounded in-memory Admin leases directly instead of asking the user to copy/paste a locally approved Admin lease. The mode is disabled by default, does not bypass `--enable-terminal`, and should not be enabled on a shared or untrusted workstation.
 
 If the `chatgpt-system` tunnel profile already exists and its child command is stale, replacement is intentionally explicit. Reuse the same root and tunnel ID, and add `--force`:
 
@@ -127,6 +130,7 @@ npm run setup:chatgpt -- \
   --root /tmp/chatgpt-system-acceptance \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
   --enable-terminal \
+  --personal-admin \
   --force \
   --doctor
 ```
@@ -136,7 +140,7 @@ npm run setup:chatgpt -- \
 The generated stdio target includes:
 
 ```text
---enable-control --control-socket ~/.chatgpt-system/control.sock --enable-terminal
+--enable-control --control-socket ~/.chatgpt-system/control.sock --enable-terminal --personal-admin
 ```
 
 If the profile predates local authorization support, managed-process support, or the terminal opt-in required by this acceptance flow, replace the stale profile explicitly as above rather than hand-editing its child command.
