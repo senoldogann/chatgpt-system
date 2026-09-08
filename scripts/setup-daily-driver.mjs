@@ -12,6 +12,7 @@ export const LAUNCH_AGENT_LABEL = "com.senoldogann.chatgpt-system.daily-driver";
 const LAUNCHCTL = "/bin/launchctl";
 const SECURITY = "/usr/bin/security";
 const SWIFT = "/usr/bin/swift";
+const LAUNCH_AGENT_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
 function xmlEscape(value) {
   return value
@@ -65,6 +66,11 @@ ${argumentXml}
     <true/>
     <key>ProcessType</key>
     <string>Background</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>${LAUNCH_AGENT_PATH}</string>
+    </dict>
     <key>ThrottleInterval</key>
     <integer>5</integer>
     <key>StandardOutPath</key>
@@ -105,6 +111,22 @@ export function storeControlPlaneKey(key, options = {}) {
   if (result.error || result.status !== 0) {
     throw new Error("Unable to store the daily-driver tunnel credential in macOS Keychain.");
   }
+}
+
+export function planControlPlaneCredential(key, options = {}) {
+  if (key) return "store";
+  const spawnSyncImpl = options.spawnSync ?? spawnSync;
+  const result = spawnSyncImpl(SECURITY, [
+    "find-generic-password",
+    "-a", KEYCHAIN_ACCOUNT,
+    "-s", KEYCHAIN_SERVICE,
+  ], {
+    shell: false,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (!result.error && result.status === 0) return "reuse";
+  throw new Error("CONTROL_PLANE_API_KEY must be set when no daily-driver Keychain credential exists.");
 }
 
 export function buildLaunchctlCommands({ uid, plistPath }) {
@@ -181,7 +203,7 @@ function pathsFor(homeDir) {
 async function install(profile, context) {
   if (process.platform !== "darwin") throw new Error("Daily-driver LaunchAgent installation is supported only on macOS.");
   const key = context.environment.CONTROL_PLANE_API_KEY;
-  if (!key) throw new Error("CONTROL_PLANE_API_KEY must be set for the one-time daily-driver install.");
+  const credentialAction = planControlPlaneCredential(key);
 
   const tunnelClientPath = await resolveExecutable("tunnel-client", context.environment);
   const runnerPath = path.join(context.repoDir, "scripts", "daily-driver-runner.mjs");
@@ -198,14 +220,20 @@ async function install(profile, context) {
   const keychainHelper = keychainHelperBuildInvocation(context.repoDir);
 
   await mkdir(logDir, { recursive: true, mode: 0o700 });
-  assertSuccess(runCommand(keychainHelper.command, keychainHelper.args), "Keychain helper build");
-  storeControlPlaneKey(key, { helperPath: keychainHelper.helperPath });
+  if (credentialAction === "store") {
+    assertSuccess(runCommand(keychainHelper.command, keychainHelper.args), "Keychain helper build");
+    storeControlPlaneKey(key, { helperPath: keychainHelper.helperPath });
+  }
   await writePlistAtomic(plistPath, plist);
   runCommand(LAUNCHCTL, commands.bootout);
   assertSuccess(runCommand(LAUNCHCTL, commands.bootstrap), "launchctl bootstrap");
 
   console.log(`Daily driver installed: ${LAUNCH_AGENT_LABEL}`);
-  console.log("Tunnel credential stored in macOS Keychain; no API key was written to the LaunchAgent plist.");
+  console.log(
+    credentialAction === "store"
+      ? "Tunnel credential stored in macOS Keychain; no API key was written to the LaunchAgent plist."
+      : "Existing macOS Keychain tunnel credential reused; no API key was written to the LaunchAgent plist.",
+  );
 }
 
 async function status(profile, context) {

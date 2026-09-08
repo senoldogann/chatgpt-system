@@ -4,6 +4,7 @@ import {
   buildLaunchAgent,
   buildLaunchctlCommands,
   keychainStoreInvocation,
+  planControlPlaneCredential,
   storeControlPlaneKey,
 } from "../scripts/setup-daily-driver.mjs";
 
@@ -25,8 +26,33 @@ describe("macOS daily-driver setup", () => {
     expect(plist).toContain("<string>Background</string>");
     expect(plist).toContain("/opt/homebrew/bin/node");
     expect(plist).toContain("/opt/homebrew/bin/tunnel-client");
+    expect(plist).toContain("<key>EnvironmentVariables</key>");
+    expect(plist).toContain("<key>PATH</key>");
+    expect(plist).toContain("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin");
     expect(plist).not.toContain("CONTROL_PLANE_API_KEY");
     expect(plist).not.toContain(sentinel);
+  });
+
+  it("reuses an existing Keychain credential when reinstalling without CONTROL_PLANE_API_KEY", () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const action = planControlPlaneCredential(undefined, {
+      spawnSync: (command: string, args: string[]) => {
+        calls.push({ command, args });
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    expect(action).toBe("reuse");
+    expect(calls).toEqual([{
+      command: "/usr/bin/security",
+      args: ["find-generic-password", "-a", "chatgpt-system", "-s", "chatgpt-system-control-plane"],
+    }]);
+  });
+
+  it("still requires CONTROL_PLANE_API_KEY when no Keychain credential exists", () => {
+    expect(() => planControlPlaneCredential(undefined, {
+      spawnSync: () => ({ status: 44, stdout: "", stderr: "not found" }),
+    })).toThrow(/CONTROL_PLANE_API_KEY/i);
   });
 
   it("rejects non-absolute executable and runner paths", () => {
