@@ -16,11 +16,16 @@
 10. **Filesystem confinement**: filesystem requests are resolved against the active lease roots with symlink-target validation.
 11. **No blind overwrite**: modifying or deleting an existing regular file requires its current SHA-256 from `fs_read` or `fs_stat`.
 12. **Atomic replacement**: file writes use temporary sibling files plus rename to reduce partial-write risk.
-13. **Bounded I/O**: file reads/writes, directory listings, native helper output, control frames, command output, and command duration have limits.
-14. **Audit redaction**: authority/approval lifecycle records contain categorical metadata only. Raw lease IDs, request IDs, credentials, biometric material, file contents, and command output are not copied into authority audit metadata.
+13. **Bounded I/O**: file reads/writes, directory listings, native helper output, control frames, command output, command duration, managed process count, and managed process log tails have limits.
+14. **Audit redaction**: authority/approval/process lifecycle records contain categorical metadata only. Raw lease IDs, managed-process IDs, request IDs, credentials, biometric material, argument values, environments, file contents, and command/process output are not copied into audit metadata.
 15. **Structured terminal execution**: Admin `terminal_run` uses `shell=false`, an executable basename allowlist, cwd checks, sanitized environment variables, timeouts, and output limits.
-16. **HTTP authentication**: HTTP transport refuses to start without a bearer token and binds to loopback by default.
-17. **Loopback request validation**: the localhost HTTP listener applies Host and Origin validation before routing requests.
+16. **Managed processes are authority-scoped**: `process_start`, `process_list`, `process_status`, `process_logs`, and `process_stop` require an active lease. Start requires terminal capability, which currently means Admin.
+17. **No raw PID surface**: MCP never accepts or returns an OS PID, process-group ID, arbitrary signal, shell flag, detached flag, or caller-supplied child environment for managed processes.
+18. **No process-registry oracle**: unknown and unauthorized managed-process IDs both return `PROCESS_NOT_FOUND`; lists filter records outside the current authority scope.
+19. **Bounded lifecycle management**: managed children use bounded in-memory stdout/stderr tails and an in-memory registry. Running records are never evicted to make room.
+20. **Graceful process-group cleanup**: on POSIX, managed children use their own process group. Stop/shutdown sends `SIGTERM`, waits the configured grace period, then escalates to `SIGKILL` internally if required.
+21. **HTTP authentication**: HTTP transport refuses to start without a bearer token and binds to loopback by default.
+22. **Loopback request validation**: the localhost HTTP listener applies Host and Origin validation before routing requests.
 
 ## Why User/Admin creation is local
 
@@ -52,9 +57,9 @@ Independent ChatGPT/OpenAI product safety checks can still block a specific late
 
 A child process is not confined merely because its working directory is inside a lease root. An allowlisted executable such as Node, Python, a package manager, compiler, or build tool can exercise the OS account's permissions and open files outside that cwd.
 
-Therefore Project/User authority does not expose `terminal_run`. Otherwise the filesystem scope would be cosmetic rather than a security boundary.
+Therefore Project/User authority does not expose `terminal_run` or `process_start`. Otherwise the filesystem scope would be cosmetic rather than a security boundary.
 
-Admin is the only Phase-1 terminal-capable profile because the user has already locally authenticated for host-wide authority.
+Admin is the only terminal-capable profile because the user has already locally authenticated for host-wide authority.
 
 ## Admin is not root
 
@@ -70,6 +75,28 @@ An Admin lease still runs as the OS account that launched `chatgpt-system`. This
 - a raw or persistent root shell.
 
 Future root-only capabilities must be exposed as narrow typed operations behind an Apple-supported ServiceManagement/XPC privileged helper.
+
+## Managed process boundary
+
+The managed process subsystem is for long-lived development processes such as local servers. It is separate from one-shot `terminal_run`.
+
+Public MCP tools:
+
+```text
+process_start
+process_list
+process_status
+process_logs
+process_stop
+```
+
+The daemon owns the real child handles and process-group identifiers. Callers receive only opaque random managed-process IDs.
+
+A later Admin lease may manage a process created by an earlier Admin lease when command allowlist and cwd scope are still compatible. Revoking the original lease does not automatically terminate the child. This is deliberate so an operator can recover and stop a development server with a newly approved compatible lease.
+
+Managed records and logs exist only in memory. Clean daemon shutdown attempts to stop every running managed process group. An abrupt daemon crash or `SIGKILL` can leave a detached child alive; the next daemon does **not** scan or kill arbitrary OS PIDs because it has no trustworthy ownership proof. There is no persistence guarantee across daemon restart.
+
+Managed process execution is **not an operating-system sandbox**. The executable runs with the permissions of the OS user that launched `chatgpt-system`.
 
 ## Protected native helper boundary
 
@@ -123,11 +150,10 @@ Built-in Git tools are read-only. They disable repository hooks, filesystem moni
 
 The bridge assumes its startup environment, including executable search paths, is trusted. An actor that can replace executables found through `PATH` already operates at or near the bridge process's OS authority.
 
-## Future process, GUI and browser capabilities
+## Future GUI and browser capabilities
 
-Future process supervision, computer-use, and browser diagnostics must preserve the same authority model rather than tunneling around it.
+Computer-use and browser diagnostics must preserve the same authority model rather than tunneling around it.
 
-- managed process tools need opaque process IDs, bounded logs, process-group cleanup, and explicit authority mapping;
 - GUI actions will be adapters over the existing separate `computer-use` system so its kill switch, credential blocking, human-presence detection, grants, and verification remain active;
 - browser console/network diagnostics should use a browser automation/CDP boundary and must not become a cookie/token extraction channel;
 - true root operations remain typed ServiceManagement/XPC operations, not a reusable root shell.
