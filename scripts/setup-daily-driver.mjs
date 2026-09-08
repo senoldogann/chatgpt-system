@@ -11,7 +11,7 @@ import { KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE } from "./daily-driver-runner.mjs";
 export const LAUNCH_AGENT_LABEL = "com.senoldogann.chatgpt-system.daily-driver";
 const LAUNCHCTL = "/bin/launchctl";
 const SECURITY = "/usr/bin/security";
-const EXPECT = "/usr/bin/expect";
+const SWIFT = "/usr/bin/swift";
 
 function xmlEscape(value) {
   return value
@@ -76,31 +76,30 @@ ${argumentXml}
 `;
 }
 
-export function keychainStoreInvocation() {
-  const script = `log_user 0
-set timeout 10
-gets stdin secret
-spawn /usr/bin/security add-generic-password -U -a ${KEYCHAIN_ACCOUNT} -s ${KEYCHAIN_SERVICE} -w
-expect {
-  -re {retype password for new item:} { send -- "$secret\r"; exp_continue }
-  -re {password data.*:} { send -- "$secret\r"; exp_continue }
-  eof {}
-  timeout { exit 124 }
+export function keychainHelperBuildInvocation(repoDir) {
+  const normalizedRepo = requireAbsolute(repoDir, "Repository path");
+  const packagePath = path.join(normalizedRepo, "native", "macos-authority-broker");
+  const helperPath = path.join(packagePath, ".build", "release", "chatgpt-system-keychain-helper");
+  return {
+    command: SWIFT,
+    args: ["build", "-c", "release", "--package-path", packagePath, "--product", "chatgpt-system-keychain-helper"],
+    helperPath,
+  };
 }
-catch wait result
-exit [lindex $result 3]
-`;
-  return { command: EXPECT, args: ["-c", script] };
+
+export function keychainStoreInvocation(helperPath) {
+  const command = requireAbsolute(helperPath, "Keychain helper path");
+  return { command, args: ["store", KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE] };
 }
 
 export function storeControlPlaneKey(key, options = {}) {
   if (!key) throw new Error("CONTROL_PLANE_API_KEY is required for daily-driver installation.");
   const spawnSyncImpl = options.spawnSync ?? spawnSync;
-  const invocation = keychainStoreInvocation();
+  const invocation = keychainStoreInvocation(options.helperPath);
   const result = spawnSyncImpl(invocation.command, invocation.args, {
     shell: false,
     encoding: "utf8",
-    input: `${key}\n`,
+    input: key,
     stdio: ["pipe", "pipe", "pipe"],
   });
   if (result.error || result.status !== 0) {
@@ -196,9 +195,11 @@ async function install(profile, context) {
     logDir,
   });
   const commands = buildLaunchctlCommands({ uid: context.uid, plistPath });
+  const keychainHelper = keychainHelperBuildInvocation(context.repoDir);
 
   await mkdir(logDir, { recursive: true, mode: 0o700 });
-  storeControlPlaneKey(key);
+  assertSuccess(runCommand(keychainHelper.command, keychainHelper.args), "Keychain helper build");
+  storeControlPlaneKey(key, { helperPath: keychainHelper.helperPath });
   await writePlistAtomic(plistPath, plist);
   runCommand(LAUNCHCTL, commands.bootout);
   assertSuccess(runCommand(LAUNCHCTL, commands.bootstrap), "launchctl bootstrap");

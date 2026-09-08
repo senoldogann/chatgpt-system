@@ -47,17 +47,16 @@ describe("macOS daily-driver setup", () => {
     })).toThrow(/absolute/i);
   });
 
-  it("stores the key through a silent TTY responder without putting the secret in argv", () => {
-    const invocation = keychainStoreInvocation();
-    expect(invocation.command).toBe("/usr/bin/expect");
-    expect(invocation.args[0]).toBe("-c");
-    expect(invocation.args.join(" ")).toContain("/usr/bin/security add-generic-password");
-    expect(invocation.args.join(" ")).toContain("log_user 0");
-    expect(invocation.args.join(" ")).toContain("retype password for new item");
+  it("stores the key through the native Keychain helper without transforming or exposing the secret", () => {
+    const helperPath = "/Users/test/chatgpt-system/native/macos-authority-broker/.build/release/chatgpt-system-keychain-helper";
+    const invocation = keychainStoreInvocation(helperPath);
+    expect(invocation.command).toBe(helperPath);
+    expect(invocation.args).toEqual(["store", "chatgpt-system", "chatgpt-system-control-plane"]);
     expect(invocation.args.join(" ")).not.toContain("sentinel-secret");
 
     const calls: Array<{ command: string; args: string[]; options: Record<string, unknown> }> = [];
     storeControlPlaneKey("sentinel-secret", {
+      helperPath,
       spawnSync: (command: string, args: string[], options: Record<string, unknown>) => {
         calls.push({ command, args, options });
         return { status: 0, stdout: "", stderr: "" };
@@ -65,9 +64,9 @@ describe("macOS daily-driver setup", () => {
     });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.command).toBe("/usr/bin/expect");
+    expect(calls[0]?.command).toBe(helperPath);
     expect(JSON.stringify(calls[0]?.args)).not.toContain("sentinel-secret");
-    expect(calls[0]?.options).toMatchObject({ input: "sentinel-secret\n" });
+    expect(calls[0]?.options).toMatchObject({ input: "sentinel-secret" });
   });
 
   it("constructs deterministic user-scoped launchctl commands", () => {
