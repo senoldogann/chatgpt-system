@@ -122,7 +122,7 @@ Managed children use Node `spawn` with:
 - a canonical authorized cwd;
 - a separate process group on supported POSIX hosts.
 
-`process_start` waits until the child has emitted `spawn` before returning success. An asynchronous spawn error fails the call and does not leave a registry entry.
+`process_start` waits until the child has emitted `spawn` before returning success. An asynchronous spawn error fails the call and does not leave a registry entry. A child may exit immediately after the `spawn` event, so the returned summary reflects the record's current state at response time rather than promising that it is still `running`.
 
 The current product target is macOS, with Linux CI support. Process-group signaling is used on POSIX. A non-POSIX fallback may signal only the direct child, but it must not invent arbitrary descendant discovery.
 
@@ -159,7 +159,7 @@ Each stream has its own bounded tail buffer. The default `maxProcessLogBytesPerS
 
 When a stream exceeds the limit, the oldest bytes are discarded and the buffer records `truncated: true`. This is tail semantics, which is more useful for development servers than retaining startup output forever.
 
-`process_logs` returns only the currently retained stdout/stderr tails plus byte/truncation metadata. It never reads arbitrary files from disk and never creates log files automatically.
+`process_logs` returns only the currently retained stdout/stderr tails plus byte/truncation metadata. Its `bytes` field is the number of bytes currently retained in that stream's tail buffer, not the lifetime total emitted by the child. It never reads arbitrary files from disk and never creates log files automatically.
 
 UTF-8 decoding uses replacement semantics for incomplete/malformed byte sequences. Log size is measured in bytes, not characters.
 
@@ -193,18 +193,7 @@ Input:
 }
 ```
 
-Output summary:
-
-```ts
-{
-  processId: string;
-  command: string;
-  argCount: number;
-  cwd: string;
-  state: "running";
-  startedAt: string;
-}
-```
+Output is one `ProcessSummary` representing the process state at response time. Normally the state is `running`, but an immediately exiting child may already be `exited`.
 
 No OS PID is returned.
 
@@ -278,7 +267,7 @@ type ProcessSummary = {
 };
 ```
 
-Argument values are deliberately omitted from list/status output. They remain only inside the private child invocation context and are not persisted after spawn beyond what Node itself requires.
+Argument values are deliberately omitted from list/status output. They remain only inside the private child invocation context and are not persisted in the managed-process record.
 
 ## 13. Configuration
 
