@@ -114,6 +114,10 @@ function defaultSpawn(
   return spawn(command, [...args], options);
 }
 
+function defaultSignal(target: number, signal: NodeJS.Signals): void {
+  process.kill(target, signal);
+}
+
 function newOpaqueProcessId(): string {
   return randomBytes(32).toString("base64url");
 }
@@ -138,6 +142,7 @@ export class ProcessSupervisor {
   private readonly now: () => number;
   private readonly newProcessId: () => string;
   private readonly spawnProcess: ManagedSpawn;
+  private readonly signalProcess: ManagedSignal;
   private pendingStarts = 0;
 
   constructor(private readonly options: ProcessSupervisorOptions) {
@@ -145,8 +150,7 @@ export class ProcessSupervisor {
     this.now = options.now ?? Date.now;
     this.newProcessId = options.newProcessId ?? newOpaqueProcessId;
     this.spawnProcess = options.spawnProcess ?? defaultSpawn;
-    void options.audit;
-    void options.signalProcess;
+    this.signalProcess = options.signalProcess ?? defaultSignal;
   }
 
   async start(input: { command: string; args: string[]; cwd: string }): Promise<ManagedProcessSummary> {
@@ -191,6 +195,10 @@ export class ProcessSupervisor {
         spawned = true;
         this.pendingStarts -= 1;
         child.off("error", onError);
+        child.on("error", () => {
+          // A post-spawn process error must not become an unhandled EventEmitter error.
+          // Lifecycle remains driven by the close event.
+        });
 
         const startedAtMs = this.now();
         let resolveClosed!: () => void;
@@ -213,7 +221,7 @@ export class ProcessSupervisor {
           resolveClosed,
         };
         this.records.set(record.processId, record);
-        resolve(summary(record));
+        void this.recordAudit("process.start", record).then(() => resolve(summary(record!)));
       });
 
       child.once("close", (exitCode, signal) => {
@@ -255,19 +263,80 @@ export class ProcessSupervisor {
     if (!record) return undefined;
     if (record.state !== "running") return summary(record);
 
-    record.terminationRequested = true;
-    record.child.kill("SIGKILL");
-    await record.closed;
+    await this.terminate(record);
+    await this.recordAudit("process.stop", record);
     return summary(record);
   }
 
   async close(): Promise<void> {
     const running = [...this.records.values()].filter((record) => record.state === "running");
     await Promise.all(running.map(async (record) => {
-      record.terminationRequested = true;
-      record.child.kill("SIGKILL");
-      await record.closed;
+      await this.terminate(record);
+      await this.recordAudit("process.stop", record);
     }));
+  }
+
+  private async terminate(record: ManagedRecord): Promise<void> {
+    if (record.state !== "running") return;
+    record.terminationRequested = true;
+    this.sendSignal(record, "SIGTERM");
+
+    const closedGracefully = await this.waitForClose(record, this.options.limits.processStopGraceMs);
+    if (!closedGracefully && record.state === "running") {
+      this.sendSignal(record, "SIGKILL");
+      await record.closed;
+    }
+  }
+
+  private sendSignal(record: ManagedRecord, signal: NodeJS.Signals): void {
+    const pid = record.child.pid;
+    if (pid === undefined) {
+      record.child.kill(signal);
+      return;
+    }
+
+    const target = this.platform === "win32" ? pid : -pid;
+    try {
+      this.signalProcess(target, signal);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  }
+
+  private async waitForClose(record: ManagedRecord, timeoutMs: number): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        resolve(false);
+      }, timeoutMs);
+      timer.unref();
+
+      void record.closed.then(() => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(true);
+      });
+    });
+  }
+
+  private async recordAudit(action: "process.start" | "process.stop", record: ManagedRecord): Promise<void> {
+    try {
+      await this.options.audit.record({
+        action,
+        outcome: "ok",
+        durationMs: 0,
+        metadata: {
+          command: record.command,
+          argCount: record.argCount,
+          state: record.state,
+        },
+      });
+    } catch {
+      // Process ownership and cleanup must remain available even if audit storage fails.
+    }
   }
 
   private reserveCapacity(): void {
