@@ -65,7 +65,7 @@ This mode materially increases the impact of a malicious or prompt-injected MCP 
 
 ## Daily-driver tunnel credential boundary
 
-The optional macOS daily-driver service is a user LaunchAgent, not a root daemon. The one-time installer reads `CONTROL_PLANE_API_KEY` from the operator's current environment and stores it in the macOS login Keychain through `/usr/bin/security`, with `/usr/bin/expect` acting only as a silent TTY responder. The secret enters the responder on stdin and is never placed in spawned argv.
+The optional macOS daily-driver service is a user LaunchAgent, not a root daemon. The one-time installer reads `CONTROL_PLANE_API_KEY` from the operator's current environment, builds the repository's small Swift Keychain helper, and sends the credential to that helper on stdin. The helper uses Apple's Security.framework (`SecItemUpdate`/`SecItemAdd`) so the credential is stored byte-for-byte without interactive TTY handling and is never placed in spawned argv.
 
 At runtime the wrapper retrieves that fixed Keychain item and places the value only in the `tunnel-client` child environment. The LaunchAgent plist contains only absolute executable/script paths, profile name, and log path. Runner stdout/stderr logs are bounded tails and intentionally do not include the key or environment dump.
 
