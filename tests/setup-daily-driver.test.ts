@@ -53,6 +53,7 @@ describe("macOS daily-driver setup", () => {
     expect(invocation.args[0]).toBe("-c");
     expect(invocation.args.join(" ")).toContain("/usr/bin/security add-generic-password");
     expect(invocation.args.join(" ")).toContain("log_user 0");
+    expect(invocation.args.join(" ")).toContain("retype password for new item");
     expect(invocation.args.join(" ")).not.toContain("sentinel-secret");
 
     const calls: Array<{ command: string; args: string[]; options: Record<string, unknown> }> = [];
