@@ -9,6 +9,7 @@ const saved = {
   maxManagedProcesses: process.env.CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES,
   maxProcessLogBytesPerStream: process.env.CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM,
   processStopGraceMs: process.env.CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS,
+  personalAdmin: process.env.CHATGPT_SYSTEM_PERSONAL_ADMIN,
 };
 
 function restoreEnv(key: keyof NodeJS.ProcessEnv, value: string | undefined): void {
@@ -22,9 +23,27 @@ afterEach(() => {
   restoreEnv("CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES", saved.maxManagedProcesses);
   restoreEnv("CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM", saved.maxProcessLogBytesPerStream);
   restoreEnv("CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS", saved.processStopGraceMs);
+  restoreEnv("CHATGPT_SYSTEM_PERSONAL_ADMIN", saved.personalAdmin);
 });
 
 describe("local authority control configuration", () => {
+
+  it("keeps personal admin disabled by default", async () => {
+    delete process.env.CHATGPT_SYSTEM_PERSONAL_ADMIN;
+    const config = await loadConfig({ roots: [process.cwd()] });
+    expect(config.personalAdmin).toEqual({ enabled: false });
+  });
+
+  it("enables personal admin through explicit runtime opt-in", async () => {
+    const config = await loadConfig({ roots: [process.cwd()], personalAdminEnabled: true });
+    expect(config.personalAdmin).toEqual({ enabled: true });
+  });
+
+  it("supports personal admin environment opt-in", async () => {
+    process.env.CHATGPT_SYSTEM_PERSONAL_ADMIN = "true";
+    const config = await loadConfig({ roots: [process.cwd()] });
+    expect(config.personalAdmin).toEqual({ enabled: true });
+  });
   it("is disabled by default and uses the private home socket path", async () => {
     delete process.env.CHATGPT_SYSTEM_ENABLE_CONTROL;
     delete process.env.CHATGPT_SYSTEM_CONTROL_SOCKET;

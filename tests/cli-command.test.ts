@@ -13,6 +13,15 @@ describe("CLI command routing", () => {
     });
   });
 
+  it("parses personal admin only as an explicit server flag", () => {
+    expect(parseCliCommand(["stdio", "--personal-admin"])).toEqual({
+      kind: "server",
+      mode: "stdio",
+      help: false,
+      overrides: { personalAdminEnabled: true },
+    });
+  });
+
   it("parses server control flags independently", () => {
     expect(parseCliCommand([
       "stdio",
@@ -42,5 +51,6 @@ describe("CLI command routing", () => {
   it("rejects server-only flags in authorize mode", () => {
     expect(() => parseCliCommand(["authorize", "user", "--root", "/tmp/project"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--enable-control"])).toThrow();
+    expect(() => parseCliCommand(["authorize", "admin", "--personal-admin"])).toThrow();
   });
 });
