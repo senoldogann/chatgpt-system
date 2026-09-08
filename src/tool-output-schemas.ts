@@ -29,6 +29,20 @@ export const systemCapabilitiesOutputSchema = z.object({
   }),
 });
 
+export const authorityLeaseOutputSchema = z.object({
+  leaseId: z.string(),
+  profile: z.enum(["project", "user", "admin"]),
+  roots: z.array(z.string()),
+  terminalEnabled: z.literal(true),
+  commands: z.array(z.string()),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+});
+
+export const authorityEndOutputSchema = z.object({
+  ended: z.literal(true),
+});
+
 export const fsListOutputSchema = z.object({
   path: z.string(),
   entries: z.array(z.object({

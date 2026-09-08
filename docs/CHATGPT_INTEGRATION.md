@@ -2,10 +2,13 @@
 
 This runbook connects `chatgpt-system` to a personal ChatGPT Developer Mode plugin through **OpenAI Secure MCP Tunnel** while keeping the Mac private.
 
-The Phase 1 architecture is:
+The current architecture is:
 
 ```text
-ChatGPT personal Plugin
+ChatGPT Web / Desktop
+        |
+        v
+personal Developer Mode Plugin
         |
         | OpenAI-hosted tunnel endpoint
         v
@@ -19,13 +22,17 @@ tunnel-client on the Mac
         v
 chatgpt-system
         |
-        +-- explicit filesystem root
-        +-- conflict-safe filesystem tools
-        +-- read-only Git inspection
-        +-- terminal disabled by default
+        v
+Session Authority Gateway
+        |
+        +-- Project lease
+        +-- User lease
+        +-- Admin lease
+        |
+        +-- filesystem / Git / terminal
 ```
 
-No raw MCP port needs to be exposed to the public internet.
+No raw MCP port needs to be exposed to the public internet. ChatGPT Web is the canonical acceptance path. Desktop uses the same installed plugin/backend after the web path is verified.
 
 ## Current OpenAI references
 
@@ -34,7 +41,7 @@ No raw MCP port needs to be exposed to the public internet.
 - Plugin build guide: https://developers.openai.com/plugins/build/plugins
 - Public submission: https://developers.openai.com/plugins/deploy/submission
 
-OpenAI's current Plugin Quickstart explicitly demonstrates a personal plugin in **ChatGPT Work**. Normal **Chat** availability is therefore an acceptance test in this project, not a claim made in advance.
+OpenAI's current personal-plugin quickstart explicitly demonstrates Work. Normal Chat availability is therefore tested separately instead of being inferred from Work.
 
 ## Prerequisites
 
@@ -42,54 +49,44 @@ You need:
 
 1. ChatGPT Developer Mode enabled under **Settings → Security and login**.
 2. Node.js 22 or newer.
-3. `tunnel-client` from OpenAI's current release.
-4. A Secure MCP Tunnel ID from OpenAI Platform tunnel settings.
-5. Platform tunnel permissions required by your organization/account.
-6. A runtime credential available to `tunnel-client`, normally through `CONTROL_PLANE_API_KEY` or the credential mechanism supported by your installed tunnel-client version.
+3. `tunnel-client`.
+4. A Secure MCP Tunnel ID from OpenAI Platform.
+5. The tunnel associated with the ChatGPT workspace/context that should discover it.
+6. A runtime credential available to `tunnel-client`, normally through `CONTROL_PLANE_API_KEY` or the mechanism supported by the installed tunnel-client version.
 
-Do not put the runtime credential in this repository, command history, `.env.example`, or a tunnel setup argument.
+Never put the runtime credential in this repository, command history, `.env.example`, MCP arguments, or ChatGPT messages.
 
-For a personal account, follow OpenAI's current tunnel documentation and use the personal Platform organization associated with that account. The tunnel must also be associated with the ChatGPT context that should be able to discover it.
-
-## 1. Install and verify the repository
+## 1. Install or update the repository
 
 ```bash
-git clone https://github.com/senoldogann/chatgpt-system.git
-cd chatgpt-system
+cd ~/chatgpt-system
+git checkout main
+git pull
 npm install
 npm run check
 ```
 
-Choose the **smallest** project directory ChatGPT should be allowed to access. The setup helper rejects `/`, a relative path, and your entire home directory.
+During development of an unmerged feature branch, check out that branch explicitly before building.
 
-## 2. Use a disposable fixture for the first write test
+## 2. Keep a disposable bootstrap root
 
-Do not make the first experiment against a valuable repository. Create a tiny disposable Git repository instead:
+The Secure MCP Tunnel profile still launches the MCP server with a small bootstrap root. Use a disposable project while validating new authority behavior:
 
 ```bash
+rm -rf /tmp/chatgpt-system-acceptance
 mkdir -p /tmp/chatgpt-system-acceptance
 cd /tmp/chatgpt-system-acceptance
 git init
 printf 'before\n' > fixture.txt
 git add fixture.txt
-git commit -m 'test fixture'
+git commit -m 'test fixture' || true
 ```
 
-If your Git identity is not configured, the commit is optional for read/write testing, but `git_diff` is easiest to inspect in a real Git repository.
+The bootstrap root is not a permanent global authority grant. Broader Project/User/Admin access is issued only through an active session lease.
 
-## 3. Generate and validate the Secure MCP Tunnel profile
+## 3. Generate and validate the tunnel profile
 
-From the `chatgpt-system` repository:
-
-```bash
-npm run setup:chatgpt -- \
-  --root /tmp/chatgpt-system-acceptance \
-  --tunnel-id tunnel_xxxxxxxxxxxxxxxx
-```
-
-Without `--doctor` or `--run`, the command is a dry setup: it validates arguments and prints the non-secret profile commands it would use. Terminal access stays disabled.
-
-When your runtime tunnel credential is available in the environment, create the profile and run OpenAI's doctor checks:
+From the repository:
 
 ```bash
 npm run setup:chatgpt -- \
@@ -98,58 +95,49 @@ npm run setup:chatgpt -- \
   --doctor
 ```
 
-The helper performs these checks before claiming readiness:
-
-- `dist/cli.js` exists;
-- the allowed root exists and is a directory;
-- `tunnel-client` is available;
-- `tunnel-client init` succeeds;
-- `tunnel-client doctor --profile chatgpt-system --explain` succeeds.
-
-It launches the local MCP target with an equivalent command to:
+Expected final doctor result:
 
 ```text
-node /absolute/path/to/chatgpt-system/dist/cli.js stdio --root /tmp/chatgpt-system-acceptance
+RESULT ok
+NEXT tunnel-client run --profile chatgpt-system
 ```
 
 The helper never accepts or prints the control-plane API key.
 
 ## 4. Run the tunnel
 
-After doctor succeeds:
-
 ```bash
 tunnel-client run --profile chatgpt-system
 ```
 
-Keep this process running while ChatGPT discovers or calls the MCP tools.
+Keep this process alive while ChatGPT discovers or calls tools. The local UI should report health/live and readiness/ready.
 
-You can alternatively perform init + doctor + run in one invocation:
+After changing MCP descriptors, schemas, or tools, rebuild/restart the local target if required and use **Refresh** on the ChatGPT plugin so the tool catalog is rescanned.
 
-```bash
-npm run setup:chatgpt -- \
-  --root /tmp/chatgpt-system-acceptance \
-  --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
-  --run
-```
-
-## 5. Create the personal Plugin in ChatGPT
+## 5. Create or refresh the personal Plugin
 
 In ChatGPT:
 
-1. Open **Settings → Security and login** and confirm **Developer mode** is ON.
+1. Confirm **Developer mode** is ON.
 2. Open **Plugins**.
-3. Select the **+** button to create a personal Developer Mode plugin.
-4. Choose **Tunnel** under **Connection**.
-5. Select the configured tunnel, or paste its valid tunnel ID if the UI offers that path.
-6. Scan/discover the MCP tools.
-7. Verify the discovered tool set before installing the plugin.
-8. Install the personal plugin.
+3. Create a personal Developer Mode plugin with **Connection: Tunnel**, or open the existing plugin.
+4. Select the configured tunnel or enter its tunnel ID.
+5. Authentication is **None** for this local stdio target; tunnel-client handles the OpenAI control-plane connection separately.
+6. Discover/refresh tools.
+7. Inspect the schemas before granting action permissions.
 
-Expected initial tools:
+Expected authority tools:
 
 ```text
 system_capabilities
+session_authority_start
+session_authority_status
+session_authority_end
+```
+
+Expected privileged tools:
+
+```text
 fs_list
 fs_stat
 fs_read
@@ -164,88 +152,210 @@ git_log
 terminal_run
 ```
 
-`terminal_run` may be discoverable, but the server must report it as **disabled** in the default profile. Calling it should fail closed until the local server is deliberately restarted with terminal enabled.
+Every privileged filesystem/Git/terminal schema must contain a required `authorityLeaseId`.
 
-## 6. Acceptance Test A: ChatGPT Work
+## 6. Session authority model
 
-Open the ChatGPT homepage, switch from **Chat** to **Work**, start a fresh Work conversation, type `@`, and explicitly select the personal plugin.
+Each new workflow starts with **no privileged lease**.
 
-Run the following sequence against the disposable fixture:
+Call `session_authority_start` once and choose exactly one profile:
 
-1. Ask it to call `system_capabilities` and confirm the only configured root is `/tmp/chatgpt-system-acceptance`.
-2. Call `fs_list` on `.`.
-3. Call `fs_read` on `fixture.txt` and keep the returned SHA-256.
-4. Call `fs_apply_patch` or `fs_write` with that `expectedSha256` to change `before` to `after`.
-5. Repeat a mutation using the now-stale old SHA-256; it must fail with `CONFLICT`.
-6. Call `git_diff`; it must show only the intended fixture change.
-7. Attempt to read a path outside the allowed root, for example `../outside.txt`; the policy must reject it.
-8. Confirm terminal execution remains disabled.
+### A. Project Full Access
 
-Do not proceed to a valuable project until this sequence behaves exactly as expected.
-
-## 7. Acceptance Test B: normal Chat
-
-Only after Work passes:
-
-1. Open a normal **Chat** conversation.
-2. Look for the personal plugin through `@` or the plugin picker available in that surface.
-3. If it can be invoked, repeat the read-only portion of the smoke test first.
-4. Perform one guarded write only on the disposable fixture.
-
-Record the actual observed product behavior. Do not infer support from the Work result.
-
-### If normal Chat works
-
-Phase 1 has reached the actual project goal. Keep the private tunnel architecture and do not build a cloud relay merely for entertainment.
-
-### If normal Chat does not expose or permit the personal plugin
-
-Record the exact UI limitation/error. That result triggers a separate Phase 2 design for a **submission-ready public Plugin + stable HTTPS MCP gateway + private device relay**. Do not expose the Mac directly or improvise a public reverse proxy as a permanent solution.
-
-## Terminal access is a separate decision
-
-The initial acceptance test does not require terminal execution.
-
-If terminal is deliberately enabled later:
-
-```bash
-npm run setup:chatgpt -- \
-  --root /absolute/path/to/project \
-  --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
-  --enable-terminal \
-  --allow-command git \
-  --allow-command node \
-  --allow-command npm
+```json
+{
+  "profile": "project",
+  "projectRoots": ["/absolute/path/to/project"]
+}
 ```
 
-`terminal_run` uses `shell=false`, an executable allowlist, bounded output/time, and an allowed working directory. It is still **not an OS sandbox**. An interpreter, package manager, compiler, or build tool can exercise the permissions of the OS user running it.
+Maximum TTL: **8 hours**.
 
-For hard process isolation, use a container, VM, or dedicated OS account.
+The project roots must be explicit existing directories. `/` and the entire current-user home directory are rejected for Project mode.
 
-## HTTP mode remains local/trusted
+### B. User Full Access
 
-Authenticated Streamable HTTP is still useful for local clients and integration tests:
-
-```bash
-node dist/cli.js http \
-  --root /absolute/path/to/project \
-  --token '<long-random-secret>'
+```json
+{
+  "profile": "user"
+}
 ```
 
-The default endpoint is `http://127.0.0.1:4312/mcp`. It is loopback-only by default and applies Host/Origin validation guards.
+Maximum TTL: **4 hours**.
 
-Do **not** expose this raw listener directly to the public internet for the personal-plugin path. Secure MCP Tunnel exists specifically so that is unnecessary.
+Scope is the canonical current-user home directory.
+
+### C. Machine Admin scope, Phase 1
+
+```json
+{
+  "profile": "admin"
+}
+```
+
+Maximum TTL: **1 hour**.
+
+Scope is `/`, but Phase 1 still executes as the OS user running `chatgpt-system`. This is host-wide filesystem/process scope where normal macOS permissions allow it; it is **not yet root elevation**.
+
+Native macOS authorization/Touch ID is implemented in a later Privilege Broker phase. Phase 1 never gives ChatGPT a password, Touch ID material, reusable sudo credential, or Keychain secret.
+
+## 7. Reuse the lease on every privileged call
+
+`session_authority_start` returns an opaque `leaseId`. Use that exact value as `authorityLeaseId` on every filesystem/Git/terminal call in that workflow.
+
+Example:
+
+```text
+session_authority_start(project)
+        |
+        | leaseId = <opaque value>
+        v
+fs_read({ authorityLeaseId, path: "fixture.txt" })
+        |
+        | sha256
+        v
+fs_write({ authorityLeaseId, path: "fixture.txt", expectedSha256, ... })
+        |
+        v
+terminal_run({ authorityLeaseId, command: "git", args: ["status", "--short"], cwd: "." })
+        |
+        v
+session_authority_end({ authorityLeaseId })
+```
+
+Do not copy a lease into another conversation. Expiry, explicit end, or server restart revokes it.
+
+## 8. Web acceptance: Project profile
+
+Run this first in ChatGPT Web against `/tmp/chatgpt-system-acceptance`:
+
+1. `system_capabilities`.
+2. `session_authority_start` with `profile=project` and project root `/tmp/chatgpt-system-acceptance`.
+3. `fs_read` `fixture.txt` with the returned `authorityLeaseId` and keep the SHA-256.
+4. `fs_write` or `fs_apply_patch` using the same lease and `expectedSha256`.
+5. Repeat a mutation with the stale old hash and confirm `CONFLICT`.
+6. `terminal_run` with `command=git`, `args=["status", "--short"]`, cwd inside the fixture.
+7. Try `sh -c ...`; it must be rejected because `terminal_run` is an executable allowlist with `shell=false`.
+8. Attempt a sibling/outside path; it must fail with `POLICY_DENIED`.
+9. Call `session_authority_end`.
+10. Retry `fs_read` or `fs_write` with the ended lease; it must fail with `AUTHORITY_REQUIRED`.
+
+The bootstrap `system_capabilities.terminal.enabled` value can still be false. Session authority has a separate explicit `terminalEnabled: true` state and scoped runtime.
+
+## 9. Web acceptance: User profile
+
+After the Project fixture succeeds:
+
+1. Create a harmless disposable file under your home directory.
+2. Start `profile=user`.
+3. Read/write only that disposable file.
+4. Confirm a path outside home is denied by the lease scope.
+5. End the lease.
+
+Do not use User mode as the default for ordinary coding when Project mode is sufficient.
+
+## 10. Web acceptance: Admin profile, Phase 1
+
+After Project and User pass:
+
+1. Start `profile=admin`.
+2. Read a benign system-readable file/path outside the home directory.
+3. Run a harmless allowlisted command in an allowed cwd.
+4. Verify operations still run as the current OS user.
+5. End the lease.
+
+Do **not** test destructive system changes, sudo, PAM edits, or privilege escalation in Phase 1. Touch ID/native elevation belongs to the dedicated Privilege Broker phase.
+
+## 11. Work and normal Chat are separate product tests
+
+### Work
+
+Open a fresh Work conversation, select the plugin, and run the Project-profile acceptance sequence.
+
+### Normal Chat
+
+Open a fresh normal Chat conversation and verify the same installed personal plugin is actually available in that surface. If available, repeat a read-only Project test first, then one guarded write.
+
+Do not infer normal Chat support merely because Work succeeds.
+
+## 12. Desktop acceptance
+
+Only after the Web plugin path is stable:
+
+1. Open ChatGPT Desktop.
+2. Confirm the same installed plugin is visible.
+3. Use the plugin-backed path, not a separate permanent authority implementation.
+4. Start a fresh Project lease and repeat the disposable read/write/terminal/end sequence.
+
+A locally listed STDIO MCP configuration is not treated as proof that normal Chat tool routing uses it. The personal plugin + tunnel path remains canonical.
+
+## Terminal security
+
+Session authority enables `terminal_run`, but it remains deliberately structured:
+
+- `spawn(..., { shell: false })` semantics;
+- executable allowlist;
+- cwd confinement from the active lease;
+- bounded output/time;
+- sanitized environment;
+- no arbitrary shell pipelines/redirection/compound syntax in Phase 1;
+- no OS sandbox.
+
+The current default command set is:
+
+```text
+git node npm npx pnpm bun deno python3 go cargo swift swiftc xcodebuild make cmake
+```
+
+Interpreters, compilers, package managers, and build tools execute with the OS account's real permissions. Use Project mode whenever possible.
+
+## Audit behavior
+
+Default audit location:
+
+```text
+~/.chatgpt-system/audit.jsonl
+```
+
+Authority lifecycle events record:
+
+- `authority.start`
+- `authority.end`
+- `authority.expired`
+- profile
+- root count
+- SHA-256 scope digest
+- expiry on start
+
+Raw lease IDs are never written to authority audit metadata. File contents, passwords, runtime API keys, secure-field contents, Touch ID data, and Keychain secret values are not added to audit output.
 
 ## Troubleshooting order
 
 If ChatGPT cannot discover or call the plugin:
 
-1. Run `tunnel-client doctor --profile chatgpt-system --explain`.
-2. Confirm `tunnel-client run --profile chatgpt-system` is still healthy.
-3. Confirm the tunnel is associated with the intended Platform organization and ChatGPT context.
-4. Confirm Developer Mode is still enabled.
-5. Re-scan the Plugin tools after descriptor changes.
-6. Check the local `chatgpt-system` audit log for the attempted operation metadata.
-7. Test `system_capabilities` before attempting any mutation.
+1. `tunnel-client doctor --profile chatgpt-system --explain`
+2. Confirm `tunnel-client run --profile chatgpt-system` is healthy.
+3. Confirm tunnel organization + ChatGPT workspace association.
+4. Confirm Developer Mode.
+5. Pull/build the expected repository revision.
+6. Refresh the personal Plugin tools after schema changes.
+7. Call `system_capabilities`.
+8. Start a new authority lease.
+9. Confirm every privileged call carries `authorityLeaseId`.
+10. Inspect the local audit log for non-secret operation evidence.
 
-Never respond to a connectivity problem by broadening the filesystem root or enabling terminal access. Those actions increase authority and do not repair a tunnel association.
+A connectivity failure is not fixed by widening authority. Do not respond to a stale plugin catalog by granting User/Admin mode; refresh the tool descriptors instead.
+
+## Current phase boundaries
+
+Phase 1 provides session-scoped A/B/C filesystem/Git/terminal authority.
+
+Not yet implemented in this phase:
+
+- unrestricted `shell_run`;
+- build/test/repair Developer Executor orchestration;
+- native macOS Privilege Broker / Touch ID elevation;
+- `computer-use` screenshot/mouse/keyboard bridge;
+- launchd-managed persistent runtime.
+
+Those are separate planned phases built on top of this authority core.

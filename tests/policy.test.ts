@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PathPolicy } from "../src/policy.js";
@@ -39,6 +39,22 @@ describe("PathPolicy", () => {
 
     const policy = new PathPolicy([linkedRoot]);
     await expect(policy.resolve("file.txt")).resolves.toBe(path.join(linkedRoot, "file.txt"));
+  });
+
+  it("accepts an absolute path through a symlink alias of a canonical allowed root", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-policy-canonical-alias-"));
+    cleanups.push(base);
+    const realRoot = path.join(base, "real-root");
+    const linkedRoot = path.join(base, "linked-root");
+    await mkdir(realRoot);
+    await symlink(realRoot, linkedRoot, "dir");
+    await writeFile(path.join(realRoot, "file.txt"), "ok");
+
+    const canonicalRoot = await realpath(realRoot);
+    const policy = new PathPolicy([canonicalRoot]);
+    const aliasedFile = path.join(linkedRoot, "file.txt");
+
+    await expect(policy.resolve(aliasedFile)).resolves.toBe(aliasedFile);
   });
 
   it("rejects lexical traversal outside a root", async () => {

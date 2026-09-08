@@ -3,10 +3,12 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AuditLogger } from "../src/audit.js";
+import { AuthorityManager } from "../src/authority.js";
 import type { AppConfig } from "../src/config.js";
 import { PolicyError } from "../src/errors.js";
 import { PathPolicy } from "../src/policy.js";
 import { ProcessService } from "../src/process-service.js";
+import { createScopedRuntime } from "../src/scoped-runtime.js";
 
 const cleanups: string[] = [];
 
@@ -32,22 +34,39 @@ async function fixture(enabled: boolean) {
       commandTimeoutMs: 1_000,
     },
   };
-  return new ProcessService(new PathPolicy([root]), new AuditLogger(config.auditFile), config);
+  return { base, root, config, service: new ProcessService(new PathPolicy([root]), new AuditLogger(config.auditFile), config) };
 }
 
 describe("ProcessService", () => {
   it("is disabled by default/policy", async () => {
-    const service = await fixture(false);
+    const { service } = await fixture(false);
     await expect(service.run("node", ["--version"])).rejects.toBeInstanceOf(PolicyError);
   });
 
   it("rejects executables outside the allowlist", async () => {
-    const service = await fixture(true);
+    const { service } = await fixture(true);
     await expect(service.run("sh", ["-c", "echo nope"])).rejects.toBeInstanceOf(PolicyError);
   });
 
   it("rejects executable paths even if the basename is allowlisted", async () => {
-    const service = await fixture(true);
+    const { service } = await fixture(true);
     await expect(service.run("/usr/bin/node", ["--version"])).rejects.toBeInstanceOf(PolicyError);
+  });
+
+  it("enables terminal through a project lease without weakening command or cwd policy", async () => {
+    const { base, root, config } = await fixture(false);
+    const sibling = path.join(base, "sibling");
+    await mkdir(sibling);
+
+    const authority = new AuthorityManager({ homeDir: base, commands: ["node"] });
+    const lease = await authority.start({ profile: "project", projectRoots: [root] });
+    const scoped = createScopedRuntime({ config, audit: new AuditLogger(config.auditFile) }, authority.resolve(lease.leaseId));
+
+    await expect(scoped.process.run("sh", ["-c", "echo nope"], root)).rejects.toBeInstanceOf(PolicyError);
+    await expect(scoped.process.run("node", ["--version"], sibling)).rejects.toBeInstanceOf(PolicyError);
+
+    const result = await scoped.process.run("node", ["--version"], root);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/^v\d+/);
   });
 });
