@@ -3,19 +3,23 @@ import { AuditLogger } from "./audit.js";
 import type { AppConfig } from "./config.js";
 import { FileSystemService } from "./fs-service.js";
 import { GitService } from "./git-service.js";
+import { ManagedProcessService } from "./managed-process-service.js";
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
+import type { ProcessSupervisor } from "./process-supervisor.js";
 
 export interface ScopedRuntime {
   policy: PathPolicy;
   fs: FileSystemService;
   git: GitService;
   process: ProcessService;
+  processes: ManagedProcessService;
 }
 
 export interface ScopedRuntimeBase {
   config: AppConfig;
   audit: AuditLogger;
+  processSupervisor: ProcessSupervisor;
 }
 
 export function createScopedRuntime(base: ScopedRuntimeBase, authority: AuthorityContext): ScopedRuntime {
@@ -34,5 +38,6 @@ export function createScopedRuntime(base: ScopedRuntimeBase, authority: Authorit
     fs: new FileSystemService(policy, base.audit, config.limits),
     git: new GitService(policy, base.audit, config),
     process: new ProcessService(policy, base.audit, config),
+    processes: new ManagedProcessService(policy, config.terminal, base.processSupervisor),
   };
 }

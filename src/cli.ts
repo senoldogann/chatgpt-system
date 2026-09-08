@@ -3,6 +3,7 @@ import { runAuthorizeCommand } from "./authorize-cli.js";
 import { parseCliCommand } from "./cli-command.js";
 import { loadConfig, resolveControlSocketPath } from "./config.js";
 import { startControlServer, type ControlServerHandle } from "./control-server.js";
+import { closeRuntimeResources, type RuntimeShutdownPhase } from "./runtime-shutdown.js";
 import { createRuntimeServices } from "./server.js";
 import { startHttp, startStdio } from "./transport.js";
 
@@ -34,7 +35,8 @@ Authorize options:
 Security:
   Filesystem tools are confined to active authority lease roots and reject symlink escapes.
   Existing file writes/removals require the SHA-256 returned by fs_read/fs_stat.
-  Project and User authority have no terminal capability. Admin alone can use the bounded terminal allowlist.
+  Project and User authority have no terminal capability. Admin alone can use the bounded terminal/process allowlist.
+  Managed process tools expose opaque IDs only; callers cannot provide OS PIDs, signals, shell mode, or child environments.
   User/Admin authority is approved locally through the protected macOS broker; credentials and biometric material never enter MCP.
 `);
 }
@@ -52,6 +54,10 @@ function installShutdown(close: () => Promise<void>): void {
   };
   process.once("SIGINT", handler);
   process.once("SIGTERM", handler);
+}
+
+function reportShutdownError(phase: RuntimeShutdownPhase, error: unknown): void {
+  console.error(`[chatgpt-system] shutdown ${phase} error: ${error instanceof Error ? error.message : String(error)}`);
 }
 
 async function closeControl(control: ControlServerHandle | undefined): Promise<void> {
@@ -92,10 +98,12 @@ async function main(): Promise<void> {
 
     if (command.mode === "stdio") {
       const stdio = startStdio(runtime);
-      installShutdown(async () => {
-        await closeControl(control);
-        await stdio.close();
-      });
+      installShutdown(() => closeRuntimeResources({
+        runtime,
+        ...(control ? { control } : {}),
+        closeTransport: () => stdio.close(),
+        reportError: reportShutdownError,
+      }));
       console.error(
         `[chatgpt-system] stdio ready; roots=${config.roots.join(",")}; terminal=${config.terminal.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`,
       );
@@ -106,13 +114,20 @@ async function main(): Promise<void> {
     server.once("listening", () => {
       console.error(`[chatgpt-system] HTTP MCP listening on http://${config.http.host}:${config.http.port}/mcp; control=${config.control.enabled ? config.control.socketPath : "disabled"}`);
     });
-    installShutdown(async () => {
-      await closeControl(control);
-      await new Promise<void>((resolve, reject) => {
+    installShutdown(() => closeRuntimeResources({
+      runtime,
+      ...(control ? { control } : {}),
+      closeTransport: () => new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
-      });
-    });
+      }),
+      reportError: reportShutdownError,
+    }));
   } catch (error) {
+    try {
+      await runtime.processSupervisor.close();
+    } catch {
+      // Startup failure still continues local cleanup below.
+    }
     await closeControl(control);
     throw error;
   }

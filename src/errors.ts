@@ -27,6 +27,12 @@ export class LimitError extends AppError {
   }
 }
 
+export class ProcessNotFoundError extends AppError {
+  constructor(message = "The managed process was not found.") {
+    super(message, "PROCESS_NOT_FOUND");
+  }
+}
+
 export class AuthorityRequiredError extends AppError {
   constructor(message = "An active authority lease is required.", details?: Record<string, unknown>) {
     super(message, "AUTHORITY_REQUIRED", details);

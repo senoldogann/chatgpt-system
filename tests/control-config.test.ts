@@ -6,13 +6,22 @@ import { loadConfig } from "../src/config.js";
 const saved = {
   enableControl: process.env.CHATGPT_SYSTEM_ENABLE_CONTROL,
   controlSocket: process.env.CHATGPT_SYSTEM_CONTROL_SOCKET,
+  maxManagedProcesses: process.env.CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES,
+  maxProcessLogBytesPerStream: process.env.CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM,
+  processStopGraceMs: process.env.CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS,
 };
 
+function restoreEnv(key: keyof NodeJS.ProcessEnv, value: string | undefined): void {
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+}
+
 afterEach(() => {
-  if (saved.enableControl === undefined) delete process.env.CHATGPT_SYSTEM_ENABLE_CONTROL;
-  else process.env.CHATGPT_SYSTEM_ENABLE_CONTROL = saved.enableControl;
-  if (saved.controlSocket === undefined) delete process.env.CHATGPT_SYSTEM_CONTROL_SOCKET;
-  else process.env.CHATGPT_SYSTEM_CONTROL_SOCKET = saved.controlSocket;
+  restoreEnv("CHATGPT_SYSTEM_ENABLE_CONTROL", saved.enableControl);
+  restoreEnv("CHATGPT_SYSTEM_CONTROL_SOCKET", saved.controlSocket);
+  restoreEnv("CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES", saved.maxManagedProcesses);
+  restoreEnv("CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM", saved.maxProcessLogBytesPerStream);
+  restoreEnv("CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS", saved.processStopGraceMs);
 });
 
 describe("local authority control configuration", () => {
@@ -59,5 +68,33 @@ describe("local authority control configuration", () => {
       controlEnabled: true,
       controlSocketPath: "relative/control.sock",
     })).rejects.toThrow(/control socket/i);
+  });
+
+  it("uses bounded managed-process defaults", async () => {
+    delete process.env.CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES;
+    delete process.env.CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM;
+    delete process.env.CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS;
+
+    const config = await loadConfig({ roots: [process.cwd()] });
+
+    expect(config.limits).toMatchObject({
+      maxManagedProcesses: 32,
+      maxProcessLogBytesPerStream: 131_072,
+      processStopGraceMs: 3_000,
+    });
+  });
+
+  it("accepts positive managed-process limits from the environment", async () => {
+    process.env.CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES = "7";
+    process.env.CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM = "4096";
+    process.env.CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS = "250";
+
+    const config = await loadConfig({ roots: [process.cwd()] });
+
+    expect(config.limits).toMatchObject({
+      maxManagedProcesses: 7,
+      maxProcessLogBytesPerStream: 4_096,
+      processStopGraceMs: 250,
+    });
   });
 });

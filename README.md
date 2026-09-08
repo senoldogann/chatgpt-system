@@ -1,4 +1,4 @@
-# Chatgpt-system
+# chatgpt-system
 
 Secure local MCP authority gateway for controlled filesystem, Git, process, and future computer-use access from ChatGPT-compatible MCP clients.
 
@@ -22,13 +22,14 @@ Current foundation:
 - SHA-256 optimistic locking for destructive file changes
 - atomic file replacement and unified-diff patching
 - Git status/diff/log tools
-- Admin-only allowlisted process execution with `shell=false`
-- JSONL audit trail with redacted authority lifecycle metadata
+- Admin-only allowlisted one-shot process execution with `shell=false`
+- Admin-only managed process supervision with opaque IDs, bounded logs, and process-group cleanup
+- JSONL audit trail with redacted authority and managed-process lifecycle metadata
 - localhost Host/Origin validation for HTTP mode
 - real MCP client integration coverage
 - Node 22 / Node 24 CI plus native macOS build/install verification
 
-The Local Authority CLI is being completed on `feat/local-authority-cli`. It is stacked on the native authority-broker work until final real-Mac acceptance is complete.
+The authority broker, local authorization CLI, and managed process supervisor are implemented on the shared runtime. The next capability layer is the separate Computer-Use Bridge rather than widening process execution into a generic shell.
 
 ## Requirements
 
@@ -86,7 +87,7 @@ See [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md) for the full runb
 
 Every privileged filesystem/Git/process call carries an opaque `authorityLeaseId`. The capability mapping is fixed by local trusted code and cannot be overridden by MCP input.
 
-| Profile | Scope | Maximum lease | Terminal | Authority creation |
+| Profile | Scope | Maximum lease | Terminal/process start | Authority creation |
 | --- | --- | ---: | --- | --- |
 | `project` | Explicit project root(s) | 8 hours | **No** | MCP `session_authority_start` |
 | `user` | Canonical current-user home | 4 hours | **No** | Local CLI + macOS authentication |
@@ -193,7 +194,7 @@ The installer never accepts a password, destination override, helper override, o
 
 ## Admin is not root
 
-An Admin lease provides host-wide filesystem scope where the current OS account has permission and enables the structured `terminal_run` tool. It does **not** grant UID 0 and it does not cache or expose a sudo credential.
+An Admin lease provides host-wide filesystem scope where the current OS account has permission and enables structured one-shot and managed process tools. It does **not** grant UID 0 and it does not cache or expose a sudo credential.
 
 True root-only operations are intentionally deferred to a typed macOS ServiceManagement/XPC privileged helper. This project does not use password piping, `sudo -S`, PAM edits, passwordless sudo rules, or a reusable root shell.
 
@@ -216,7 +217,12 @@ True root-only operations are intentionally deferred to a typed macOS ServiceMan
 | `git_status` | Read status | Lease ID |
 | `git_diff` | Read working/staged diff | Lease ID |
 | `git_log` | Read recent commits | Lease ID |
-| `terminal_run` | Run one allowlisted executable with `shell=false` | **Admin lease only** |
+| `terminal_run` | Run one bounded allowlisted executable with `shell=false` | **Admin lease only** |
+| `process_start` | Start an allowlisted managed process and return an opaque ID | **Admin lease only** |
+| `process_list` | List managed processes compatible with the current authority scope | Terminal-capable compatible lease |
+| `process_status` | Inspect one compatible managed process | Terminal-capable compatible lease |
+| `process_logs` | Read bounded in-memory stdout/stderr tails | Terminal-capable compatible lease |
+| `process_stop` | Idempotently stop one compatible managed process | Terminal-capable compatible lease |
 
 Every MCP tool declares explicit safety annotations and an output schema. Successful calls return readable text plus validated `structuredContent`.
 
@@ -238,7 +244,7 @@ Creating a brand-new file does not require `expectedSha256`.
 - uses `shell=false`;
 - requires an allowlisted executable basename;
 - rejects executable-path substitution;
-- confines `cwd` to the Admin lease roots;
+- confines `cwd` to the active authority roots;
 - sanitizes the environment;
 - bounds runtime and output;
 - is **not** an OS sandbox.
@@ -251,6 +257,42 @@ git node npm npx pnpm bun deno python3 go cargo swift swiftc xcodebuild make cma
 
 An Admin process still executes with the permissions of the OS account running `chatgpt-system`.
 
+## Managed process supervision
+
+Long-lived development processes use the separate managed-process surface instead of trying to keep `terminal_run` alive indefinitely:
+
+```text
+process_start -> process_status/process_logs -> process_stop
+       |
+       +-> process_list
+```
+
+The daemon owns the real child handles and process-group identifiers. MCP sees only cryptographically random opaque process IDs. Callers cannot provide or retrieve OS PIDs, process-group IDs, signal names, shell mode, detached mode, or child environment overrides.
+
+Managed process safeguards:
+
+- process start requires terminal-capable authority, currently Admin;
+- executable basename and allowlist rules are shared with `terminal_run`;
+- cwd is resolved through the active lease `PathPolicy`;
+- unknown and unauthorized IDs both return `PROCESS_NOT_FOUND`;
+- the registry defaults to 32 in-memory records;
+- stdout and stderr each keep a bounded 128 KiB tail by default;
+- POSIX children run in their own process group;
+- stop sends `SIGTERM`, waits up to 3 seconds by default, then escalates to `SIGKILL` internally if needed;
+- clean daemon shutdown attempts to terminate all managed children before closing the control socket and transport.
+
+A compatible later Admin lease can recover and stop a process created by an earlier expired/revoked Admin lease. Revoking the original lease alone does not kill the child.
+
+Managed records and logs are not persisted. An abrupt daemon crash can leave a detached child alive, and the next daemon deliberately does not sweep arbitrary PIDs because it cannot prove ownership safely. Managed execution is still the current OS user, not root, and is not an OS sandbox.
+
+Configuration defaults:
+
+```text
+CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES=32
+CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM=131072
+CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS=3000
+```
+
 ## Audit log
 
 Default location:
@@ -259,16 +301,15 @@ Default location:
 ~/.chatgpt-system/audit.jsonl
 ```
 
-Authority logs contain categorical lifecycle metadata only. Raw lease IDs, approval request IDs, passwords, API keys, biometric material, secure-field contents, file contents, and command output are not copied into authority audit metadata.
+Authority and process lifecycle logs contain categorical metadata only. Raw lease IDs, approval request IDs, managed-process IDs, argument values, environments, passwords, API keys, biometric material, secure-field contents, file contents, stdout, and stderr are not copied into audit metadata.
 
 ## Capability roadmap
 
-The next capability layers are intentionally separate instead of becoming one giant unrestricted shell:
+Process Supervisor is implemented. The remaining capability layers stay separate rather than collapsing into one unrestricted local shell:
 
-1. **Process Supervisor**: `process_start`, `process_list`, `process_status`, `process_stop`, `process_logs`, with an opaque process registry, bounded logs, process-group cleanup, and authority-aware policies.
-2. **Computer-Use Bridge**: adapter over the existing `senoldogann/computer-use` typed IPC for `open_app`, `open_url`, screenshot, active-window inspection, mouse, scroll, keyboard/hotkeys, and bounded GUI goals. Existing kill-switch, credential blocking, human-presence and grant safeguards remain authoritative.
-3. **Browser Diagnostics**: browser session tools for page open/status, console errors, network errors, render/DOM state, and screenshot. Console/network inspection should use a browser automation/CDP boundary rather than pretending pixels are a network debugger.
-4. **Privileged macOS operations**: narrow ServiceManagement/XPC operations for true root-only tasks. No reusable root shell.
+1. **Computer-Use Bridge**: adapter over the existing `senoldogann/computer-use` typed IPC for `open_app`, `open_url`, screenshot, active-window inspection, mouse, scroll, keyboard/hotkeys, and bounded GUI goals. Existing kill-switch, credential blocking, human-presence and grant safeguards remain authoritative.
+2. **Browser Diagnostics**: browser session tools for page open/status, console errors, network errors, render/DOM state, and screenshot. Console/network inspection should use a browser automation/CDP boundary rather than pretending pixels are a network debugger.
+3. **Privileged macOS operations**: narrow ServiceManagement/XPC operations for true root-only tasks. No reusable root shell.
 
 ## Separate local route: Codex
 

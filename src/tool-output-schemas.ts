@@ -28,6 +28,9 @@ export const systemCapabilitiesOutputSchema = z.object({
     maxDirectoryEntries: z.number().int().positive(),
     maxCommandOutputBytes: z.number().int().positive(),
     commandTimeoutMs: z.number().int().positive(),
+    maxManagedProcesses: z.number().int().positive(),
+    maxProcessLogBytesPerStream: z.number().int().positive(),
+    processStopGraceMs: z.number().int().positive(),
   }),
   safety: z.object({
     filesystemConfinement: z.literal(true),
@@ -138,4 +141,32 @@ export const terminalResultOutputSchema = z.object({
   stdout: z.string(),
   stderr: z.string(),
   timedOut: z.boolean(),
+});
+
+export const processSummaryOutputSchema = z.object({
+  processId: z.string(),
+  command: z.string(),
+  argCount: nonNegativeInt,
+  cwd: z.string(),
+  state: z.enum(["running", "exited", "stopped"]),
+  startedAt: z.string(),
+  exitedAt: z.string().optional(),
+  exitCode: z.number().int().nullable().optional(),
+  signal: z.string().nullable().optional(),
+});
+
+export const processListOutputSchema = z.object({
+  processes: z.array(processSummaryOutputSchema),
+});
+
+const processLogStreamOutputSchema = z.object({
+  content: z.string(),
+  bytes: nonNegativeInt,
+  truncated: z.boolean(),
+});
+
+export const processLogsOutputSchema = z.object({
+  processId: z.string(),
+  stdout: processLogStreamOutputSchema,
+  stderr: processLogStreamOutputSchema,
 });
