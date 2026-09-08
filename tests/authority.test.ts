@@ -163,6 +163,7 @@ describe("AuthorityManager", () => {
 
     expect(adminLease.terminalEnabled).toBe(false);
     expect(adminLease.commands).toEqual([]);
+    await runtime.authority.flushAudit();
   });
 
   it("keeps concurrent leases isolated", async () => {
