@@ -12,7 +12,7 @@ export type AuthorityProfile = "project" | "user" | "admin";
 export interface AuthorityContext {
   profile: AuthorityProfile;
   roots: string[];
-  terminalEnabled: true;
+  terminalEnabled: boolean;
   commands: string[];
   createdAt: string;
   expiresAt: string;
@@ -69,7 +69,7 @@ function cloneContext(lease: StoredLease): AuthorityContext {
   return {
     profile: lease.profile,
     roots: [...lease.roots],
-    terminalEnabled: true,
+    terminalEnabled: lease.terminalEnabled,
     commands: [...lease.commands],
     createdAt: lease.createdAt,
     expiresAt: lease.expiresAt,
@@ -99,12 +99,13 @@ export class AuthorityManager {
     const ttlSeconds = Math.max(1, Math.min(requestedTtl, maxTtl));
     const expiresAtMs = nowMs + ttlSeconds * 1000;
     const leaseId = newLeaseId();
+    const terminalEnabled = request.profile === "admin";
 
     const stored: StoredLease = {
       profile: request.profile,
       roots: [...roots],
-      terminalEnabled: true,
-      commands: [...this.commands],
+      terminalEnabled,
+      commands: terminalEnabled ? [...this.commands] : [],
       createdAt: new Date(nowMs).toISOString(),
       expiresAt: new Date(expiresAtMs).toISOString(),
       expiresAtMs,

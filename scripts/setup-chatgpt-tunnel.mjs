@@ -8,20 +8,32 @@ import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const defaultRepoDir = path.resolve(path.dirname(scriptPath), "..");
+const protectedBrokerHelperPath = "/Library/Application Support/chatgpt-system/bin/chatgpt-system-authority-broker";
+const protectedBrokerMetadataPath = "/Library/Application Support/chatgpt-system/etc/authority-broker.sha256";
 
 function usage() {
   console.log(`Usage:
   npm run setup:chatgpt -- --root /absolute/path/to/project --tunnel-id tunnel_... [options]
 
 Options:
-  --root <path>           Explicit filesystem root. Required.
+  --root <path>           Explicit bootstrap filesystem root. Required.
   --tunnel-id <id>        OpenAI Secure MCP Tunnel ID. Required.
   --profile <name>        tunnel-client profile name (default: chatgpt-system).
-  --enable-terminal       Opt in to terminal_run. Disabled by default.
-  --allow-command <name>  Allowlisted terminal executable basename. Repeatable.
+  --enable-terminal       Opt in to bootstrap terminal configuration. Disabled by default.
+  --allow-command <name>  Allowlisted executable basename. Repeatable.
   --doctor                Create the profile, then run tunnel-client doctor.
   --run                   Create the profile, run doctor, then run the tunnel.
   --help                  Show this help.
+
+User/Admin session authority on macOS requires the protected native broker.
+Build and install it separately:
+  npm run build:broker:macos
+  sudo npm run install:broker:macos
+
+Project authority remains available when the protected broker is absent and has
+no terminal capability. User authority requires local approval and has no
+terminal capability. Admin authority requires local approval and is the only
+Phase-1 terminal-capable profile.
 
 Credentials are not accepted as command-line arguments. tunnel-client reads
 CONTROL_PLANE_API_KEY (or its currently supported credential mechanism) from
@@ -137,6 +149,13 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   }
 
   const serverPath = path.join(repoDir, "dist", "cli.js");
+  const brokerPackageDir = path.join(repoDir, "native", "macos-authority-broker");
+  const brokerBuildPath = path.join(
+    brokerPackageDir,
+    ".build",
+    "release",
+    "chatgpt-system-authority-broker",
+  );
   const commandParts = [process.execPath, serverPath, "stdio", "--root", root];
   if (options.terminal) commandParts.push("--enable-terminal");
   for (const command of options.commands) commandParts.push("--allow-command", command);
@@ -147,6 +166,10 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     root,
     tunnelId: options.tunnelId,
     serverPath,
+    brokerPackageDir,
+    brokerBuildPath,
+    brokerHelperPath: protectedBrokerHelperPath,
+    brokerMetadataPath: protectedBrokerMetadataPath,
     mcpCommand,
     initArgs: [
       "init",
@@ -183,9 +206,27 @@ function assertSuccessful(result, label) {
   }
 }
 
+async function inspectProtectedBroker() {
+  if (process.platform !== "darwin") return { available: false, reason: "not-macos" };
+  try {
+    const module = await import("../dist/native-helper-trust.js");
+    const validator = new module.MacOSNativeHelperTrustValidator();
+    await validator.validate();
+    return { available: true };
+  } catch {
+    return { available: false, reason: "missing-or-untrusted" };
+  }
+}
+
 async function validateRuntime(setup) {
   await access(setup.serverPath);
   await validateRootBoundary(setup.root, homedir());
+  const broker = await inspectProtectedBroker();
+  if (process.platform === "darwin" && !broker.available) {
+    console.warn(
+      "[chatgpt-system] Protected macOS authority broker is missing or untrusted. Project authority remains available; User/Admin approval will fail closed until you run 'npm run build:broker:macos' and 'sudo npm run install:broker:macos'.",
+    );
+  }
 
   const versionCheck = runTunnelClient(["help", "quickstart"], { capture: true });
   assertSuccessful(versionCheck, "tunnel-client preflight");
@@ -207,13 +248,16 @@ async function main() {
   console.log(`  Root: ${setup.root}`);
   console.log(`  Profile: ${setup.profile}`);
   console.log(`  MCP command: ${setup.mcpCommand}`);
+  console.log(`  Native broker build: ${setup.brokerBuildPath}`);
+  console.log(`  Protected native broker: ${setup.brokerHelperPath}`);
+  console.log(`  Protected broker metadata: ${setup.brokerMetadataPath}`);
   console.log(`  Init: ${printableCommand("tunnel-client", setup.initArgs)}`);
   console.log(`  Doctor: ${printableCommand("tunnel-client", setup.doctorArgs)}`);
   console.log(`  Run: ${printableCommand("tunnel-client", setup.runArgs)}`);
-  console.log("  Terminal: " + (setup.mcpCommand.includes("--enable-terminal") ? "EXPLICITLY ENABLED" : "disabled"));
+  console.log("  Bootstrap terminal: " + (setup.mcpCommand.includes("--enable-terminal") ? "EXPLICITLY ENABLED" : "disabled"));
 
   if (!setup.executeDoctor && !setup.executeRun) {
-    console.log("\nDry setup only. Re-run with --doctor to create/validate the profile, or --run to create, validate, and start it.");
+    console.log("\nDry setup only. Re-run with --doctor to validate local components and create the profile, or --run to also start it.");
     return;
   }
 

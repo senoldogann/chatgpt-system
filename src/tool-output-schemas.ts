@@ -3,6 +3,17 @@ import { z } from "zod";
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 const pathTypeSchema = z.enum(["directory", "file", "symlink", "other"]);
 const nonNegativeInt = z.number().int().nonnegative();
+const authorityProfileSchema = z.enum(["project", "user", "admin"]);
+const authorityApprovalProfileSchema = z.enum(["user", "admin"]);
+const authorityRequestStateSchema = z.enum([
+  "pending",
+  "approved",
+  "denied",
+  "cancelled",
+  "failed",
+  "expired",
+  "consumed",
+]);
 
 export const systemCapabilitiesOutputSchema = z.object({
   roots: z.array(z.string()),
@@ -31,12 +42,27 @@ export const systemCapabilitiesOutputSchema = z.object({
 
 export const authorityLeaseOutputSchema = z.object({
   leaseId: z.string(),
-  profile: z.enum(["project", "user", "admin"]),
+  profile: authorityProfileSchema,
   roots: z.array(z.string()),
-  terminalEnabled: z.literal(true),
+  terminalEnabled: z.boolean(),
   commands: z.array(z.string()),
   createdAt: z.string(),
   expiresAt: z.string(),
+});
+
+const authorityRequestBaseOutputSchema = z.object({
+  requestId: z.string(),
+  profile: authorityApprovalProfileSchema,
+  state: authorityRequestStateSchema,
+  requestedTtlSeconds: z.number().int().positive().optional(),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+});
+
+export const authorityRequestOutputSchema = authorityRequestBaseOutputSchema;
+
+export const authorityRequestStatusOutputSchema = authorityRequestBaseOutputSchema.extend({
+  lease: authorityLeaseOutputSchema.optional(),
 });
 
 export const authorityEndOutputSchema = z.object({

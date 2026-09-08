@@ -42,7 +42,7 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(() => buildTunnelSetup(["--root", ROOT, "--tunnel-id", "abc"], {}, context)).toThrow(/tunnel id/i);
   });
 
-  it("keeps terminal disabled by default", () => {
+  it("keeps bootstrap terminal disabled by default", () => {
     const setup = buildTunnelSetup(["--root", ROOT, "--tunnel-id", VALID_TUNNEL], {}, context);
     expect(setup.profile).toBe("chatgpt-system");
     expect(setup.mcpCommand).not.toContain("--enable-terminal");
@@ -50,7 +50,7 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.mcpCommand).toContain(ROOT);
   });
 
-  it("requires terminal opt-in before command allowlisting", () => {
+  it("requires bootstrap terminal opt-in before command allowlisting", () => {
     expect(() => buildTunnelSetup([
       "--root", ROOT,
       "--tunnel-id", VALID_TUNNEL,
@@ -58,7 +58,7 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     ], {}, context)).toThrow(/enable-terminal/i);
   });
 
-  it("rejects executable paths in the terminal allowlist", () => {
+  it("rejects executable paths in the bootstrap terminal allowlist", () => {
     expect(() => buildTunnelSetup([
       "--root", ROOT,
       "--tunnel-id", VALID_TUNNEL,
@@ -67,7 +67,7 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     ], {}, context)).toThrow(/basename/i);
   });
 
-  it("adds only explicitly allowlisted commands when terminal is enabled", () => {
+  it("adds only explicitly allowlisted bootstrap commands when enabled", () => {
     const setup = buildTunnelSetup([
       "--root", ROOT,
       "--tunnel-id", VALID_TUNNEL,
@@ -102,5 +102,21 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     ]);
     expect(setup.doctorArgs).toEqual(["doctor", "--profile", "chatgpt-system", "--explain"]);
     expect(setup.runArgs).toEqual(["run", "--profile", "chatgpt-system"]);
+  });
+
+  it("separates repository build input from fixed protected runtime helper paths", () => {
+    const setup = buildTunnelSetup(["--root", ROOT, "--tunnel-id", VALID_TUNNEL], {}, context);
+    expect(setup.brokerPackageDir).toBe("/opt/chatgpt-system/native/macos-authority-broker");
+    expect(setup.brokerBuildPath).toBe(
+      "/opt/chatgpt-system/native/macos-authority-broker/.build/release/chatgpt-system-authority-broker",
+    );
+    expect(setup.brokerHelperPath).toBe(
+      "/Library/Application Support/chatgpt-system/bin/chatgpt-system-authority-broker",
+    );
+    expect(setup.brokerMetadataPath).toBe(
+      "/Library/Application Support/chatgpt-system/etc/authority-broker.sha256",
+    );
+    expect(setup.brokerHelperPath).not.toContain("/opt/chatgpt-system");
+    expect(JSON.stringify(setup)).not.toContain("CONTROL_PLANE_API_KEY");
   });
 });

@@ -74,10 +74,16 @@ describe("AuthorityManager", () => {
     expect(lease.leaseId).toMatch(/^[A-Za-z0-9_-]{40,}$/);
     expect(lease.profile).toBe("project");
     expect(lease.roots).toEqual([canonicalProject]);
-    expect(lease.terminalEnabled).toBe(true);
+    expect(lease.terminalEnabled).toBe(false);
+    expect(lease.commands).toEqual([]);
 
     const resolved = authority.resolve(lease.leaseId);
-    expect(resolved).toMatchObject({ profile: "project", roots: [canonicalProject] });
+    expect(resolved).toMatchObject({
+      profile: "project",
+      roots: [canonicalProject],
+      terminalEnabled: false,
+      commands: [],
+    });
 
     lease.roots.push(projectB);
     expect(authority.resolve(lease.leaseId).roots).toEqual([canonicalProject]);
@@ -119,14 +125,19 @@ describe("AuthorityManager", () => {
     await expect(authority.start({ profile: "project" })).rejects.toThrowError(AuthorityDeniedError);
   });
 
-  it("maps user and admin profiles to canonical fixed scopes", async () => {
+  it("maps user and admin profiles to fixed scopes and terminal capabilities", async () => {
     const authority = manager();
 
     const userLease = await authority.start({ profile: "user" });
     const adminLease = await authority.start({ profile: "admin" });
 
     expect(userLease.roots).toEqual([await realpath(home)]);
+    expect(userLease.terminalEnabled).toBe(false);
+    expect(userLease.commands).toEqual([]);
+
     expect(adminLease.roots).toEqual([path.parse(home).root]);
+    expect(adminLease.terminalEnabled).toBe(true);
+    expect(adminLease.commands).toEqual(["git", "node"]);
   });
 
   it("keeps concurrent leases isolated", async () => {

@@ -53,17 +53,22 @@ describe("ProcessService", () => {
     await expect(service.run("/usr/bin/node", ["--version"])).rejects.toBeInstanceOf(PolicyError);
   });
 
-  it("enables terminal through a project lease without weakening command or cwd policy", async () => {
+  it("rejects terminal through a project lease even for allowlisted commands", async () => {
     const { base, root, config } = await fixture(false);
-    const sibling = path.join(base, "sibling");
-    await mkdir(sibling);
-
     const authority = new AuthorityManager({ homeDir: base, commands: ["node"] });
     const lease = await authority.start({ profile: "project", projectRoots: [root] });
     const scoped = createScopedRuntime({ config, audit: new AuditLogger(config.auditFile) }, authority.resolve(lease.leaseId));
 
+    await expect(scoped.process.run("node", ["--version"], root)).rejects.toBeInstanceOf(PolicyError);
+  });
+
+  it("enables allowlisted terminal only through an admin lease", async () => {
+    const { base, root, config } = await fixture(false);
+    const authority = new AuthorityManager({ homeDir: base, commands: ["node"] });
+    const lease = await authority.start({ profile: "admin" });
+    const scoped = createScopedRuntime({ config, audit: new AuditLogger(config.auditFile) }, authority.resolve(lease.leaseId));
+
     await expect(scoped.process.run("sh", ["-c", "echo nope"], root)).rejects.toBeInstanceOf(PolicyError);
-    await expect(scoped.process.run("node", ["--version"], sibling)).rejects.toBeInstanceOf(PolicyError);
 
     const result = await scoped.process.run("node", ["--version"], root);
     expect(result.exitCode).toBe(0);
