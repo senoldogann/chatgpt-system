@@ -70,6 +70,19 @@ npm run setup:chatgpt -- \
 
 The daily-driver profile explicitly opts into the runtime terminal gate so an authenticated Admin lease can run bounded one-shot commands and managed development processes. Omitting `--enable-terminal` keeps the secure startup default disabled, and Project/User leases still cannot use terminal or `process_start` even when the runtime gate is enabled.
 
+If a `chatgpt-system` tunnel profile already exists and its child command is stale, replacement is intentionally explicit. Re-run setup with the same root and tunnel ID plus `--force`:
+
+```bash
+npm run setup:chatgpt -- \
+  --root /absolute/path/to/disposable-test-project \
+  --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
+  --enable-terminal \
+  --force \
+  --doctor
+```
+
+`--force` replaces only the existing `tunnel-client` profile configuration. It does not delete repository data or bypass the Project/User/Admin authority model.
+
 The generated tunnel target automatically enables the private local authority control socket at:
 
 ```text
