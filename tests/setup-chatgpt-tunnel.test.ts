@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -50,6 +50,16 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.mcpCommand).toContain(ROOT);
     expect(setup.mcpCommand).toContain("--enable-control");
     expect(setup.controlSocketPath).toBe("/home/tester/.chatgpt-system/control.sock");
+  });
+
+  it("documents terminal opt-in for the daily-driver acceptance profile", async () => {
+    const runbook = await readFile(new URL("../docs/CHATGPT_INTEGRATION.md", import.meta.url), "utf8");
+    const setupStart = runbook.indexOf("## 4. Configure the Secure MCP Tunnel profile");
+    const setupEnd = runbook.indexOf("## 5. Run the tunnel");
+
+    expect(setupStart).toBeGreaterThanOrEqual(0);
+    expect(setupEnd).toBeGreaterThan(setupStart);
+    expect(runbook.slice(setupStart, setupEnd)).toContain("--enable-terminal");
   });
 
   it("requires bootstrap terminal opt-in before command allowlisting", () => {
