@@ -52,14 +52,23 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.controlSocketPath).toBe("/home/tester/.chatgpt-system/control.sock");
   });
 
-  it("documents terminal opt-in for the daily-driver acceptance profile", async () => {
-    const runbook = await readFile(new URL("../docs/CHATGPT_INTEGRATION.md", import.meta.url), "utf8");
-    const setupStart = runbook.indexOf("## 4. Configure the Secure MCP Tunnel profile");
-    const setupEnd = runbook.indexOf("## 5. Run the tunnel");
+  it("documents terminal opt-in for the daily-driver ChatGPT profile", async () => {
+    const [runbook, readme] = await Promise.all([
+      readFile(new URL("../docs/CHATGPT_INTEGRATION.md", import.meta.url), "utf8"),
+      readFile(new URL("../README.md", import.meta.url), "utf8"),
+    ]);
 
-    expect(setupStart).toBeGreaterThanOrEqual(0);
-    expect(setupEnd).toBeGreaterThan(setupStart);
-    expect(runbook.slice(setupStart, setupEnd)).toContain("--enable-terminal");
+    const runbookSetupStart = runbook.indexOf("## 4. Configure the Secure MCP Tunnel profile");
+    const runbookSetupEnd = runbook.indexOf("## 5. Run the tunnel");
+    expect(runbookSetupStart).toBeGreaterThanOrEqual(0);
+    expect(runbookSetupEnd).toBeGreaterThan(runbookSetupStart);
+    expect(runbook.slice(runbookSetupStart, runbookSetupEnd)).toContain("--enable-terminal");
+
+    const readmeSetupStart = readme.indexOf("## Personal ChatGPT Plugin");
+    const readmeSetupEnd = readme.indexOf("## Authority privilege ladder");
+    expect(readmeSetupStart).toBeGreaterThanOrEqual(0);
+    expect(readmeSetupEnd).toBeGreaterThan(readmeSetupStart);
+    expect(readme.slice(readmeSetupStart, readmeSetupEnd)).toContain("--enable-terminal");
   });
 
   it("requires bootstrap terminal opt-in before command allowlisting", () => {
