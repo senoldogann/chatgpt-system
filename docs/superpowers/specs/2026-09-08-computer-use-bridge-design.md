@@ -6,111 +6,117 @@ Repositories: `senoldogann/chatgpt-system`, `senoldogann/computer-use`
 
 ## 1. Goal
 
-Let the ChatGPT agent use the real Mac through `chatgpt-system` without running a second LLM/API agent.
-
-The authority and orchestration boundary remains:
+Let the ChatGPT agent use the real Mac through `chatgpt-system` without a second LLM/API agent.
 
 ```text
 ChatGPT agent
-  -> chatgpt-system MCP
-  -> authority-scoped computer tools
-  -> local computer-use bridge
-  -> existing computer-use safety/controller layer
+  -> chatgpt-system MCP + Admin authority
+  -> authenticated local computer-use bridge
+  -> shared computer-use safety/controller layer
   -> existing Rust actuation driver
   -> macOS
 ```
 
-ChatGPT is the only reasoning agent. The bridge is deterministic infrastructure and never calls an LLM provider.
+ChatGPT is the only reasoning agent. The bridge is deterministic local infrastructure and never loads an LLM/provider.
 
 ## 2. Non-goals
 
-This change does not add browser/CDP diagnostics, root/XPC privileges, launchd persistence, a second autonomous agent loop, cookie/token extraction, or a generic shell/script execution surface.
+This subsystem does not add browser/CDP diagnostics, root/XPC privileges, launchd persistence, a second autonomous loop, cookie/token extraction, or generic shell/script execution.
 
-Browser diagnostics and production runtime are separate follow-up subsystems.
+## 3. Existing boundaries to preserve
 
-## 3. Existing components to preserve
+`computer-use` already provides the physical-host foundation: separate Rust driver process, typed Unix-socket protocol, real/simulated backends, driver peer UID/PID checks, accessibility-first perception, screenshot/OCR support, focus verification, secure-field detection, kill-switch logic, and input-release cleanup.
 
-`computer-use` already has the important host boundary:
+The bridge reuses these components. `chatgpt-system` never implements a second mouse/keyboard driver and never talks directly to the Rust socket.
 
-- Python orchestration/safety and a separate Rust actuation process.
-- Typed JSON-RPC over a Unix socket.
-- Real and simulated driver backends.
-- Driver peer UID/PID policy.
-- Accessibility-first perception, screenshot/OCR fallback.
-- Focus confirmation before keystroke-style actuation.
-- Secure-field/credential detection.
-- Emergency hotkey and mouse-takeover kill-switch logic.
-- Input-release cleanup.
+## 4. Trust chain and lifecycle
 
-The bridge must reuse those components rather than bypass them or duplicate a second physical-input implementation inside `chatgpt-system`.
+### 4.1 Explicit enablement
 
-## 4. Architecture
+Computer use is disabled by default. It becomes available only when the local operator starts `chatgpt-system` with explicit computer-use enablement. No MCP argument can enable it or choose its executable/driver paths.
 
-### 4.1 `computer-use` side
+Trusted startup configuration identifies the installed/local `computer-use` bridge executable and Rust driver. These are operator configuration, not model-controlled data.
 
-Add a deterministic bridge process:
+### 4.2 Parent-owned bridge
+
+When computer use is enabled, `chatgpt-system` owns the bridge child lifecycle. The bridge is started lazily on the first authorized computer-use call or health probe and is stopped during runtime shutdown.
+
+Startup chain:
 
 ```text
-python -m computeruse.bridge \
-  --socket ~/.computeruse/bridge.sock \
-  --driver /absolute/path/to/actuation-driver \
-  --real
+chatgpt-system process
+  -> spawn fixed bridge command with shell=false
+  -> send fresh 256-bit random bridge capability on child stdin
+  -> close capability delivery stream
+  -> bridge creates private Unix socket
+  -> bridge spawns Rust driver with --allow-pid <bridge-pid>
 ```
 
-The bridge owns the Rust driver lifecycle. It starts the driver on a private per-user socket and passes `--allow-pid <bridge-pid>` so only the bridge process may use that driver instance.
+The bridge capability is never placed in argv, environment variables, files, audit logs, MCP responses, or error text.
 
-CI/tests run the same bridge with the simulated driver backend. `--real` is explicit and macOS-only.
+Every bridge request carries that capability and is compared in constant time. Socket permissions remain defense in depth:
 
-The bridge does not start `CuaReplEngine`, QuickJS, Node, an OpenAI provider, or the autonomous agent loop.
+- private parent directory `0700`;
+- socket `0600`;
+- regular files/symlinks at the socket path are refused;
+- only an owned stale Unix socket may be replaced;
+- no TCP/HTTP listener.
 
-### 4.2 Shared host controller
+This closes the confused-deputy problem where an unrelated same-user process could otherwise reuse a TCC/Accessibility-authorized bridge.
 
-The bridge must not call private `CuaReplEngine` methods or fork a second copy of its safety rules.
+The Rust driver independently accepts only the bridge process through its existing UID/PID peer policy.
 
-Extract the minimum reusable host-facing controller from the current CUA host dispatch path. Both `CuaReplEngine` and the new bridge call this controller for:
+### 4.3 Shutdown
 
-- application activation/focus confirmation;
-- accessibility snapshots and element resolution;
+```text
+stop accepting new computer calls
+-> release held inputs
+-> stop owned Rust driver
+-> remove owned bridge socket
+-> stop bridge child
+-> continue normal chatgpt-system shutdown
+```
+
+No restart path scans for or kills arbitrary foreign PIDs. If the bridge crashes, the current call fails closed; a later authorized call may start a fresh owned bridge instance.
+
+## 5. Shared computer-use host controller
+
+The bridge must not call private `CuaReplEngine` methods or duplicate its physical safety rules.
+
+Extract the minimum reusable host-facing controller from the current CUA host dispatch path. Both `CuaReplEngine` and the bridge use it for:
+
+- app activation and focus confirmation;
+- accessibility snapshot/target resolution;
 - screenshot capture;
 - click/drag/scroll;
 - typing/hotkeys;
-- secure-field refusal;
+- secure/editable-field handling;
 - kill-switch polling;
-- input-release cleanup.
+- input release.
 
-The existing REPL behavior must remain compatible. This is a targeted extraction, not a rewrite of the agent loop.
+Existing standalone agent/CLI/REPL behavior must remain compatible. This is a targeted extraction, not a rewrite.
 
-`chatgpt-system` authority replaces the REPL's human approval/grant decision for bridge-originated calls. The computer-use safety floor does not disappear: credential blocking, focus validation, coordinate/element validation, kill-switch checks, bounded payloads, and cleanup remain mandatory.
+### Authority split
 
-Reason: an active Admin lease is already the locally authenticated host-wide capability. Requiring a second unrelated approval/grant system for each physical action would create two competing authority systems. Conversely, running the bridge in permanent `SOVEREIGN` mode would create a broad standing grant and is explicitly rejected.
+`chatgpt-system` Admin authority is the human-approved capability for bridge-originated physical actions. The bridge does **not** enter permanent computer-use `SOVEREIGN` mode and does not ask for a second independent approval/grant for every action.
 
-## 5. Local bridge protocol
+The computer-use **safety floor remains mandatory** even with Admin authority:
 
-Use versioned newline-delimited JSON over one private Unix socket.
+1. secure/credential-field typing is refused;
+2. kill-switch takeover is refused;
+3. focus-sensitive actions fail closed unless the target app is confirmed;
+4. target/coordinate validation remains active;
+5. driver trust/Accessibility/capture failures are explicit;
+6. input cleanup runs on failure, timeout and shutdown;
+7. callers cannot disable safety, select signals/backends/driver paths, or access the raw driver socket.
 
-Default socket:
+The existing real-driver emergency hotkey remains independently active. Existing mouse-shake takeover logic is polled at the same action-gate cadence used by the current OODA path, before every physical mutation and between compound operations.
 
-```text
-~/.computeruse/bridge.sock
-```
+## 6. Bridge protocol
 
-Security properties:
+Versioned newline-delimited JSON, one bounded request per connection. Physical mutations are serialized because the host has one input stream.
 
-- parent directory mode `0700`;
-- socket mode `0600`;
-- reject regular files and symlinks at the socket path;
-- only an owned stale Unix socket may be removed before bind;
-- one bounded request frame per connection;
-- no TCP/HTTP listener;
-- no API keys, authority lease IDs, passwords, helper paths, shell strings, or arbitrary environment maps in the protocol;
-- physical mutations are serialized because there is only one host input stream;
-- failures trigger `release_inputs` before returning whenever a held-input state could exist.
-
-Threat model matches the local authority control plane: same-local-user processes are inside the OS-account trust boundary. The Rust driver still independently authenticates the bridge UID/PID.
-
-### 5.1 Request methods
-
-Initial bridge methods:
+Initial methods:
 
 ```text
 health
@@ -128,37 +134,30 @@ press_hotkey
 release_inputs
 ```
 
-No method accepts raw OS PID, process-group ID, signal, shell command, executable path, AppleScript source, arbitrary environment, or arbitrary subprocess request.
+No request accepts raw OS PID, process-group ID, signal, shell, executable path, AppleScript source, arbitrary environment, authority lease ID, API key or password.
 
-### 5.2 Targeting
+### Targeting
 
-Actuation methods require an `app` target except `release_inputs` and `open_url` when the caller intentionally requests the system default browser.
+Physical actions require an `app` target except `release_inputs` and `open_url` when intentionally using the default browser.
 
-`click`, `drag`, and `scroll` accept the existing computer-use target vocabulary: bounded element index/query/role/title or explicit logical coordinates.
+`click`, `drag` and `scroll` use the existing computer-use target vocabulary: bounded element index/query/role/title or explicit logical coordinates. Focus is confirmed before actuation.
 
-Before a focus-sensitive action the controller confirms the target app owns the frontmost context. If it cannot prove focus, it refuses rather than sending input to another application.
+### URL opening
 
-### 5.3 `open_url`
+`open_url` accepts only `http://` and `https://`. It uses a fixed local launcher with argv data and `shell=false`. Optional target-app selection is data, never command source. `file:`, `javascript:`, `data:` and custom schemes are rejected.
 
-`open_url` accepts only `http://` or `https://` URLs in this subsystem.
+## 7. `chatgpt-system` MCP surface
 
-Implementation uses a fixed local macOS launcher executable with argv data and `shell=false`. No caller-provided command is executed. When an app is supplied, the bridge opens the URL in that app and then confirms the target application is active.
-
-`file:`, `javascript:`, `data:`, custom schemes, and command-like strings are refused here. Browser diagnostics may later have its own isolated navigation policy.
-
-## 6. MCP surface in `chatgpt-system`
-
-Add an explicit `ComputerUseClient` that connects only to the configured Unix socket. `chatgpt-system` never talks directly to the Rust driver.
-
-Configuration:
+Trusted startup config:
 
 ```text
 CHATGPT_SYSTEM_ENABLE_COMPUTER_USE=false
-CHATGPT_SYSTEM_COMPUTER_USE_SOCKET=~/.computeruse/bridge.sock
+CHATGPT_SYSTEM_COMPUTER_USE_BRIDGE=<operator-configured executable>
+CHATGPT_SYSTEM_COMPUTER_USE_DRIVER=<operator-configured driver binary>
 CHATGPT_SYSTEM_COMPUTER_USE_TIMEOUT_MS=10000
 ```
 
-Computer use is disabled unless explicitly enabled at runtime/setup. Enabling the catalog is not authority: every computer-use MCP call still requires a valid Admin lease.
+Equivalent CLI flags may be added. Setup tooling may write these only from explicit local operator options; MCP calls cannot modify them.
 
 MCP tools:
 
@@ -178,56 +177,38 @@ computer_press_hotkey
 computer_release_inputs
 ```
 
-All tools except `computer_health` require `authorityLeaseId`. `computer_health` reveals only categorical bridge readiness and no screen/app content.
+`computer_health` reveals only categorical readiness and may be called without a lease. Every other computer tool requires an active **Admin** lease. Project/User receive `POLICY_DENIED`, including screenshot and accessibility reads.
 
-All state-reading and mutating computer tools require `profile=admin` for the first production version. Project/User authority receives `POLICY_DENIED`.
+This treats host screen/accessibility state as sensitive data rather than harmless read-only access.
 
-This deliberately treats screenshots and accessibility state as sensitive host-wide data rather than pretending read-only screen access is harmless.
+## 8. Screen/accessibility data and errors
 
-## 7. Screen and accessibility data
+### Screenshot
 
-### 7.1 Screenshot
+The bridge returns bounded PNG bytes plus non-sensitive dimensions. `chatgpt-system` emits MCP `image/png` content, not a giant data URI in text. Empty/missing capture is an error.
 
-The bridge returns bounded PNG data and metadata. `chatgpt-system` converts PNG bytes to MCP image content (`image/png`) instead of placing a giant data URI in normal text.
+### Accessibility snapshot
 
-A missing/empty capture is an error, never a successful blank image.
+`computer_ui_snapshot` returns a bounded compact element list suitable for grounding:
 
-### 7.2 Accessibility snapshot
+```text
+index
+role
+title (when present)
+focused
+x/y/width/height
+value only for non-editable, non-secure UI content
+```
 
-`computer_ui_snapshot` returns a bounded, compact representation suitable for grounding actions.
+Raw PID is never returned. Secure fields and all editable text controls omit their current value. Snapshot node/depth/payload budgets are enforced; indices are snapshot-scoped hints, not durable identifiers.
 
-Rules:
-
-- node/depth budgets are enforced;
-- raw OS PID is removed;
-- secure text field values are never returned;
-- obvious credential/token-like values are redacted;
-- payload size is bounded;
-- element indices are snapshot-scoped hints, not durable global identifiers.
-
-## 8. Safety invariants
-
-The following remain true even with an Admin lease:
-
-1. No credential/secure-field typing.
-2. No action after the emergency kill-switch reports takeover.
-3. Focus-sensitive actions fail closed when the target app cannot be confirmed.
-4. Driver trust/Accessibility failures are explicit errors.
-5. Input cleanup runs on action error/timeout/shutdown.
-6. The caller cannot disable the kill switch, choose a weaker backend, choose the driver path, choose a signal, or bypass focus checks through MCP arguments.
-7. The bridge never exposes a reusable raw actuation socket or OS PID through MCP.
-8. No model/API provider is loaded by the bridge.
-
-The bridge may reuse existing mouse-shake polling at the same action-gate cadence as the current OODA loop. The existing real-driver global emergency hotkey remains independently active.
-
-## 9. Errors
-
-Bridge errors are categorical and stable. Initial categories:
+### Stable errors
 
 ```text
 BRIDGE_UNAVAILABLE
 BRIDGE_PROTOCOL_INVALID
 BRIDGE_TIMEOUT
+BRIDGE_UNAUTHORIZED
 DRIVER_UNAVAILABLE
 DRIVER_UNTRUSTED
 FOCUS_NOT_ACQUIRED
@@ -237,122 +218,72 @@ TARGET_NOT_FOUND
 POLICY_DENIED
 ```
 
-`chatgpt-system` maps these to stable MCP tool errors without leaking driver stderr, environment values, raw socket frames, screenshots, typed text, or private AX values.
+Errors do not leak bridge capability, driver stderr, environment values, raw frames, screenshots, typed text or private AX values.
 
-## 10. Audit
+## 9. Audit and tests
 
-`chatgpt-system` audit records computer-use lifecycle metadata only:
+### Audit
 
-- tool/method category;
-- success/failure category;
-- target app name when non-sensitive;
-- duration;
-- categorical error code.
+Record only categorical computer-use lifecycle metadata: tool category, success/failure, duration, safe app identity when useful, and error code.
 
-Do not audit:
+Never audit bridge capability, lease IDs, typed text, URL query/fragment, screenshots, accessibility values, coordinates/element document text, driver PID/socket frames, credentials or tokens.
 
-- authority lease IDs;
-- typed/pasted text;
-- URL query/fragment values;
-- screenshots;
-- accessibility values;
-- coordinates/element text when they could expose document content;
-- driver PID/socket frames;
-- credentials or tokens.
+### `computer-use` tests
 
-`computer-use` may keep its existing local diagnostic tracing when explicitly enabled by its own operator configuration; the bridge does not enable model traces by default.
+Must cover:
 
-## 11. Lifecycle
-
-For this subsystem, the bridge process is started separately from `chatgpt-system`. `chatgpt-system` only connects to it and reports availability.
-
-This avoids silently spawning a physical-input service merely because the MCP server started.
-
-The later production-runtime subsystem may compose both processes under launchd after real-Mac acceptance. That later change must not weaken the explicit `--real`/computer-use enablement boundary.
-
-Bridge shutdown sequence:
-
-```text
-stop accepting requests
--> release inputs
--> stop owned Rust driver
--> remove owned bridge socket
--> exit
-```
-
-A bridge restart never scans for or kills arbitrary foreign driver/PID state it cannot prove it owns.
-
-## 12. Testing
-
-### `computer-use`
-
-Automated tests must cover:
-
-- bridge protocol parsing and frame limits;
-- socket path type/permission/stale-socket rules;
-- simulated driver health and lifecycle;
-- PID-bound driver connection;
-- shared-controller parity with existing CUA behavior;
-- secure-field typing refusal;
-- kill-switch refusal;
-- focus-failure refusal;
+- shared-controller parity with existing REPL behavior;
+- bridge capability authentication;
+- socket path/mode/stale-socket rules;
+- simulated driver lifecycle and `--allow-pid` binding;
+- secure/editable-field typing refusal;
+- kill-switch and focus refusal;
 - bounded/redacted AX snapshot;
-- screenshot non-empty/error behavior;
+- screenshot success/failure;
 - URL scheme validation;
 - action serialization and release-input cleanup;
-- graceful bridge/driver shutdown.
+- bridge/driver shutdown;
+- all existing tests remain green.
 
-Existing computer-use tests must remain green.
+### `chatgpt-system` tests
 
-### `chatgpt-system`
+Must cover:
 
-Automated tests must cover:
+- computer-use disabled-by-default config;
+- bridge child capability delivered by stdin only;
+- Admin-only policy for every host-read/action tool;
+- strict schemas with no PID/shell/env/backend/path escape fields;
+- client auth/timeout/malformed-response handling;
+- MCP image response;
+- categorical error mapping and audit redaction;
+- owned bridge shutdown ordering;
+- existing Node 22/24/native authority CI remains green.
 
-- computer-use config defaults/overrides;
-- Admin-only policy for all screen/action tools;
-- strict MCP schemas with no PID/shell/env escape fields;
-- bridge client protocol/timeout/malformed-response behavior;
-- MCP image response for screenshot;
-- categorical error mapping;
-- audit redaction;
-- real MCP lifecycle against a fake/local bridge fixture;
-- existing Node 22/24 and native authority CI remains green.
-
-## 13. Real-Mac acceptance
-
-After both repository CIs are green:
-
-1. Build the current `computer-use` Rust driver.
-2. Start the bridge with `--real` on the user's Mac.
-3. Start/refresh the `chatgpt-system` tunnel with computer use explicitly enabled.
-4. Create an Admin authority lease through existing Touch ID flow.
-5. From ChatGPT normal conversation, verify:
-   - `computer_health` reports ready;
-   - active window can be read;
-   - screenshot returns a real image;
-   - a harmless app can be opened;
-   - a harmless URL can be opened;
-   - a benign control in a disposable app/page can be clicked and typed into;
-   - secure/password-field typing is refused;
-   - emergency hotkey stops further physical action;
-   - User lease cannot read screenshots or actuate;
-   - ending the Admin lease prevents further calls.
-6. Stop the bridge and verify owned driver/socket cleanup.
-
-No destructive OS setting, credential entry, purchase, account mutation, or secret-bearing page is needed for acceptance.
-
-## 14. Delivery
+## 10. Delivery and acceptance
 
 Implementation order:
 
-1. `computer-use`: shared host controller extraction + bridge server + simulated tests.
-2. `computer-use`: PR, exact-head CI, merge.
-3. `chatgpt-system`: bridge client + authority policy + MCP tools + tests/docs.
-4. `chatgpt-system`: PR, exact-head CI, merge.
-5. Real-Mac/ChatGPT acceptance and only necessary hardening fixes.
+1. `computer-use`: shared host controller + authenticated bridge + simulated tests.
+2. `computer-use`: exact-head CI, PR, merge.
+3. `chatgpt-system`: bridge supervisor/client + Admin policy + MCP tools + tests/docs.
+4. `chatgpt-system`: exact-head CI, PR, merge.
+5. Real-Mac ChatGPT acceptance; only evidence-driven hardening fixes.
 
-The repositories remain independently usable. `computer-use` retains its standalone CLI/agent/REPL; `chatgpt-system` treats it as an optional local capability provider.
+Real-Mac acceptance uses a disposable app/page and verifies:
 
-## 15. Definition of done
+- bridge health;
+- active window and real screenshot;
+- harmless app/HTTP(S) URL opening;
+- benign click/type/scroll/hotkey;
+- AX grounding;
+- password/secure-field typing refusal;
+- emergency hotkey blocks further physical action;
+- User lease cannot inspect or actuate;
+- ended Admin lease cannot continue;
+- runtime shutdown releases inputs and removes owned bridge/driver state.
 
-The subsystem is complete when the ChatGPT agent, without an API-side secondary agent, can use an Admin lease to perceive and safely manipulate the real Mac through the existing computer-use driver while all safety, scope, CI, cleanup, and redaction requirements above hold.
+No destructive system setting, purchase, account mutation, secret-bearing page or credential entry is required.
+
+## Definition of done
+
+The subsystem is complete when the ChatGPT agent, with no secondary API agent, can use a locally approved Admin lease to perceive and safely manipulate the real Mac through the existing computer-use driver, while the trust chain, safety floor, cleanup, redaction and CI requirements above remain intact.
