@@ -1,22 +1,24 @@
 import { once } from "node:events";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AuthorityApprovalProfile } from "../src/authority-request-manager.js";
+import { requestControl } from "../src/control-client.js";
+import { CONTROL_PROTOCOL_VERSION } from "../src/control-protocol.js";
+import { startControlServer, type ControlServerHandle } from "../src/control-server.js";
 import type { AppConfig } from "../src/config.js";
 import type {
   LocalAuthorityBroker,
   LocalAuthorityBrokerResult,
-  LocalAuthorityOutcome,
 } from "../src/local-authority-broker.js";
 import { createRuntimeServices } from "../src/server.js";
 import { startHttp } from "../src/transport.js";
 
 const cleanups: string[] = [];
 const servers: ReturnType<typeof startHttp>[] = [];
+const controls: ControlServerHandle[] = [];
 
 async function closeServer(server: ReturnType<typeof startHttp>): Promise<void> {
   if (!server.listening) return;
@@ -24,46 +26,40 @@ async function closeServer(server: ReturnType<typeof startHttp>): Promise<void> 
 }
 
 afterEach(async () => {
+  await Promise.all(controls.splice(0).map((control) => control.close()));
   await Promise.all(servers.splice(0).map(closeServer));
   await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-class ControlledBroker implements LocalAuthorityBroker {
-  readonly seen: Array<{ requestId: string; profile: AuthorityApprovalProfile }> = [];
-  private readonly resolvers = new Map<string, (result: LocalAuthorityBrokerResult) => void>();
-
-  async request(input: { requestId: string; profile: AuthorityApprovalProfile }): Promise<LocalAuthorityBrokerResult> {
-    this.seen.push(input);
-    return new Promise((resolve) => this.resolvers.set(input.requestId, resolve));
-  }
-
-  async complete(requestId: string, outcome: LocalAuthorityOutcome): Promise<void> {
-    const input = this.seen.find((item) => item.requestId === requestId);
-    const resolve = this.resolvers.get(requestId);
-    if (!input || !resolve) throw new Error("unknown controlled request");
-    resolve({
-      requestId,
+class ApprovedBroker implements LocalAuthorityBroker {
+  async request(input: { requestId: string; profile: "user" | "admin" }): Promise<LocalAuthorityBrokerResult> {
+    return {
+      requestId: input.requestId,
       profile: input.profile,
-      approved: outcome === "authenticated",
-      outcome,
-    });
-    this.resolvers.delete(requestId);
-    await Promise.resolve();
-    await Promise.resolve();
+      approved: true,
+      outcome: "authenticated",
+    };
   }
 }
 
 async function fixture() {
-  const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-approval-mcp-"));
+  const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-shared-authority-"));
   cleanups.push(base);
-  const root = path.join(base, "root");
-  await mkdir(root);
+  const bootstrapRoot = path.join(base, "bootstrap");
+  await mkdir(bootstrapRoot);
 
-  const token = "approval-integration-token-0123456789";
+  const userFixture = await mkdtemp(path.join(homedir(), ".chatgpt-system-user-test-"));
+  cleanups.push(userFixture);
+  const userFile = path.join(userFixture, "hello.txt");
+  await writeFile(userFile, "hello from local user lease\n", "utf8");
+
+  const token = "shared-authority-token-0123456789";
+  const socketPath = path.join(base, "control.sock");
   const config: AppConfig = {
-    roots: [root],
+    roots: [bootstrapRoot],
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: false, commands: ["node", "git"] },
+    control: { enabled: false, socketPath },
     http: { host: "127.0.0.1", port: 0, token },
     limits: {
       maxReadBytes: 1024 * 1024,
@@ -74,17 +70,22 @@ async function fixture() {
     },
   };
 
-  const broker = new ControlledBroker();
-  const server = startHttp(createRuntimeServices(config, { approvalBroker: broker }));
+  const runtime = createRuntimeServices(config, { approvalBroker: new ApprovedBroker() });
+  const control = await startControlServer({ socketPath, runtime });
+  controls.push(control);
+
+  const server = startHttp(runtime);
   servers.push(server);
   await once(server, "listening");
   const address = server.address() as AddressInfo;
-  const client = new Client({ name: "authority-approval-mcp-test", version: "1.0.0" });
+
+  const client = new Client({ name: "shared-authority-mcp-test", version: "1.0.0" });
   const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${address.port}/mcp`), {
     requestInit: { headers: { authorization: `Bearer ${token}` } },
   });
   await client.connect(transport);
-  return { root, broker, client, transport };
+
+  return { root: bootstrapRoot, userFile, socketPath, client, transport };
 }
 
 function textContent(result: Awaited<ReturnType<Client["callTool"]>>): string {
@@ -94,163 +95,83 @@ function textContent(result: Awaited<ReturnType<Client["callTool"]>>): string {
     .join("\n");
 }
 
-describe("local authority approval MCP flow", () => {
-  it("discovers request/status tools and rejects direct user/admin start", async () => {
-    const { root, client, transport } = await fixture();
+async function localLease(socketPath: string, profile: "user" | "admin") {
+  const response = await requestControl({
+    version: CONTROL_PROTOCOL_VERSION,
+    action: "authorize",
+    profile,
+    requestedTtlSeconds: 60,
+  }, { socketPath, timeoutMs: 2_000 });
+  if (!response.ok || !("lease" in response)) throw new Error(`failed to mint ${profile} lease`);
+  return response.lease;
+}
+
+describe("local authority leases consumed through MCP", () => {
+  it("uses one locally approved User lease for MCP status/read while terminal stays denied", async () => {
+    const { userFile, socketPath, client, transport } = await fixture();
     try {
-      const { tools } = await client.listTools();
-      const byName = new Map(tools.map((tool) => [tool.name, tool]));
-      for (const name of ["session_authority_request", "session_authority_request_status"]) {
-        expect(byName.get(name), `missing ${name}`).toBeDefined();
-        expect(byName.get(name)?.outputSchema).toMatchObject({ type: "object" });
-        expect(byName.get(name)?.annotations).toMatchObject({ openWorldHint: false });
-      }
+      const lease = await localLease(socketPath, "user");
+      expect(lease).toMatchObject({ profile: "user", terminalEnabled: false });
 
-      const directUser = await client.callTool({
-        name: "session_authority_start",
-        arguments: { profile: "user" },
+      const status = await client.callTool({
+        name: "session_authority_status",
+        arguments: { authorityLeaseId: lease.leaseId },
       });
-      expect(directUser.isError).toBe(true);
-      expect(textContent(directUser)).toContain("LOCAL_APPROVAL_REQUIRED");
+      expect(status.isError).not.toBe(true);
+      expect(status.structuredContent).toMatchObject({ profile: "user", terminalEnabled: false });
 
-      const directAdmin = await client.callTool({
-        name: "session_authority_start",
-        arguments: { profile: "admin" },
+      const read = await client.callTool({
+        name: "fs_read",
+        arguments: { authorityLeaseId: lease.leaseId, path: userFile },
       });
-      expect(directAdmin.isError).toBe(true);
-      expect(textContent(directAdmin)).toContain("LOCAL_APPROVAL_REQUIRED");
+      expect(read.isError).not.toBe(true);
+      expect(read.structuredContent).toMatchObject({ content: "hello from local user lease\n" });
 
-      const project = await client.callTool({
-        name: "session_authority_start",
-        arguments: { profile: "project", projectRoots: [root], requestedTtlSeconds: 60 },
-      });
-      expect(project.isError).not.toBe(true);
-      expect(project.structuredContent).toMatchObject({
-        profile: "project",
-        terminalEnabled: false,
-        commands: [],
-      });
-    } finally {
-      await transport.terminateSession();
-      await client.close();
-    }
-  });
-
-  it("returns pending, then consumes one native-approved user request into one non-terminal lease", async () => {
-    const { root, broker, client, transport } = await fixture();
-    try {
-      const requested = await client.callTool({
-        name: "session_authority_request",
-        arguments: { profile: "user", requestedTtlSeconds: 75 },
-      });
-      expect(requested.isError).not.toBe(true);
-      expect(requested.structuredContent).toMatchObject({ profile: "user", state: "pending" });
-      const requestId = (requested.structuredContent as { requestId: string }).requestId;
-      expect(broker.seen).toContainEqual({ requestId, profile: "user" });
-
-      const pending = await client.callTool({
-        name: "session_authority_request_status",
-        arguments: { requestId },
-      });
-      expect(pending.structuredContent).toMatchObject({ requestId, profile: "user", state: "pending" });
-      expect(pending.structuredContent).not.toHaveProperty("lease");
-
-      await broker.complete(requestId, "authenticated");
-      const approved = await client.callTool({
-        name: "session_authority_request_status",
-        arguments: { requestId },
-      });
-      expect(approved.isError).not.toBe(true);
-      expect(approved.structuredContent).toMatchObject({
-        requestId,
-        profile: "user",
-        state: "consumed",
-        lease: {
-          leaseId: expect.stringMatching(/^[A-Za-z0-9_-]{40,}$/),
-          profile: "user",
-          terminalEnabled: false,
-          commands: [],
-        },
-      });
-
-      const userLeaseId = (approved.structuredContent as { lease: { leaseId: string } }).lease.leaseId;
-      const deniedTerminal = await client.callTool({
+      const terminal = await client.callTool({
         name: "terminal_run",
-        arguments: { authorityLeaseId: userLeaseId, command: "node", args: ["--version"], cwd: root },
+        arguments: { authorityLeaseId: lease.leaseId, command: "node", args: ["--version"], cwd: homedir() },
       });
-      expect(deniedTerminal.isError).toBe(true);
-      expect(textContent(deniedTerminal)).toContain("POLICY_DENIED");
-
-      const secondStatus = await client.callTool({
-        name: "session_authority_request_status",
-        arguments: { requestId },
-      });
-      expect(secondStatus.isError).not.toBe(true);
-      expect(secondStatus.structuredContent).toMatchObject({ requestId, state: "consumed" });
-      expect(secondStatus.structuredContent).not.toHaveProperty("lease");
+      expect(terminal.isError).toBe(true);
+      expect(textContent(terminal)).toContain("POLICY_DENIED");
     } finally {
       await transport.terminateSession();
       await client.close();
     }
   });
 
-  it("mints a terminal-capable admin lease only after native approval", async () => {
-    const { root, broker, client, transport } = await fixture();
+  it("uses one locally approved Admin lease for benign MCP terminal work and revokes it normally", async () => {
+    const { root, socketPath, client, transport } = await fixture();
     try {
-      const requested = await client.callTool({
-        name: "session_authority_request",
-        arguments: { profile: "admin", requestedTtlSeconds: 60 },
-      });
-      const requestId = (requested.structuredContent as { requestId: string }).requestId;
-      await broker.complete(requestId, "authenticated");
+      const lease = await localLease(socketPath, "admin");
+      expect(lease).toMatchObject({ profile: "admin", roots: ["/"], terminalEnabled: true });
 
-      const approved = await client.callTool({
-        name: "session_authority_request_status",
-        arguments: { requestId },
+      const status = await client.callTool({
+        name: "session_authority_status",
+        arguments: { authorityLeaseId: lease.leaseId },
       });
-      expect(approved.isError).not.toBe(true);
-      expect(approved.structuredContent).toMatchObject({
-        requestId,
-        profile: "admin",
-        state: "consumed",
-        lease: {
-          leaseId: expect.stringMatching(/^[A-Za-z0-9_-]{40,}$/),
-          profile: "admin",
-          terminalEnabled: true,
-          commands: expect.arrayContaining(["node", "git"]),
-        },
-      });
+      expect(status.isError).not.toBe(true);
+      expect(status.structuredContent).toMatchObject({ profile: "admin", terminalEnabled: true });
 
-      const adminLeaseId = (approved.structuredContent as { lease: { leaseId: string } }).lease.leaseId;
       const nodeVersion = await client.callTool({
         name: "terminal_run",
-        arguments: { authorityLeaseId: adminLeaseId, command: "node", args: ["--version"], cwd: root },
+        arguments: { authorityLeaseId: lease.leaseId, command: "node", args: ["--version"], cwd: root },
       });
       expect(nodeVersion.isError).not.toBe(true);
       expect(nodeVersion.structuredContent).toMatchObject({ exitCode: 0, timedOut: false });
-    } finally {
-      await transport.terminateSession();
-      await client.close();
-    }
-  });
 
-  it.each(["denied", "cancelled", "failed"] as const)("never mints a lease after %s", async (outcome) => {
-    const { broker, client, transport } = await fixture();
-    try {
-      const requested = await client.callTool({
-        name: "session_authority_request",
-        arguments: { profile: "admin" },
+      const ended = await client.callTool({
+        name: "session_authority_end",
+        arguments: { authorityLeaseId: lease.leaseId },
       });
-      const requestId = (requested.structuredContent as { requestId: string }).requestId;
-      await broker.complete(requestId, outcome);
+      expect(ended.isError).not.toBe(true);
+      expect(ended.structuredContent).toMatchObject({ ended: true });
 
-      const status = await client.callTool({
-        name: "session_authority_request_status",
-        arguments: { requestId },
+      const reuse = await client.callTool({
+        name: "session_authority_status",
+        arguments: { authorityLeaseId: lease.leaseId },
       });
-      expect(status.isError).not.toBe(true);
-      expect(status.structuredContent).toMatchObject({ requestId, profile: "admin", state: outcome });
-      expect(status.structuredContent).not.toHaveProperty("lease");
+      expect(reuse.isError).toBe(true);
+      expect(textContent(reuse)).toContain("AUTHORITY_REQUIRED");
     } finally {
       await transport.terminateSession();
       await client.close();

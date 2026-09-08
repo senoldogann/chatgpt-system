@@ -18,6 +18,10 @@ export interface AppConfig {
     enabled: boolean;
     commands: string[];
   };
+  control: {
+    enabled: boolean;
+    socketPath: string;
+  };
   http: {
     host: string;
     port: number;
@@ -31,6 +35,8 @@ export interface ConfigOverrides {
   auditFile?: string;
   terminalEnabled?: boolean;
   commands?: string[];
+  controlEnabled?: boolean;
+  controlSocketPath?: string;
   host?: string;
   port?: number;
   token?: string;
@@ -41,6 +47,8 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_AUDIT_FILE: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_TERMINAL: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ALLOW_COMMANDS: z.string().optional(),
+  CHATGPT_SYSTEM_ENABLE_CONTROL: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_CONTROL_SOCKET: z.string().optional(),
   CHATGPT_SYSTEM_HTTP_HOST: z.string().optional(),
   CHATGPT_SYSTEM_HTTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
   CHATGPT_SYSTEM_HTTP_TOKEN: z.string().min(16).optional(),
@@ -83,6 +91,18 @@ function splitCsv(value: string | undefined): string[] | undefined {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
+export function resolveControlSocketPath(value?: string, homeDir = homedir()): string {
+  const requested = value ?? path.join(homeDir, ".chatgpt-system", "control.sock");
+  let expanded = requested;
+  if (requested === "~") expanded = homeDir;
+  else if (requested.startsWith("~/")) expanded = path.join(homeDir, requested.slice(2));
+
+  if (!path.isAbsolute(expanded)) {
+    throw new Error("Control socket path must be absolute or start with '~/'.");
+  }
+  return path.normalize(expanded);
+}
+
 export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppConfig> {
   const env = EnvSchema.parse(process.env);
   const requestedRoots = overrides.roots ?? splitRoots(env.CHATGPT_SYSTEM_ROOTS) ?? [process.cwd()];
@@ -97,15 +117,24 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     port: overrides.port ?? env.CHATGPT_SYSTEM_HTTP_PORT ?? 4312,
     ...(token ? { token } : {}),
   };
+  const homeDir = homedir();
+  const controlSocketPath = resolveControlSocketPath(
+    overrides.controlSocketPath ?? env.CHATGPT_SYSTEM_CONTROL_SOCKET,
+    homeDir,
+  );
 
   return {
     roots,
     auditFile: path.resolve(
-      overrides.auditFile ?? env.CHATGPT_SYSTEM_AUDIT_FILE ?? path.join(homedir(), ".chatgpt-system", "audit.jsonl"),
+      overrides.auditFile ?? env.CHATGPT_SYSTEM_AUDIT_FILE ?? path.join(homeDir, ".chatgpt-system", "audit.jsonl"),
     ),
     terminal: {
       enabled: overrides.terminalEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_TERMINAL),
       commands: [...new Set(overrides.commands ?? splitCsv(env.CHATGPT_SYSTEM_ALLOW_COMMANDS) ?? DEFAULT_COMMANDS)],
+    },
+    control: {
+      enabled: overrides.controlEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_CONTROL),
+      socketPath: controlSocketPath,
     },
     http,
     limits: {

@@ -75,6 +75,36 @@ export class LocalApprovalInvalidError extends AppError {
   }
 }
 
+export class ControlSocketUnavailableError extends AppError {
+  constructor(message = "The local authority control socket is unavailable.", details?: Record<string, unknown>) {
+    super(message, "CONTROL_SOCKET_UNAVAILABLE", details);
+  }
+}
+
+export class ControlSocketInUseError extends AppError {
+  constructor(message = "The local authority control socket is already in use.", details?: Record<string, unknown>) {
+    super(message, "CONTROL_SOCKET_IN_USE", details);
+  }
+}
+
+export class ControlProtocolInvalidError extends AppError {
+  constructor(message = "The local authority control protocol message is invalid.", details?: Record<string, unknown>) {
+    super(message, "CONTROL_PROTOCOL_INVALID", details);
+  }
+}
+
+export class AuthorizationBusyError extends AppError {
+  constructor(message = "Another local authority authorization is already in progress.") {
+    super(message, "AUTHORIZATION_BUSY");
+  }
+}
+
+export class LeaseDeliveryFailedError extends AppError {
+  constructor(message = "Authority lease delivery failed.") {
+    super(message, "LEASE_DELIVERY_FAILED");
+  }
+}
+
 export function errorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof AppError) {
     return { error: error.code, message: error.message, details: error.details ?? {} };

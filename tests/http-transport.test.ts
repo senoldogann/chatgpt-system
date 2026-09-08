@@ -15,8 +15,6 @@ const servers: ReturnType<typeof startHttp>[] = [];
 const expectedAnnotations = {
   system_capabilities: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   session_authority_start: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  session_authority_request: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  session_authority_request_status: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   session_authority_status: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   session_authority_end: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   fs_list: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -60,6 +58,7 @@ async function fixture() {
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: false, commands: ["node"] },
+    control: { enabled: false, socketPath: path.join(base, "control.sock") },
     http: { host: "127.0.0.1", port: 0, token },
     limits: {
       maxReadBytes: 1024 * 1024,

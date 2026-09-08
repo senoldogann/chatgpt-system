@@ -42,12 +42,14 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(() => buildTunnelSetup(["--root", ROOT, "--tunnel-id", "abc"], {}, context)).toThrow(/tunnel id/i);
   });
 
-  it("keeps bootstrap terminal disabled by default", () => {
+  it("keeps bootstrap terminal disabled while enabling the private local control socket", () => {
     const setup = buildTunnelSetup(["--root", ROOT, "--tunnel-id", VALID_TUNNEL], {}, context);
     expect(setup.profile).toBe("chatgpt-system");
     expect(setup.mcpCommand).not.toContain("--enable-terminal");
     expect(setup.mcpCommand).toContain("stdio");
     expect(setup.mcpCommand).toContain(ROOT);
+    expect(setup.mcpCommand).toContain("--enable-control");
+    expect(setup.controlSocketPath).toBe("/home/tester/.chatgpt-system/control.sock");
   });
 
   it("requires bootstrap terminal opt-in before command allowlisting", () => {
@@ -79,16 +81,19 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.mcpCommand).toContain("--enable-terminal");
     expect(setup.mcpCommand).toContain("--allow-command git");
     expect(setup.mcpCommand).toContain("--allow-command node");
+    expect(setup.mcpCommand).toContain("--enable-control");
   });
 
-  it("does not copy control-plane credentials into generated values", () => {
+  it("does not copy control-plane credentials or authority leases into generated values", () => {
     const secret = "sk-test-do-not-print";
     const setup = buildTunnelSetup(
       ["--root", ROOT, "--tunnel-id", VALID_TUNNEL],
       { CONTROL_PLANE_API_KEY: secret },
       context,
     );
-    expect(JSON.stringify(setup)).not.toContain(secret);
+    const serialized = JSON.stringify(setup);
+    expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain("authorityLeaseId");
   });
 
   it("generates argv for init, doctor, and run without a shell", () => {
@@ -102,6 +107,25 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     ]);
     expect(setup.doctorArgs).toEqual(["doctor", "--profile", "chatgpt-system", "--explain"]);
     expect(setup.runArgs).toEqual(["run", "--profile", "chatgpt-system"]);
+  });
+
+  it("replaces an existing tunnel profile only when --force is explicit", () => {
+    const normal = buildTunnelSetup(["--root", ROOT, "--tunnel-id", VALID_TUNNEL], {}, context);
+    expect(normal.initArgs).not.toContain("--force");
+
+    const replacement = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--force",
+    ], {}, context);
+    expect(replacement.initArgs).toEqual([
+      "init",
+      "--sample", "sample_mcp_stdio_local",
+      "--profile", "chatgpt-system",
+      "--tunnel-id", VALID_TUNNEL,
+      "--mcp-command", replacement.mcpCommand,
+      "--force",
+    ]);
   });
 
   it("separates repository build input from fixed protected runtime helper paths", () => {
