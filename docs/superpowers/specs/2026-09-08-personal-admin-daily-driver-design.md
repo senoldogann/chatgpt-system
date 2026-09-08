@@ -199,7 +199,7 @@ service: chatgpt-system-control-plane
 account: chatgpt-system
 ```
 
-Installation requires `CONTROL_PLANE_API_KEY` in the current environment once. The setup process stores it using `/usr/bin/security` with `-w` as the final option and sends the secret through stdin. The secret must never appear in spawned argv.
+Installation requires `CONTROL_PLANE_API_KEY` in the current environment once. The setup process stores it through `/usr/bin/security` with a silent `/usr/bin/expect` TTY responder. The responder receives the secret on stdin and types it into the interactive Keychain prompt; the secret must never appear in spawned argv.
 
 The Keychain item is created by `/usr/bin/security`, and the runner also reads it through `/usr/bin/security find-generic-password -w ...`, allowing the same trusted application path to retrieve it from the unlocked login Keychain after login.
 
@@ -304,7 +304,7 @@ Automated tests must cover at minimum:
 9. Project behavior remains unchanged in personal-admin mode;
 10. tunnel setup includes `--personal-admin` only when requested;
 11. daily-driver plist contains no API key and only absolute executable/script paths;
-12. Keychain add command has no secret in argv and uses stdin input;
+12. Keychain add flow has no secret in argv; the silent TTY responder receives the secret through stdin;
 13. runner Keychain lookup uses fixed service/account identifiers;
 14. runner spawns tunnel-client with `shell:false` and key only in child env;
 15. bounded logs never exceed 1 MiB;

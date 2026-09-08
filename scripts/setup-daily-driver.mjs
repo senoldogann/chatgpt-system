@@ -11,6 +11,7 @@ import { KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE } from "./daily-driver-runner.mjs";
 export const LAUNCH_AGENT_LABEL = "com.senoldogann.chatgpt-system.daily-driver";
 const LAUNCHCTL = "/bin/launchctl";
 const SECURITY = "/usr/bin/security";
+const EXPECT = "/usr/bin/expect";
 
 function xmlEscape(value) {
   return value
@@ -76,16 +77,20 @@ ${argumentXml}
 }
 
 export function keychainStoreInvocation() {
-  return {
-    command: SECURITY,
-    args: [
-      "add-generic-password",
-      "-U",
-      "-a", KEYCHAIN_ACCOUNT,
-      "-s", KEYCHAIN_SERVICE,
-      "-w",
-    ],
-  };
+  const script = `log_user 0
+set timeout 10
+gets stdin secret
+spawn /usr/bin/security add-generic-password -U -a ${KEYCHAIN_ACCOUNT} -s ${KEYCHAIN_SERVICE} -w
+expect {
+  -re {retype password data.*:} { send -- "$secret\r"; exp_continue }
+  -re {password data.*:} { send -- "$secret\r"; exp_continue }
+  eof {}
+  timeout { exit 124 }
+}
+catch wait result
+exit [lindex $result 3]
+`;
+  return { command: EXPECT, args: ["-c", script] };
 }
 
 export function storeControlPlaneKey(key, options = {}) {

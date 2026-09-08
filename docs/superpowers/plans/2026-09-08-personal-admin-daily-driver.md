@@ -482,7 +482,7 @@ Install must validate, before mutating state:
 Then:
 
 1. create `~/Library/LaunchAgents` and `~/.chatgpt-system/daily-driver` with user-private modes where applicable;
-2. store/update Keychain secret with `/usr/bin/security ... -w` and secret on stdin;
+2. store/update the Keychain secret through `/usr/bin/security ... -w` using a silent TTY responder that receives the secret on stdin;
 3. atomically write the plist;
 4. best-effort `launchctl bootout gui/<uid> <plist>`;
 5. require successful `launchctl bootstrap gui/<uid> <plist>`.
