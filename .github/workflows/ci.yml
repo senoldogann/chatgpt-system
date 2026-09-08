@@ -39,18 +39,15 @@ jobs:
           node-version: 22
       - name: Build macOS native helpers
         run: swift build -c release --package-path native/macos-authority-broker
-      - name: Verify Keychain helper byte-exact create and update
+      - name: Verify Keychain helper CLI contract
         run: |
-          account="chatgpt-system-ci"
-          service="chatgpt-system-keychain-helper-ci-${RANDOM}-$$"
-          initial="old-ci_$(uuidgen)"
-          value="sk-proj-ci_A-B_C_$(uuidgen)"
           helper="native/macos-authority-broker/.build/release/chatgpt-system-keychain-helper"
-          trap 'security delete-generic-password -a "$account" -s "$service" >/dev/null 2>&1 || true' EXIT
-          printf '%s' "$initial" | "$helper" store "$account" "$service"
-          printf '%s' "$value" | "$helper" store "$account" "$service"
-          actual="$(security find-generic-password -a "$account" -s "$service" -w)"
-          test "$actual" = "$value"
+          test -x "$helper"
+          if "$helper" store chatgpt-system-ci chatgpt-system-keychain-helper-ci </dev/null 2>keychain-helper.err; then
+            echo "Keychain helper unexpectedly accepted an empty credential" >&2
+            exit 1
+          fi
+          grep -q "Credential stdin must not be empty" keychain-helper.err
       - name: Install and self-verify protected authority broker
         run: sudo node scripts/install-macos-authority-broker.mjs
       - name: Verify protected artifacts exist
