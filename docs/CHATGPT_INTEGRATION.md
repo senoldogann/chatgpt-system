@@ -113,16 +113,19 @@ cd ~/chatgpt-system
 npm run setup:chatgpt -- \
   --root /tmp/chatgpt-system-acceptance \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
+  --enable-terminal \
   --doctor
 ```
+
+This daily-driver acceptance profile explicitly opts into the runtime terminal gate because later Admin acceptance requires `terminal_run` and managed process execution. The secure default remains disabled when `--enable-terminal` is omitted, and Project/User leases still cannot use terminal or `process_start` even when the runtime gate is enabled.
 
 The generated stdio target includes:
 
 ```text
---enable-control --control-socket ~/.chatgpt-system/control.sock
+--enable-control --control-socket ~/.chatgpt-system/control.sock --enable-terminal
 ```
 
-If the profile predates local authorization support, rerun setup rather than hand-editing a stale child command.
+If the profile predates local authorization support, managed-process support, or the terminal opt-in required by this acceptance flow, rerun setup rather than hand-editing a stale child command.
 
 ## 5. Run the tunnel
 
@@ -354,7 +357,7 @@ Authority/approval/process lifecycle records contain non-secret categorical meta
 1. `npm run check`
 2. `npm run build:broker:macos`
 3. `sudo npm run install:broker:macos`
-4. rerun `npm run setup:chatgpt -- ... --doctor`
+4. rerun `npm run setup:chatgpt -- ... --enable-terminal --doctor`
 5. `tunnel-client doctor --profile chatgpt-system --explain`
 6. restart `tunnel-client run --profile chatgpt-system`
 7. verify `~/.chatgpt-system/control.sock`
