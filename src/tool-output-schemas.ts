@@ -28,6 +28,9 @@ export const systemCapabilitiesOutputSchema = z.object({
     maxDirectoryEntries: z.number().int().positive(),
     maxCommandOutputBytes: z.number().int().positive(),
     commandTimeoutMs: z.number().int().positive(),
+    maxManagedProcesses: z.number().int().positive(),
+    maxProcessLogBytesPerStream: z.number().int().positive(),
+    processStopGraceMs: z.number().int().positive(),
   }),
   safety: z.object({
     filesystemConfinement: z.literal(true),
