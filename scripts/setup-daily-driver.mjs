@@ -9,9 +9,11 @@ import { fileURLToPath } from "node:url";
 import { KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE } from "./daily-driver-runner.mjs";
 
 export const LAUNCH_AGENT_LABEL = "com.senoldogann.chatgpt-system.daily-driver";
+export const RESTART_HELPER_LABEL = `${LAUNCH_AGENT_LABEL}.restart-helper`;
 const LAUNCHCTL = "/bin/launchctl";
 const SECURITY = "/usr/bin/security";
 const SWIFT = "/usr/bin/swift";
+const LAUNCH_AGENT_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
 function xmlEscape(value) {
   return value
@@ -65,6 +67,11 @@ ${argumentXml}
     <true/>
     <key>ProcessType</key>
     <string>Background</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>${LAUNCH_AGENT_PATH}</string>
+    </dict>
     <key>ThrottleInterval</key>
     <integer>5</integer>
     <key>StandardOutPath</key>
@@ -107,6 +114,22 @@ export function storeControlPlaneKey(key, options = {}) {
   }
 }
 
+export function planControlPlaneCredential(key, options = {}) {
+  if (key) return "store";
+  const spawnSyncImpl = options.spawnSync ?? spawnSync;
+  const result = spawnSyncImpl(SECURITY, [
+    "find-generic-password",
+    "-a", KEYCHAIN_ACCOUNT,
+    "-s", KEYCHAIN_SERVICE,
+  ], {
+    shell: false,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (!result.error && result.status === 0) return "reuse";
+  throw new Error("CONTROL_PLANE_API_KEY must be set when no daily-driver Keychain credential exists.");
+}
+
 export function buildLaunchctlCommands({ uid, plistPath }) {
   if (!Number.isInteger(uid) || uid < 0) throw new Error("A valid user uid is required.");
   const normalizedPlist = requireAbsolute(plistPath, "LaunchAgent plist path");
@@ -118,8 +141,79 @@ export function buildLaunchctlCommands({ uid, plistPath }) {
   };
 }
 
+export function buildRestartSubmitInvocation({ uid, plistPath, nodePath, setupScriptPath }) {
+  if (!Number.isInteger(uid) || uid < 0) throw new Error("A valid user uid is required.");
+  const normalizedPlist = requireAbsolute(plistPath, "LaunchAgent plist path");
+  const normalizedNode = requireAbsolute(nodePath, "Node path");
+  const normalizedSetupScript = requireAbsolute(setupScriptPath, "Setup script path");
+  return {
+    command: LAUNCHCTL,
+    args: [
+      "submit",
+      "-l", RESTART_HELPER_LABEL,
+      "--",
+      normalizedNode,
+      normalizedSetupScript,
+      "restart-helper",
+      "--uid", String(uid),
+      "--plist", normalizedPlist,
+    ],
+  };
+}
+
+export function activateLaunchAgent({ uid, plistPath, nodePath, setupScriptPath }, options = {}) {
+  const runCommandImpl = options.runCommand ?? runCommand;
+  const commands = buildLaunchctlCommands({ uid, plistPath });
+  const current = runCommandImpl(LAUNCHCTL, commands.status);
+  if (!current.error && current.status === 0) {
+    runCommandImpl(LAUNCHCTL, ["remove", RESTART_HELPER_LABEL]);
+    const restart = buildRestartSubmitInvocation({
+      uid,
+      plistPath,
+      nodePath,
+      setupScriptPath,
+    });
+    assertSuccess(
+      runCommandImpl(restart.command, restart.args),
+      "launchctl submit daily-driver restart helper",
+    );
+    return "restart-scheduled";
+  }
+
+  assertSuccess(runCommandImpl(LAUNCHCTL, commands.bootstrap), "launchctl bootstrap");
+  return "bootstrapped";
+}
+
+export async function runRestartHelper({ uid, plistPath }, options = {}) {
+  const runCommandImpl = options.runCommand ?? runCommand;
+  const wait = options.wait ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  const commands = buildLaunchctlCommands({ uid, plistPath });
+  await wait(750);
+  runCommandImpl(LAUNCHCTL, commands.bootout);
+  try {
+    assertSuccess(runCommandImpl(LAUNCHCTL, commands.bootstrap), "launchctl bootstrap");
+  } finally {
+    runCommandImpl(LAUNCHCTL, ["remove", RESTART_HELPER_LABEL]);
+  }
+}
+
 function parseArgs(argv) {
   const command = argv[0] ?? "install";
+  if (command === "restart-helper") {
+    let uid;
+    let plistPath;
+    for (let index = 1; index < argv.length; index += 1) {
+      const arg = argv[index];
+      const value = argv[index + 1];
+      if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);
+      if (arg === "--uid") uid = Number(value);
+      else if (arg === "--plist") plistPath = value;
+      else throw new Error(`Unknown option: ${arg}`);
+      index += 1;
+    }
+    if (!Number.isInteger(uid) || uid < 0) throw new Error("--uid requires a valid user uid.");
+    return { command, uid, plistPath: requireAbsolute(plistPath, "LaunchAgent plist path") };
+  }
   if (!["install", "status", "uninstall"].includes(command)) {
     throw new Error("Usage: setup-daily-driver.mjs <install|status|uninstall> [--profile name]");
   }
@@ -181,7 +275,7 @@ function pathsFor(homeDir) {
 async function install(profile, context) {
   if (process.platform !== "darwin") throw new Error("Daily-driver LaunchAgent installation is supported only on macOS.");
   const key = context.environment.CONTROL_PLANE_API_KEY;
-  if (!key) throw new Error("CONTROL_PLANE_API_KEY must be set for the one-time daily-driver install.");
+  const credentialAction = planControlPlaneCredential(key);
 
   const tunnelClientPath = await resolveExecutable("tunnel-client", context.environment);
   const runnerPath = path.join(context.repoDir, "scripts", "daily-driver-runner.mjs");
@@ -194,18 +288,30 @@ async function install(profile, context) {
     profile,
     logDir,
   });
-  const commands = buildLaunchctlCommands({ uid: context.uid, plistPath });
   const keychainHelper = keychainHelperBuildInvocation(context.repoDir);
 
   await mkdir(logDir, { recursive: true, mode: 0o700 });
-  assertSuccess(runCommand(keychainHelper.command, keychainHelper.args), "Keychain helper build");
-  storeControlPlaneKey(key, { helperPath: keychainHelper.helperPath });
+  if (credentialAction === "store") {
+    assertSuccess(runCommand(keychainHelper.command, keychainHelper.args), "Keychain helper build");
+    storeControlPlaneKey(key, { helperPath: keychainHelper.helperPath });
+  }
   await writePlistAtomic(plistPath, plist);
-  runCommand(LAUNCHCTL, commands.bootout);
-  assertSuccess(runCommand(LAUNCHCTL, commands.bootstrap), "launchctl bootstrap");
+  const activation = activateLaunchAgent({
+    uid: context.uid,
+    plistPath,
+    nodePath: process.execPath,
+    setupScriptPath: path.join(context.repoDir, "scripts", "setup-daily-driver.mjs"),
+  });
 
   console.log(`Daily driver installed: ${LAUNCH_AGENT_LABEL}`);
-  console.log("Tunnel credential stored in macOS Keychain; no API key was written to the LaunchAgent plist.");
+  if (activation === "restart-scheduled") {
+    console.log("Daily driver restart delegated to launchd; the tunnel will reconnect automatically.");
+  }
+  console.log(
+    credentialAction === "store"
+      ? "Tunnel credential stored in macOS Keychain; no API key was written to the LaunchAgent plist."
+      : "Existing macOS Keychain tunnel credential reused; no API key was written to the LaunchAgent plist.",
+  );
 }
 
 async function status(profile, context) {
@@ -236,9 +342,15 @@ const scriptPath = fileURLToPath(import.meta.url);
 const repoDir = path.resolve(path.dirname(scriptPath), "..");
 
 async function main() {
-  const { command, profile } = parseArgs(process.argv.slice(2));
+  const parsed = parseArgs(process.argv.slice(2));
   const uid = process.getuid?.();
   if (uid === undefined) throw new Error("Unable to determine current user uid.");
+  if (parsed.command === "restart-helper") {
+    if (parsed.uid !== uid) throw new Error("Restart helper uid must match the current user.");
+    return runRestartHelper({ uid, plistPath: parsed.plistPath });
+  }
+
+  const { command, profile } = parsed;
   const context = {
     environment: process.env,
     homeDir: homedir(),
