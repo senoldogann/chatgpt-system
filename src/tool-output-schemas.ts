@@ -142,3 +142,31 @@ export const terminalResultOutputSchema = z.object({
   stderr: z.string(),
   timedOut: z.boolean(),
 });
+
+export const processSummaryOutputSchema = z.object({
+  processId: z.string(),
+  command: z.string(),
+  argCount: nonNegativeInt,
+  cwd: z.string(),
+  state: z.enum(["running", "exited", "stopped"]),
+  startedAt: z.string(),
+  exitedAt: z.string().optional(),
+  exitCode: z.number().int().nullable().optional(),
+  signal: z.string().nullable().optional(),
+});
+
+export const processListOutputSchema = z.object({
+  processes: z.array(processSummaryOutputSchema),
+});
+
+const processLogStreamOutputSchema = z.object({
+  content: z.string(),
+  bytes: nonNegativeInt,
+  truncated: z.boolean(),
+});
+
+export const processLogsOutputSchema = z.object({
+  processId: z.string(),
+  stdout: processLogStreamOutputSchema,
+  stderr: processLogStreamOutputSchema,
+});
