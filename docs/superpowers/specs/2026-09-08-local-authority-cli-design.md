@@ -1,9 +1,10 @@
 # Local Authority CLI and Control Socket Design
 
 Date: 2026-09-08
-Status: Proposed, awaiting written-spec approval
+Status: Approved and implemented; manual Mac/Web/Desktop acceptance pending
 Branch: `feat/local-authority-cli`
 Depends on: `feat/local-authority-broker`
+Amended by: `docs/superpowers/specs/2026-09-08-local-authority-cli-delivery-hardening.md`
 
 ## 1. Problem
 
@@ -112,14 +113,15 @@ The control server is **opt-in** at server startup rather than automatically ena
 
 Startup behavior:
 
-1. create `~/.chatgpt-system` with mode `0700` where possible;
-2. inspect an existing socket path with `lstat`;
-3. if a live compatible control server answers `ping`, fail startup with `CONTROL_SOCKET_IN_USE` rather than hijacking it;
-4. if the path is a stale socket owned by the current UID, unlink it and bind;
-5. reject regular files, symlinks, unexpected ownership, or other path types;
-6. bind the Unix socket;
-7. chmod the socket `0600`;
-8. unlink the owned socket on orderly shutdown.
+1. create the control-socket parent directory with mode `0700` where possible;
+2. `lstat` the parent and require it to be a real directory owned by the current UID before chmod, rejecting symlink or unexpected-owner parents;
+3. inspect an existing socket path with `lstat`;
+4. if a live compatible control server answers `ping`, fail startup with `CONTROL_SOCKET_IN_USE` rather than hijacking it;
+5. if the path is a stale socket owned by the current UID, unlink it and bind;
+6. reject regular files, symlinks, unexpected ownership, or other path types;
+7. bind the Unix socket;
+8. chmod the socket `0600`;
+9. unlink the owned socket on orderly shutdown.
 
 A hostile process already running as the same macOS user remains outside the hard security boundary, consistent with the repository's existing same-user threat-model limitation. The socket nevertheless prevents access from other local OS users.
 
@@ -142,6 +144,14 @@ Supported requests in this phase:
 ```json
 {"version":1,"action":"authorize","profile":"admin","requestedTtlSeconds":1800}
 ```
+
+The delivery-hardening amendment adds one authority-reducing rollback action:
+
+```json
+{"version":1,"action":"revoke","authorityLeaseId":"<opaque lease>"}
+```
+
+`revoke` cannot create or expand authority. It exists only on the private Unix socket so the local CLI can roll back a lease that was minted successfully but could not be delivered through the clipboard.
 
 Responses are strict JSON objects with a stable version and categorical error code.
 
@@ -229,7 +239,11 @@ The raw lease ID is not printed by default.
 
 On macOS, copy the exact lease ID to the clipboard using `pbcopy` with `shell=false` and stdin. No shell command string is constructed.
 
-For diagnostic/automation use, an explicit `--print-lease` option may print the lease to stdout instead of copying it. It must be opt-in and documented as exposing the capability to terminal logs/capture.
+Human native authentication gets an explicit bounded 130-second control-client timeout. Generic local control requests keep their short timeout.
+
+If clipboard delivery fails after the lease is minted, the CLI sends the private `revoke` action for that exact lease. If cleanup cannot be confirmed, the CLI returns `LEASE_DELIVERY_FAILED` without exposing the raw lease.
+
+For diagnostic/automation use, an explicit `--print-lease` option may print the lease to stdout instead of copying it. It must be opt-in and documented as exposing the capability to terminal logs/capture. Explicit print mode counts as successful delivery and is not auto-revoked.
 
 The CLI must never write a lease to disk.
 
@@ -289,10 +303,11 @@ If benign User/Admin calls are still systematically blocked even with a pre-appr
 
 - ChatGPT cannot invoke the local `authorize` CLI through Project/User authority because those profiles have no terminal capability.
 - An Admin lease can execute commands, but obtaining that Admin lease already required local authentication.
-- The control server is local Unix-socket-only and mode `0600`.
+- The control server is local Unix-socket-only and mode `0600`, with a current-UID-owned non-symlink parent directory.
 - Native approval still executes only the protected root-owned, hash-verified helper.
 - Passwords, Touch ID/biometric data, native LocalAuthentication internals, sudo credentials, and reusable native authorization material never cross MCP, the control protocol, audit logs, or environment variables.
 - The opaque authority lease intentionally crosses the local control socket and later the ChatGPT conversation because it is the workflow capability handle.
+- `revoke` is authority-reducing only and accepts no profile, path, command, helper, or native-approval input.
 - Raw leases are never stored on disk by the CLI/runtime.
 - Clipboard contains the lease after authorization until replaced by the user/system; documentation must state this explicitly.
 - Leases remain opaque, expiring, revocable, and invalid after runtime restart.
@@ -306,6 +321,7 @@ Stable local control errors should include:
 - `CONTROL_SOCKET_IN_USE`;
 - `CONTROL_PROTOCOL_INVALID`;
 - `AUTHORIZATION_BUSY`;
+- `LEASE_DELIVERY_FAILED` for CLI delivery rollback failure paths;
 - existing `LOCAL_APPROVAL_UNAVAILABLE`;
 - existing `LOCAL_APPROVAL_DENIED` / categorical cancellation handling;
 - existing authority errors after lease creation.
@@ -313,10 +329,11 @@ Stable local control errors should include:
 Rules:
 
 - missing tunnel runtime: CLI fails without starting a shadow runtime;
-- stale/untrusted socket path: fail closed unless it is provably an owned stale socket;
+- stale/untrusted socket path or parent: fail closed unless an existing socket is provably an owned stale socket;
 - Touch ID cancellation: no lease;
 - helper trust failure: no lease;
 - control disconnect during approval: if no lease has been created, do not create one for an absent client; if creation races the disconnect, revoke/discard it immediately;
+- clipboard delivery failure after lease creation: attempt local `revoke` immediately and never expose the raw lease in an error;
 - runtime shutdown: close control server and invalidate all leases with process state.
 
 ## 13. Testing
@@ -326,11 +343,13 @@ Automated tests must cover:
 ### Control server
 
 - `0700` parent / `0600` socket permissions where supported;
+- control parent symlink and unexpected-owner rejection before chmod;
 - stale owned socket cleanup;
 - live socket collision rejection;
-- symlink/regular-file/unexpected-owner rejection;
+- symlink/regular-file/unexpected-owner socket-path rejection;
 - bounded frames and malformed JSON;
 - `ping`;
+- authority-reducing `revoke`;
 - one authorization in flight;
 - disconnect handling;
 - shutdown cleanup.
@@ -348,7 +367,10 @@ Automated tests must cover:
 
 - connects to existing socket rather than creating runtime;
 - user/admin parsing and TTL validation;
+- authorize waits longer than the two-minute approval lifetime while remaining bounded;
 - `pbcopy` invoked with `shell=false` and lease on stdin;
+- clipboard failure sends exactly one revoke for the undelivered lease;
+- revoke failure still does not expose the raw lease;
 - raw lease not printed by default;
 - `--print-lease` is explicit;
 - server unavailable produces a stable local error.
