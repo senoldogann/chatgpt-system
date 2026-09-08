@@ -64,8 +64,11 @@ Create the tunnel in OpenAI Platform, then configure the local profile:
 npm run setup:chatgpt -- \
   --root /absolute/path/to/disposable-test-project \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
+  --enable-terminal \
   --doctor
 ```
+
+The daily-driver profile explicitly opts into the runtime terminal gate so an authenticated Admin lease can run bounded one-shot commands and managed development processes. Omitting `--enable-terminal` keeps the secure startup default disabled, and Project/User leases still cannot use terminal or `process_start` even when the runtime gate is enabled.
 
 The generated tunnel target automatically enables the private local authority control socket at:
 
