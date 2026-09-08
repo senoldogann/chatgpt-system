@@ -66,6 +66,9 @@ async function fixture() {
       maxDirectoryEntries: 100,
       maxCommandOutputBytes: 1024,
       commandTimeoutMs: 1_000,
+      maxManagedProcesses: 32,
+      maxProcessLogBytesPerStream: 131_072,
+      processStopGraceMs: 3_000,
     },
   };
 
@@ -140,6 +143,11 @@ describe("HTTP MCP transport", () => {
       expect(capabilities.isError).not.toBe(true);
       expect(capabilities.structuredContent).toMatchObject({
         terminal: { enabled: false },
+        limits: {
+          maxManagedProcesses: 32,
+          maxProcessLogBytesPerStream: 131_072,
+          processStopGraceMs: 3_000,
+        },
         safety: { terminalOsSandboxed: false },
       });
 
