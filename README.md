@@ -103,6 +103,27 @@ ChatGPT Web is the canonical first acceptance surface. ChatGPT Desktop uses the 
 
 See [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md) for the full runbook.
 
+## macOS daily driver
+
+After the tunnel profile is configured with `--enable-terminal --personal-admin`, the optional daily-driver service can keep the tunnel running automatically at login. The one-time installer stores `CONTROL_PLANE_API_KEY` in the macOS login Keychain and installs a user LaunchAgent. The key authenticates `tunnel-client` to the Secure MCP Tunnel control plane; `chatgpt-system` does not use it to make model API calls.
+
+Before installing, stop any manually running `tunnel-client run --profile chatgpt-system` instance. Then, from the shell where `CONTROL_PLANE_API_KEY` is already available, run once:
+
+```bash
+npm run setup:daily-driver
+```
+
+After that, normal use is simply: log into the Mac, open ChatGPT, and use the plugin. No Terminal window or manually pasted Admin lease is required in personal-admin mode.
+
+Maintenance commands are intentionally small:
+
+```bash
+npm run daily-driver:status
+npm run daily-driver:uninstall
+```
+
+The LaunchAgent runs only as the logged-in user. The API key is not written to the plist, repository, audit log, or runner logs.
+
 ## Authority privilege ladder
 
 Every privileged filesystem/Git/process call carries an opaque `authorityLeaseId`. The capability mapping is fixed by local trusted code and cannot be overridden by MCP input.

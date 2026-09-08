@@ -147,11 +147,29 @@ If the profile predates local authorization support, managed-process support, or
 
 ## 5. Run the tunnel
 
+For manual acceptance:
+
 ```bash
 tunnel-client run --profile chatgpt-system
 ```
 
-Keep it running while ChatGPT discovers or calls tools. Verify the local socket:
+For the permanent personal daily-driver setup, stop the manual tunnel after acceptance and run the one-time installer from a shell where `CONTROL_PLANE_API_KEY` is already exported:
+
+```bash
+cd ~/chatgpt-system
+npm run setup:daily-driver
+```
+
+The installer stores the tunnel control-plane credential in the macOS login Keychain, writes a user LaunchAgent, and starts the service. The key authenticates `tunnel-client` to OpenAI's Secure MCP Tunnel control plane; it is not used by `chatgpt-system` to make model API calls. Normal daily use after installation does not require Terminal or a pasted Admin lease when `--personal-admin` is enabled.
+
+Service inspection and removal are:
+
+```bash
+npm run daily-driver:status
+npm run daily-driver:uninstall
+```
+
+Keep the tunnel service running while ChatGPT discovers or calls tools. Verify the local socket:
 
 ```bash
 ls -ld ~/.chatgpt-system
@@ -178,7 +196,7 @@ session_authority_status
 session_authority_end
 ```
 
-User/Admin creation tools are intentionally absent. Broad authority starts locally on the Mac.
+User authority creation tools are intentionally absent. Admin creation is local by default; in explicit `--personal-admin` mode, `session_authority_start` also accepts `profile="admin"` and returns the same bounded in-memory Admin lease shape.
 
 Filesystem/Git/one-shot process tools:
 
@@ -215,7 +233,7 @@ Every privileged tool takes `authorityLeaseId`. Managed-process MCP schemas do n
 | --- | --- | ---: | --- | --- |
 | Project | explicit project roots | 8 h | No | MCP direct |
 | User | current user's canonical home | 4 h | No | local CLI + native auth |
-| Admin | `/` as current OS user | 1 h | Yes | local CLI + native auth |
+| Admin | `/` as current OS user | 1 h | Yes | local CLI + native auth by default; MCP direct in personal-admin mode |
 
 Admin is not UID 0. Root-only operations are not part of this boundary.
 

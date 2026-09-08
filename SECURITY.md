@@ -6,7 +6,7 @@
 
 1. **Explicit session authority**: privileged filesystem, Git, and process calls require an active opaque authority lease. Leases expire, can be revoked immediately, and are stored internally only by hash.
 2. **Fixed privilege ladder**: Project has project filesystem/Git access and no terminal; User has home filesystem/Git access and no terminal; Admin has host-wide scope under the current OS user and is the only terminal-capable profile.
-3. **Local creation of broad authority**: ChatGPT's default MCP catalog can create Project authority only. User/Admin authority is created from the Mac through `chatgpt-system authorize user|admin`, a private Unix control socket, and native LocalAuthentication.
+3. **Local creation of broad authority by default**: ChatGPT's default MCP catalog can create Project authority only. User/Admin authority is created from the Mac through `chatgpt-system authorize user|admin`, a private Unix control socket, and native LocalAuthentication unless the operator explicitly starts the runtime with `--personal-admin`.
 4. **Shared authoritative runtime**: the CLI never creates a shadow `AuthorityManager`. The control socket talks to the same running process that serves MCP, so a locally created lease exists in exactly one authoritative in-memory lease store.
 5. **Private local control plane**: the default control socket is `~/.chatgpt-system/control.sock`; its parent is `0700`, the socket is `0600`, frames are bounded/versioned JSON, only one request is accepted per connection, stale/live socket ownership is checked, and only `ping` plus `authorize(user|admin)` exist.
 6. **No credential-shaped control input**: the local control protocol accepts no helper path, free-form authentication reason, shell command, password, sudo credential, API key, cookie, or biometric material. The lease capability itself is intentionally returned to the local CLI after successful authorization.
@@ -26,6 +26,8 @@
 20. **Graceful process-group cleanup**: on POSIX, managed children use their own process group. Stop/shutdown sends `SIGTERM`, waits the configured grace period, then escalates to `SIGKILL` internally if required.
 21. **HTTP authentication**: HTTP transport refuses to start without a bearer token and binds to loopback by default.
 22. **Loopback request validation**: the localhost HTTP listener applies Host and Origin validation before routing requests.
+23. **Personal Admin is explicit**: `--personal-admin` is disabled by default. When enabled, MCP may mint the existing fixed Admin profile directly, but leases remain bounded/in-memory and terminal/process capability still depends on the separate runtime terminal gate.
+24. **Daily-driver credential confinement**: the optional macOS LaunchAgent stores the Secure MCP Tunnel control-plane key in the login Keychain. The key is not placed in the plist, repository, audit log, runner logs, or spawned command argv.
 
 ## Why User/Admin creation is local
 
@@ -52,6 +54,22 @@ expiring lease
 The CLI copies the resulting lease to the clipboard by default using `/usr/bin/pbcopy` with `shell=false` and the lease on stdin. The lease is not placed in argv, environment variables, a temp file, or authority audit metadata. `--print-lease` is explicit diagnostic opt-in.
 
 Independent ChatGPT/OpenAI product safety checks can still block a specific later action. That is not treated as a local authority bypass opportunity.
+
+## Personal Admin exception
+
+`--personal-admin` is an explicit private-workstation trust mode for the operator who does not want to approve and paste an Admin lease during every normal session. In this mode `session_authority_start(profile="admin")` is exposed directly to MCP. The request still maps to the fixed Admin profile in trusted code, receives the existing one-hour maximum TTL, stays only in memory, and is audited without the raw lease value.
+
+Personal Admin does **not** imply terminal capability. If the daemon was not also started with `--enable-terminal`, the resulting Admin lease has host-wide filesystem scope but `terminalEnabled=false` and an empty command allowlist. This keeps the runtime terminal gate authoritative.
+
+This mode materially increases the impact of a malicious or prompt-injected MCP request and should be enabled only on a private workstation controlled by the same user. The default local-approval path remains available and unchanged when the flag is absent.
+
+## Daily-driver tunnel credential boundary
+
+The optional macOS daily-driver service is a user LaunchAgent, not a root daemon. The one-time installer reads `CONTROL_PLANE_API_KEY` from the operator's current environment and stores it in the macOS login Keychain using `/usr/bin/security` with the secret supplied on stdin rather than argv.
+
+At runtime the wrapper retrieves that fixed Keychain item and places the value only in the `tunnel-client` child environment. The LaunchAgent plist contains only absolute executable/script paths, profile name, and log path. Runner stdout/stderr logs are bounded tails and intentionally do not include the key or environment dump.
+
+This key authenticates `tunnel-client` to the Secure MCP Tunnel control plane. It is not a model invocation credential used by `chatgpt-system`, and the bridge does not turn daily-driver startup into direct model API usage.
 
 ## Why Project/User do not have terminal capability
 
