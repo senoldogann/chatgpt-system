@@ -9,6 +9,9 @@ export interface LimitsConfig {
   maxDirectoryEntries: number;
   maxCommandOutputBytes: number;
   commandTimeoutMs: number;
+  maxManagedProcesses: number;
+  maxProcessLogBytesPerStream: number;
+  processStopGraceMs: number;
 }
 
 export interface AppConfig {
@@ -57,6 +60,9 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_MAX_DIRECTORY_ENTRIES: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_MAX_COMMAND_OUTPUT_BYTES: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES: z.coerce.number().int().positive().optional(),
+  CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM: z.coerce.number().int().positive().optional(),
+  CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS: z.coerce.number().int().positive().optional(),
 });
 
 export const DEFAULT_COMMANDS = [
@@ -143,6 +149,9 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       maxDirectoryEntries: env.CHATGPT_SYSTEM_MAX_DIRECTORY_ENTRIES ?? 2_000,
       maxCommandOutputBytes: env.CHATGPT_SYSTEM_MAX_COMMAND_OUTPUT_BYTES ?? 1_048_576,
       commandTimeoutMs: env.CHATGPT_SYSTEM_COMMAND_TIMEOUT_MS ?? 60_000,
+      maxManagedProcesses: env.CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES ?? 32,
+      maxProcessLogBytesPerStream: env.CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM ?? 131_072,
+      processStopGraceMs: env.CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS ?? 3_000,
     },
   };
 }
