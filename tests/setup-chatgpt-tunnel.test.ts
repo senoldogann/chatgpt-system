@@ -109,6 +109,25 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.runArgs).toEqual(["run", "--profile", "chatgpt-system"]);
   });
 
+  it("replaces an existing tunnel profile only when --force is explicit", () => {
+    const normal = buildTunnelSetup(["--root", ROOT, "--tunnel-id", VALID_TUNNEL], {}, context);
+    expect(normal.initArgs).not.toContain("--force");
+
+    const replacement = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--force",
+    ], {}, context);
+    expect(replacement.initArgs).toEqual([
+      "init",
+      "--sample", "sample_mcp_stdio_local",
+      "--profile", "chatgpt-system",
+      "--tunnel-id", VALID_TUNNEL,
+      "--mcp-command", replacement.mcpCommand,
+      "--force",
+    ]);
+  });
+
   it("separates repository build input from fixed protected runtime helper paths", () => {
     const setup = buildTunnelSetup(["--root", ROOT, "--tunnel-id", VALID_TUNNEL], {}, context);
     expect(setup.brokerPackageDir).toBe("/opt/chatgpt-system/native/macos-authority-broker");
