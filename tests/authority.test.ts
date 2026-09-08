@@ -15,6 +15,7 @@ import {
   PolicyError,
 } from "../src/errors.js";
 import { createScopedRuntime } from "../src/scoped-runtime.js";
+import { createRuntimeServices } from "../src/server.js";
 
 describe("AuthorityManager", () => {
   let fixtureRoot: string;
@@ -41,6 +42,7 @@ describe("AuthorityManager", () => {
     return new AuthorityManager({
       homeDir: home,
       commands: ["git", "node"],
+      terminalEnabled: true,
       now: () => now,
     });
   }
@@ -140,6 +142,29 @@ describe("AuthorityManager", () => {
     expect(adminLease.commands).toEqual(["git", "node"]);
   });
 
+  it("keeps admin terminal capability behind the runtime terminal gate", async () => {
+    const base = baseConfig();
+    const config: AppConfig = {
+      ...base,
+      control: {
+        enabled: false,
+        socketPath: path.join(fixtureRoot, "control.sock"),
+      },
+      limits: {
+        ...base.limits,
+        maxManagedProcesses: 4,
+        maxProcessLogBytesPerStream: 1024,
+        processStopGraceMs: 100,
+      },
+    };
+    const runtime = createRuntimeServices(config);
+
+    const adminLease = await runtime.authority.start({ profile: "admin" });
+
+    expect(adminLease.terminalEnabled).toBe(false);
+    expect(adminLease.commands).toEqual([]);
+  });
+
   it("keeps concurrent leases isolated", async () => {
     const authority = manager();
     const leaseA = await authority.start({ profile: "project", projectRoots: [projectA] });
@@ -186,6 +211,7 @@ describe("AuthorityManager", () => {
     const authority = new AuthorityManager({
       homeDir: home,
       commands: ["git", "node"],
+      terminalEnabled: false,
       now: () => now,
       audit: async (event) => {
         await audit.record({

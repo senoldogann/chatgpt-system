@@ -30,6 +30,7 @@ describe("authority lifecycle audit", () => {
     const manager = new AuthorityManager({
       homeDir: home,
       commands: ["node"],
+      terminalEnabled: false,
       now: () => now,
       audit: async (event) => { events.push(event); },
     });

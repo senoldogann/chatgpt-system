@@ -18,7 +18,6 @@ export class AuditLogger {
     const line = JSON.stringify({
       id: randomUUID(),
       timestamp: new Date().toISOString(),
-      pid: process.pid,
       ...event,
     });
     await appendFile(this.file, `${line}\n`, { encoding: "utf8", mode: 0o600 });

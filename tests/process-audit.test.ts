@@ -46,6 +46,7 @@ describe("managed process audit privacy", () => {
     expect(raw).not.toContain(started.processId);
     expect(raw).not.toContain("SECRET_ARGUMENT_SENTINEL");
     expect(raw).not.toContain("SECRET_OUTPUT_SENTINEL");
+    expect(raw).not.toMatch(/"pid"\s*:/);
 
     const events = raw.trim().split("\n").map((line) => JSON.parse(line) as {
       action: string;
