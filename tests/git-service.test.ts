@@ -22,7 +22,7 @@ function git(cwd: string, args: string[]): string {
   }).trim();
 }
 
-async function fixture(remoteWriteEnabled = false) {
+async function fixture(remoteWriteEnabled = false, allowLocalRemote = false) {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-git-"));
   cleanups.push(base);
   const repo = path.join(base, "repo");
@@ -47,7 +47,10 @@ async function fixture(remoteWriteEnabled = false) {
     new PathPolicy(config.roots),
     new AuditLogger(config.auditFile),
     config,
-    { remoteWriteEnabled },
+    {
+      remoteWriteEnabled,
+      ...(allowLocalRemote ? { remoteUrlPolicy: () => true } : {}),
+    },
   );
   return { base, repo, remote, service };
 }
@@ -88,8 +91,13 @@ describe("typed Git mutations", () => {
     await expect(service.push(".")).rejects.toMatchObject({ code: "POLICY_DENIED" });
   });
 
+  it("rejects a non-GitHub origin even when remote writes are enabled", async () => {
+    const { service } = await fixture(true);
+    await expect(service.push(".")).rejects.toMatchObject({ code: "POLICY_DENIED" });
+  });
+
   it("pushes only the current validated branch to origin when remote writes are enabled", async () => {
-    const { repo, remote, service } = await fixture(true);
+    const { repo, remote, service } = await fixture(true, true);
     await service.createBranch(".", "feat/remote-write");
     await writeFile(path.join(repo, "remote.txt"), "remote\n", "utf8");
     await service.stagePaths(".", ["remote.txt"]);

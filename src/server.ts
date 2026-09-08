@@ -149,6 +149,8 @@ const nonDestructiveWriteAnnotations = { readOnlyHint: false, destructiveHint: f
 const sessionStartAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
 const guardedMutationAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false };
 const destructiveAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false };
+const gitLocalMutationAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+const gitRemoteMutationAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 
 export function createMcpServer(runtime: RuntimeServices): McpServer {
   const personalAdminEnabled = runtime.config.personalAdmin?.enabled === true;
@@ -390,6 +392,95 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       annotations: readAnnotations,
     },
     async ({ authorityLeaseId, cwd, limit }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.log(cwd, limit)),
+  );
+
+  server.registerTool(
+    "git_create_branch",
+    {
+      description: "Create and switch to one validated local Git branch inside the active authority scope. Arbitrary Git arguments, hooks, and remote changes are not exposed.",
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        cwd: z.string().default("."),
+        branch: z.string().min(1).max(200),
+      }).strict(),
+      outputSchema: gitResultOutputSchema,
+      annotations: gitLocalMutationAnnotations,
+    },
+    async ({ authorityLeaseId, cwd, branch }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.createBranch(cwd, branch)),
+  );
+
+  server.registerTool(
+    "git_switch_branch",
+    {
+      description: "Switch to one validated existing local Git branch inside the active authority scope. No arbitrary checkout arguments are accepted.",
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        cwd: z.string().default("."),
+        branch: z.string().min(1).max(200),
+      }).strict(),
+      outputSchema: gitResultOutputSchema,
+      annotations: nonDestructiveWriteAnnotations,
+    },
+    async ({ authorityLeaseId, cwd, branch }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.switchBranch(cwd, branch)),
+  );
+
+  server.registerTool(
+    "git_stage_paths",
+    {
+      description: "Stage 1-100 explicit file paths inside the selected repository directory after authority-scope validation. Directory-wide and out-of-scope path staging are rejected.",
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        cwd: z.string().default("."),
+        paths: z.array(z.string().min(1)).min(1).max(100),
+      }).strict(),
+      outputSchema: gitResultOutputSchema,
+      annotations: nonDestructiveWriteAnnotations,
+    },
+    async ({ authorityLeaseId, cwd, paths }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.stagePaths(cwd, paths)),
+  );
+
+  server.registerTool(
+    "git_commit",
+    {
+      description: "Create one local Git commit from the existing index with a bounded commit message. Repository hooks and GPG signing are disabled for this operation.",
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        cwd: z.string().default("."),
+        message: z.string().min(1).max(500),
+      }).strict(),
+      outputSchema: gitResultOutputSchema,
+      annotations: gitLocalMutationAnnotations,
+    },
+    async ({ authorityLeaseId, cwd, message }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.commit(cwd, message)),
+  );
+
+  server.registerTool(
+    "git_merge_branch",
+    {
+      description: "Merge one validated local branch into the current branch with --no-ff and --no-edit. No arbitrary merge options are accepted.",
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        cwd: z.string().default("."),
+        branch: z.string().min(1).max(200),
+      }).strict(),
+      outputSchema: gitResultOutputSchema,
+      annotations: gitLocalMutationAnnotations,
+    },
+    async ({ authorityLeaseId, cwd, branch }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.mergeBranch(cwd, branch)),
+  );
+
+  server.registerTool(
+    "git_push",
+    {
+      description: "Push only the current validated branch to the existing credential-free GitHub origin. Requires an Admin authority lease; force, remote, refspec, and arbitrary Git arguments are not exposed.",
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        cwd: z.string().default("."),
+      }).strict(),
+      outputSchema: gitResultOutputSchema,
+      annotations: gitRemoteMutationAnnotations,
+    },
+    async ({ authorityLeaseId, cwd }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.push(cwd)),
   );
 
   server.registerTool(
