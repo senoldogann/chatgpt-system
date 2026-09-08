@@ -22,7 +22,7 @@ MCP tool registry
    |
    +--> FileSystemService ---> read/list/stat/write/patch/move/remove
    |
-   +--> GitService ----------> read-only status/diff/log
+   +--> GitService ----------> read status/diff/log + typed local mutations + Admin-only GitHub push
    |
    +--> ProcessService ------> bounded one-shot execution
    |

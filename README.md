@@ -64,7 +64,7 @@ Current foundation:
 - filesystem confinement with symlink-escape protection
 - SHA-256 optimistic locking for destructive file changes
 - atomic file replacement and unified-diff patching
-- Git status/diff/log tools
+- Git status/diff/log plus typed branch/stage/commit/merge/push tools
 - Admin-only allowlisted one-shot process execution with `shell=false`
 - Admin-only managed process supervision with opaque IDs, bounded logs, and process-group cleanup
 - JSONL audit trail with redacted authority and managed-process lifecycle metadata
@@ -318,6 +318,12 @@ True root-only operations are intentionally deferred to a typed macOS ServiceMan
 | `git_status` | Read status | Lease ID |
 | `git_diff` | Read working/staged diff | Lease ID |
 | `git_log` | Read recent commits | Lease ID |
+| `git_create_branch` | Create and switch to one validated local branch | Lease ID |
+| `git_switch_branch` | Switch to one validated existing local branch | Lease ID |
+| `git_stage_paths` | Stage explicit in-scope file paths only | Lease ID |
+| `git_commit` | Create one local commit with hooks/signing disabled | Lease ID |
+| `git_merge_branch` | Merge one validated local branch with fixed merge options | Lease ID |
+| `git_push` | Push only the current branch to a credential-free GitHub `origin` | **Admin lease only** |
 | `terminal_run` | Run one bounded allowlisted executable with `shell=false` | **Admin lease only** |
 | `process_start` | Start an allowlisted managed process and return an opaque ID | **Admin lease only** |
 | `process_list` | List managed processes compatible with the current authority scope | Terminal-capable compatible lease |

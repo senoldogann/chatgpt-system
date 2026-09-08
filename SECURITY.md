@@ -164,7 +164,11 @@ If stronger process isolation is required, run the bridge inside a container, VM
 
 ## Git safety
 
-Built-in Git tools are read-only. They disable repository hooks, filesystem monitors, external diff/textconv, pagers, and interactive credential prompts for exposed operations.
+Built-in Git tooling separates read operations from narrow typed mutations. `git_status`, `git_diff`, and `git_log` are read-only. Local mutation tools expose only validated branch creation/switching, explicit file staging, bounded commit messages, and fixed-option merges; they do not accept arbitrary Git arguments. Repository hooks, external diff/textconv, pagers, and commit signing are disabled for these operations.
+
+`git_push` is a separate remote-write boundary. It requires Admin authority, accepts no remote/refspec/force input, resolves only the existing `origin`, rejects credential-bearing or non-GitHub origin URLs, and pushes only the validated current branch to the same remote branch name. Interactive Git prompting remains disabled.
+
+Git audit metadata records operation categories and bounded counts/flags, not commit messages, staged path values, remote URLs, or credentials.
 
 The bridge assumes its startup environment, including executable search paths, is trusted. An actor that can replace executables found through `PATH` already operates at or near the bridge process's OS authority.
 
