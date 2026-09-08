@@ -29,6 +29,11 @@ const expectedAnnotations = {
   git_diff: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   git_log: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   terminal_run: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  process_start: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  process_list: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  process_status: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  process_logs: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  process_stop: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
 } as const;
 
 async function closeServer(server: ReturnType<typeof startHttp>): Promise<void> {
