@@ -16,7 +16,7 @@
 - `Admin` authority runs as the current OS user, never root.
 - Executable paths are rejected; command must be an allowlisted basename.
 - `shell: false` for all process execution.
-- Child environment is sanitized; do not copy the daemon environment wholesale.
+- Child environment is sanitized; never spread the daemon environment wholesale.
 - `cwd` must resolve inside active authority roots through existing `PathPolicy` symlink protections.
 - MCP never accepts or returns an OS PID, process-group ID, or arbitrary signal name.
 - `maxManagedProcesses` default: `32`.
@@ -24,7 +24,7 @@
 - `processStopGraceMs` default: `3000` ms.
 - Unknown and unauthorized process IDs both return `PROCESS_NOT_FOUND`.
 - Process registry and logs are in-memory only.
-- Existing `terminal_run` behavior must remain backward-compatible.
+- Existing `terminal_run` behavior remains backward-compatible.
 - Every production behavior change follows RED -> GREEN -> exact-head CI verification.
 
 ---
@@ -33,45 +33,14 @@
 
 **Files:**
 - Create: `src/process-policy.ts`
+- Create: `tests/process-policy.test.ts`
 - Modify: `src/process-service.ts`
 - Modify: `src/config.ts`
 - Modify: `src/tool-output-schemas.ts`
-- Test: `tests/process-policy.test.ts`
-- Test: `tests/config.test.ts` or the existing config-focused test file
-- Test: `tests/process-service.test.ts`
+- Modify: `tests/control-config.test.ts`
+- Modify: `tests/process-service.test.ts`
 
 **Interfaces:**
-- Produces `validateProcessInvocation(terminal: { enabled: boolean; commands: string[] }, command: string, args: string[]): void`.
-- Produces `sanitizedChildEnvironment(source?: NodeJS.ProcessEnv): NodeJS.ProcessEnv`.
-- Extends `LimitsConfig` with `maxManagedProcesses`, `maxProcessLogBytesPerStream`, and `processStopGraceMs`.
-- Existing `ProcessService.run()` consumes the shared policy helpers with no behavior change.
-
-- [ ] **Step 1: Write failing policy/config tests**
-
-Create focused tests proving:
-
-```ts
-expect(() => validateProcessInvocation({ enabled: false, commands: ["node"] }, "node", [])).toThrow(PolicyError);
-expect(() => validateProcessInvocation({ enabled: true, commands: ["node"] }, "/usr/bin/node", [])).toThrow(PolicyError);
-expect(() => validateProcessInvocation({ enabled: true, commands: ["node"] }, "sh", [])).toThrow(PolicyError);
-expect(() => validateProcessInvocation({ enabled: true, commands: ["node"] }, "node", ["bad\0arg"])).toThrow(PolicyError);
-```
-
-Also assert the sanitized environment keeps only the existing safe keys plus `CI=1` and `NO_COLOR=1`, and that `loadConfig()` defaults the new limits to `32`, `131072`, and `3000` while parsing the three new environment variables as positive integers.
-
-- [ ] **Step 2: Run the focused tests and verify RED**
-
-Run:
-
-```bash
-npm test -- tests/process-policy.test.ts tests/process-service.test.ts tests/config.test.ts
-```
-
-Expected: FAIL because `process-policy.ts` and the new limit fields do not exist yet.
-
-- [ ] **Step 3: Implement the minimum shared policy extraction**
-
-`src/process-policy.ts` should contain the existing command/argument/environment rules extracted from `ProcessService`, not new policy:
 
 ```ts
 export function validateProcessInvocation(
@@ -81,29 +50,60 @@ export function validateProcessInvocation(
 ): void;
 
 export function sanitizedChildEnvironment(
-  source: NodeJS.ProcessEnv = process.env,
+  source?: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv;
 ```
 
-Update `ProcessService.run()` to call these helpers before resolving `cwd` and spawning.
+`LimitsConfig` gains `maxManagedProcesses`, `maxProcessLogBytesPerStream`, and `processStopGraceMs`.
 
-Extend `EnvSchema`, `LimitsConfig`, `loadConfig()`, and `systemCapabilitiesOutputSchema` with the three exact process limits from the spec.
+- [ ] **Step 1: Write RED policy/config tests**
 
-- [ ] **Step 4: Run focused tests and full suite**
+Prove disabled terminal, executable paths, non-allowlisted commands, and NUL arguments are rejected through the new shared helper:
 
-Run:
+```ts
+expect(() => validateProcessInvocation({ enabled: false, commands: ["node"] }, "node", [])).toThrow(PolicyError);
+expect(() => validateProcessInvocation({ enabled: true, commands: ["node"] }, "/usr/bin/node", [])).toThrow(PolicyError);
+expect(() => validateProcessInvocation({ enabled: true, commands: ["node"] }, "sh", [])).toThrow(PolicyError);
+expect(() => validateProcessInvocation({ enabled: true, commands: ["node"] }, "node", ["bad\0arg"])).toThrow(PolicyError);
+```
+
+In `tests/control-config.test.ts`, assert `loadConfig()` defaults the new limits to `32`, `131072`, `3000`, and accepts positive-integer values from:
+
+```text
+CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES
+CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM
+CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS
+```
+
+Also assert `sanitizedChildEnvironment()` keeps only the existing safe keys plus `CI=1` and `NO_COLOR=1`.
+
+- [ ] **Step 2: Verify RED**
 
 ```bash
-npm test -- tests/process-policy.test.ts tests/process-service.test.ts tests/config.test.ts
+npm test -- tests/process-policy.test.ts tests/control-config.test.ts tests/process-service.test.ts
+```
+
+Expected: FAIL because `process-policy.ts` and the new limit fields do not exist.
+
+- [ ] **Step 3: Implement the minimum extraction**
+
+Move only the existing command/argument/environment rules from `ProcessService` into `src/process-policy.ts`. Update `ProcessService.run()` to call `validateProcessInvocation()` and use `sanitizedChildEnvironment()` before spawning.
+
+Extend `EnvSchema`, `LimitsConfig`, `loadConfig()`, and `systemCapabilitiesOutputSchema` with the three process limits.
+
+- [ ] **Step 4: Verify GREEN and regression suite**
+
+```bash
+npm test -- tests/process-policy.test.ts tests/control-config.test.ts tests/process-service.test.ts
 npm test
 ```
 
-Expected: PASS; existing one-shot terminal tests remain unchanged.
+Expected: PASS; one-shot `terminal_run` behavior is unchanged.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/process-policy.ts src/process-service.ts src/config.ts src/tool-output-schemas.ts tests/process-policy.test.ts tests/process-service.test.ts tests/config.test.ts
+git add src/process-policy.ts src/process-service.ts src/config.ts src/tool-output-schemas.ts tests/process-policy.test.ts tests/control-config.test.ts tests/process-service.test.ts
 git commit -m "refactor: share child process execution policy"
 ```
 
@@ -113,8 +113,8 @@ git commit -m "refactor: share child process execution policy"
 
 **Files:**
 - Create: `src/process-supervisor.ts`
+- Create: `tests/process-supervisor.test.ts`
 - Modify: `src/errors.ts`
-- Test: `tests/process-supervisor.test.ts`
 
 **Interfaces:**
 
@@ -145,7 +145,22 @@ export interface ManagedProcessDescriptor {
   cwd: string;
 }
 
+export interface ProcessSupervisorOptions {
+  limits: Pick<LimitsConfig,
+    "maxManagedProcesses" |
+    "maxProcessLogBytesPerStream" |
+    "processStopGraceMs"
+  >;
+  audit: AuditLogger;
+  platform?: NodeJS.Platform;
+  now?: () => number;
+  newProcessId?: () => string;
+  spawnProcess?: ManagedSpawn;
+  signalProcess?: ManagedSignal;
+}
+
 export class ProcessSupervisor {
+  constructor(options: ProcessSupervisorOptions);
   start(input: { command: string; args: string[]; cwd: string }): Promise<ManagedProcessSummary>;
   descriptors(): ManagedProcessDescriptor[];
   status(processId: string): ManagedProcessSummary | undefined;
@@ -155,11 +170,11 @@ export class ProcessSupervisor {
 }
 ```
 
-Constructor receives only the operational dependencies/config it owns: limits, audit logger, clock/random hooks when needed for deterministic tests, and an injectable spawn/signal boundary where real process behavior is otherwise impractical to force.
+`ManagedSpawn`/`ManagedSignal` are narrow internal function types declared in `process-supervisor.ts`; production defaults wrap Node `spawn`/`process.kill`, while tests inject them only when real OS behavior cannot deterministically force an edge case.
 
-- [ ] **Step 1: Write RED tests for start, opaque IDs, natural exit, and logs**
+- [ ] **Step 1: Write RED tests for start, identity, natural exit, logs, and capacity**
 
-Use real harmless Node child processes where possible:
+Use harmless real Node children where possible:
 
 ```ts
 const started = await supervisor.start({
@@ -168,50 +183,45 @@ const started = await supervisor.start({
   cwd: root,
 });
 expect(started.processId).toMatch(/^[A-Za-z0-9_-]{40,}$/);
-expect(JSON.stringify(started)).not.toContain("pid");
+expect(JSON.stringify(started)).not.toMatch(/\bpid\b/i);
 ```
 
-Add separate tests for natural exit and per-stream tail truncation where the retained `bytes` never exceeds the configured bound and `truncated=true` after overflow.
+Separate tests prove:
+
+- pre-spawn error leaves no registry entry;
+- natural exit becomes `exited`;
+- stdout/stderr tails truncate oldest bytes independently;
+- retained `bytes` never exceeds `maxProcessLogBytesPerStream`;
+- running records are never evicted;
+- completed records are evicted oldest-started first when capacity is needed;
+- all-running capacity exhaustion throws `LIMIT_EXCEEDED`.
 
 - [ ] **Step 2: Verify RED**
-
-Run:
 
 ```bash
 npm test -- tests/process-supervisor.test.ts
 ```
 
-Expected: FAIL because `ProcessSupervisor` and `ProcessNotFoundError` do not exist.
+Expected: FAIL because `ProcessSupervisor` does not exist.
 
-- [ ] **Step 3: Implement bounded tail buffer and registry**
+- [ ] **Step 3: Implement byte-tail buffer and opaque registry**
 
-Implement a private byte-tail buffer that:
+Use `randomBytes(32).toString("base64url")` for production IDs. Keep OS PID/process-group data only in private record state. Public summaries/descriptors/logs never contain it.
 
-- appends `Buffer` chunks;
-- discards oldest bytes beyond `maxProcessLogBytesPerStream`;
-- tracks whether truncation ever occurred;
-- decodes with Node UTF-8 replacement semantics at read time.
+Register a child only after `spawn`. On `error` before successful spawn, reject and leave no externally visible record.
 
-Generate process IDs with `randomBytes(32).toString("base64url")`. Do not store OS PID in public summary objects. Register only after the child emits `spawn`; on pre-spawn `error`, reject and leave no record.
+- [ ] **Step 4: Implement lifecycle/capacity updates**
 
-- [ ] **Step 4: Implement natural lifecycle updates and registry capacity**
+On `close`, store `exitedAt`, `exitCode`, `signal`, and state `exited` unless termination intent was set by stop/shutdown.
 
-On child `close`, update one immutable record to `exited` unless stop/shutdown initiated termination. Store close timestamp, exit code, and signal.
+Before new starts, evict only completed records oldest-started first. Never evict running records.
 
-Capacity behavior:
-
-- never evict running records;
-- before a new start, evict completed records oldest-started first until capacity exists;
-- if all `maxManagedProcesses` records are running, throw `LimitError`.
-
-- [ ] **Step 5: Run focused tests and exact full suite**
+- [ ] **Step 5: Verify GREEN and full suite**
 
 ```bash
 npm test -- tests/process-supervisor.test.ts
 npm test
 ```
-
-Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
@@ -226,14 +236,17 @@ git commit -m "feat: add managed process supervisor core"
 
 **Files:**
 - Create: `src/managed-process-service.ts`
+- Create: `tests/managed-process-service.test.ts`
 - Modify: `src/process-supervisor.ts`
-- Modify: `src/scoped-runtime.ts`
-- Test: `tests/managed-process-service.test.ts`
-- Test: `tests/process-supervisor.test.ts`
+- Modify: `src/errors.ts`
 
 **Interfaces:**
 
 ```ts
+export class ProcessNotFoundError extends AppError {
+  constructor(message?: string);
+}
+
 export class ManagedProcessService {
   constructor(
     policy: PathPolicy,
@@ -249,18 +262,19 @@ export class ManagedProcessService {
 }
 ```
 
-`ScopedRuntime` gains `processes: ManagedProcessService`. The facade must re-check the current lease on **every** list/status/logs/stop operation by validating terminal capability, command allowlist membership, and that the stored canonical cwd is inside the current `PathPolicy` roots.
+`ProcessNotFoundError` uses stable code `PROCESS_NOT_FOUND` and contains no hidden process metadata.
 
-- [ ] **Step 1: Write RED authorization tests**
+- [ ] **Step 1: Write RED authority/scope tests**
 
-Cover:
+Prove:
 
-- Project/User scoped runtime cannot `start`.
-- Admin can start allowlisted `node`.
-- `sh` and `/usr/bin/node` remain denied.
-- out-of-scope cwd is denied.
-- a User lease sees an empty `process_list` and direct lookup returns `PROCESS_NOT_FOUND`.
-- a compatible second Admin lease can inspect/stop a process after the first Admin lease is revoked.
+- User/Project terminal-disabled facades cannot `start` (`POLICY_DENIED`);
+- Admin starts allowlisted `node`;
+- `sh` and `/usr/bin/node` remain `POLICY_DENIED`;
+- start cwd outside scope is `POLICY_DENIED`;
+- a terminal-disabled/narrow facade returns an empty list for records it cannot manage;
+- direct status/logs/stop for unknown **or unauthorized** IDs all return `PROCESS_NOT_FOUND`;
+- a compatible later Admin facade can manage a process created under an earlier Admin lease.
 
 - [ ] **Step 2: Verify RED**
 
@@ -268,42 +282,48 @@ Cover:
 npm test -- tests/managed-process-service.test.ts
 ```
 
-Expected: FAIL because the facade does not exist.
+Expected: FAIL because the facade and stable error do not exist.
 
-- [ ] **Step 3: Implement scope filtering and non-oracle lookup**
+- [ ] **Step 3: Implement scope filtering without an oracle**
 
-Use `PathPolicy.resolve(storedCanonicalCwd)` as the scope check; do not compare path strings manually. For a record that is unknown **or** fails current-scope validation, throw the same `ProcessNotFoundError` with code `PROCESS_NOT_FOUND` and no metadata about the hidden process.
+`start()` calls `validateProcessInvocation()` and resolves `cwd` through the current `PathPolicy` before delegating.
 
-`list()` filters unauthorized descriptors before asking the supervisor for summaries and sorts newest-started first.
+For later access, define an internal async manageability check:
 
-- [ ] **Step 4: Write RED tests for stop behavior**
+1. if terminal capability is disabled, return `false`;
+2. if descriptor command is not in current allowlist, return `false`;
+3. attempt `policy.resolve(descriptor.cwd)`; if it fails, return `false`;
+4. otherwise the record is manageable.
+
+Do **not** call `validateProcessInvocation()` for lookup, because its `POLICY_DENIED` result would reveal that a hidden process exists. Unknown and unauthorized direct lookups both throw `ProcessNotFoundError`.
+
+- [ ] **Step 4: Write RED stop tests**
 
 Cover:
 
-- known completed process: stop is idempotent and sends no signal;
-- running cooperative child: SIGTERM -> close -> `stopped`;
-- uncooperative child: after `processStopGraceMs`, SIGKILL is attempted;
-- MCP/user input never supplies a signal name or OS PID.
+- completed process stop is idempotent with no signal;
+- cooperative running child gets SIGTERM and reaches `stopped`;
+- uncooperative child escalates to SIGKILL after `processStopGraceMs`;
+- shutdown uses the same private termination path;
+- no public method accepts PID or signal.
 
-- [ ] **Step 5: Implement process-group stop**
+- [ ] **Step 5: Implement process-group termination**
 
-On POSIX spawn with `detached: true`; signal the group with negative private PID internally. On non-POSIX, signal only the direct child. Never expose this identifier.
+On POSIX, spawn managed children with `detached: true` and privately signal the process group by negative PID. On non-POSIX, signal only the direct child. The MCP/user surface never accepts the target or signal.
 
-`stop()` marks termination intent before signaling so the eventual close state is `stopped`, waits at most `processStopGraceMs`, escalates to SIGKILL when required, then awaits close.
+Mark termination intent before signaling so the close handler records `stopped`. Await close after SIGTERM; after `processStopGraceMs`, send SIGKILL if still running, then await close.
 
-- [ ] **Step 6: Run focused and full tests**
+- [ ] **Step 6: Verify GREEN and full suite**
 
 ```bash
 npm test -- tests/managed-process-service.test.ts tests/process-supervisor.test.ts
 npm test
 ```
 
-Expected: PASS.
-
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/managed-process-service.ts src/process-supervisor.ts src/scoped-runtime.ts tests/managed-process-service.test.ts tests/process-supervisor.test.ts
+git add src/managed-process-service.ts src/process-supervisor.ts src/errors.ts tests/managed-process-service.test.ts tests/process-supervisor.test.ts
 git commit -m "feat: enforce authority scope for managed processes"
 ```
 
@@ -312,11 +332,13 @@ git commit -m "feat: enforce authority scope for managed processes"
 ### Task 4: Runtime Ownership and Clean Shutdown
 
 **Files:**
+- Create: `src/runtime-shutdown.ts`
+- Create: `tests/runtime-services.test.ts`
+- Create: `tests/runtime-shutdown.test.ts`
 - Modify: `src/server.ts`
 - Modify: `src/scoped-runtime.ts`
 - Modify: `src/cli.ts`
-- Test: `tests/runtime-services.test.ts` or existing runtime-wiring test
-- Test: `tests/cli-shutdown.test.ts`
+- Modify: `tests/process-service.test.ts`
 
 **Interfaces:**
 
@@ -326,48 +348,65 @@ git commit -m "feat: enforce authority scope for managed processes"
 processSupervisor: ProcessSupervisor;
 ```
 
-`createRuntimeServices()` creates exactly one shared supervisor. `createScopedRuntime()` receives that same supervisor and returns a scope facade; it must never construct a second supervisor.
+`ScopedRuntime` gains:
 
-- [ ] **Step 1: Write RED shared-runtime test**
+```ts
+processes: ManagedProcessService;
+```
 
-Assert two independently created scoped Admin runtimes from the same `RuntimeServices` can see the same supervisor-owned process, while separate top-level `RuntimeServices` instances cannot.
+`ScopedRuntimeBase` gains the already-created shared `processSupervisor`; `createScopedRuntime()` never constructs a supervisor.
+
+Shutdown helper:
+
+```ts
+export async function closeRuntimeResources(input: {
+  runtime: Pick<RuntimeServices, "processSupervisor">;
+  control?: ControlServerHandle;
+  closeTransport: () => Promise<void>;
+  reportError?: (phase: "processes" | "control" | "transport", error: unknown) => void;
+}): Promise<void>;
+```
+
+- [ ] **Step 1: Write RED shared-runtime ownership test**
+
+Create one `RuntimeServices`, two independently scoped Admin runtimes, start through one and observe through the other. A separately created top-level runtime must not share the registry.
 
 - [ ] **Step 2: Verify RED**
 
-Run the focused runtime test. Expected: FAIL because the runtime does not own a supervisor.
-
-- [ ] **Step 3: Wire one supervisor into runtime/scoped runtime**
-
-Create the singleton in `createRuntimeServices(config)` and pass it through `createScopedRuntime()`.
-
-- [ ] **Step 4: Write RED clean-shutdown test**
-
-Start a long-running harmless Node child, call the runtime/CLI close path, and assert the child reaches `stopped`/close within a bounded interval.
-
-- [ ] **Step 5: Implement shutdown ordering**
-
-For both stdio and HTTP shutdown:
-
-1. stop/close the shared `processSupervisor`;
-2. close the local authority control socket;
-3. close MCP transport/server;
-4. exit.
-
-If supervisor cleanup fails, log a sanitized shutdown error but continue closing the remaining local services. Do not persist or sweep PIDs on next startup.
-
-- [ ] **Step 6: Run focused and full tests**
-
 ```bash
-npm test -- tests/runtime-services.test.ts tests/cli-shutdown.test.ts
-npm test
+npm test -- tests/runtime-services.test.ts
 ```
 
-Expected: PASS.
+- [ ] **Step 3: Wire exactly one supervisor per runtime**
+
+Instantiate `ProcessSupervisor` only in `createRuntimeServices(config)`. Pass it through `ScopedRuntimeBase` into `ManagedProcessService`.
+
+Update existing direct `createScopedRuntime()` tests such as `tests/process-service.test.ts` to supply the single explicit supervisor fixture rather than triggering a hidden fallback.
+
+- [ ] **Step 4: Write RED shutdown-order/cleanup tests**
+
+Start a long-running child, call `closeRuntimeResources()`, and assert:
+
+1. managed processes are stopped first;
+2. control close still runs if process cleanup reports an error;
+3. transport close still runs if earlier cleanup reports an error;
+4. no startup PID sweep/persistence path is introduced.
+
+- [ ] **Step 5: Implement shutdown helper and wire CLI**
+
+Both stdio and HTTP shutdown call `closeRuntimeResources()`. Each cleanup phase is attempted in order and reported with a fixed phase label; one failure must not prevent later cleanup.
+
+- [ ] **Step 6: Verify GREEN and full suite**
+
+```bash
+npm test -- tests/runtime-services.test.ts tests/runtime-shutdown.test.ts tests/process-service.test.ts
+npm test
+```
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/server.ts src/scoped-runtime.ts src/cli.ts tests/runtime-services.test.ts tests/cli-shutdown.test.ts
+git add src/runtime-shutdown.ts src/server.ts src/scoped-runtime.ts src/cli.ts tests/runtime-services.test.ts tests/runtime-shutdown.test.ts tests/process-service.test.ts
 git commit -m "feat: own managed processes in shared runtime"
 ```
 
@@ -376,96 +415,95 @@ git commit -m "feat: own managed processes in shared runtime"
 ### Task 5: MCP Contracts for Five Process Tools
 
 **Files:**
+- Create: `tests/process-mcp.test.ts`
 - Modify: `src/server.ts`
 - Modify: `src/tool-output-schemas.ts`
-- Test: `tests/process-mcp.test.ts`
-- Test: `tests/http-transport.test.ts` or existing catalog test
+- Modify: `tests/authority-catalog.test.ts`
 
 **Interfaces:**
 
-Add strict schemas for `ManagedProcessSummary`, process-list output, and logs output. Register exactly:
+Add output schemas for one process summary, process list, and process logs. Register exactly:
 
-- `process_start`
-- `process_list`
-- `process_status`
-- `process_logs`
-- `process_stop`
+```text
+process_start
+process_list
+process_status
+process_logs
+process_stop
+```
 
-Every input includes `authorityLeaseId`. No schema includes PID, signal, env, shell, detached, or arbitrary process-control fields.
+Every input schema is `z.object(...).strict()` and includes `authorityLeaseId`. No process schema accepts PID, signal, env, shell, detached, or arbitrary process-control fields.
 
 - [ ] **Step 1: Write RED catalog/schema tests**
 
-Connect a real MCP client and assert all five names are present. Validate that extra keys such as `{ pid: 123 }`, `{ signal: "SIGKILL" }`, `{ shell: true }`, or `{ env: {...} }` are rejected by strict input schemas.
+Using a real MCP client/catalog handshake, assert the five names are present and that extra fields such as `pid`, `signal`, `shell`, `env`, or `detached` are rejected rather than silently stripped.
 
 - [ ] **Step 2: Verify RED**
 
 ```bash
-npm test -- tests/process-mcp.test.ts
+npm test -- tests/process-mcp.test.ts tests/authority-catalog.test.ts
 ```
 
-Expected: FAIL because the tools are not registered.
-
-- [ ] **Step 3: Add output schemas and tool registrations**
+- [ ] **Step 3: Add schemas and tool handlers**
 
 Annotations:
 
-- `process_list`, `process_status`, `process_logs`: read-only, non-destructive.
-- `process_start`: non-idempotent mutation.
-- `process_stop`: destructive/idempotent.
+- list/status/logs: read-only, non-destructive;
+- start: non-idempotent mutation;
+- stop: destructive but idempotent.
 
-Handlers resolve the active lease through the existing `withAuthority(runtime, authorityLeaseId)` path and call `.processes` on the scoped runtime.
+Handlers use existing `withAuthority(runtime, authorityLeaseId)` and call `.processes` on the resulting scoped runtime.
 
-- [ ] **Step 4: Add MCP integration behavior tests**
+- [ ] **Step 4: Add RED/GREEN integration behaviors**
 
-With a locally minted Admin lease through the shared runtime, verify:
+Through the real MCP server plus locally minted leases, prove:
 
-1. `process_start` Node fixture succeeds;
-2. `process_status` sees it;
-3. `process_logs` returns output;
-4. second compatible Admin lease can manage it after ending first lease;
-5. User lease cannot start/inspect it;
-6. `process_stop` is idempotent;
-7. no returned structured content contains an OS PID.
+1. Admin `process_start` succeeds for harmless Node fixture;
+2. status sees it;
+3. logs return stdout/stderr tails;
+4. second compatible Admin lease manages it after first lease ends;
+5. User start is `POLICY_DENIED`;
+6. User direct lookup is `PROCESS_NOT_FOUND`;
+7. stop is idempotent;
+8. structured output contains no OS PID.
 
 - [ ] **Step 5: Run focused and full suites**
 
 ```bash
-npm test -- tests/process-mcp.test.ts
+npm test -- tests/process-mcp.test.ts tests/authority-catalog.test.ts
 npm test
 ```
-
-Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/server.ts src/tool-output-schemas.ts tests/process-mcp.test.ts tests/http-transport.test.ts
+git add src/server.ts src/tool-output-schemas.ts tests/process-mcp.test.ts tests/authority-catalog.test.ts
 git commit -m "feat: expose managed process MCP tools"
 ```
 
 ---
 
-### Task 6: Audit Privacy and Regression Hardening
+### Task 6: Audit Privacy and Security Regression Tests
 
 **Files:**
+- Create: `tests/process-audit.test.ts`
 - Modify: `src/process-supervisor.ts`
-- Test: `tests/process-audit.test.ts`
-- Test: `tests/process-service.test.ts`
+- Modify: `tests/process-service.test.ts`
 
 **Interfaces:**
 
-Audit events introduced:
+New audit actions:
 
 ```text
 process.start
 process.stop
 ```
 
-Allowed metadata: command basename, argument count, coarse state where useful. Forbidden metadata: opaque process ID, OS PID/group ID, argument values, environment values, stdout/stderr, authority lease ID.
+Allowed metadata: command basename, argument count, coarse lifecycle state if useful. Forbidden metadata: opaque process ID, OS PID/group ID, argument values, environment values, stdout/stderr, authority lease ID.
 
-- [ ] **Step 1: Write RED audit-privacy tests**
+- [ ] **Step 1: Write RED audit privacy test**
 
-Start and stop a child whose argument/output contains unique sentinel strings. Read the JSONL audit file and assert none of these appear:
+Start/stop a child whose argument/output contains unique sentinel strings. Read the JSONL audit file and assert none of these appear:
 
 ```text
 opaque processId
@@ -474,24 +512,24 @@ SECRET_OUTPUT_SENTINEL
 authority lease ID
 ```
 
-Assert the command basename and argument count are present for start/stop audit records.
+Assert `process.start` and `process.stop` exist with only allowed metadata.
 
 - [ ] **Step 2: Verify RED**
 
-Run the audit test and confirm it fails for the missing events, not for fixture mistakes.
+```bash
+npm test -- tests/process-audit.test.ts
+```
 
-- [ ] **Step 3: Add sanitized audit events**
+- [ ] **Step 3: Add sanitized audit records**
 
-Use `AuditLogger` without wrapping the entire long-lived process lifetime in `audit.run()`. Record start after successful spawn and stop after termination completes. Never serialize the process record itself as audit metadata.
+Record start only after successful spawn and stop only after termination completes. Do not wrap the entire child lifetime in `audit.run()`, and never serialize the private process record into metadata.
 
-- [ ] **Step 4: Run regression tests**
+- [ ] **Step 4: Verify regressions**
 
 ```bash
 npm test -- tests/process-audit.test.ts tests/process-service.test.ts tests/authority-approval-mcp.test.ts
 npm test
 ```
-
-Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -502,7 +540,7 @@ git commit -m "test: harden managed process audit privacy"
 
 ---
 
-### Task 7: Documentation, CI, PR, and Real Mac Acceptance
+### Task 7: Documentation, Exact-Head CI, PR, and Real Mac Acceptance
 
 **Files:**
 - Modify: `README.md`
@@ -510,15 +548,10 @@ git commit -m "test: harden managed process audit privacy"
 - Modify: `docs/ARCHITECTURE.md`
 - Modify: `docs/CHATGPT_INTEGRATION.md`
 - Modify: `.env.example`
-- Modify: `docs/superpowers/plans/2026-09-08-process-supervisor.md` only to mark completed checkboxes if project convention requires it
 
-**Interfaces:**
-- Public tool names and exact config defaults must match the implementation/spec.
-- Docs must explicitly state: no raw PID management, no OS sandbox, no persistence across daemon crash, and Admin/current-user boundary.
+- [ ] **Step 1: Update public documentation and env examples**
 
-- [ ] **Step 1: Update docs and environment examples**
-
-Document the five process tools and:
+Document the five tools and exact environment defaults:
 
 ```text
 CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES=32
@@ -526,54 +559,57 @@ CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM=131072
 CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS=3000
 ```
 
-Do not claim orphan cleanup after `SIGKILL`/crash.
+Explicitly document: no raw PID management, no OS sandbox, no persistence guarantee across daemon crash, Admin remains current-user not root.
 
-- [ ] **Step 2: Run final verification on exact head**
+- [ ] **Step 2: Run final local verification**
 
 ```bash
 npm run check
 ```
 
-Then verify GitHub Actions for the exact commit head:
+- [ ] **Step 3: Verify GitHub Actions for the exact head**
 
-- Node 22: success
-- Node 24: success
-- macOS native build/install/self-verify: success
+Require success for:
 
-Do not rely on a prior commit's green run.
+- Node 22;
+- Node 24;
+- macOS native broker build/install/self-verify;
+- ChatGPT tunnel setup smoke.
 
-- [ ] **Step 3: Security diff review**
+A green run from an earlier commit does not count.
 
-Review the full branch diff against `main` and specifically search for regressions in:
+- [ ] **Step 4: Full security diff review against `main`**
+
+Search specifically for:
 
 - `shell: true` or shell-string execution;
-- PID fields in MCP schemas/output;
-- unbounded arrays/buffers;
-- environment spreading (`...process.env`);
-- user-controlled signal/detached/process-group inputs;
+- PID/process-group fields in MCP input/output;
+- unbounded process/log storage;
+- `...process.env` or equivalent broad inheritance;
+- user-controlled signal/detached/process-group options;
 - process IDs, lease IDs, args, env, or logs in audit metadata;
 - duplicate `ProcessSupervisor` construction.
 
-Fix any finding via a new RED/GREEN cycle before proceeding.
+Any finding starts a new RED/GREEN cycle before proceeding.
 
-- [ ] **Step 4: Open a draft PR against `main`**
+- [ ] **Step 5: Open a draft PR against `main`**
 
-PR summary must include architecture, security boundaries, automated CI evidence, and a manual Mac checklist. Keep draft until physical acceptance completes.
+PR body records architecture, security boundaries, exact-head CI, and manual Mac checklist.
 
-- [ ] **Step 5: Manual Mac acceptance**
+- [ ] **Step 6: Manual Mac acceptance on exact branch head**
 
-With the Secure MCP Tunnel running on the exact branch head:
+With Secure MCP Tunnel running from the branch:
 
-1. `node dist/cli.js authorize admin` and approve Touch ID.
-2. In ChatGPT, `process_start` a harmless Node fixture from `/Users/dogan/chatgpt-system`, e.g. an inline Node process that prints `process-ready` and stays alive without modifying files.
-3. `process_status` -> `running` (unless fixture intentionally exits immediately).
-4. `process_logs` -> contains `process-ready`.
-5. `process_stop` -> `stopped`.
-6. second `process_stop` -> same final state with no failure.
-7. new User lease cannot start or directly inspect the process (`POLICY_DENIED` for start, `PROCESS_NOT_FOUND` for lookup).
-8. Admin `sh` remains `POLICY_DENIED`.
-9. End all leases.
+1. locally authorize Admin through Touch ID;
+2. `process_start` a harmless inline Node fixture under `/Users/dogan/chatgpt-system` that prints `process-ready` and remains alive without modifying files;
+3. `process_status` reports `running` unless intentionally immediate-exit fixture;
+4. `process_logs` contains `process-ready`;
+5. `process_stop` reports `stopped`;
+6. second `process_stop` returns the same final state without failure;
+7. a User lease cannot start the fixture (`POLICY_DENIED`) and cannot directly inspect the known ID (`PROCESS_NOT_FOUND`);
+8. Admin `sh` remains `POLICY_DENIED`;
+9. end all leases.
 
-- [ ] **Step 6: Mark PR ready only after acceptance**
+- [ ] **Step 7: Mark PR ready and merge only with final evidence**
 
-Record exact-head CI and manual results in the PR body/comment, then mark ready for review. Merge to `main` only after the same evidence remains valid for the final head.
+Update PR body/comment with exact-head automated + manual evidence, mark ready for review, and merge to `main` with an expected-head guard only after final verification remains valid.
