@@ -40,6 +40,22 @@ const expectedAnnotations = {
   process_status: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   process_logs: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   process_stop: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  browser_health: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  browser_tabs: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  browser_new_tab: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  browser_select_tab: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  browser_close_tab: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  browser_navigate: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  browser_snapshot: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  browser_click: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  browser_fill: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  browser_select_option: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  browser_press_key: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  browser_wait_for_text: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  browser_screenshot: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  browser_console_errors: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  browser_network_errors: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  browser_close: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
 } as const;
 
 async function closeServer(server: ReturnType<typeof startHttp>): Promise<void> {
