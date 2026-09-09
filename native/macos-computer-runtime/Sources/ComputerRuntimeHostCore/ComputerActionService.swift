@@ -50,6 +50,72 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 return actionFailed(requestId: request.requestId)
             }
 
+        case "click", "double_click":
+            guard let parsed = parseClickParams(request.params) else {
+                return protocolInvalid(requestId: request.requestId)
+            }
+            do {
+                let result = request.method == "click"
+                    ? try await controller.click(at: parsed.point, button: parsed.button, mode: parsed.mode)
+                    : try await controller.doubleClick(at: parsed.point, button: parsed.button, mode: parsed.mode)
+                return encodeResult(result, requestId: request.requestId)
+            } catch is CancellationError {
+                return cancelled(requestId: request.requestId)
+            } catch {
+                return actionFailed(requestId: request.requestId)
+            }
+
+        case "mouse_down", "mouse_up":
+            guard let button = parseButtonOnlyParams(request.params) else {
+                return protocolInvalid(requestId: request.requestId)
+            }
+            do {
+                let result = request.method == "mouse_down"
+                    ? try await controller.mouseDown(button)
+                    : try await controller.mouseUp(button)
+                return encodeResult(result, requestId: request.requestId)
+            } catch is CancellationError {
+                return cancelled(requestId: request.requestId)
+            } catch {
+                return actionFailed(requestId: request.requestId)
+            }
+
+        case "drag":
+            guard let parsed = parseDragParams(request.params) else {
+                return protocolInvalid(requestId: request.requestId)
+            }
+            do {
+                let result = try await controller.drag(
+                    from: parsed.from,
+                    to: parsed.to,
+                    button: parsed.button,
+                    mode: parsed.mode
+                )
+                return encodeResult(result, requestId: request.requestId)
+            } catch is CancellationError {
+                return cancelled(requestId: request.requestId)
+            } catch {
+                return actionFailed(requestId: request.requestId)
+            }
+
+        case "scroll":
+            guard let parsed = parseScrollParams(request.params) else {
+                return protocolInvalid(requestId: request.requestId)
+            }
+            do {
+                let result = try await controller.scroll(
+                    vertical: parsed.vertical,
+                    horizontal: parsed.horizontal,
+                    at: parsed.point,
+                    mode: parsed.mode
+                )
+                return encodeResult(result, requestId: request.requestId)
+            } catch is CancellationError {
+                return cancelled(requestId: request.requestId)
+            } catch {
+                return actionFailed(requestId: request.requestId)
+            }
+
         case "focus_app", "open_app":
             guard let parsed = parseApplicationParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
@@ -194,6 +260,115 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             return frontmost.bundleIdentifier == bundleIdentifier
         }
         return frontmost.processIdentifier == target.processIdentifier
+    }
+
+    private func parseClickParams(
+        _ params: JSONValue
+    ) -> (point: ComputerPoint, button: ComputerMouseButton, mode: PointerMotionMode)? {
+        guard case let .object(object) = params,
+              object.keys.allSatisfy({ ["x", "y", "button", "motionMode"].contains($0) }),
+              let point = parsePointObject(object),
+              let button = parseMouseButton(object["button"]),
+              let mode = parseMotionMode(object["motionMode"])
+        else {
+            return nil
+        }
+        return (point, button, mode)
+    }
+
+    private func parseButtonOnlyParams(_ params: JSONValue) -> ComputerMouseButton? {
+        guard case let .object(object) = params,
+              object.keys.allSatisfy({ $0 == "button" })
+        else {
+            return nil
+        }
+        return parseMouseButton(object["button"])
+    }
+
+    private func parseDragParams(
+        _ params: JSONValue
+    ) -> (from: ComputerPoint, to: ComputerPoint, button: ComputerMouseButton, mode: PointerMotionMode)? {
+        guard case let .object(object) = params,
+              object.keys.allSatisfy({ ["from", "to", "button", "motionMode"].contains($0) }),
+              let rawFrom = object["from"],
+              let rawTo = object["to"],
+              let from = parseNestedPoint(rawFrom),
+              let to = parseNestedPoint(rawTo),
+              let button = parseMouseButton(object["button"]),
+              let mode = parseMotionMode(object["motionMode"])
+        else {
+            return nil
+        }
+        return (from, to, button, mode)
+    }
+
+    private func parseScrollParams(
+        _ params: JSONValue
+    ) -> (vertical: Int32, horizontal: Int32, point: ComputerPoint?, mode: PointerMotionMode)? {
+        guard case let .object(object) = params,
+              object.keys.allSatisfy({ ["vertical", "horizontal", "x", "y", "motionMode"].contains($0) }),
+              let vertical = parseScrollDelta(object["vertical"]),
+              let horizontal = parseScrollDelta(object["horizontal"]),
+              let mode = parseMotionMode(object["motionMode"])
+        else {
+            return nil
+        }
+
+        let hasX = object["x"] != nil
+        let hasY = object["y"] != nil
+        guard hasX == hasY else { return nil }
+        let point: ComputerPoint?
+        if hasX {
+            guard let parsed = parsePointObject(object) else { return nil }
+            point = parsed
+        } else {
+            point = nil
+        }
+        return (vertical, horizontal, point, mode)
+    }
+
+    private func parseNestedPoint(_ value: JSONValue) -> ComputerPoint? {
+        guard case let .object(object) = value,
+              Set(object.keys) == Set(["x", "y"])
+        else {
+            return nil
+        }
+        return parsePointObject(object)
+    }
+
+    private func parsePointObject(_ object: [String: JSONValue]) -> ComputerPoint? {
+        guard case let .number(x)? = object["x"],
+              case let .number(y)? = object["y"],
+              x.isFinite,
+              y.isFinite
+        else {
+            return nil
+        }
+        return ComputerPoint(x: x, y: y)
+    }
+
+    private func parseMouseButton(_ value: JSONValue?) -> ComputerMouseButton? {
+        guard let value else { return .left }
+        guard case let .string(raw) = value else { return nil }
+        return ComputerMouseButton(rawValue: raw)
+    }
+
+    private func parseMotionMode(_ value: JSONValue?) -> PointerMotionMode? {
+        guard let value else { return .fast }
+        guard case let .string(raw) = value else { return nil }
+        return PointerMotionMode(rawValue: raw)
+    }
+
+    private func parseScrollDelta(_ value: JSONValue?) -> Int32? {
+        guard case let .number(raw)? = value,
+              raw.isFinite,
+              raw.rounded(.towardZero) == raw,
+              raw >= -10_000,
+              raw <= 10_000
+        else {
+            return nil
+        }
+        return Int32(raw)
     }
 
     private func parseApplicationParams(

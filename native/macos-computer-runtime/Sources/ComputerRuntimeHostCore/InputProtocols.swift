@@ -35,6 +35,7 @@ protocol ApplicationControlling: Sendable {
 
 enum ComputerInputError: Error, Equatable, Sendable {
     case targetOutOfBounds
+    case invalidInput
     case unavailable
 }
 
@@ -45,6 +46,20 @@ struct HeldInputState: Equatable, Sendable {
 
     var isEmpty: Bool {
         mouseButtons.isEmpty && modifiers.isEmpty && keyCodes.isEmpty
+    }
+}
+
+actor HeldInputStore {
+    private var state = HeldInputState()
+
+    func snapshot() -> HeldInputState { state }
+
+    func insertMouseButton(_ button: ComputerMouseButton) {
+        state.mouseButtons.insert(button)
+    }
+
+    func removeMouseButton(_ button: ComputerMouseButton) {
+        state.mouseButtons.remove(button)
     }
 }
 
