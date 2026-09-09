@@ -1,4 +1,6 @@
 import { access } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
 import type { BrowserBackend } from "./browser-backend.js";
 import { BrowserRuntime } from "./browser-runtime.js";
 import { BrowserService } from "./browser-service.js";
@@ -10,28 +12,40 @@ export interface BrowserFactoryOptions {
   browserInstalled?: () => Promise<boolean>;
 }
 
+type BrowserConfig = AppConfig["browser"];
+
 export function createBrowserService(config: AppConfig, options: BrowserFactoryOptions = {}): BrowserService {
+  const browserConfig = resolveBrowserConfig(config);
   const runtime = new BrowserRuntime({
-    enabled: config.browser.enabled,
+    enabled: browserConfig.enabled,
     browserInstalled: options.browserInstalled ?? probeBundledChromium,
-    createBackend: options.browserBackendFactory ?? createProductionBackendFactory(config),
+    createBackend: options.browserBackendFactory ?? createProductionBackendFactory(browserConfig),
   });
 
   return new BrowserService(runtime, {
-    timeoutMs: config.browser.timeoutMs,
+    timeoutMs: browserConfig.timeoutMs,
     maxDiagnosticEntries: 100,
     maxDiagnosticMessageChars: 2_048,
   });
 }
 
-function createProductionBackendFactory(config: AppConfig): () => Promise<BrowserBackend> {
+function resolveBrowserConfig(config: AppConfig): BrowserConfig {
+  return config.browser ?? {
+    enabled: false,
+    headless: true,
+    timeoutMs: 15_000,
+    userDataDir: path.join(homedir(), ".chatgpt-system", "browser-profile"),
+  };
+}
+
+function createProductionBackendFactory(config: BrowserConfig): () => Promise<BrowserBackend> {
   return async () => {
     const { chromium } = await import("playwright");
-    const context = await chromium.launchPersistentContext(config.browser.userDataDir, {
-      headless: config.browser.headless,
+    const context = await chromium.launchPersistentContext(config.userDataDir, {
+      headless: config.headless,
     });
     return new PlaywrightBrowserBackend(context, {
-      timeoutMs: config.browser.timeoutMs,
+      timeoutMs: config.timeoutMs,
       maxDiagnosticEntries: 100,
     });
   };
