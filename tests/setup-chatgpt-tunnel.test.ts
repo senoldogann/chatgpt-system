@@ -90,15 +90,15 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
       readFile(new URL("../README.md", import.meta.url), "utf8"),
     ]);
 
-    const runbookSetupStart = runbook.indexOf("## 4. Configure the Secure MCP Tunnel profile");
-    const runbookSetupEnd = runbook.indexOf("## 5. Run the tunnel");
+    const runbookSetupStart = runbook.search(/^## \d+\. Configure the Secure MCP Tunnel profile$/m);
+    const runbookSetupEnd = runbook.search(/^## \d+\. Run the tunnel$/m);
     expect(runbookSetupStart).toBeGreaterThanOrEqual(0);
     expect(runbookSetupEnd).toBeGreaterThan(runbookSetupStart);
     const runbookSetup = runbook.slice(runbookSetupStart, runbookSetupEnd);
+    expect(runbook).toContain("npm run setup:browser");
     expect(runbookSetup).toContain("--enable-terminal");
     expect(runbookSetup).toContain("--personal-admin");
     expect(runbookSetup).toContain("--enable-browser");
-    expect(runbookSetup).toContain("npm run setup:browser");
     expect(runbookSetup).toContain("--force");
 
     const readmeSetupStart = readme.indexOf("## Personal ChatGPT Plugin");
