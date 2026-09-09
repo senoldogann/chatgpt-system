@@ -29,6 +29,14 @@ public struct ComputerHostService: Sendable {
 
     public static func system() -> ComputerHostService {
         let topology = SystemDisplayTopology()
+        let workspaceReader = SystemWorkspaceReader()
+        let accessibilityReader = SystemAccessibilityReader()
+        let verification = ComputerVerificationEngine(
+            workspace: workspaceReader,
+            accessibility: accessibilityReader,
+            screenDigester: SystemScreenRegionDigester(),
+            sleeper: SystemInputSleeper()
+        )
         let safetyCoordinator = InputSafetyCoordinator()
         let takeoverMonitor = SystemTakeoverMonitor(coordinator: safetyCoordinator)
         do {
@@ -45,14 +53,15 @@ public struct ComputerHostService: Sendable {
         )
         return .init(
             permissions: SystemPermissionReader(),
-            workspace: SystemWorkspaceReader(),
-            accessibility: SystemAccessibilityReader(),
+            workspace: workspaceReader,
+            accessibility: accessibilityReader,
             screenshot: SystemScreenshotCapturer(),
             actions: ComputerActionService(
                 controller: controller,
                 applicationController: SystemWorkspaceController(),
                 appSleeper: SystemInputSleeper(),
-                takeoverMonitor: takeoverMonitor
+                takeoverMonitor: takeoverMonitor,
+                verification: verification
             )
         )
     }
@@ -144,7 +153,16 @@ public struct ComputerHostService: Sendable {
         do {
             let observation = try accessibility.observe(for: application, limits: .default)
             let safeObservation = sanitizeObservation(observation, limits: .default)
-            return encodeBoundedObservation(safeObservation, requestId: requestId)
+            let digest = try ObservationDigest.digest(safeObservation)
+            let digestedObservation = ComputerObservation(
+                snapshotId: safeObservation.snapshotId,
+                application: safeObservation.application,
+                windowTitle: safeObservation.windowTitle,
+                elements: safeObservation.elements,
+                truncated: safeObservation.truncated,
+                digest: digest
+            )
+            return encodeBoundedObservation(digestedObservation, requestId: requestId)
         } catch AccessibilityReadError.permissionRequired {
             return accessibilityPermissionRequired(requestId: requestId)
         } catch {

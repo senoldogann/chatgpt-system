@@ -6,6 +6,12 @@ private enum ApplicationResolutionError: Error {
     case ambiguous
 }
 
+private enum ActionVerificationSpec: Sendable {
+    case axChanged(timeoutMs: Int)
+    case textAppeared(text: String, exact: Bool, timeoutMs: Int)
+    case screenRegionChanged(bounds: ComputerBounds, timeoutMs: Int)
+}
+
 private struct ApplicationInputFocusGuard: InputFocusGuard {
     let applicationController: any ApplicationControlling
     let target: WorkspaceApplication
@@ -37,17 +43,20 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
     private let applicationController: (any ApplicationControlling)?
     private let appSleeper: any InputSleeping
     private let takeoverMonitor: (any TakeoverMonitoring)?
+    private let verification: (any ComputerVerificationHandling)?
 
     init(
         controller: ComputerInputController,
         applicationController: (any ApplicationControlling)? = nil,
         appSleeper: any InputSleeping = SystemInputSleeper(),
-        takeoverMonitor: (any TakeoverMonitoring)? = nil
+        takeoverMonitor: (any TakeoverMonitoring)? = nil,
+        verification: (any ComputerVerificationHandling)? = nil
     ) {
         self.controller = controller
         self.applicationController = applicationController
         self.appSleeper = appSleeper
         self.takeoverMonitor = takeoverMonitor
+        self.verification = verification
     }
 
     func handleAction(_ request: ComputerProtocolRequest) async -> ComputerProtocolResponse? {
@@ -66,89 +75,57 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             guard let parsed = parseMoveMouseParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
             }
-            do {
-                let result = try await controller.moveMouse(to: parsed.point, mode: parsed.mode)
-                return encodeResult(result, requestId: request.requestId)
-            } catch is InputSafetyInterruption {
-                return userTakeover(requestId: request.requestId)
-            } catch is CancellationError {
-                return cancelled(requestId: request.requestId)
-            } catch {
-                return actionFailed(requestId: request.requestId)
+            return await executeVerifiedAction(
+                verificationSpec: parsed.verification,
+                requestId: request.requestId
+            ) {
+                try await controller.moveMouse(to: parsed.point, mode: parsed.mode)
             }
 
         case "click", "double_click":
             guard let parsed = parseClickParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
             }
-            do {
-                let result = request.method == "click"
+            return await executeVerifiedAction(verificationSpec: parsed.verification, requestId: request.requestId) {
+                request.method == "click"
                     ? try await controller.click(at: parsed.point, button: parsed.button, mode: parsed.mode)
                     : try await controller.doubleClick(at: parsed.point, button: parsed.button, mode: parsed.mode)
-                return encodeResult(result, requestId: request.requestId)
-            } catch is InputSafetyInterruption {
-                return userTakeover(requestId: request.requestId)
-            } catch is CancellationError {
-                return cancelled(requestId: request.requestId)
-            } catch {
-                return actionFailed(requestId: request.requestId)
             }
 
         case "mouse_down", "mouse_up":
-            guard let button = parseButtonOnlyParams(request.params) else {
+            guard let parsed = parseButtonOnlyParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
             }
-            do {
-                let result = request.method == "mouse_down"
-                    ? try await controller.mouseDown(button)
-                    : try await controller.mouseUp(button)
-                return encodeResult(result, requestId: request.requestId)
-            } catch is InputSafetyInterruption {
-                return userTakeover(requestId: request.requestId)
-            } catch is CancellationError {
-                return cancelled(requestId: request.requestId)
-            } catch {
-                return actionFailed(requestId: request.requestId)
+            return await executeVerifiedAction(verificationSpec: parsed.verification, requestId: request.requestId) {
+                request.method == "mouse_down"
+                    ? try await controller.mouseDown(parsed.button)
+                    : try await controller.mouseUp(parsed.button)
             }
 
         case "drag":
             guard let parsed = parseDragParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
             }
-            do {
-                let result = try await controller.drag(
+            return await executeVerifiedAction(verificationSpec: parsed.verification, requestId: request.requestId) {
+                try await controller.drag(
                     from: parsed.from,
                     to: parsed.to,
                     button: parsed.button,
                     mode: parsed.mode
                 )
-                return encodeResult(result, requestId: request.requestId)
-            } catch is InputSafetyInterruption {
-                return userTakeover(requestId: request.requestId)
-            } catch is CancellationError {
-                return cancelled(requestId: request.requestId)
-            } catch {
-                return actionFailed(requestId: request.requestId)
             }
 
         case "scroll":
             guard let parsed = parseScrollParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
             }
-            do {
-                let result = try await controller.scroll(
+            return await executeVerifiedAction(verificationSpec: parsed.verification, requestId: request.requestId) {
+                try await controller.scroll(
                     vertical: parsed.vertical,
                     horizontal: parsed.horizontal,
                     at: parsed.point,
                     mode: parsed.mode
                 )
-                return encodeResult(result, requestId: request.requestId)
-            } catch is InputSafetyInterruption {
-                return userTakeover(requestId: request.requestId)
-            } catch is CancellationError {
-                return cancelled(requestId: request.requestId)
-            } catch {
-                return actionFailed(requestId: request.requestId)
             }
 
         case "type_text":
@@ -157,6 +134,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             }
             return await handleKeyboardAction(
                 selector: parsed.selector,
+                verificationSpec: parsed.verification,
                 requestId: request.requestId
             ) { focusGuard in
                 try await controller.typeText(parsed.text, focusGuard: focusGuard)
@@ -168,6 +146,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             }
             return await handleKeyboardAction(
                 selector: parsed.selector,
+                verificationSpec: parsed.verification,
                 requestId: request.requestId
             ) { focusGuard in
                 try await controller.pressKey(
@@ -175,6 +154,53 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                     modifiers: parsed.modifiers,
                     focusGuard: focusGuard
                 )
+            }
+
+        case "wait_for_frontmost":
+            guard let parsed = parseWaitForFrontmostParams(request.params), let verification else {
+                return protocolInvalid(requestId: request.requestId)
+            }
+            do {
+                let result = try await verification.waitForFrontmost(parsed.selector, timeoutMs: parsed.timeoutMs)
+                return encodeResult(result, requestId: request.requestId)
+            } catch ComputerVerificationError.focusFailed {
+                return focusFailed(requestId: request.requestId)
+            } catch ComputerVerificationError.timeout {
+                return timeout(requestId: request.requestId)
+            } catch is CancellationError {
+                return cancelled(requestId: request.requestId)
+            } catch {
+                return actionFailed(requestId: request.requestId)
+            }
+
+        case "wait_for_text":
+            guard let parsed = parseWaitForTextParams(request.params), let verification else {
+                return protocolInvalid(requestId: request.requestId)
+            }
+            do {
+                try await verification.waitForText(parsed.text, exact: parsed.exact, timeoutMs: parsed.timeoutMs)
+                return encodeResult(ComputerActionResult(state: "completed"), requestId: request.requestId)
+            } catch ComputerVerificationError.timeout {
+                return timeout(requestId: request.requestId)
+            } catch is CancellationError {
+                return cancelled(requestId: request.requestId)
+            } catch {
+                return actionFailed(requestId: request.requestId)
+            }
+
+        case "wait_until_changed":
+            guard let parsed = parseWaitUntilChangedParams(request.params), let verification else {
+                return protocolInvalid(requestId: request.requestId)
+            }
+            do {
+                let digest = try await verification.waitUntilAXChanged(from: parsed.baselineDigest, timeoutMs: parsed.timeoutMs)
+                return .success(requestId: request.requestId, result: .object(["digest": .string(digest)]))
+            } catch ComputerVerificationError.timeout {
+                return timeout(requestId: request.requestId)
+            } catch is CancellationError {
+                return cancelled(requestId: request.requestId)
+            } catch {
+                return actionFailed(requestId: request.requestId)
             }
 
         case "release_inputs":
@@ -209,8 +235,62 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
         takeoverMonitor?.stop()
     }
 
+    private func executeVerifiedAction(
+        verificationSpec: ActionVerificationSpec?,
+        requestId: String,
+        action: () async throws -> ComputerActionResult
+    ) async -> ComputerProtocolResponse {
+        do {
+            let baseline = try await captureVerificationBaseline(verificationSpec)
+            let result = try await action()
+            try await waitForVerification(verificationSpec, baseline: baseline)
+            return encodeResult(result, requestId: requestId)
+        } catch ComputerVerificationError.timeout {
+            return timeout(requestId: requestId)
+        } catch ComputerInputError.focusMismatch {
+            return focusFailed(requestId: requestId)
+        } catch is InputSafetyInterruption {
+            return userTakeover(requestId: requestId)
+        } catch is CancellationError {
+            return cancelled(requestId: requestId)
+        } catch {
+            return actionFailed(requestId: requestId)
+        }
+    }
+
+    private func captureVerificationBaseline(_ spec: ActionVerificationSpec?) async throws -> String? {
+        guard let spec else { return nil }
+        guard let verification else { throw ComputerVerificationError.unavailable }
+        switch spec {
+        case .axChanged:
+            return try verification.currentAXDigest()
+        case .textAppeared:
+            return nil
+        case let .screenRegionChanged(bounds, _):
+            return try await verification.currentScreenRegionDigest(bounds: bounds)
+        }
+    }
+
+    private func waitForVerification(_ spec: ActionVerificationSpec?, baseline: String?) async throws {
+        guard let spec else { return }
+        guard let verification else { throw ComputerVerificationError.unavailable }
+        switch spec {
+        case let .axChanged(timeoutMs):
+            guard let baseline else { throw ComputerVerificationError.unavailable }
+            _ = try await verification.waitUntilAXChanged(from: baseline, timeoutMs: timeoutMs)
+        case let .textAppeared(text, exact, timeoutMs):
+            try await verification.waitForText(text, exact: exact, timeoutMs: timeoutMs)
+        case let .screenRegionChanged(bounds, timeoutMs):
+            guard let baseline else { throw ComputerVerificationError.unavailable }
+            _ = try await verification.waitUntilScreenRegionChanged(
+                bounds: bounds, from: baseline, timeoutMs: timeoutMs
+            )
+        }
+    }
+
     private func handleKeyboardAction(
         selector: ComputerApplicationSelector,
+        verificationSpec: ActionVerificationSpec?,
         requestId: String,
         action: (any InputFocusGuard) async throws -> ComputerActionResult
     ) async -> ComputerProtocolResponse {
@@ -224,7 +304,9 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 target: target,
                 selector: selector
             )
-            return encodeResult(try await action(focusGuard), requestId: requestId)
+            return await executeVerifiedAction(verificationSpec: verificationSpec, requestId: requestId) {
+                try await action(focusGuard)
+            }
         } catch ApplicationResolutionError.notFound {
             return targetNotFound(requestId: requestId)
         } catch ApplicationResolutionError.ambiguous {
@@ -372,52 +454,59 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
 
     private func parseClickParams(
         _ params: JSONValue
-    ) -> (point: ComputerPoint, button: ComputerMouseButton, mode: PointerMotionMode)? {
+    ) -> (point: ComputerPoint, button: ComputerMouseButton, mode: PointerMotionMode, verification: ActionVerificationSpec?)? {
         guard case let .object(object) = params,
-              object.keys.allSatisfy({ ["x", "y", "button", "motionMode"].contains($0) }),
+              object.keys.allSatisfy({ ["x", "y", "button", "motionMode", "verify"].contains($0) }),
               let point = parsePointObject(object),
               let button = parseMouseButton(object["button"]),
-              let mode = parseMotionMode(object["motionMode"])
+              let mode = parseMotionMode(object["motionMode"]),
+              let verification = parseOptionalVerification(object["verify"])
         else {
             return nil
         }
-        return (point, button, mode)
+        return (point, button, mode, verification)
     }
 
-    private func parseButtonOnlyParams(_ params: JSONValue) -> ComputerMouseButton? {
+    private func parseButtonOnlyParams(
+        _ params: JSONValue
+    ) -> (button: ComputerMouseButton, verification: ActionVerificationSpec?)? {
         guard case let .object(object) = params,
-              object.keys.allSatisfy({ $0 == "button" })
+              object.keys.allSatisfy({ ["button", "verify"].contains($0) }),
+              let button = parseMouseButton(object["button"]),
+              let verification = parseOptionalVerification(object["verify"])
         else {
             return nil
         }
-        return parseMouseButton(object["button"])
+        return (button, verification)
     }
 
     private func parseDragParams(
         _ params: JSONValue
-    ) -> (from: ComputerPoint, to: ComputerPoint, button: ComputerMouseButton, mode: PointerMotionMode)? {
+    ) -> (from: ComputerPoint, to: ComputerPoint, button: ComputerMouseButton, mode: PointerMotionMode, verification: ActionVerificationSpec?)? {
         guard case let .object(object) = params,
-              object.keys.allSatisfy({ ["from", "to", "button", "motionMode"].contains($0) }),
+              object.keys.allSatisfy({ ["from", "to", "button", "motionMode", "verify"].contains($0) }),
               let rawFrom = object["from"],
               let rawTo = object["to"],
               let from = parseNestedPoint(rawFrom),
               let to = parseNestedPoint(rawTo),
               let button = parseMouseButton(object["button"]),
-              let mode = parseMotionMode(object["motionMode"])
+              let mode = parseMotionMode(object["motionMode"]),
+              let verification = parseOptionalVerification(object["verify"])
         else {
             return nil
         }
-        return (from, to, button, mode)
+        return (from, to, button, mode, verification)
     }
 
     private func parseScrollParams(
         _ params: JSONValue
-    ) -> (vertical: Int32, horizontal: Int32, point: ComputerPoint?, mode: PointerMotionMode)? {
+    ) -> (vertical: Int32, horizontal: Int32, point: ComputerPoint?, mode: PointerMotionMode, verification: ActionVerificationSpec?)? {
         guard case let .object(object) = params,
-              object.keys.allSatisfy({ ["vertical", "horizontal", "x", "y", "motionMode"].contains($0) }),
+              object.keys.allSatisfy({ ["vertical", "horizontal", "x", "y", "motionMode", "verify"].contains($0) }),
               let vertical = parseScrollDelta(object["vertical"]),
               let horizontal = parseScrollDelta(object["horizontal"]),
-              let mode = parseMotionMode(object["motionMode"])
+              let mode = parseMotionMode(object["motionMode"]),
+              let verification = parseOptionalVerification(object["verify"])
         else {
             return nil
         }
@@ -432,7 +521,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
         } else {
             point = nil
         }
-        return (vertical, horizontal, point, mode)
+        return (vertical, horizontal, point, mode, verification)
     }
 
     private func parseNestedPoint(_ value: JSONValue) -> ComputerPoint? {
@@ -479,28 +568,136 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
         return Int32(raw)
     }
 
-    private func parseTypeTextParams(
-        _ params: JSONValue
-    ) -> (text: String, selector: ComputerApplicationSelector)? {
-        guard case let .object(object) = params,
-              object.keys.allSatisfy({ ["text", "bundleIdentifier", "name"].contains($0) }),
-              case let .string(text)? = object["text"],
-              text.count <= Self.maxTypedCharacters,
-              let selector = parseRequiredSelector(object)
+    private func parseOptionalVerification(_ value: JSONValue?) -> ActionVerificationSpec?? {
+        guard let value else { return .some(nil) }
+        guard case let .object(object) = value,
+              case let .string(kind)? = object["kind"],
+              let timeoutMs = parseVerificationTimeout(object["timeoutMs"])
         else {
             return nil
         }
-        return (text, selector)
+        switch kind {
+        case "ax_changed":
+            guard object.keys.allSatisfy({ ["kind", "timeoutMs"].contains($0) }) else { return nil }
+            return .some(.axChanged(timeoutMs: timeoutMs))
+        case "text_appeared":
+            guard object.keys.allSatisfy({ ["kind", "text", "exact", "timeoutMs"].contains($0) }),
+                  case let .string(text)? = object["text"],
+                  !text.isEmpty, text.count <= Self.maxSelectorCharacters
+            else { return nil }
+            let exact: Bool
+            if let rawExact = object["exact"] {
+                guard case let .bool(value) = rawExact else { return nil }
+                exact = value
+            } else {
+                exact = false
+            }
+            return .some(.textAppeared(text: text, exact: exact, timeoutMs: timeoutMs))
+        case "screen_region_changed":
+            guard object.keys.allSatisfy({ ["kind", "x", "y", "width", "height", "timeoutMs"].contains($0) }),
+                  case let .number(x)? = object["x"],
+                  case let .number(y)? = object["y"],
+                  case let .number(width)? = object["width"],
+                  case let .number(height)? = object["height"],
+                  x.isFinite, y.isFinite, width.isFinite, height.isFinite,
+                  width > 0, height > 0
+            else { return nil }
+            return .some(.screenRegionChanged(
+                bounds: ComputerBounds(x: x, y: y, width: width, height: height),
+                timeoutMs: timeoutMs
+            ))
+        default:
+            return nil
+        }
+    }
+
+    private func parseWaitForFrontmostParams(
+        _ params: JSONValue
+    ) -> (selector: ComputerApplicationSelector, timeoutMs: Int)? {
+        guard case let .object(object) = params,
+              object.keys.allSatisfy({ ["bundleIdentifier", "name", "timeoutMs"].contains($0) }),
+              let selector = parseRequiredSelector(object),
+              let timeoutMs = parseVerificationTimeout(object["timeoutMs"])
+        else {
+            return nil
+        }
+        return (selector, timeoutMs)
+    }
+
+    private func parseWaitForTextParams(
+        _ params: JSONValue
+    ) -> (text: String, exact: Bool, timeoutMs: Int)? {
+        guard case let .object(object) = params,
+              object.keys.allSatisfy({ ["text", "exact", "timeoutMs"].contains($0) }),
+              case let .string(text)? = object["text"],
+              !text.isEmpty,
+              text.count <= Self.maxSelectorCharacters,
+              let timeoutMs = parseVerificationTimeout(object["timeoutMs"])
+        else {
+            return nil
+        }
+        let exact: Bool
+        if let rawExact = object["exact"] {
+            guard case let .bool(value) = rawExact else { return nil }
+            exact = value
+        } else {
+            exact = false
+        }
+        return (text, exact, timeoutMs)
+    }
+
+    private func parseWaitUntilChangedParams(
+        _ params: JSONValue
+    ) -> (baselineDigest: String, timeoutMs: Int)? {
+        guard case let .object(object) = params,
+              object.keys.allSatisfy({ ["baselineDigest", "timeoutMs"].contains($0) }),
+              case let .string(baselineDigest)? = object["baselineDigest"],
+              !baselineDigest.isEmpty,
+              baselineDigest.count <= Self.maxSelectorCharacters,
+              let timeoutMs = parseVerificationTimeout(object["timeoutMs"])
+        else {
+            return nil
+        }
+        return (baselineDigest, timeoutMs)
+    }
+
+    private func parseVerificationTimeout(_ value: JSONValue?) -> Int? {
+        guard let value else { return 2_000 }
+        guard case let .number(raw) = value,
+              raw.isFinite,
+              raw.rounded(.towardZero) == raw,
+              raw >= 50,
+              raw <= 10_000
+        else {
+            return nil
+        }
+        return Int(raw)
+    }
+
+    private func parseTypeTextParams(
+        _ params: JSONValue
+    ) -> (text: String, selector: ComputerApplicationSelector, verification: ActionVerificationSpec?)? {
+        guard case let .object(object) = params,
+              object.keys.allSatisfy({ ["text", "bundleIdentifier", "name", "verify"].contains($0) }),
+              case let .string(text)? = object["text"],
+              text.count <= Self.maxTypedCharacters,
+              let selector = parseRequiredSelector(object),
+              let verification = parseOptionalVerification(object["verify"])
+        else {
+            return nil
+        }
+        return (text, selector, verification)
     }
 
     private func parsePressKeyParams(
         _ params: JSONValue
-    ) -> (key: String, modifiers: Set<ComputerKeyModifier>, selector: ComputerApplicationSelector)? {
+    ) -> (key: String, modifiers: Set<ComputerKeyModifier>, selector: ComputerApplicationSelector, verification: ActionVerificationSpec?)? {
         guard case let .object(object) = params,
-              object.keys.allSatisfy({ ["key", "modifiers", "bundleIdentifier", "name"].contains($0) }),
+              object.keys.allSatisfy({ ["key", "modifiers", "bundleIdentifier", "name", "verify"].contains($0) }),
               case let .string(key)? = object["key"],
               KeyMapping.keyCode(for: key) != nil,
-              let selector = parseRequiredSelector(object)
+              let selector = parseRequiredSelector(object),
+              let verification = parseOptionalVerification(object["verify"])
         else {
             return nil
         }
@@ -517,7 +714,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 }
             }
         }
-        return (key, modifiers, selector)
+        return (key, modifiers, selector, verification)
     }
 
     private func parseRequiredSelector(_ object: [String: JSONValue]) -> ComputerApplicationSelector? {
@@ -595,9 +792,11 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
         !value.isEmpty && value.count <= Self.maxSelectorCharacters
     }
 
-    private func parseMoveMouseParams(_ params: JSONValue) -> (point: ComputerPoint, mode: PointerMotionMode)? {
+    private func parseMoveMouseParams(
+        _ params: JSONValue
+    ) -> (point: ComputerPoint, mode: PointerMotionMode, verification: ActionVerificationSpec?)? {
         guard case let .object(object) = params,
-              object.keys.allSatisfy({ ["x", "y", "motionMode"].contains($0) }),
+              object.keys.allSatisfy({ ["x", "y", "motionMode", "verify"].contains($0) }),
               case let .number(x)? = object["x"],
               case let .number(y)? = object["y"],
               x.isFinite,
@@ -618,7 +817,8 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             mode = .fast
         }
 
-        return (ComputerPoint(x: x, y: y), mode)
+        guard let verification = parseOptionalVerification(object["verify"]) else { return nil }
+        return (ComputerPoint(x: x, y: y), mode, verification)
     }
 
     private func safeApplicationView(_ application: WorkspaceApplication) -> ApplicationView {
@@ -672,6 +872,14 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             requestId: requestId,
             code: "COMPUTER_FOCUS_FAILED",
             message: "Computer focus verification failed."
+        )
+    }
+
+    private func timeout(requestId: String) -> ComputerProtocolResponse {
+        .failure(
+            requestId: requestId,
+            code: "COMPUTER_TIMEOUT",
+            message: "Computer verification timed out."
         )
     }
 

@@ -88,19 +88,22 @@ public struct ComputerObservation: Codable, Equatable, Sendable {
     public let windowTitle: String?
     public let elements: [ComputerElementView]
     public let truncated: Bool
+    public let digest: String?
 
     public init(
         snapshotId: String,
         application: ApplicationView,
         windowTitle: String?,
         elements: [ComputerElementView],
-        truncated: Bool
+        truncated: Bool,
+        digest: String? = nil
     ) {
         self.snapshotId = snapshotId
         self.application = application
         self.windowTitle = windowTitle
         self.elements = elements
         self.truncated = truncated
+        self.digest = digest
     }
 }
 
