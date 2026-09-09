@@ -4,8 +4,8 @@
 
 ## Security invariants
 
-1. **Explicit session authority**: privileged filesystem, Git, and process calls require an active opaque authority lease. Leases expire, can be revoked immediately, and are stored internally only by hash.
-2. **Fixed privilege ladder**: Project has project filesystem/Git access and no terminal; User has home filesystem/Git access and no terminal; Admin has host-wide scope under the current OS user and is the only terminal-capable profile.
+1. **Explicit session authority**: privileged filesystem, Git, process, and browser content/action calls require an active opaque authority lease. Leases expire, can be revoked immediately, and are stored internally only by hash.
+2. **Fixed privilege ladder**: Project has project filesystem/Git access and no terminal/browser content access; User has home filesystem/Git access and no terminal/browser content access; Admin has host-wide scope under the current OS user and is the only terminal/process/browser-capable profile.
 3. **Local creation of broad authority by default**: ChatGPT's default MCP catalog can create Project authority only. User/Admin authority is created from the Mac through `chatgpt-system authorize user|admin`, a private Unix control socket, and native LocalAuthentication unless the operator explicitly starts the runtime with `--personal-admin`.
 4. **Shared authoritative runtime**: the CLI never creates a shadow `AuthorityManager`. The control socket talks to the same running process that serves MCP, so a locally created lease exists in exactly one authoritative in-memory lease store.
 5. **Private local control plane**: the default control socket is `~/.chatgpt-system/control.sock`; its parent is `0700`, the socket is `0600`, frames are bounded/versioned JSON, only one request is accepted per connection, stale/live socket ownership is checked, and only `ping` plus `authorize(user|admin)` exist.
@@ -16,8 +16,8 @@
 10. **Filesystem confinement**: filesystem requests are resolved against the active lease roots with symlink-target validation.
 11. **No blind overwrite**: modifying or deleting an existing regular file requires its current SHA-256 from `fs_read` or `fs_stat`.
 12. **Atomic replacement**: file writes use temporary sibling files plus rename to reduce partial-write risk.
-13. **Bounded I/O**: file reads/writes, directory listings, native helper output, control frames, command output, command duration, managed process count, and managed process log tails have limits.
-14. **Audit redaction**: authority/approval/process lifecycle records contain categorical metadata only. Raw lease IDs, managed-process IDs, request IDs, credentials, biometric material, argument values, environments, file contents, and command/process output are not copied into audit metadata.
+13. **Bounded I/O**: file reads/writes, directory listings, native helper output, control frames, command output, command duration, managed process count/log tails, browser diagnostics, snapshots, and screenshots have limits.
+14. **Audit redaction**: authority/approval/process/browser lifecycle records contain categorical metadata only. Raw lease IDs, managed-process IDs, browser page IDs, request IDs, credentials, biometric material, argument or typed values, environments, file contents, command/process output, snapshot text, screenshot bytes, console payloads, and URL query strings/fragments are not copied into audit metadata.
 15. **Structured terminal execution**: Admin `terminal_run` uses `shell=false`, an executable basename allowlist, cwd checks, sanitized environment variables, timeouts, and output limits.
 16. **Managed processes are authority-scoped**: `process_start`, `process_list`, `process_status`, `process_logs`, and `process_stop` require an active lease. Start requires terminal capability, which currently means Admin.
 17. **No raw PID surface**: MCP never accepts or returns an OS PID, process-group ID, arbitrary signal, shell flag, detached flag, or caller-supplied child environment for managed processes.
@@ -26,8 +26,14 @@
 20. **Graceful process-group cleanup**: on POSIX, managed children use their own process group. Stop/shutdown sends `SIGTERM`, waits the configured grace period, then escalates to `SIGKILL` internally if required.
 21. **HTTP authentication**: HTTP transport refuses to start without a bearer token and binds to loopback by default.
 22. **Loopback request validation**: the localhost HTTP listener applies Host and Origin validation before routing requests.
-23. **Personal Admin is explicit**: `--personal-admin` is disabled by default. When enabled, MCP may mint the existing fixed Admin profile directly, but leases remain bounded/in-memory and terminal/process capability still depends on the separate runtime terminal gate.
+23. **Personal Admin is explicit**: `--personal-admin` is disabled by default. When enabled, MCP may mint the existing fixed Admin profile directly, but leases remain bounded/in-memory and terminal/process/browser capability still depends on separate startup gates.
 24. **Daily-driver credential confinement**: the optional macOS LaunchAgent stores the Secure MCP Tunnel control-plane key in the login Keychain. The key is not placed in the plist, repository, audit log, runner logs, or spawned command argv.
+25. **Browser is independently gated**: browser automation is disabled by default and requires explicit `--enable-browser` / `CHATGPT_SYSTEM_ENABLE_BROWSER=true`. Admin authority cannot silently enable a disabled browser runtime.
+26. **Browser semantic surface only**: MCP browser tools accept fixed role/text/label/test-id targets and a fixed key vocabulary. They expose no CSS/XPath selectors, arbitrary JavaScript, Playwright code, CDP/WebSocket endpoints, executable paths, proxy settings, browser flags, cookies, storage APIs, or file-upload primitives.
+27. **Browser navigation is scheme-bounded**: caller navigation accepts only `http:` and `https:`. `file:`, `javascript:`, `data:`, browser-internal schemes, and custom application schemes are rejected before Playwright receives them.
+28. **Browser credential entry is refused**: `browser_fill` and focused key actions fail closed for deterministic password, OTP, verification-code, CVV/CVC, card-number, and sensitive autocomplete signals.
+29. **Browser content is redacted/bounded**: editable ARIA values are removed before snapshots leave the runtime; network diagnostic URLs have query strings/fragments stripped; console/network tails are bounded; screenshots remain in-memory for the MCP result and are never written by the runtime solely for tool delivery.
+30. **Dedicated browser profile**: the documented/default persistent user-data directory is `~/.chatgpt-system/browser-profile`. The operator's normal Chrome/Chromium profile is not the default automation target.
 
 ## Why User/Admin creation is local
 
@@ -59,7 +65,7 @@ Independent ChatGPT/OpenAI product safety checks can still block a specific late
 
 `--personal-admin` is an explicit private-workstation trust mode for the operator who does not want to approve and paste an Admin lease during every normal session. In this mode `session_authority_start(profile="admin")` is exposed directly to MCP. The request still maps to the fixed Admin profile in trusted code, receives the existing one-hour maximum TTL, stays only in memory, and is audited without the raw lease value.
 
-Personal Admin does **not** imply terminal capability. If the daemon was not also started with `--enable-terminal`, the resulting Admin lease has host-wide filesystem scope but `terminalEnabled=false` and an empty command allowlist. This keeps the runtime terminal gate authoritative.
+Personal Admin does **not** imply terminal or browser capability. If the daemon was not also started with `--enable-terminal`, the resulting Admin lease has host-wide filesystem scope but `terminalEnabled=false` and an empty command allowlist. If browser startup is not enabled, browser content/action tools remain unavailable. These independent runtime gates remain authoritative.
 
 This mode materially increases the impact of a malicious or prompt-injected MCP request and should be enabled only on a private workstation controlled by the same user. The default local-approval path remains available and unchanged when the flag is absent.
 
@@ -71,13 +77,15 @@ At runtime the wrapper retrieves that fixed Keychain item and places the value o
 
 This key authenticates `tunnel-client` to the Secure MCP Tunnel control plane. It is not a model invocation credential used by `chatgpt-system`, and the bridge does not turn daily-driver startup into direct model API usage.
 
-## Why Project/User do not have terminal capability
+## Why Project/User do not have terminal or browser content capability
 
 A child process is not confined merely because its working directory is inside a lease root. An allowlisted executable such as Node, Python, a package manager, compiler, or build tool can exercise the OS account's permissions and open files outside that cwd.
 
-Therefore Project/User authority does not expose `terminal_run` or `process_start`. Otherwise the filesystem scope would be cosmetic rather than a security boundary.
+Likewise, an authenticated browser page, accessibility snapshot, screenshot, console message, or network diagnostic may expose information unrelated to a Project/User filesystem root. Browser content cannot honestly inherit a filesystem-only scope.
 
-Admin is the only terminal-capable profile because the user has already locally authenticated for host-wide authority.
+Therefore Project/User authority exposes neither terminal/process start nor browser page/content/action tools. Otherwise the narrower authority profiles would be cosmetic rather than meaningful boundaries.
+
+Admin is the only profile allowed to reach those host/user-session capabilities. `browser_health` remains lease-free because it exposes only categorical readiness and does not start or inspect browsing content.
 
 ## Admin is not root
 
@@ -115,6 +123,41 @@ A later Admin lease may manage a process created by an earlier Admin lease when 
 Managed records and logs exist only in memory. Clean daemon shutdown attempts to stop every running managed process group. An abrupt daemon crash or `SIGKILL` can leave a detached child alive; the next daemon does **not** scan or kill arbitrary OS PIDs because it has no trustworthy ownership proof. There is no persistence guarantee across daemon restart.
 
 Managed process execution is **not an operating-system sandbox**. The executable runs with the permissions of the OS user that launched `chatgpt-system`.
+
+## Browser automation boundary
+
+Browser automation uses the repository-pinned Playwright runtime as deterministic infrastructure. There is no second LLM/browser agent loop.
+
+The owned browser context uses a dedicated persistent profile. Page handles are represented to MCP only by cryptographically random, in-memory opaque IDs. Closed or unknown IDs fail with `BROWSER_PAGE_NOT_FOUND`; IDs are not persisted or audited.
+
+The public browser surface is intentionally narrow:
+
+```text
+browser_health
+browser_tabs
+browser_new_tab
+browser_select_tab
+browser_close_tab
+browser_navigate
+browser_snapshot
+browser_click
+browser_fill
+browser_select_option
+browser_press_key
+browser_wait_for_text
+browser_screenshot
+browser_console_errors
+browser_network_errors
+browser_close
+```
+
+Except for categorical `browser_health`, every operation requires an active Admin lease. Browser operations are serialized so concurrent ChatGPT sessions do not race tab/focus/page mutations inside the owned context.
+
+The browser runtime is **not a network sandbox**. HTTP(S) navigation may load arbitrary remote application code and follow redirects. The browser process has the OS/network permissions of the account running it. Use a separate OS account, VM, containerized browser environment, or network policy if stronger isolation is required.
+
+The runtime also does not automate credential entry. Existing authenticated state in the dedicated profile may still make sensitive pages visible to an Admin-authorized browser tool; operators should treat that profile as privileged local state.
+
+Clean shutdown attempts managed processes first, then the browser context, then the authority control socket, then MCP transport. A failure in one cleanup phase does not skip later phases.
 
 ## Protected native helper boundary
 
@@ -172,12 +215,12 @@ Git audit metadata records operation categories and bounded counts/flags, not co
 
 The bridge assumes its startup environment, including executable search paths, is trusted. An actor that can replace executables found through `PATH` already operates at or near the bridge process's OS authority.
 
-## Future GUI and browser capabilities
+## Future GUI capability
 
-Computer-use and browser diagnostics must preserve the same authority model rather than tunneling around it.
+The remaining GUI layer must preserve the same authority model rather than tunneling around it.
 
-- GUI actions will be adapters over the existing separate `computer-use` system so its kill switch, credential blocking, human-presence detection, grants, and verification remain active;
-- browser console/network diagnostics should use a browser automation/CDP boundary and must not become a cookie/token extraction channel;
+- native GUI actions will be adapters over the separate `computer-use` system so its kill switch, credential blocking, human-presence detection, grants, and verification remain active;
+- browser work should prefer the existing semantic Browser Runtime before falling back to pixel-driven computer use;
 - true root operations remain typed ServiceManagement/XPC operations, not a reusable root shell.
 
 ## Audit limitation
