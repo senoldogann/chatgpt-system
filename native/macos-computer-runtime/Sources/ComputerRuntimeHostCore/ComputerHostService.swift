@@ -11,25 +11,36 @@ public struct ComputerHostService: Sendable {
     private let workspace: any WorkspaceReading
     private let accessibility: (any AccessibilityReading)?
     private let screenshot: (any ScreenshotCapturing)?
+    private let actions: (any ComputerActionHandling)?
 
     public init(
         permissions: any PermissionReading,
         workspace: any WorkspaceReading,
         accessibility: (any AccessibilityReading)? = nil,
-        screenshot: (any ScreenshotCapturing)? = nil
+        screenshot: (any ScreenshotCapturing)? = nil,
+        actions: (any ComputerActionHandling)? = nil
     ) {
         self.permissions = permissions
         self.workspace = workspace
         self.accessibility = accessibility
         self.screenshot = screenshot
+        self.actions = actions
     }
 
     public static func system() -> ComputerHostService {
-        .init(
+        let topology = SystemDisplayTopology()
+        let controller = ComputerInputController(
+            eventSink: SystemInputEventSink(),
+            pointerReader: topology,
+            displayTopology: topology,
+            sleeper: SystemInputSleeper()
+        )
+        return .init(
             permissions: SystemPermissionReader(),
             workspace: SystemWorkspaceReader(),
             accessibility: SystemAccessibilityReader(),
-            screenshot: SystemScreenshotCapturer()
+            screenshot: SystemScreenshotCapturer(),
+            actions: ComputerActionService(controller: controller)
         )
     }
 
@@ -80,6 +91,9 @@ public struct ComputerHostService: Sendable {
             return await handleScreenshot(requestId: request.requestId)
 
         default:
+            if let actions, let response = await actions.handleAction(request) {
+                return response
+            }
             return protocolInvalid(requestId: request.requestId)
         }
     }
