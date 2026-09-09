@@ -15,6 +15,11 @@ export interface BrowserServiceOptions {
   timeoutMs: number;
   maxDiagnosticEntries?: number;
   maxDiagnosticMessageChars?: number;
+  maxTabs?: number;
+  maxTabTitleChars?: number;
+  maxUrlChars?: number;
+  maxSnapshotChars?: number;
+  maxScreenshotBytes?: number;
 }
 
 const SENSITIVE_AUTOCOMPLETE = new Set([
@@ -46,6 +51,11 @@ export class BrowserService {
   private readonly timeoutMs: number;
   private readonly maxDiagnosticEntries: number;
   private readonly maxDiagnosticMessageChars: number;
+  private readonly maxTabs: number;
+  private readonly maxTabTitleChars: number;
+  private readonly maxUrlChars: number;
+  private readonly maxSnapshotChars: number;
+  private readonly maxScreenshotBytes: number;
   private operationChain: Promise<void> = Promise.resolve();
 
   constructor(
@@ -56,8 +66,13 @@ export class BrowserService {
       throw new Error("Browser timeout must be a positive integer.");
     }
     this.timeoutMs = options.timeoutMs;
-    this.maxDiagnosticEntries = Math.max(1, options.maxDiagnosticEntries ?? 100);
-    this.maxDiagnosticMessageChars = Math.max(128, options.maxDiagnosticMessageChars ?? 2_048);
+    this.maxDiagnosticEntries = this.outputLimit(options.maxDiagnosticEntries, 100);
+    this.maxDiagnosticMessageChars = this.outputLimit(options.maxDiagnosticMessageChars, 2_048);
+    this.maxTabs = this.outputLimit(options.maxTabs, 64);
+    this.maxTabTitleChars = this.outputLimit(options.maxTabTitleChars, 4_096);
+    this.maxUrlChars = this.outputLimit(options.maxUrlChars, 16_384);
+    this.maxSnapshotChars = this.outputLimit(options.maxSnapshotChars, 262_144);
+    this.maxScreenshotBytes = this.outputLimit(options.maxScreenshotBytes, 8 * 1024 * 1024);
   }
 
   health(): Promise<BrowserHealth> {
@@ -65,18 +80,22 @@ export class BrowserService {
   }
 
   tabs(): Promise<{ tabs: BrowserTabView[] }> {
-    return this.serialize(async () => ({ tabs: await this.backend.tabs() }));
+    return this.serialize(async () => {
+      const tabs = await this.backend.tabs();
+      this.assertTabListWithinLimits(tabs);
+      return { tabs };
+    });
   }
 
   newTab(url?: string): Promise<BrowserTabView> {
     return this.serialize(async () => {
       if (url !== undefined) this.assertNavigableUrl(url);
-      return this.backend.newTab(url);
+      return this.assertTabViewWithinLimits(await this.backend.newTab(url));
     });
   }
 
   selectTab(pageId: string): Promise<BrowserTabView> {
-    return this.serialize(() => this.backend.selectTab(pageId));
+    return this.serialize(async () => this.assertTabViewWithinLimits(await this.backend.selectTab(pageId)));
   }
 
   closeTab(pageId: string): Promise<{ closed: true }> {
@@ -89,15 +108,16 @@ export class BrowserService {
   navigate(pageId: string, url: string): Promise<BrowserTabView> {
     return this.serialize(async () => {
       this.assertNavigableUrl(url);
-      return this.backend.navigate(pageId, url, this.timeoutMs);
+      return this.assertTabViewWithinLimits(await this.backend.navigate(pageId, url, this.timeoutMs));
     });
   }
 
   snapshot(pageId: string): Promise<{ pageId: string; snapshot: string }> {
-    return this.serialize(async () => ({
-      pageId,
-      snapshot: this.redactEditableSnapshotValues(await this.backend.snapshot(pageId)),
-    }));
+    return this.serialize(async () => {
+      const snapshot = this.redactEditableSnapshotValues(await this.backend.snapshot(pageId));
+      this.assertOutputLength(snapshot, this.maxSnapshotChars, "Browser snapshot exceeded the safe output limit.");
+      return { pageId, snapshot };
+    });
   }
 
   click(pageId: string, target: BrowserTarget): Promise<{ ok: true }> {
@@ -145,7 +165,14 @@ export class BrowserService {
   }
 
   screenshot(pageId: string): Promise<BrowserScreenshot> {
-    return this.serialize(() => this.backend.screenshot(pageId));
+    return this.serialize(async () => {
+      const screenshot = await this.backend.screenshot(pageId);
+      const decodedBytes = Buffer.byteLength(screenshot.pngBase64, "base64");
+      if (decodedBytes > this.maxScreenshotBytes) {
+        throw this.protocolOutputLimit("Browser screenshot exceeded the safe output limit.");
+      }
+      return screenshot;
+    });
   }
 
   consoleErrors(pageId: string): Promise<BrowserConsoleResult> {
@@ -267,6 +294,27 @@ export class BrowserService {
       .join("\n");
   }
 
+  private assertTabListWithinLimits(tabs: BrowserTabView[]): void {
+    if (tabs.length > this.maxTabs) {
+      throw this.protocolOutputLimit("Browser tab list exceeded the safe output limit.");
+    }
+    for (const tab of tabs) this.assertTabViewWithinLimits(tab);
+  }
+
+  private assertTabViewWithinLimits(tab: BrowserTabView): BrowserTabView {
+    this.assertOutputLength(tab.title, this.maxTabTitleChars, "Browser tab title exceeded the safe output limit.");
+    this.assertOutputLength(tab.url, this.maxUrlChars, "Browser tab URL exceeded the safe output limit.");
+    return tab;
+  }
+
+  private assertOutputLength(value: string, maximum: number, message: string): void {
+    if (value.length > maximum) throw this.protocolOutputLimit(message);
+  }
+
+  private protocolOutputLimit(message: string): BrowserError {
+    return new BrowserError("BROWSER_PROTOCOL_INVALID", message);
+  }
+
   private sanitizeNetworkEntry(entry: BrowserNetworkEntry): BrowserNetworkEntry {
     return {
       ...entry,
@@ -280,7 +328,10 @@ export class BrowserService {
       const parsed = new URL(value);
       parsed.search = "";
       parsed.hash = "";
-      return parsed.toString();
+      const sanitized = parsed.toString();
+      if (sanitized.length <= this.maxUrlChars) return sanitized;
+      const truncated = `${parsed.origin}/[truncated]`;
+      return truncated.length <= this.maxUrlChars ? truncated : "[url-truncated]";
     } catch {
       return "[invalid-url]";
     }
@@ -289,5 +340,13 @@ export class BrowserService {
   private boundText(value: string): string {
     if (value.length <= this.maxDiagnosticMessageChars) return value;
     return value.slice(value.length - this.maxDiagnosticMessageChars);
+  }
+
+  private outputLimit(value: number | undefined, fallback: number): number {
+    if (value === undefined) return fallback;
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new Error("Browser output limits must be positive integers.");
+    }
+    return value;
   }
 }
