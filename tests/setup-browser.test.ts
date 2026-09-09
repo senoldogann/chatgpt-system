@@ -2,6 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildBrowserInstallInvocation,
+  parseBrowserSetupArgs,
   runBrowserSetup,
 } from "../scripts/setup-browser.mjs";
 
@@ -25,6 +26,12 @@ describe("browser setup", () => {
     expect(invocation.args.join(" ")).not.toContain("sudo");
   });
 
+  it("rejects every caller-supplied CLI argument instead of forwarding or ignoring it", () => {
+    expect(parseBrowserSetupArgs([])).toEqual({});
+    expect(() => parseBrowserSetupArgs(["--with-deps"])).toThrow(/does not accept arguments/i);
+    expect(() => parseBrowserSetupArgs(["firefox"])).toThrow(/does not accept arguments/i);
+  });
+
   it("refuses relative repository and node paths", () => {
     expect(() => buildBrowserInstallInvocation({
       repoDir: "./chatgpt-system",
@@ -37,7 +44,7 @@ describe("browser setup", () => {
     })).toThrow(/node.*absolute/i);
   });
 
-  it("runs the exact install invocation with shell disabled and inherits browser download output", () => {
+  it("runs the exact install invocation with shell disabled, a bounded timeout, and inherited output", () => {
     const calls: Array<{
       command: string;
       args: string[];
@@ -67,6 +74,7 @@ describe("browser setup", () => {
         cwd: "/Users/test/chatgpt-system",
         stdio: "inherit",
         shell: false,
+        timeout: 600_000,
       },
     });
   });
