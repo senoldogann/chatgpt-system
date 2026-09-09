@@ -17,17 +17,21 @@ Usage:
   chatgpt-system authorize admin [--ttl <seconds>] [--print-lease]
 
 Server options:
-  --root <path>             Allow a filesystem root (repeatable). Defaults to cwd.
-  --audit-file <path>       JSONL audit log path.
-  --enable-terminal         Enable bootstrap terminal_run. Disabled by default.
-  --personal-admin          Allow this MCP client to mint short-lived Admin leases directly. Disabled by default.
-  --allow-command <name>    Terminal executable allowlist (repeatable).
-  --enable-control          Start the private local authority Unix socket.
-  --control-socket <path>   Override the private Unix socket path; requires --enable-control.
-  --host <host>             HTTP bind host. Default: 127.0.0.1.
-  --port <number>           HTTP port. Default: 4312.
-  --token <secret>          HTTP bearer token, minimum 16 characters.
-  -h, --help                Show this help.
+  --root <path>                    Allow a filesystem root (repeatable). Defaults to cwd.
+  --audit-file <path>              JSONL audit log path.
+  --enable-terminal                Enable bootstrap terminal_run. Disabled by default.
+  --personal-admin                 Allow this MCP client to mint short-lived Admin leases directly. Disabled by default.
+  --allow-command <name>           Terminal executable allowlist (repeatable).
+  --enable-browser                 Enable the Admin-only Playwright browser runtime. Disabled by default.
+  --browser-headless               Run the enabled browser headlessly. Headed is the default when browser is enabled.
+  --browser-timeout-ms <ms>        Browser operation timeout in milliseconds. Default: 10000.
+  --browser-user-data-dir <path>   Dedicated persistent browser profile. Default: ~/.chatgpt-system/browser-profile.
+  --enable-control                 Start the private local authority Unix socket.
+  --control-socket <path>          Override the private Unix socket path; requires --enable-control.
+  --host <host>                    HTTP bind host. Default: 127.0.0.1.
+  --port <number>                  HTTP port. Default: 4312.
+  --token <secret>                 HTTP bearer token, minimum 16 characters.
+  -h, --help                       Show this help.
 
 Authorize options:
   --ttl <seconds>           Request a shorter User/Admin lease lifetime.
@@ -37,7 +41,9 @@ Security:
   Filesystem tools are confined to active authority lease roots and reject symlink escapes.
   Existing file writes/removals require the SHA-256 returned by fs_read/fs_stat.
   Project and User authority have no terminal capability. Admin alone can use the bounded terminal/process allowlist.
-  Personal Admin is an explicit private-workstation opt-in and does not bypass the runtime terminal gate.
+  Browser automation is an explicit runtime opt-in and remains Admin-only. Raw CSS/XPath/JavaScript selectors are not exposed.
+  Browser input into password, OTP, and payment-credential-shaped fields is refused.
+  Personal Admin is an explicit private-workstation opt-in and does not bypass the runtime terminal or browser gates.
   Managed process tools expose opaque IDs only; callers cannot provide OS PIDs, signals, shell mode, or child environments.
   User/Admin authority is approved locally through the protected macOS broker; credentials and biometric material never enter MCP.
 `);
@@ -107,14 +113,14 @@ async function main(): Promise<void> {
         reportError: reportShutdownError,
       }));
       console.error(
-        `[chatgpt-system] stdio ready; roots=${config.roots.join(",")}; terminal=${config.terminal.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`,
+        `[chatgpt-system] stdio ready; roots=${config.roots.join(",")}; terminal=${config.terminal.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`,
       );
       return;
     }
 
     const server = startHttp(runtime);
     server.once("listening", () => {
-      console.error(`[chatgpt-system] HTTP MCP listening on http://${config.http.host}:${config.http.port}/mcp; control=${config.control.enabled ? config.control.socketPath : "disabled"}`);
+      console.error(`[chatgpt-system] HTTP MCP listening on http://${config.http.host}:${config.http.port}/mcp; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`);
     });
     installShutdown(() => closeRuntimeResources({
       runtime,
@@ -127,6 +133,11 @@ async function main(): Promise<void> {
   } catch (error) {
     try {
       await runtime.processSupervisor.close();
+    } catch {
+      // Startup failure still continues local cleanup below.
+    }
+    try {
+      await runtime.browser.close();
     } catch {
       // Startup failure still continues local cleanup below.
     }
