@@ -1,8 +1,10 @@
 import ComputerRuntimeCore
+import Darwin
 import Foundation
 
 public enum NDJSONHostServerError: Error, Equatable {
     case responseTooLarge
+    case inputReadFailed
 }
 
 public struct NDJSONHostServer: Sendable {
@@ -18,11 +20,10 @@ public struct NDJSONHostServer: Sendable {
 
     public func run() async throws {
         var framer = NDJSONFramer(maxLineBytes: Self.maxRequestLineBytes)
-        let input = FileHandle.standardInput
         let output = FileHandle.standardOutput
 
         while true {
-            let chunk = try input.read(upToCount: Self.readChunkBytes) ?? Data()
+            let chunk = try Self.readStdinChunk()
             if chunk.isEmpty {
                 try framer.finish()
                 return
@@ -34,6 +35,27 @@ public struct NDJSONHostServer: Sendable {
                 response.append(0x0A)
                 try output.write(contentsOf: response)
             }
+        }
+    }
+
+    private static func readStdinChunk() throws -> Data {
+        var buffer = [UInt8](repeating: 0, count: Self.readChunkBytes)
+
+        while true {
+            let count = buffer.withUnsafeMutableBytes { bytes -> Int in
+                Darwin.read(STDIN_FILENO, bytes.baseAddress, bytes.count)
+            }
+
+            if count > 0 {
+                return Data(buffer.prefix(count))
+            }
+            if count == 0 {
+                return Data()
+            }
+            if errno == EINTR {
+                continue
+            }
+            throw NDJSONHostServerError.inputReadFailed
         }
     }
 
