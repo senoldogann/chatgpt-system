@@ -31,11 +31,22 @@ MCP tool registry
    |          v
    |     ProcessSupervisor --> shared in-memory registry, logs, lifecycle
    |
+   +--> ScopedBrowserService (Admin-only facade)
+   |          |
+   |          v
+   |     BrowserService ----> URL/target/credential/redaction policy + serialization
+   |          |
+   |          v
+   |     BrowserRuntime ----> lazy lifecycle + one owned backend
+   |          |
+   |          v
+   |     PlaywrightBrowserBackend --> persistent Chromium automation profile
+   |
    v
 AuditLogger (redacted JSONL metadata)
 ```
 
-One `RuntimeServices` instance owns one `AuthorityManager` and one `ProcessSupervisor`. HTTP, stdio, the local authority control socket, and every authority-scoped MCP call reuse that same runtime. There is no shadow lease store or per-request process registry.
+One `RuntimeServices` instance owns one `AuthorityManager`, one `ProcessSupervisor`, and one optional browser service/runtime. HTTP, stdio, the local authority control socket, and every authority-scoped MCP call reuse that same runtime. There is no shadow lease store, per-request process registry, or second browser agent.
 
 ## Filesystem path decision
 
@@ -67,12 +78,14 @@ rather than blindly replacing whatever was in model context earlier.
 The privilege ladder is enforced by local trusted code:
 
 ```text
-Project -> explicit roots, filesystem/Git, no terminal
-User    -> current-user home, filesystem/Git, no terminal
-Admin   -> host scope as current OS user, terminal/process capability
+Project -> explicit roots, filesystem/Git, no terminal, no browser content/action access
+User    -> current-user home, filesystem/Git, no terminal, no browser content/action access
+Admin   -> host scope as current OS user, terminal/process + browser capability
 ```
 
-Project authority may be created directly through MCP. By default, User/Admin authority begins locally on the Mac through the private Unix control socket and protected LocalAuthentication helper. An explicit `--personal-admin` runtime mode is the one intentional exception: on a private daily-driver workstation, MCP may request the existing fixed Admin profile directly. The lease remains short-lived, in-memory, and governed by the same `AuthorityManager`; the mode does not create arbitrary roots and does not bypass the separate `--enable-terminal` gate.
+Project authority may be created directly through MCP. By default, User/Admin authority begins locally on the Mac through the private Unix control socket and protected LocalAuthentication helper. An explicit `--personal-admin` runtime mode is the one intentional exception: on a private daily-driver workstation, MCP may request the existing fixed Admin profile directly. The lease remains short-lived, in-memory, and governed by the same `AuthorityManager`; the mode does not create arbitrary roots and does not bypass the separate `--enable-terminal` or `--enable-browser` startup gates.
+
+`browser_health` is deliberately lease-free because it returns categorical readiness only. Every page/content/action/diagnostic browser tool is resolved through an active Admin lease before reaching the browser service.
 
 ## MCP transports
 
@@ -158,27 +171,87 @@ close event -> stopped
 
 The signal target is private implementation state. MCP cannot provide a PID, process-group ID, or signal name.
 
+## Browser runtime architecture
+
+Browser automation is an optional structured capability, not a second autonomous agent. ChatGPT remains the reasoning layer; Playwright is deterministic infrastructure.
+
+Browser support is disabled unless startup configuration enables it. Production uses the repository-pinned Playwright version and a dedicated persistent Chromium user-data directory, defaulting to:
+
+```text
+~/.chatgpt-system/browser-profile
+```
+
+The default/personal Chrome profile is not the documented automation target.
+
+The browser path is intentionally layered:
+
+```text
+Admin lease
+   |
+   v
+ScopedBrowserService
+   |
+   v
+BrowserService
+   |  - http/https navigation allowlist
+   |  - semantic target uniqueness
+   |  - credential-shaped input refusal
+   |  - editable ARIA value redaction
+   |  - diagnostic URL sanitization
+   |  - serialized operations
+   v
+BrowserRuntime
+   |  - lazy start
+   |  - one owned backend/context
+   |  - stable categorical launch failures
+   v
+PlaywrightBrowserBackend
+   |  - role/text/label/testId locators only
+   |  - opaque page IDs
+   |  - bounded console/network tails
+   |  - in-memory screenshots
+   v
+persistent Chromium context
+```
+
+MCP never receives Playwright handles, browser PIDs, CDP/WebSocket endpoints, executable paths, proxy settings, arbitrary launch arguments, cookies/storage APIs, JavaScript evaluation, CSS/XPath selectors, or file-upload primitives.
+
+Caller navigation accepts only `http:` and `https:`. Browser actions require a semantic target to resolve to exactly one element. Fill/key operations refuse deterministic password/OTP/payment credential signals. ARIA snapshots are captured in AI-oriented mode and current editable values are removed before leaving the local runtime.
+
+Browser diagnostics are operational aids, not a network sandbox. Redirects, page JavaScript, and remote sites still execute with the permissions and network access of the owned browser process.
+
+## Runtime shutdown
+
 Clean runtime shutdown attempts resources in this order:
 
 1. stop all managed processes;
-2. close the private authority control socket;
-3. close MCP transport/server.
+2. close the owned browser runtime/context;
+3. close the private authority control socket;
+4. close MCP transport/server.
 
-A failure in one cleanup phase does not prevent later phases from running.
+A failure in one cleanup phase is reported categorically and does not prevent later phases from running.
 
-An abrupt daemon crash can leave a detached child alive. No PID registry is persisted and the next daemon deliberately does not scan/kill arbitrary processes because it cannot prove ownership safely.
+An abrupt daemon crash can leave a detached managed child alive. No PID registry is persisted and the next daemon deliberately does not scan/kill arbitrary processes because it cannot prove ownership safely. Browser profile state is persistent by design, while opaque page IDs and diagnostic buffers are in-memory only.
 
 ## Audit boundary
 
-Authority and managed-process lifecycle events are written as JSONL metadata. Process audit records may include command basename, argument count, and coarse state. They do not include:
+Authority, managed-process, and browser lifecycle/action events are written as JSONL metadata. Process audit records may include command basename, argument count, and coarse state. Browser audit records may include operation category, outcome, duration, bounded counts, sanitized host/origin, and stable error code where useful.
+
+They do not include:
 
 - authority lease IDs;
 - managed-process IDs;
+- browser page IDs;
 - OS PIDs/process-group IDs;
-- argument values;
+- argument or typed/fill values;
 - environment values;
 - stdout/stderr;
-- file contents.
+- file contents;
+- ARIA snapshot text;
+- screenshot bytes;
+- console payloads;
+- URL query strings or fragments;
+- cookies/storage/credentials.
 
 Audit storage is operational visibility, not a tamper-proof security log against the same OS user.
 
@@ -186,6 +259,6 @@ Audit storage is operational visibility, not a tamper-proof security log against
 
 The remaining layers stay separate:
 
-1. Computer-Use Bridge over the existing typed `computer-use` safety/kill-switch boundary.
-2. Browser diagnostics through a browser/CDP-style boundary rather than screenshot guessing.
-3. True root-only actions as narrow ServiceManagement/XPC operations, never a reusable root shell.
+1. Computer-Use Bridge over the existing typed `computer-use` safety/kill-switch boundary for native macOS applications and browser cases that cannot be handled semantically.
+2. A deterministic execution queue may serialize local workflows, but it is not represented as a scheduler for future ChatGPT reasoning turns.
+3. True root-only actions remain narrow ServiceManagement/XPC operations, never a reusable root shell.

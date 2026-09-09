@@ -1,3 +1,5 @@
+import type { BrowserErrorCode } from "./browser-types.js";
+
 export class AppError extends Error {
   constructor(
     message: string,
@@ -12,6 +14,12 @@ export class AppError extends Error {
 export class PolicyError extends AppError {
   constructor(message: string, details?: Record<string, unknown>) {
     super(message, "POLICY_DENIED", details);
+  }
+}
+
+export class BrowserError extends AppError {
+  constructor(code: BrowserErrorCode, message: string, details?: Record<string, unknown>) {
+    super(message, code, details);
   }
 }
 

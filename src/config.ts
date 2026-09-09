@@ -14,6 +14,13 @@ export interface LimitsConfig {
   processStopGraceMs: number;
 }
 
+export interface BrowserConfig {
+  enabled: boolean;
+  headless: boolean;
+  timeoutMs: number;
+  userDataDir: string;
+}
+
 export interface AppConfig {
   roots: string[];
   auditFile: string;
@@ -24,6 +31,7 @@ export interface AppConfig {
   personalAdmin: {
     enabled: boolean;
   };
+  browser: BrowserConfig;
   control: {
     enabled: boolean;
     socketPath: string;
@@ -42,6 +50,10 @@ export interface ConfigOverrides {
   terminalEnabled?: boolean;
   personalAdminEnabled?: boolean;
   commands?: string[];
+  browserEnabled?: boolean;
+  browserHeadless?: boolean;
+  browserTimeoutMs?: number;
+  browserUserDataDir?: string;
   controlEnabled?: boolean;
   controlSocketPath?: string;
   host?: string;
@@ -55,6 +67,10 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_ENABLE_TERMINAL: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_PERSONAL_ADMIN: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ALLOW_COMMANDS: z.string().optional(),
+  CHATGPT_SYSTEM_ENABLE_BROWSER: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_BROWSER_HEADLESS: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_BROWSER_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  CHATGPT_SYSTEM_BROWSER_USER_DATA_DIR: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_CONTROL: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_CONTROL_SOCKET: z.string().optional(),
   CHATGPT_SYSTEM_HTTP_HOST: z.string().optional(),
@@ -102,16 +118,25 @@ function splitCsv(value: string | undefined): string[] | undefined {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
-export function resolveControlSocketPath(value?: string, homeDir = homedir()): string {
-  const requested = value ?? path.join(homeDir, ".chatgpt-system", "control.sock");
+function resolveHomePath(requested: string, homeDir: string, label: string): string {
   let expanded = requested;
   if (requested === "~") expanded = homeDir;
   else if (requested.startsWith("~/")) expanded = path.join(homeDir, requested.slice(2));
 
   if (!path.isAbsolute(expanded)) {
-    throw new Error("Control socket path must be absolute or start with '~/'.");
+    throw new Error(`${label} must be absolute or start with '~/'.`);
   }
   return path.normalize(expanded);
+}
+
+export function resolveControlSocketPath(value?: string, homeDir = homedir()): string {
+  const requested = value ?? path.join(homeDir, ".chatgpt-system", "control.sock");
+  return resolveHomePath(requested, homeDir, "Control socket path");
+}
+
+export function resolveBrowserUserDataDir(value?: string, homeDir = homedir()): string {
+  const requested = value ?? path.join(homeDir, ".chatgpt-system", "browser-profile");
+  return resolveHomePath(requested, homeDir, "Browser user-data directory");
 }
 
 export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppConfig> {
@@ -133,6 +158,10 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     overrides.controlSocketPath ?? env.CHATGPT_SYSTEM_CONTROL_SOCKET,
     homeDir,
   );
+  const browserUserDataDir = resolveBrowserUserDataDir(
+    overrides.browserUserDataDir ?? env.CHATGPT_SYSTEM_BROWSER_USER_DATA_DIR,
+    homeDir,
+  );
 
   return {
     roots,
@@ -145,6 +174,12 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     },
     personalAdmin: {
       enabled: overrides.personalAdminEnabled ?? enabled(env.CHATGPT_SYSTEM_PERSONAL_ADMIN),
+    },
+    browser: {
+      enabled: overrides.browserEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_BROWSER),
+      headless: overrides.browserHeadless ?? enabled(env.CHATGPT_SYSTEM_BROWSER_HEADLESS),
+      timeoutMs: overrides.browserTimeoutMs ?? env.CHATGPT_SYSTEM_BROWSER_TIMEOUT_MS ?? 10_000,
+      userDataDir: browserUserDataDir,
     },
     control: {
       enabled: overrides.controlEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_CONTROL),

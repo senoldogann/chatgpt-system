@@ -2,6 +2,8 @@
 
 This runbook connects `chatgpt-system` to ChatGPT Web/Desktop through an OpenAI Secure MCP Tunnel while keeping the Mac private and keeping broad authority under local user control.
 
+Browser Runtime is part of the same shared authority boundary. ChatGPT remains the reasoning agent; Playwright is deterministic browser infrastructure.
+
 ## Architecture
 
 ```text
@@ -21,7 +23,7 @@ tunnel-client on the Mac
         v
 chatgpt-system shared runtime
         |
-        +-- Project authority: direct MCP, filesystem/Git, no terminal/process start
+        +-- Project authority: direct MCP, filesystem/Git, no terminal/browser content
         |
         +-- private Unix control socket ~/.chatgpt-system/control.sock
         |            ^
@@ -34,15 +36,24 @@ chatgpt-system shared runtime
         |            v
         |  same in-memory AuthorityManager
         |
-        +-- User: home scope, no terminal/process start
+        +-- User: home scope, no terminal/browser content
         |
-        +-- Admin: host scope as current OS user, terminal + managed processes
+        +-- Admin: host scope as current OS user
+        |      |
+        |      +-- terminal + managed processes when terminal gate enabled
+        |      |
+        |      +-- Browser Runtime when browser gate enabled
+        |                |
+        |                v
+        |          BrowserService policy
+        |                |
+        |                v
+        |          Playwright persistent Chromium
         |
         +-- shared ProcessSupervisor
-              process_start/list/status/logs/stop
 ```
 
-ChatGPT Web is the canonical first acceptance surface. Desktop uses the same installed plugin/backend. Normal Chat and Work can route safety differently, so actual tool calls are the evidence that matters.
+ChatGPT Web is the canonical first acceptance surface. Desktop uses the same installed plugin/backend. Normal Chat and Work can route product safety differently, so actual MCP calls are the evidence that matters.
 
 ## 1. Prerequisites
 
@@ -53,8 +64,9 @@ ChatGPT Web is the canonical first acceptance surface. Desktop uses the same ins
 - Secure MCP Tunnel associated with the intended ChatGPT workspace.
 - Runtime tunnel credential available to `tunnel-client`, normally through `CONTROL_PLANE_API_KEY`.
 - Swift/Xcode command-line tools on macOS for native approval.
+- Browser Runtime only: Chromium installed with the repository-pinned Playwright setup command.
 
-Never put the runtime credential in the repository, command history, MCP arguments, plugin prompts, or screenshots.
+Never put the tunnel credential in the repository, command history, MCP arguments, plugin prompts, screenshots, or audit logs.
 
 ## 2. Update and verify the repository
 
@@ -92,9 +104,22 @@ Production locations:
 
 The runtime never executes repository `.build/release` output as the production approval helper. Before every User/Admin approval it verifies protected-path ownership, file type, permissions, and SHA-256 identity.
 
-## 4. Configure the Secure MCP Tunnel profile
+## 4. Install the browser binary
 
-Use a disposable bootstrap root:
+Browser Runtime uses the exact Playwright dependency pinned by the repository. Install its Chromium binary once on the target Mac:
+
+```bash
+cd ~/chatgpt-system
+npm run setup:browser
+```
+
+The setup script has a fixed purpose: install Chromium through the repository-local Playwright CLI. It accepts no caller-selected browser, channel, executable path, proxy, or arbitrary Playwright argument.
+
+The browser runtime itself remains disabled until the tunnel/daemon startup configuration explicitly enables it.
+
+## 5. Configure the Secure MCP Tunnel profile
+
+Create a disposable bootstrap root:
 
 ```bash
 rm -rf /tmp/chatgpt-system-acceptance
@@ -106,7 +131,7 @@ git add fixture.txt
 git commit -m 'test fixture' || true
 ```
 
-Then configure a new tunnel profile:
+For a private daily-driver acceptance profile with terminal, personal-admin, and Browser Runtime enabled:
 
 ```bash
 cd ~/chatgpt-system
@@ -115,14 +140,11 @@ npm run setup:chatgpt -- \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
   --enable-terminal \
   --personal-admin \
+  --enable-browser \
   --doctor
 ```
 
-This daily-driver acceptance profile explicitly opts into the runtime terminal gate because later Admin acceptance requires `terminal_run` and managed process execution. The secure default remains disabled when `--enable-terminal` is omitted, and Project/User leases still cannot use terminal or `process_start` even when the runtime gate is enabled.
-
-For the user's private daily-driver Mac, the profile also explicitly opts into `--personal-admin`. This lets ChatGPT mint bounded in-memory Admin leases directly instead of asking the user to copy/paste a locally approved Admin lease. The mode is disabled by default, does not bypass `--enable-terminal`, and should not be enabled on a shared or untrusted workstation.
-
-If the `chatgpt-system` tunnel profile already exists and its child command is stale, replacement is intentionally explicit. Reuse the same root and tunnel ID, and add `--force`:
+Optional headless mode:
 
 ```bash
 cd ~/chatgpt-system
@@ -131,27 +153,55 @@ npm run setup:chatgpt -- \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
   --enable-terminal \
   --personal-admin \
+  --enable-browser \
+  --browser-headless \
+  --doctor
+```
+
+`--browser-headless` without `--enable-browser` is rejected.
+
+The capability gates are independent:
+
+- omitting `--enable-terminal` keeps one-shot/managed process execution disabled;
+- omitting `--personal-admin` preserves local User/Admin approval;
+- omitting `--enable-browser` keeps Browser Runtime disabled even for Admin;
+- enabling Browser Runtime does not make Project/User browser-capable.
+
+The default browser profile is:
+
+```text
+~/.chatgpt-system/browser-profile
+```
+
+Use a dedicated automation profile. Do not make the operator's everyday Chrome profile the normal acceptance target.
+
+If the `chatgpt-system` tunnel profile already exists and its child command is stale, replacement is intentionally explicit:
+
+```bash
+cd ~/chatgpt-system
+npm run setup:chatgpt -- \
+  --root /tmp/chatgpt-system-acceptance \
+  --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
+  --enable-terminal \
+  --personal-admin \
+  --enable-browser \
   --force \
   --doctor
 ```
 
-`--force` replaces only the existing `tunnel-client` profile configuration. It does not delete repository data or bypass the Project/User/Admin authority model.
+`--force` replaces only the existing `tunnel-client` profile configuration. It does not delete repository data or bypass Project/User/Admin policy.
 
-The generated stdio target includes:
+The generated stdio target includes the private control socket and only the explicit feature gates selected during setup.
 
-```text
---enable-control --control-socket ~/.chatgpt-system/control.sock --enable-terminal --personal-admin
-```
-
-If the profile predates local authorization support, managed-process support, or the terminal opt-in required by this acceptance flow, replace the stale profile explicitly as above rather than hand-editing its child command.
-
-## 5. Run the tunnel
+## 6. Run the tunnel
 
 For manual acceptance:
 
 ```bash
 tunnel-client run --profile chatgpt-system
 ```
+
+Keep it running while ChatGPT discovers or calls tools. After MCP tool/schema changes, restart the tunnel target and refresh the ChatGPT plugin catalog.
 
 For the permanent personal daily-driver setup, stop the manual tunnel after acceptance and run the one-time installer from a shell where `CONTROL_PLANE_API_KEY` is already exported:
 
@@ -160,16 +210,16 @@ cd ~/chatgpt-system
 npm run setup:daily-driver
 ```
 
-The installer stores the tunnel control-plane credential in the macOS login Keychain, writes a user LaunchAgent, and starts the service. The key authenticates `tunnel-client` to OpenAI's Secure MCP Tunnel control plane; it is not used by `chatgpt-system` to make model API calls. Normal daily use after installation does not require Terminal or a pasted Admin lease when `--personal-admin` is enabled.
+The installer stores the tunnel control-plane credential in the macOS login Keychain, writes a user LaunchAgent, and starts the service. The key authenticates `tunnel-client` to the Secure MCP Tunnel control plane; it is not used by `chatgpt-system` to make model API calls.
 
-Service inspection and removal are:
+Service inspection/removal:
 
 ```bash
 npm run daily-driver:status
 npm run daily-driver:uninstall
 ```
 
-Keep the tunnel service running while ChatGPT discovers or calls tools. Verify the local socket:
+Verify the local control socket:
 
 ```bash
 ls -ld ~/.chatgpt-system
@@ -183,11 +233,9 @@ Expected permissions:
 ~/.chatgpt-system/control.sock   srw-------
 ```
 
-After MCP tool/schema changes, restart the tunnel target and refresh the ChatGPT plugin catalog.
+## 7. Tool catalog
 
-## 6. Tool catalog
-
-Authority tools exposed to ChatGPT:
+Authority tools:
 
 ```text
 system_capabilities
@@ -196,9 +244,7 @@ session_authority_status
 session_authority_end
 ```
 
-User authority creation tools are intentionally absent. Admin creation is local by default; in explicit `--personal-admin` mode, `session_authority_start` also accepts `profile="admin"` and returns the same bounded in-memory Admin lease shape.
-
-Filesystem/Git/one-shot process tools:
+Filesystem/Git/process tools:
 
 ```text
 fs_list
@@ -212,12 +258,13 @@ fs_remove
 git_status
 git_diff
 git_log
+git_create_branch
+git_switch_branch
+git_stage_paths
+git_commit
+git_merge_branch
+git_push
 terminal_run
-```
-
-Managed-process tools:
-
-```text
 process_start
 process_list
 process_status
@@ -225,21 +272,42 @@ process_logs
 process_stop
 ```
 
-Every privileged tool takes `authorityLeaseId`. Managed-process MCP schemas do not accept OS PID, signal, shell, detached, or environment fields.
+Browser tools:
 
-## 7. Privilege ladder
+```text
+browser_health
+browser_tabs
+browser_new_tab
+browser_select_tab
+browser_close_tab
+browser_navigate
+browser_snapshot
+browser_click
+browser_fill
+browser_select_option
+browser_press_key
+browser_wait_for_text
+browser_screenshot
+browser_console_errors
+browser_network_errors
+browser_close
+```
 
-| Profile | Scope | TTL max | Terminal / process start | Creation |
-| --- | --- | ---: | --- | --- |
-| Project | explicit project roots | 8 h | No | MCP direct |
-| User | current user's canonical home | 4 h | No | local CLI + native auth |
-| Admin | `/` as current OS user | 1 h | Yes | local CLI + native auth by default; MCP direct in personal-admin mode |
+`browser_health` is lease-free and categorical. Every other browser tool requires Admin authority. Browser MCP schemas do not accept raw selectors, JavaScript, CDP endpoints, proxy/executable settings, cookie/storage operations, or file-upload paths.
+
+## 8. Privilege ladder
+
+| Profile | Scope | TTL max | Terminal/process | Browser content/actions | Creation |
+| --- | --- | ---: | --- | --- | --- |
+| Project | explicit project roots | 8 h | No | No | MCP direct |
+| User | current user's canonical home | 4 h | No | No | local CLI + native auth |
+| Admin | `/` as current OS user | 1 h | Yes when terminal gate enabled | Yes when browser gate enabled | local CLI + native auth by default; MCP direct in personal-admin mode |
 
 Admin is not UID 0. Root-only operations are not part of this boundary.
 
-## 8. Project acceptance
+## 9. Project acceptance
 
-In a fresh ChatGPT normal conversation using `chatgpt-system-local`, create Project authority for:
+Create Project authority for:
 
 ```text
 /tmp/chatgpt-system-acceptance
@@ -251,11 +319,12 @@ Verify:
 2. `git_status` succeeds.
 3. sibling/outside read returns `POLICY_DENIED`.
 4. `terminal_run node --version` returns `POLICY_DENIED`.
-5. `process_start node ...` also returns `POLICY_DENIED`.
-6. `session_authority_end` succeeds.
-7. ended-lease reuse returns `AUTHORITY_REQUIRED`.
+5. `process_start node ...` returns `POLICY_DENIED`.
+6. `browser_tabs` returns `POLICY_DENIED` even if Browser Runtime is enabled globally.
+7. `session_authority_end` succeeds.
+8. ended-lease reuse returns `AUTHORITY_REQUIRED`.
 
-## 9. User authorization and acceptance
+## 10. User authorization and acceptance
 
 Do not ask ChatGPT to create User authority. On the Mac:
 
@@ -273,14 +342,15 @@ Paste the lease once into ChatGPT and verify:
 3. `/etc/hosts` is outside User scope and returns `POLICY_DENIED`;
 4. `terminal_run` returns `POLICY_DENIED`;
 5. `process_start` returns `POLICY_DENIED`;
-6. a known Admin-created process ID, if supplied during a controlled acceptance, returns `PROCESS_NOT_FOUND` rather than revealing metadata;
-7. ending the lease revokes it.
+6. `browser_tabs` returns `POLICY_DENIED`;
+7. a known Admin-created process ID returns `PROCESS_NOT_FOUND` rather than leaking metadata;
+8. ending the lease revokes it.
 
 Independent product safety can still block an operation before MCP receives it. Record that separately rather than widening local authority to bypass it.
 
-## 10. Admin authorization and one-shot acceptance
+## 11. Admin authorization and one-shot acceptance
 
-On the Mac:
+If personal-admin is disabled, authorize locally:
 
 ```bash
 cd ~/chatgpt-system
@@ -289,17 +359,19 @@ node dist/cli.js authorize admin
 
 Approve locally, paste the copied lease into ChatGPT, then verify:
 
-1. status reports `profile=admin`, root `/`, `terminalEnabled=true`;
+1. status reports `profile=admin`, root `/`;
 2. `/etc/hosts` can be read when the product forwards the call;
-3. `terminal_run node --version` succeeds;
-4. `sh -c ...` remains `POLICY_DENIED` because `sh` is not allowlisted;
+3. `terminal_run node --version` succeeds only when terminal startup gate is enabled;
+4. `sh -c ...` remains `POLICY_DENIED` when `sh` is not allowlisted;
 5. executable paths such as `/usr/bin/node` remain rejected.
+
+In personal-admin mode, use `session_authority_start(profile="admin")` instead and verify the same fixed Admin capability profile.
 
 No destructive system operation is needed for acceptance.
 
-## 11. Managed Process Supervisor acceptance
+## 12. Managed Process Supervisor acceptance
 
-With an active Admin lease, start a harmless inline Node fixture under the repository without modifying files:
+With an active Admin lease, start a harmless inline Node fixture:
 
 ```text
 process_start:
@@ -307,26 +379,92 @@ process_start:
   args:
     - -e
     - console.log('process-ready'); setInterval(() => {}, 1000)
-  cwd: /Users/dogan/chatgpt-system
+  cwd: /absolute/path/to/chatgpt-system
 ```
 
 Expected behavior:
 
-1. `process_start` returns an opaque `processId`, command `node`, and normally `state=running`.
-2. No OS PID or process-group ID appears in output.
+1. `process_start` returns an opaque `processId` and normally `state=running`.
+2. No OS PID/process-group ID appears.
 3. `process_status` reports the record.
 4. `process_logs` contains `process-ready` in the bounded stdout tail.
-5. `process_list` includes the record for the compatible Admin scope.
-6. End the first Admin lease, create a second Admin lease, and verify the second compatible lease can still inspect/stop the process.
-7. `process_stop` transitions it to `stopped`; a second stop is harmless/idempotent.
-8. User authority sees no record in `process_list`, and direct lookup of the known ID returns `PROCESS_NOT_FOUND`.
-9. `process_start` with `sh` remains `POLICY_DENIED`.
-
-Stop behavior is daemon-controlled: POSIX process group receives `SIGTERM`, the daemon waits `CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS` (default 3000 ms), then uses `SIGKILL` only if still necessary. Callers cannot choose signals.
+5. `process_list` includes the compatible record.
+6. A later compatible Admin lease can still inspect/stop the process.
+7. `process_stop` is idempotent.
+8. User authority sees no record and known-ID lookup returns `PROCESS_NOT_FOUND`.
+9. non-allowlisted `sh` remains `POLICY_DENIED`.
 
 Managed records/logs are in memory only. A clean daemon shutdown attempts to stop running children. An abrupt crash can leave a detached child alive; the next daemon does not sweep arbitrary PIDs.
 
-## 12. Cancellation acceptance
+## 13. Browser Runtime functional acceptance
+
+Run this only after `npm run setup:browser`, with Browser Runtime enabled and an active Admin lease.
+
+Use harmless public/local test content that does not require credentials.
+
+Verify in order:
+
+1. `browser_health` returns `enabled=true`, an expected categorical state, and `browserInstalled=true`.
+2. `browser_tabs` returns the owned context's pages using opaque page IDs.
+3. `browser_new_tab` creates a page; optionally navigate directly to a harmless HTTP(S) URL.
+4. `browser_navigate` accepts a normal `https://` URL and waits for DOM content loaded.
+5. `browser_snapshot` returns an ARIA-oriented snapshot without current editable textbox values.
+6. `browser_click` succeeds for one uniquely resolved semantic role/text/label/test-id target.
+7. `browser_fill` succeeds for a benign non-credential field.
+8. `browser_select_option` succeeds for a benign select/combobox fixture.
+9. `browser_press_key` accepts only the fixed key vocabulary.
+10. `browser_wait_for_text` observes a bounded visible text target.
+11. `browser_screenshot` returns PNG image content/metadata without creating a caller-selected output path.
+12. `browser_console_errors` returns only the bounded recent warning/error tail.
+13. `browser_network_errors` returns bounded failed/error responses with URL query strings/fragments stripped.
+14. `browser_select_tab` brings the chosen opaque page ID to front.
+15. `browser_close_tab` invalidates the page ID.
+16. `browser_close` closes the owned context; a later authorized browser operation may lazily create a fresh context against the same dedicated profile.
+
+Do not use personal email, banking, password-manager, payment, or other sensitive authenticated pages as acceptance fixtures.
+
+## 14. Browser safety acceptance
+
+With Browser Runtime enabled, verify fail-closed behavior:
+
+1. Project `browser_tabs` -> `POLICY_DENIED`.
+2. User `browser_tabs` -> `POLICY_DENIED`.
+3. Revoked/expired Admin browser call -> authority error before browser action.
+4. `browser_navigate` with `file:///tmp/test` -> `BROWSER_NAVIGATION_REFUSED`.
+5. `browser_navigate` with `javascript:...` -> `BROWSER_NAVIGATION_REFUSED`.
+6. Password-shaped fill target -> `BROWSER_CREDENTIAL_ENTRY_REFUSED` with no field mutation.
+7. OTP/verification/payment-card-shaped target -> `BROWSER_CREDENTIAL_ENTRY_REFUSED`.
+8. credential-shaped focused field + key action -> refusal before key dispatch.
+9. zero semantic target matches -> `BROWSER_TARGET_NOT_FOUND`.
+10. multiple semantic target matches -> `BROWSER_TARGET_AMBIGUOUS`.
+11. MCP tool schemas reject extra raw-selector/JavaScript/CDP/executable-path fields.
+12. disabled Browser Runtime remains unavailable even with a valid Admin lease.
+
+The Browser Runtime does not type credentials. Existing authenticated state stored in the dedicated profile can still make private pages visible to Admin-authorized inspection, so protect that profile as privileged local state.
+
+## 15. Browser audit acceptance
+
+Default audit location:
+
+```text
+~/.chatgpt-system/audit.jsonl
+```
+
+After controlled browser operations, inspect the audit records and verify they do **not** contain:
+
+- authority lease IDs;
+- browser page IDs;
+- fill/typed text;
+- ARIA snapshot text;
+- screenshot bytes/base64;
+- console payload text;
+- URL query strings or fragments;
+- cookies/storage values;
+- credentials.
+
+Categorical operation/outcome/duration, bounded counts, sanitized host/origin, and stable error codes are acceptable.
+
+## 16. Cancellation acceptance
 
 Run:
 
@@ -338,7 +476,7 @@ Cancel the macOS authentication UI. The CLI must exit non-zero with a safe categ
 
 Cancellation, denial, failure, timeout, malformed helper output, trust failure, control-client disconnect, or server restart must never leave an undisclosed live lease behind.
 
-## 13. Control socket and protected-helper checks
+## 17. Control socket and protected-helper checks
 
 Inspect socket ownership/mode:
 
@@ -352,57 +490,44 @@ Stopping the tunnel cleanly removes the socket. A stale owned socket may be repl
 
 Repository helper rebuilds must not change the production executable selected from `/Library/Application Support/chatgpt-system/...`.
 
-## 14. Web and Desktop
+## 18. Shutdown acceptance
 
-Validate Web first, then Desktop with the same installed `chatgpt-system-local` plugin. Do not create a second permanent authority implementation for Desktop. Count actual MCP calls, not UI labels, as acceptance evidence.
-
-## 15. Process security summary
-
-`terminal_run` and `process_start` share:
-
-- `shell=false`;
-- executable basename allowlist;
-- NUL-argument rejection;
-- active authority cwd policy;
-- sanitized environment.
-
-Managed processes additionally have:
-
-- opaque random IDs instead of PID exposure;
-- bounded registry size;
-- separate bounded stdout/stderr tails;
-- authority-filtered lookup/listing;
-- process-group cleanup on POSIX;
-- graceful stop with bounded escalation;
-- no persistent registry or unsafe startup PID sweep.
-
-Neither one-shot nor managed process execution is an OS sandbox. Admin children run as the OS account that launched `chatgpt-system`, not root.
-
-## 16. Audit behavior
-
-Default audit location:
+On a controlled local run with a managed process and Browser Runtime active, terminate the daemon normally and verify cleanup is attempted in this order:
 
 ```text
-~/.chatgpt-system/audit.jsonl
+managed processes
+browser context
+local authority control socket
+MCP transport/server
 ```
 
-Authority/approval/process lifecycle records contain non-secret categorical metadata. Raw lease IDs, internal approval request IDs, managed-process IDs, OS PIDs, passwords, API keys, biometric material, argument values, environment values, file contents, stdout, and stderr are excluded from lifecycle audit metadata.
+A simulated/tested failure in an earlier phase must not skip later cleanup phases.
 
-## 17. Troubleshooting order
+Browser page IDs and diagnostic buffers are in-memory only. The dedicated browser profile is persistent by design.
+
+## 19. Web and Desktop
+
+Validate Web first, then Desktop with the same installed plugin/backend. Do not create a second permanent authority implementation for Desktop. Count actual MCP calls, not UI labels, as acceptance evidence.
+
+Browser Runtime exists specifically so normal web tasks can prefer deterministic semantic automation over pixel-driven Computer-Use. Native GUI work remains a later separate capability.
+
+## 20. Troubleshooting order
 
 1. `npm run check`
 2. `npm run build:broker:macos`
 3. `sudo npm run install:broker:macos`
-4. for an existing stale profile, rerun `npm run setup:chatgpt -- ... --enable-terminal --force --doctor`
-5. `tunnel-client doctor --profile chatgpt-system --explain`
-6. restart `tunnel-client run --profile chatgpt-system`
-7. verify `~/.chatgpt-system/control.sock`
-8. refresh the ChatGPT plugin tool catalog
-9. Project acceptance
-10. User acceptance
-11. Admin one-shot acceptance
-12. managed-process acceptance
-13. inspect `~/.chatgpt-system/audit.jsonl` for non-secret evidence
+4. `npm run setup:browser` when Browser Runtime is required
+5. for a stale profile, rerun `npm run setup:chatgpt -- ... --enable-terminal --personal-admin --enable-browser --force --doctor`
+6. `tunnel-client doctor --profile chatgpt-system --explain`
+7. restart `tunnel-client run --profile chatgpt-system`
+8. verify `~/.chatgpt-system/control.sock`
+9. refresh the ChatGPT plugin catalog
+10. Project acceptance
+11. User acceptance
+12. Admin/process acceptance
+13. Browser functional acceptance
+14. Browser safety/audit acceptance
+15. inspect `~/.chatgpt-system/audit.jsonl` for non-secret evidence
 
 A connectivity problem is not fixed by widening authority. Humanity has benchmarked that approach extensively enough.
 
@@ -410,21 +535,23 @@ A connectivity problem is not fixed by widening authority. Humanity has benchmar
 
 Implemented:
 
-- Project/User/Admin filesystem and Git authority
-- direct Project authority in MCP
-- local User/Admin authorization CLI
-- private same-runtime Unix control plane
-- protected native User/Admin approval helper
-- Admin-only structured one-shot terminal execution
-- Admin-only managed process start with authority-scoped list/status/logs/stop
-- opaque process IDs, bounded logs/registry, POSIX process-group cleanup
-- clean runtime managed-process shutdown
-- lease expiry/revoke/isolation
-- audit redaction
+- Project/User/Admin filesystem and Git authority;
+- direct Project authority in MCP;
+- local User/Admin authorization CLI;
+- private same-runtime Unix control plane;
+- protected native User/Admin approval helper;
+- Admin-only structured one-shot terminal execution;
+- Admin-only managed process start with authority-scoped list/status/logs/stop;
+- opaque process IDs, bounded logs/registry, POSIX process-group cleanup;
+- deterministic Admin-only Playwright Browser Runtime;
+- semantic browser targets, credential refusal, snapshot/network redaction, and bounded diagnostics;
+- dedicated persistent Chromium automation profile;
+- runtime browser cleanup between process and control/transport cleanup;
+- lease expiry/revoke/isolation;
+- audit redaction.
 
 Next separate capability layers:
 
-- adapter to the existing `computer-use` repository for `open_app`, `open_url`, screenshot, active window, mouse and keyboard
-- browser diagnostics for console errors, network failures, render/DOM state and screenshots
-- typed root-only ServiceManagement/XPC operations
-- autonomous developer executor after the typed primitives exist
+- deterministic execution queue for serial local workflows, not a future ChatGPT-turn scheduler;
+- adapter to the separate `computer-use` repository for native macOS GUI work and browser fallback;
+- typed root-only ServiceManagement/XPC operations only for concrete root-only needs.
