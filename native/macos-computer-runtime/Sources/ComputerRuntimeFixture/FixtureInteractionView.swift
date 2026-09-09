@@ -97,14 +97,14 @@ final class FixtureInteractionView: NSView, NSTextFieldDelegate {
 
         let scrollView = NSScrollView(frame: NSRect(x: 30, y: 30, width: 710, height: 270))
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
+        scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = false
         scrollView.setAccessibilityLabel("Fixture Scroll View")
 
-        let document = NSView(frame: NSRect(x: 0, y: 0, width: 690, height: 900))
+        let document = NSView(frame: NSRect(x: 0, y: 0, width: 1_200, height: 900))
         for index in 0..<30 {
             let row = NSTextField(labelWithString: "fixture-scroll-row-\(index)")
-            row.frame = NSRect(x: 20, y: 860 - (index * 28), width: 400, height: 22)
+            row.frame = NSRect(x: 20, y: 860 - (index * 28), width: 1_100, height: 22)
             document.addSubview(row)
         }
         scrollView.documentView = document
