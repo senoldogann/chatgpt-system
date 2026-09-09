@@ -1,4 +1,6 @@
-import { ProcessNotFoundError } from "./errors.js";
+import { homedir } from "node:os";
+import { ExecutableNotFoundError, ProcessNotFoundError } from "./errors.js";
+import { resolveExecutablePath } from "./executable-resolution.js";
 import { PathPolicy } from "./policy.js";
 import { validateProcessInvocation } from "./process-policy.js";
 import type {
@@ -17,6 +19,13 @@ export class ManagedProcessService {
 
   async start(command: string, args: string[], cwdInput = "."): Promise<ManagedProcessSummary> {
     validateProcessInvocation(this.terminal, command, args);
+    // terminal_run ile aynı semantik: allowlist'te olup bulunamayan binary
+    // structured EXECUTABLE_NOT_FOUND verir, ham OS hatası sızdırmaz.
+    const resolved = await resolveExecutablePath(command, {
+      pathValue: process.env.PATH,
+      homeDir: homedir(),
+    });
+    if (resolved === null) throw new ExecutableNotFoundError(command);
     const cwd = await this.policy.resolve(cwdInput);
     return this.supervisor.start({ command, args, cwd });
   }
