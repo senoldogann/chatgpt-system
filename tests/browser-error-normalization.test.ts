@@ -10,6 +10,7 @@ import type {
   BrowserTarget,
 } from "../src/browser-types.js";
 import { BrowserService } from "../src/browser-service.js";
+import { BrowserError } from "../src/errors.js";
 
 function backendWithTabsError(error: Error): BrowserBackend {
   const unavailable = async (): Promise<never> => { throw error; };
@@ -60,5 +61,50 @@ describe("BrowserService error normalization", () => {
       message: "Browser operation failed.",
     });
     await expect(service.tabs()).rejects.not.toThrow("RAW_PLAYWRIGHT_SECRET");
+  });
+
+  it("maps raw navigation failures to a stable navigation error without leaking backend or URL details", async () => {
+    const service = new BrowserService(
+      backendWithTabsError(
+        new Error("page.goto: net::ERR_NAME_NOT_RESOLVED at https://example.com/private?token=secret#fragment"),
+      ),
+      { timeoutMs: 1_000 },
+    );
+
+    const navigation = service.navigate("page-id", "https://example.com/private?token=secret#fragment");
+
+    await expect(navigation).rejects.toMatchObject({
+      code: "BROWSER_NAVIGATION_FAILED",
+      message: "Browser navigation failed.",
+    });
+    await expect(navigation).rejects.not.toThrow("ERR_NAME_NOT_RESOLVED");
+    await expect(navigation).rejects.not.toThrow("token=secret");
+    await expect(navigation).rejects.not.toThrow("#fragment");
+  });
+
+  it("preserves BrowserError instances raised during navigation", async () => {
+    const service = new BrowserService(
+      backendWithTabsError(new BrowserError("BROWSER_PAGE_NOT_FOUND", "The browser page was not found.")),
+      { timeoutMs: 1_000 },
+    );
+
+    await expect(service.navigate("page-id", "https://example.com")).rejects.toMatchObject({
+      code: "BROWSER_PAGE_NOT_FOUND",
+      message: "The browser page was not found.",
+    });
+  });
+
+  it("keeps navigation timeout failures normalized as browser timeouts", async () => {
+    const error = new Error("page.goto: Timeout 1000ms exceeded for https://example.com/?token=secret");
+    error.name = "TimeoutError";
+    const service = new BrowserService(backendWithTabsError(error), { timeoutMs: 1_000 });
+
+    const navigation = service.navigate("page-id", "https://example.com/?token=secret");
+
+    await expect(navigation).rejects.toMatchObject({
+      code: "BROWSER_TIMEOUT",
+      message: "Browser operation timed out.",
+    });
+    await expect(navigation).rejects.not.toThrow("token=secret");
   });
 });
