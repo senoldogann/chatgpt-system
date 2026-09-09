@@ -13,7 +13,7 @@ export function parseBrowserSetupArgs(args) {
     throw new TypeError("Browser setup arguments must be an array.");
   }
   if (args.length > 0) {
-    throw new Error("Browser setup does not accept command-line arguments.");
+    throw new Error("Browser setup does not accept arguments.");
   }
   return {};
 }
