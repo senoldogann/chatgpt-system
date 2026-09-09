@@ -21,6 +21,15 @@ function takeValue(argv: string[], index: number, flag: string): string {
   return value;
 }
 
+function takePositiveInteger(argv: string[], index: number, flag: string): number {
+  const raw = takeValue(argv, index, flag);
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${flag} requires a positive integer.`);
+  }
+  return value;
+}
+
 export function parseCliCommand(argv: string[]): CliCommand {
   if (argv[0] === "authorize") {
     return { kind: "authorize", args: parseAuthorizeArgs(argv.slice(1)) };
@@ -50,6 +59,24 @@ export function parseCliCommand(argv: string[]): CliCommand {
     }
     if (arg === "--personal-admin") {
       overrides.personalAdminEnabled = true;
+      continue;
+    }
+    if (arg === "--enable-browser") {
+      overrides.browserEnabled = true;
+      continue;
+    }
+    if (arg === "--browser-headless") {
+      overrides.browserHeadless = true;
+      continue;
+    }
+    if (arg === "--browser-timeout-ms") {
+      overrides.browserTimeoutMs = takePositiveInteger(argv, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--browser-user-data-dir") {
+      overrides.browserUserDataDir = takeValue(argv, index, arg);
+      index += 1;
       continue;
     }
     if (arg === "--enable-control") {
