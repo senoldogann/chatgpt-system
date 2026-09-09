@@ -185,12 +185,24 @@ export class BrowserService {
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.operationChain.then(operation);
+    const result = this.operationChain
+      .then(operation)
+      .catch((error: unknown) => {
+        throw this.normalizeBackendError(error);
+      });
     this.operationChain = result.then(
       () => undefined,
       () => undefined,
     );
     return result;
+  }
+
+  private normalizeBackendError(error: unknown): BrowserError {
+    if (error instanceof BrowserError) return error;
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return new BrowserError("BROWSER_TIMEOUT", "Browser operation timed out.");
+    }
+    return new BrowserError("BROWSER_UNAVAILABLE", "Browser operation failed.");
   }
 
   private async assertUniqueTarget(pageId: string, target: BrowserTarget): Promise<void> {
