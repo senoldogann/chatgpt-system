@@ -55,6 +55,13 @@ public enum ScreenshotCaptureError: Error, Equatable, Sendable {
 public protocol PermissionReading: Sendable {
     func accessibilityTrusted() -> Bool
     func screenCaptureAuthorized() -> Bool
+    func eventListenAuthorized() -> Bool
+    func eventPostAuthorized() -> Bool
+}
+
+public extension PermissionReading {
+    func eventListenAuthorized() -> Bool { false }
+    func eventPostAuthorized() -> Bool { false }
 }
 
 public protocol WorkspaceReading: Sendable {

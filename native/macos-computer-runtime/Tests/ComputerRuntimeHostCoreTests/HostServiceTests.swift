@@ -64,6 +64,37 @@ final class HostServiceTests: XCTestCase {
         assertProtocolInvalid(response)
     }
 
+    func testHealthReportsPassiveInputListenAndPostReadiness() async throws {
+        let service = ComputerHostService(
+            permissions: HostFakePermissions(
+                accessibilityTrusted: true,
+                screenCaptureAuthorized: false,
+                eventListenAuthorized: false,
+                eventPostAuthorized: true
+            ),
+            workspace: HostFakeWorkspace()
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "health-input-readiness",
+            method: "health",
+            params: .object([:])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let result = try XCTUnwrap(response.result)
+        let health = try JSONDecoder().decode(
+            ComputerHealth.self,
+            from: JSONEncoder().encode(result)
+        )
+        XCTAssertEqual(health.state, "running")
+        XCTAssertTrue(health.accessibilityTrusted)
+        XCTAssertFalse(health.screenCaptureAuthorized)
+        XCTAssertFalse(health.eventListenAuthorized)
+        XCTAssertTrue(health.eventPostAuthorized)
+    }
+
     func testMalformedFrameProducesGenericUnknownRequestError() async throws {
         let server = NDJSONHostServer(service: makeHostService())
 
@@ -206,8 +237,27 @@ private func writeRequest(requestId: String, to handle: FileHandle) throws {
 }
 
 private struct HostFakePermissions: PermissionReading {
-    func accessibilityTrusted() -> Bool { false }
-    func screenCaptureAuthorized() -> Bool { false }
+    let accessibilityTrustedValue: Bool
+    let screenCaptureAuthorizedValue: Bool
+    let eventListenAuthorizedValue: Bool
+    let eventPostAuthorizedValue: Bool
+
+    init(
+        accessibilityTrusted: Bool = false,
+        screenCaptureAuthorized: Bool = false,
+        eventListenAuthorized: Bool = false,
+        eventPostAuthorized: Bool = false
+    ) {
+        self.accessibilityTrustedValue = accessibilityTrusted
+        self.screenCaptureAuthorizedValue = screenCaptureAuthorized
+        self.eventListenAuthorizedValue = eventListenAuthorized
+        self.eventPostAuthorizedValue = eventPostAuthorized
+    }
+
+    func accessibilityTrusted() -> Bool { accessibilityTrustedValue }
+    func screenCaptureAuthorized() -> Bool { screenCaptureAuthorizedValue }
+    func eventListenAuthorized() -> Bool { eventListenAuthorizedValue }
+    func eventPostAuthorized() -> Bool { eventPostAuthorizedValue }
 }
 
 private struct HostFakeWorkspace: WorkspaceReading {

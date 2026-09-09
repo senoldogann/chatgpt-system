@@ -80,7 +80,9 @@ public struct ComputerHostService: Sendable {
                 ComputerHealth(
                     state: "running",
                     accessibilityTrusted: permissions.accessibilityTrusted(),
-                    screenCaptureAuthorized: permissions.screenCaptureAuthorized()
+                    screenCaptureAuthorized: permissions.screenCaptureAuthorized(),
+                    eventListenAuthorized: permissions.eventListenAuthorized(),
+                    eventPostAuthorized: permissions.eventPostAuthorized()
                 ),
                 requestId: request.requestId
             )

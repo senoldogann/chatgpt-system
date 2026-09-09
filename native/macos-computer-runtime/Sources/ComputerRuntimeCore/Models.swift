@@ -4,11 +4,21 @@ public struct ComputerHealth: Codable, Equatable, Sendable {
     public let state: String
     public let accessibilityTrusted: Bool
     public let screenCaptureAuthorized: Bool
+    public let eventListenAuthorized: Bool
+    public let eventPostAuthorized: Bool
 
-    public init(state: String, accessibilityTrusted: Bool, screenCaptureAuthorized: Bool) {
+    public init(
+        state: String,
+        accessibilityTrusted: Bool,
+        screenCaptureAuthorized: Bool,
+        eventListenAuthorized: Bool = false,
+        eventPostAuthorized: Bool = false
+    ) {
         self.state = state
         self.accessibilityTrusted = accessibilityTrusted
         self.screenCaptureAuthorized = screenCaptureAuthorized
+        self.eventListenAuthorized = eventListenAuthorized
+        self.eventPostAuthorized = eventPostAuthorized
     }
 }
 
