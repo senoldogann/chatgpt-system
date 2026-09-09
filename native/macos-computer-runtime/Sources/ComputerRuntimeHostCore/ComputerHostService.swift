@@ -40,7 +40,11 @@ public struct ComputerHostService: Sendable {
             workspace: SystemWorkspaceReader(),
             accessibility: SystemAccessibilityReader(),
             screenshot: SystemScreenshotCapturer(),
-            actions: ComputerActionService(controller: controller)
+            actions: ComputerActionService(
+                controller: controller,
+                applicationController: SystemWorkspaceController(),
+                appSleeper: SystemInputSleeper()
+            )
         )
     }
 

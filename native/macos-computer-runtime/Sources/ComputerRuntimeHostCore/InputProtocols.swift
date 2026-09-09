@@ -25,6 +25,14 @@ protocol InputSleeping: Sendable {
     func sleep(nanoseconds: UInt64) async throws
 }
 
+protocol ApplicationControlling: Sendable {
+    func runningApplications() -> [WorkspaceApplication]
+    func frontmostApplication() -> WorkspaceApplication?
+    func applicationURL(bundleIdentifier: String) -> URL?
+    func openApplication(at url: URL) async throws -> WorkspaceApplication
+    func activate(_ application: WorkspaceApplication) -> Bool
+}
+
 enum ComputerInputError: Error, Equatable, Sendable {
     case targetOutOfBounds
     case unavailable
