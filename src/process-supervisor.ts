@@ -1,8 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
+import { homedir } from "node:os";
 import type { AuditLogger } from "./audit.js";
 import type { LimitsConfig } from "./config.js";
 import { LimitError } from "./errors.js";
+import { resolveExecutablePath } from "./executable-resolution.js";
 import { sanitizedChildEnvironment } from "./process-policy.js";
 
 export type ManagedProcessState = "running" | "exited" | "stopped";
@@ -160,8 +162,13 @@ export class ProcessSupervisor {
     const stderr = new TailBuffer(this.options.limits.maxProcessLogBytesPerStream);
     let child: ChildProcess;
 
+    // Kayıt ve eşleşme basename ile kalır; yalnızca spawn çözümlenmiş yolu kullanır.
+    const executablePath = (await resolveExecutablePath(input.command, {
+      pathValue: process.env.PATH,
+      homeDir: homedir(),
+    })) ?? input.command;
     try {
-      child = this.spawnProcess(input.command, input.args, {
+      child = this.spawnProcess(executablePath, input.args, {
         cwd: input.cwd,
         shell: false,
         env: sanitizedChildEnvironment(),

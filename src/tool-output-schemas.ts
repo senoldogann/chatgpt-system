@@ -76,6 +76,25 @@ export const authorityEndOutputSchema = z.object({
   ended: z.literal(true),
 });
 
+export const executableResolutionOutputSchema = z.object({
+  name: z.string(),
+  allowed: z.boolean(),
+  available: z.boolean(),
+  resolvedPath: z.string().nullable(),
+});
+
+export const systemEnvironmentOutputSchema = z.object({
+  os: z.string(),
+  platform: z.string(),
+  arch: z.string(),
+  pathEntries: z.array(z.string()),
+  roots: z.array(z.string()),
+  terminal: z.object({
+    enabled: z.boolean(),
+  }),
+  executables: z.array(executableResolutionOutputSchema),
+});
+
 export const fsListOutputSchema = z.object({
   path: z.string(),
   entries: z.array(z.object({

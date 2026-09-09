@@ -35,6 +35,26 @@ export class LimitError extends AppError {
   }
 }
 
+export class ExecutableNotFoundError extends AppError {
+  constructor(command: string, details?: Record<string, unknown>) {
+    super(
+      `Executable "${command}" is allowlisted but was not found on the runtime executable search path.`,
+      "EXECUTABLE_NOT_FOUND",
+      { command, allowed: true, available: false, ...details },
+    );
+  }
+}
+
+export class CommandTimeoutError extends AppError {
+  constructor(timedOutAfterMs: number, details?: Record<string, unknown>) {
+    super(
+      `Command timed out after ${timedOutAfterMs}ms. Use process_start with process_status/process_logs polling for long-running commands.`,
+      "COMMAND_TIMEOUT",
+      { timedOutAfterMs, recommendedTool: "process_start", retryable: true, ...details },
+    );
+  }
+}
+
 export class ProcessNotFoundError extends AppError {
   constructor(message = "The managed process was not found.") {
     super(message, "PROCESS_NOT_FOUND");

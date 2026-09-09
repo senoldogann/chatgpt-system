@@ -327,6 +327,7 @@ True root-only operations remain a future typed ServiceManagement/XPC boundary, 
 
 ```text
 system_capabilities
+system_environment
 session_authority_start
 session_authority_status
 session_authority_end
