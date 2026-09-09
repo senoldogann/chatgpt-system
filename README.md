@@ -22,7 +22,7 @@ Secure local MCP authority gateway for controlled filesystem, Git, process, and 
 | **Filesystem + Git** | Confined file operations plus typed Git read/write primitives |
 | **Admin execution** | Allowlisted `shell=false` commands and managed development processes |
 | **Browser Runtime** | Admin-only semantic Playwright automation, screenshots, and bounded browser diagnostics |
-| **Computer Runtime v2 foundation** | Standalone Swift/macOS 14+ helper for passive readiness, bounded app/window + AX observation, and ScreenCaptureKit screenshots over inherited NDJSON stdio |
+| **Computer Runtime v2 native Slice 2** | Standalone Swift/macOS 14+ helper for bounded perception, serialized physical input, takeover safety, and deterministic verification over inherited NDJSON stdio |
 | **macOS trust** | LocalAuthentication for broad authority and Keychain-backed daily-driver credentials |
 | **Daily driver** | LaunchAgent startup, automatic tunnel reconnect, bounded logs, and no routine Terminal ceremony |
 
@@ -73,13 +73,15 @@ The shared runtime currently includes:
 - browser credential-entry refusal and editable ARIA value redaction;
 - standalone Swift 6/macOS 14+ Computer Runtime v2 helper with strict bounded NDJSON over inherited stdin/stdout;
 - passive Accessibility/Screen Recording readiness, bounded app/window + AX observation, and an 8 MiB ScreenCaptureKit screenshot path;
-- deterministic background `.app` staging with fixed bundle ID `com.senoldogann.chatgpt-system.computer-runtime`;
-- no physical mouse/keyboard input and no `computer_*`, `computer_run`, or `computer_run_js` MCP registration yet;
+- deterministic app open/focus, pointer movement, click/double-click, mouse down/up, drag, scroll, Unicode typing, named keys/chords, and `release_inputs` on one serialized physical-action lane;
+- one runtime-owned CoreGraphics event tag, listen-only takeover monitoring, fixed Control+Option+Command+Escape emergency stop, and deterministic AX/text/screen-region verification primitives;
+- deterministic background helper staging with fixed bundle ID `com.senoldogann.chatgpt-system.computer-runtime` plus a local-only synthetic acceptance fixture with bundle ID `com.senoldogann.chatgpt-system.computer-runtime.fixture`;
+- no `computer_*`, `computer_run`, or `computer_run_js` MCP registration, no TypeScript Computer Runtime supervisor, and no OCR/recovery ladder yet;
 - JSONL audit trail with redacted authority/process/browser metadata;
 - localhost Host/Origin validation for HTTP mode;
 - Node 22 / Node 24 CI plus native macOS build/install verification.
 
-Computer Runtime v2 Slice 1 now provides the standalone native perception foundation. It is intentionally not wired into MCP yet. Physical mouse/keyboard input, verification/recovery, `computer_*` registration, `computer_run`, and `computer_run_js` remain later slices rather than being smuggled into the Browser Runtime.
+Computer Runtime v2 Slice 2 now provides the standalone native physical-input and deterministic-verification layer. It is intentionally not wired into MCP yet. The TypeScript supervisor, explicit `computer_*` registration, `computer_run`, `computer_run_js`, and OCR/recovery remain later slices rather than being smuggled into the Browser Runtime.
 
 ## Requirements
 
@@ -168,9 +170,9 @@ Navigation accepts only `http:` and `https:` URLs. Credential-shaped fields such
 
 Browser actions are serialized through one runtime-owned operation chain so concurrent sessions cannot race tab/focus mutations inside the owned context.
 
-## Computer Runtime v2 native foundation
+## Computer Runtime v2 native Slice 2
 
-Slice 1 builds a standalone Swift helper under `native/macos-computer-runtime`. This helper requires macOS 14+ and communicates only over inherited stdin/stdout using strict bounded NDJSON. Its native protocol currently supports passive `health`, bounded `list_apps`, AX-first `active_window` / `observe`, and bounded ScreenCaptureKit `screenshot`.
+Slice 2 builds a standalone Swift helper under `native/macos-computer-runtime`. This helper requires macOS 14+ and communicates only over inherited stdin/stdout using strict bounded NDJSON. The native protocol includes passive `health`, bounded `list_apps`, AX-first `active_window` / `observe`, bounded ScreenCaptureKit `screenshot`, app open/focus, pointer/mouse/scroll actions, keyboard text/key/chords, `release_inputs`, `wait_for_frontmost`, `wait_for_text`, `wait_until_changed`, and optional post-action verification.
 
 Build, test, and stage the fixed background app bundle with:
 
@@ -178,17 +180,22 @@ Build, test, and stage the fixed background app bundle with:
 npm run test:computer:macos
 npm run build:computer:macos
 npm run package:computer:macos
+npm run build:computer-fixture:macos
+npm run package:computer-fixture:macos
 ```
 
 The default staged bundle is:
 
 ```text
 native/macos-computer-runtime/.build/staged/ChatGPTSystemComputerRuntime.app
+native/macos-computer-runtime/.build/staged/ChatGPTSystemComputerRuntimeFixture.app
 ```
 
-Its bundle identifier is fixed to `com.senoldogann.chatgpt-system.computer-runtime`. `health` uses passive TCC preflight checks only and does not request Accessibility or Screen Recording permission. Screenshot capture stays in memory and enforces an 8 MiB PNG limit before base64 encoding.
+The helper bundle identifier is fixed to `com.senoldogann.chatgpt-system.computer-runtime`; the synthetic local acceptance fixture is fixed to `com.senoldogann.chatgpt-system.computer-runtime.fixture`. `health` uses passive TCC preflight checks only. Physical posting/listening also uses passive preflight checks; the protocol does not request or bypass TCC. Screenshot capture and screen-region verification stay in memory.
 
-Slice 1 has **no physical mouse/keyboard input**, no native listener, no `computer_*` MCP tools, and no `computer_run` / `computer_run_js`. The existing Browser Runtime remains the only GUI/web automation surface exposed through MCP in this release.
+Physical mutations are serialized and tagged with one runtime-owned CoreGraphics tag. A listen-only monitor ignores owned events, interrupts active automation on conservative unowned user input, and recognizes the fixed Control+Option+Command+Escape emergency chord. Verification uses bounded safe AX title/description state or in-memory screen-region digests; it does not read editable AX values or use OCR.
+
+Slice 2 still registers **no `computer_*` MCP tools**. There is no TypeScript Computer Runtime supervisor, `computer_run`, `computer_run_js`, OCR, or recovery engine yet. The existing Browser Runtime remains the only GUI/web automation surface exposed through MCP in this release.
 
 ## Personal ChatGPT Plugin
 
@@ -425,7 +432,7 @@ browser_close
 
 `browser_health` needs no lease; every other browser tool is Admin-only.
 
-Computer Runtime v2 Slice 1 registers **no** `computer_*` MCP tools. Its `health`, `list_apps`, `active_window`, `observe`, and `screenshot` methods exist only on the standalone native NDJSON helper in this slice. There is no `computer_run` or `computer_run_js` surface yet.
+Computer Runtime v2 Slice 2 registers **no** `computer_*` MCP tools. Its perception, app-focus, physical-input, release, takeover/emergency, and verification methods exist only on the standalone native NDJSON helper. There is no TypeScript supervisor, `computer_run`, or `computer_run_js` surface yet.
 
 Every MCP tool declares explicit safety annotations and output schemas. Successful calls return readable text plus validated structured content.
 
@@ -513,7 +520,7 @@ CI verifies:
 - Node.js 22 build/tests;
 - Node.js 24 build/tests;
 - native macOS authority helper build/install contract;
-- macOS Computer Runtime v2 Swift tests, fixed `.app` packaging, and passive native protocol-health smoke;
+- macOS Computer Runtime v2 Swift tests, deterministic fake-sink physical-input/verification tests, fixed helper + fixture `.app` packaging, and passive native protocol-health smoke;
 - setup CLI smoke contracts without downloading a browser binary.
 
 Browser unit tests use injected/fake backends and do not require graphical Chromium in CI. Real browser acceptance is performed separately on the target Mac after merge.
@@ -528,13 +535,13 @@ Browser unit tests use injected/fake backends and do not require graphical Chrom
 
 ## Roadmap boundary
 
-Browser Runtime is implemented as the structured web layer. Computer Runtime v2 now has a standalone native host foundation, but it is not wired into MCP in Slice 1.
+Browser Runtime is implemented as the structured web layer. Computer Runtime v2 now has a standalone native Slice 2 physical-input and verification layer, but it is not wired into MCP.
 
 Next separate work:
 
-1. Computer Runtime v2 physical input + deterministic verification/recovery;
-2. the TypeScript host lifecycle/policy layer and explicit `computer_*` MCP registration;
-3. later multi-action/full-Node execution surfaces only after their dedicated gates and containment are implemented;
+1. the TypeScript host lifecycle/policy layer and explicit `computer_*` MCP registration;
+2. later multi-action/full-Node execution surfaces only after their dedicated gates and containment are implemented;
+3. OCR/recovery only behind a separate reviewed capability boundary;
 4. typed root-only ServiceManagement/XPC operations only when a concrete need justifies them.
 
-Those remain separate capability boundaries, not reasons to widen Browser Runtime or pretend Slice 1 already controls the Mac.
+Those remain separate capability boundaries, not reasons to widen Browser Runtime or pretend the standalone native Slice 2 helper is already a ChatGPT MCP control surface.
