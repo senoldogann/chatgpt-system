@@ -21,6 +21,15 @@ final class PointerTrajectoryTests: XCTestCase {
         XCTAssertEqual(lastOffsetMs(distance: 1_000, mode: .fast), 210)
     }
 
+    func testZeroDistanceFastMovementIsImmediate() throws {
+        let point = ComputerPoint(x: 25, y: 40)
+
+        let samples = try PointerTrajectory.samples(from: point, to: point, mode: .fast)
+
+        XCTAssertEqual(samples.map(\.point), [point, point])
+        XCTAssertEqual(samples.map(\.offsetNanoseconds), [0, 0])
+    }
+
     func testTrajectoryDurationIsClampedTo350Milliseconds() throws {
         let samples = try PointerTrajectory.samples(
             from: ComputerPoint(x: 0, y: 0),

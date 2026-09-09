@@ -16,7 +16,7 @@ enum PointerTrajectory {
             throw ComputerInputError.unavailable
         }
 
-        if mode == .instant {
+        if mode == .instant || start == target {
             return [
                 PointerTrajectorySample(point: start, offsetNanoseconds: 0),
                 PointerTrajectorySample(point: target, offsetNanoseconds: 0),
