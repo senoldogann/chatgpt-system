@@ -6,8 +6,30 @@ private enum ApplicationResolutionError: Error {
     case ambiguous
 }
 
+private struct ApplicationInputFocusGuard: InputFocusGuard {
+    let applicationController: any ApplicationControlling
+    let target: WorkspaceApplication
+    let selector: ComputerApplicationSelector
+
+    func verifyExpectedFrontmost() async throws {
+        guard let frontmost = applicationController.frontmostApplication() else {
+            throw ComputerInputError.focusMismatch
+        }
+        if let bundleIdentifier = selector.bundleIdentifier {
+            guard frontmost.bundleIdentifier == bundleIdentifier else {
+                throw ComputerInputError.focusMismatch
+            }
+        } else {
+            guard frontmost.processIdentifier == target.processIdentifier else {
+                throw ComputerInputError.focusMismatch
+            }
+        }
+    }
+}
+
 struct ComputerActionService: ComputerActionHandling, Sendable {
     private static let maxSelectorCharacters = 4_096
+    private static let maxTypedCharacters = 16_384
     private static let defaultFocusTimeoutMs = 1_500
     private static let focusPollIntervalMs = 20
 
@@ -116,6 +138,43 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 return actionFailed(requestId: request.requestId)
             }
 
+        case "type_text":
+            guard let parsed = parseTypeTextParams(request.params) else {
+                return protocolInvalid(requestId: request.requestId)
+            }
+            return await handleKeyboardAction(
+                selector: parsed.selector,
+                requestId: request.requestId
+            ) { focusGuard in
+                try await controller.typeText(parsed.text, focusGuard: focusGuard)
+            }
+
+        case "press_key":
+            guard let parsed = parsePressKeyParams(request.params) else {
+                return protocolInvalid(requestId: request.requestId)
+            }
+            return await handleKeyboardAction(
+                selector: parsed.selector,
+                requestId: request.requestId
+            ) { focusGuard in
+                try await controller.pressKey(
+                    named: parsed.key,
+                    modifiers: parsed.modifiers,
+                    focusGuard: focusGuard
+                )
+            }
+
+        case "release_inputs":
+            guard case let .object(params) = request.params, params.isEmpty else {
+                return protocolInvalid(requestId: request.requestId)
+            }
+            do {
+                try await controller.releaseAllInputs()
+                return encodeResult(ComputerActionResult(state: "completed"), requestId: request.requestId)
+            } catch {
+                return actionFailed(requestId: request.requestId)
+            }
+
         case "focus_app", "open_app":
             guard let parsed = parseApplicationParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
@@ -129,6 +188,39 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
 
         default:
             return nil
+        }
+    }
+
+    func shutdown() async {
+        try? await controller.releaseAllInputs()
+    }
+
+    private func handleKeyboardAction(
+        selector: ComputerApplicationSelector,
+        requestId: String,
+        action: (any InputFocusGuard) async throws -> ComputerActionResult
+    ) async -> ComputerProtocolResponse {
+        guard let applicationController else {
+            return actionFailed(requestId: requestId)
+        }
+        do {
+            let target = try resolveRunning(selector, using: applicationController)
+            let focusGuard = ApplicationInputFocusGuard(
+                applicationController: applicationController,
+                target: target,
+                selector: selector
+            )
+            return encodeResult(try await action(focusGuard), requestId: requestId)
+        } catch ApplicationResolutionError.notFound {
+            return targetNotFound(requestId: requestId)
+        } catch ApplicationResolutionError.ambiguous {
+            return targetAmbiguous(requestId: requestId)
+        } catch ComputerInputError.focusMismatch {
+            return focusFailed(requestId: requestId)
+        } catch is CancellationError {
+            return cancelled(requestId: requestId)
+        } catch {
+            return actionFailed(requestId: requestId)
         }
     }
 
@@ -369,6 +461,68 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             return nil
         }
         return Int32(raw)
+    }
+
+    private func parseTypeTextParams(
+        _ params: JSONValue
+    ) -> (text: String, selector: ComputerApplicationSelector)? {
+        guard case let .object(object) = params,
+              object.keys.allSatisfy({ ["text", "bundleIdentifier", "name"].contains($0) }),
+              case let .string(text)? = object["text"],
+              text.count <= Self.maxTypedCharacters,
+              let selector = parseRequiredSelector(object)
+        else {
+            return nil
+        }
+        return (text, selector)
+    }
+
+    private func parsePressKeyParams(
+        _ params: JSONValue
+    ) -> (key: String, modifiers: Set<ComputerKeyModifier>, selector: ComputerApplicationSelector)? {
+        guard case let .object(object) = params,
+              object.keys.allSatisfy({ ["key", "modifiers", "bundleIdentifier", "name"].contains($0) }),
+              case let .string(key)? = object["key"],
+              KeyMapping.keyCode(for: key) != nil,
+              let selector = parseRequiredSelector(object)
+        else {
+            return nil
+        }
+
+        var modifiers: Set<ComputerKeyModifier> = []
+        if let rawModifiers = object["modifiers"] {
+            guard case let .array(values) = rawModifiers else { return nil }
+            for value in values {
+                guard case let .string(raw) = value,
+                      let modifier = ComputerKeyModifier(rawValue: raw),
+                      modifiers.insert(modifier).inserted
+                else {
+                    return nil
+                }
+            }
+        }
+        return (key, modifiers, selector)
+    }
+
+    private func parseRequiredSelector(_ object: [String: JSONValue]) -> ComputerApplicationSelector? {
+        let bundleIdentifier: String?
+        if let raw = object["bundleIdentifier"] {
+            guard case let .string(value) = raw, isValidSelectorString(value) else { return nil }
+            bundleIdentifier = value
+        } else {
+            bundleIdentifier = nil
+        }
+
+        let name: String?
+        if let raw = object["name"] {
+            guard case let .string(value) = raw, isValidSelectorString(value) else { return nil }
+            name = value
+        } else {
+            name = nil
+        }
+
+        guard bundleIdentifier != nil || name != nil else { return nil }
+        return ComputerApplicationSelector(bundleIdentifier: bundleIdentifier, name: name)
     }
 
     private func parseApplicationParams(

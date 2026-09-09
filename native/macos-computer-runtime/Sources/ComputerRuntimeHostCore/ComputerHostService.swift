@@ -102,6 +102,10 @@ public struct ComputerHostService: Sendable {
         }
     }
 
+    public func shutdown() async {
+        await actions?.shutdown()
+    }
+
     private func handleActiveWindow(requestId: String) -> ComputerProtocolResponse {
         guard permissions.accessibilityTrusted() else {
             return accessibilityPermissionRequired(requestId: requestId)

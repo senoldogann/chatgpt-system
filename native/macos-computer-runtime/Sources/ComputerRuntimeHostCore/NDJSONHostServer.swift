@@ -19,11 +19,24 @@ public struct NDJSONHostServer: Sendable {
     }
 
     public func run() async throws {
+        try await run(input: .standardInput, output: .standardOutput)
+    }
+
+    func run(input: FileHandle, output: FileHandle) async throws {
+        do {
+            try await runLoop(input: input, output: output)
+            await service.shutdown()
+        } catch {
+            await service.shutdown()
+            throw error
+        }
+    }
+
+    private func runLoop(input: FileHandle, output: FileHandle) async throws {
         var framer = NDJSONFramer(maxLineBytes: Self.maxRequestLineBytes)
-        let output = FileHandle.standardOutput
 
         while true {
-            let chunk = try Self.readStdinChunk()
+            let chunk = try Self.readChunk(from: input)
             if chunk.isEmpty {
                 try framer.finish()
                 return
@@ -38,12 +51,12 @@ public struct NDJSONHostServer: Sendable {
         }
     }
 
-    private static func readStdinChunk() throws -> Data {
+    private static func readChunk(from input: FileHandle) throws -> Data {
         var buffer = [UInt8](repeating: 0, count: Self.readChunkBytes)
 
         while true {
             let count = buffer.withUnsafeMutableBytes { bytes -> Int in
-                Darwin.read(STDIN_FILENO, bytes.baseAddress, bytes.count)
+                Darwin.read(input.fileDescriptor, bytes.baseAddress, bytes.count)
             }
 
             if count > 0 {

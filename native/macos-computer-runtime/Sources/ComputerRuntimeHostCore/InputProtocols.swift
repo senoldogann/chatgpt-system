@@ -25,6 +25,10 @@ protocol InputSleeping: Sendable {
     func sleep(nanoseconds: UInt64) async throws
 }
 
+protocol InputFocusGuard: Sendable {
+    func verifyExpectedFrontmost() async throws
+}
+
 protocol ApplicationControlling: Sendable {
     func runningApplications() -> [WorkspaceApplication]
     func frontmostApplication() -> WorkspaceApplication?
@@ -36,6 +40,7 @@ protocol ApplicationControlling: Sendable {
 enum ComputerInputError: Error, Equatable, Sendable {
     case targetOutOfBounds
     case invalidInput
+    case focusMismatch
     case unavailable
 }
 
@@ -60,6 +65,22 @@ actor HeldInputStore {
 
     func removeMouseButton(_ button: ComputerMouseButton) {
         state.mouseButtons.remove(button)
+    }
+
+    func insertModifier(_ modifier: ComputerKeyModifier) {
+        state.modifiers.insert(modifier)
+    }
+
+    func removeModifier(_ modifier: ComputerKeyModifier) {
+        state.modifiers.remove(modifier)
+    }
+
+    func insertKeyCode(_ keyCode: UInt16) {
+        state.keyCodes.insert(keyCode)
+    }
+
+    func removeKeyCode(_ keyCode: UInt16) {
+        state.keyCodes.remove(keyCode)
     }
 }
 

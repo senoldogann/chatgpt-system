@@ -73,4 +73,9 @@ public protocol ScreenshotCapturing: Sendable {
 
 public protocol ComputerActionHandling: Sendable {
     func handleAction(_ request: ComputerProtocolRequest) async -> ComputerProtocolResponse?
+    func shutdown() async
+}
+
+public extension ComputerActionHandling {
+    func shutdown() async {}
 }

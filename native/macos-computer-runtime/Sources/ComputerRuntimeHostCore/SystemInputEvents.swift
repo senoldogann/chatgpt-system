@@ -14,20 +14,15 @@ struct SystemInputEventSink: InputEventSink {
             throw ComputerInputError.unavailable
         }
 
-        let cgEvent: CGEvent
         switch event {
         case let .mouseMove(point, dragButton):
             let type: CGEventType
             let button = cgMouseButton(dragButton ?? .left)
             switch dragButton {
-            case .left:
-                type = .leftMouseDragged
-            case .right:
-                type = .rightMouseDragged
-            case .middle:
-                type = .otherMouseDragged
-            case nil:
-                type = .mouseMoved
+            case .left: type = .leftMouseDragged
+            case .right: type = .rightMouseDragged
+            case .middle: type = .otherMouseDragged
+            case nil: type = .mouseMoved
             }
             guard let created = CGEvent(
                 mouseEventSource: source,
@@ -37,7 +32,7 @@ struct SystemInputEventSink: InputEventSink {
             ) else {
                 throw ComputerInputError.unavailable
             }
-            cgEvent = created
+            postTagged(created)
 
         case let .mouseButton(button, down, point, clickCount):
             guard (1...2).contains(clickCount),
@@ -51,7 +46,7 @@ struct SystemInputEventSink: InputEventSink {
                 throw ComputerInputError.unavailable
             }
             created.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
-            cgEvent = created
+            postTagged(created)
 
         case let .scroll(vertical, horizontal):
             guard let created = CGEvent(
@@ -64,14 +59,49 @@ struct SystemInputEventSink: InputEventSink {
             ) else {
                 throw ComputerInputError.unavailable
             }
-            cgEvent = created
+            postTagged(created)
 
-        case .key, .unicode:
-            throw ComputerInputError.unavailable
+        case let .key(keyCode, down, modifiers):
+            guard let created = CGEvent(
+                keyboardEventSource: source,
+                virtualKey: CGKeyCode(keyCode),
+                keyDown: down
+            ) else {
+                throw ComputerInputError.unavailable
+            }
+            created.flags = eventFlags(for: modifiers)
+            postTagged(created)
+
+        case let .unicode(value):
+            let utf16 = Array(value.utf16)
+            guard !utf16.isEmpty, utf16.count <= 20,
+                  let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
+                  let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+            else {
+                throw ComputerInputError.unavailable
+            }
+            utf16.withUnsafeBufferPointer { buffer in
+                guard let baseAddress = buffer.baseAddress else { return }
+                down.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: baseAddress)
+                up.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: baseAddress)
+            }
+            postTagged(down)
+            postTagged(up)
         }
+    }
 
-        cgEvent.setIntegerValueField(.eventSourceUserData, value: RuntimeOwnedEventTag.value)
-        cgEvent.post(tap: .cghidEventTap)
+    private func postTagged(_ event: CGEvent) {
+        event.setIntegerValueField(.eventSourceUserData, value: RuntimeOwnedEventTag.value)
+        event.post(tap: .cghidEventTap)
+    }
+
+    private func eventFlags(for modifiers: Set<ComputerKeyModifier>) -> CGEventFlags {
+        var flags: CGEventFlags = []
+        if modifiers.contains(.control) { flags.insert(.maskControl) }
+        if modifiers.contains(.option) { flags.insert(.maskAlternate) }
+        if modifiers.contains(.shift) { flags.insert(.maskShift) }
+        if modifiers.contains(.command) { flags.insert(.maskCommand) }
+        return flags
     }
 
     private func cgMouseButton(_ button: ComputerMouseButton) -> CGMouseButton {
