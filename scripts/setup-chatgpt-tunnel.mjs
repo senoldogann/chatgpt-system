@@ -22,6 +22,8 @@ Options:
   --enable-terminal       Opt in to bootstrap terminal configuration. Disabled by default.
   --personal-admin        Allow ChatGPT to mint short-lived Admin leases directly. Disabled by default.
   --allow-command <name>  Allowlisted executable basename. Repeatable.
+  --enable-browser        Opt in to the Admin-only Playwright browser capability. Disabled by default.
+  --browser-headless      Run the opted-in browser headlessly; requires --enable-browser.
   --force                 Replace an existing tunnel-client profile. Never implied.
   --doctor                Create the profile, then run tunnel-client doctor.
   --run                   Create the profile, run doctor, then run the tunnel.
@@ -35,6 +37,11 @@ outside ChatGPT with:
 
 With --personal-admin, ChatGPT may mint short-lived Admin leases directly.
 User authority remains locally approved.
+
+Browser automation is disabled unless --enable-browser is supplied. Browser tools
+remain Admin-only even when the runtime browser gate is enabled. Install the pinned
+Playwright Chromium binary separately with:
+  npm run setup:browser
 
 User/Admin session authority on macOS requires the protected native broker.
 Build and install it separately:
@@ -58,6 +65,8 @@ function parseArgs(argv) {
     profile: "chatgpt-system",
     terminal: false,
     personalAdmin: false,
+    browser: false,
+    browserHeadless: false,
     commands: [],
     force: false,
     doctor: false,
@@ -77,6 +86,14 @@ function parseArgs(argv) {
     }
     if (arg === "--personal-admin") {
       options.personalAdmin = true;
+      continue;
+    }
+    if (arg === "--enable-browser") {
+      options.browser = true;
+      continue;
+    }
+    if (arg === "--browser-headless") {
+      options.browserHeadless = true;
       continue;
     }
     if (arg === "--force") {
@@ -164,6 +181,9 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   if (options.commands.length > 0 && !options.terminal) {
     throw new Error("--allow-command requires --enable-terminal.");
   }
+  if (options.browserHeadless && !options.browser) {
+    throw new Error("--browser-headless requires --enable-browser.");
+  }
   for (const command of options.commands) {
     if (command !== path.basename(command)) throw new Error("--allow-command values must be executable basenames, not paths.");
     if (!/^[A-Za-z0-9._+-]+$/.test(command)) throw new Error(`Invalid command basename: ${command}`);
@@ -188,6 +208,8 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   ];
   if (options.terminal) commandParts.push("--enable-terminal");
   if (options.personalAdmin) commandParts.push("--personal-admin");
+  if (options.browser) commandParts.push("--enable-browser");
+  if (options.browserHeadless) commandParts.push("--browser-headless");
   for (const command of options.commands) commandParts.push("--allow-command", command);
   const mcpCommand = commandParts.map(quoteCommandArg).join(" ");
 
@@ -289,6 +311,7 @@ async function main() {
   console.log(`  Run: ${printableCommand("tunnel-client", setup.runArgs)}`);
   console.log("  Bootstrap terminal: " + (setup.mcpCommand.includes("--enable-terminal") ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Personal Admin: " + (setup.mcpCommand.includes("--personal-admin") ? "EXPLICITLY ENABLED" : "disabled"));
+  console.log("  Browser: " + (setup.mcpCommand.includes("--enable-browser") ? (setup.mcpCommand.includes("--browser-headless") ? "EXPLICITLY ENABLED (headless)" : "EXPLICITLY ENABLED (headed)") : "disabled"));
   console.log("  Local User/Admin authorization: enabled through private Unix socket");
 
   if (!setup.executeDoctor && !setup.executeRun) {
