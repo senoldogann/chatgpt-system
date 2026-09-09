@@ -153,13 +153,13 @@ class FakeBrowserBackend implements BrowserBackend {
   async close(): Promise<void> {}
 }
 
-function service(fake = new FakeBrowserBackend(), timeoutMs = 10_000): { fake: FakeBrowserBackend; service: BrowserService } {
+function makeService(fake = new FakeBrowserBackend(), timeoutMs = 10_000): { fake: FakeBrowserBackend; service: BrowserService } {
   return { fake, service: new BrowserService(fake, { timeoutMs, maxDiagnosticEntries: 2 }) };
 }
 
 describe("BrowserService policy", () => {
   it("allows only http and https caller navigation before the backend sees a URL", async () => {
-    const { fake, service } = service();
+    const { fake, service } = makeService();
 
     await service.navigate(PAGE_ID, "https://example.com/path?q=1#x");
     await expect(service.navigate(PAGE_ID, "file:///tmp/private")).rejects.toMatchObject({
@@ -173,7 +173,7 @@ describe("BrowserService policy", () => {
   });
 
   it("requires semantic targets to resolve to exactly one element", async () => {
-    const { fake, service } = service();
+    const { fake, service } = makeService();
 
     fake.targetCountValue = 0;
     await expect(service.click(PAGE_ID, { by: "text", text: "Save" })).rejects.toMatchObject({
@@ -187,7 +187,7 @@ describe("BrowserService policy", () => {
   });
 
   it("refuses password fields before any fill reaches the backend", async () => {
-    const { fake, service } = service();
+    const { fake, service } = makeService();
     fake.targetMetadataValue = {
       tagName: "INPUT",
       type: "password",
@@ -211,7 +211,7 @@ describe("BrowserService policy", () => {
     "cc-exp-month",
     "cc-exp-year",
   ])("refuses sensitive autocomplete token %s", async (autocomplete) => {
-    const { fake, service } = service();
+    const { fake, service } = makeService();
     fake.targetMetadataValue = {
       tagName: "INPUT",
       type: "text",
@@ -228,7 +228,7 @@ describe("BrowserService policy", () => {
   it.each(["Password", "Enter OTP", "Verification code", "Security code", "CVV", "CVC", "Card number"])(
     "refuses credential-shaped field metadata %s",
     async (label) => {
-      const { fake, service } = service();
+      const { fake, service } = makeService();
       fake.targetMetadataValue = {
         tagName: "INPUT",
         type: "text",
@@ -244,7 +244,7 @@ describe("BrowserService policy", () => {
   );
 
   it("redacts current values from editable ARIA roles before returning a snapshot", async () => {
-    const { service } = service();
+    const { service } = makeService();
 
     expect((await service.snapshot(PAGE_ID)).snapshot).toBe(
       '- textbox "Email"\n- searchbox "Search"\n- combobox "Country"\n- button "Save"',
@@ -252,7 +252,7 @@ describe("BrowserService policy", () => {
   });
 
   it("refuses key input when the focused element is credential-shaped", async () => {
-    const { fake, service } = service();
+    const { fake, service } = makeService();
     fake.focusedMetadataValue = {
       tagName: "INPUT",
       type: "password",
@@ -272,14 +272,14 @@ describe("BrowserService policy", () => {
     fake.waitForText = async (_pageId: string, _text: string, timeoutMs: number) => {
       observedTimeout = timeoutMs;
     };
-    const { service } = service(fake, 2_500);
+    const { service } = makeService(fake, 2_500);
 
     await service.waitForText(PAGE_ID, "Loaded", 99_999);
     expect(observedTimeout).toBe(2_500);
   });
 
   it("strips query strings and fragments from returned network diagnostic URLs", async () => {
-    const { service } = service();
+    const { service } = makeService();
 
     expect(await service.networkErrors(PAGE_ID)).toEqual({
       pageId: PAGE_ID,
@@ -299,7 +299,7 @@ describe("BrowserService policy", () => {
       ],
       truncated: false,
     };
-    const { service } = service(fake);
+    const { service } = makeService(fake);
 
     expect(await service.consoleErrors(PAGE_ID)).toEqual({
       pageId: PAGE_ID,
@@ -314,7 +314,7 @@ describe("BrowserService policy", () => {
   it("serializes browser operations so concurrent sessions cannot interleave state mutations", async () => {
     const fake = new FakeBrowserBackend();
     fake.block("tabs");
-    const { service } = service(fake);
+    const { service } = makeService(fake);
 
     const first = service.tabs();
     const second = service.newTab();
