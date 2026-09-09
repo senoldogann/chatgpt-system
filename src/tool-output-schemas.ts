@@ -176,7 +176,7 @@ export const processLogsOutputSchema = z.object({
 });
 
 const browserPageIdSchema = z.string().min(40).max(128);
-const browserTabOutputSchema = z.object({
+const browserTabSchema = z.object({
   pageId: browserPageIdSchema,
   title: z.string(),
   url: z.string(),
@@ -190,10 +190,10 @@ export const browserHealthOutputSchema = z.object({
 });
 
 export const browserTabsOutputSchema = z.object({
-  tabs: z.array(browserTabOutputSchema),
+  tabs: z.array(browserTabSchema),
 });
 
-export const browserTabOutputSchema = browserTabOutputSchema;
+export const browserTabOutputSchema = browserTabSchema;
 
 export const browserCloseTabOutputSchema = z.object({
   closed: z.literal(true),
