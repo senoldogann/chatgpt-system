@@ -4,9 +4,9 @@
 
 **Goal:** Build a standalone native macOS helper that exposes strict bounded NDJSON over parent-owned stdio and can report readiness, discover running/frontmost apps, produce bounded AX-first observations, and capture bounded PNG screenshots, without physical input or MCP integration yet.
 
-**Architecture:** Add a separate SwiftPM package under `native/macos-computer-runtime`. `ComputerRuntimeCore` owns protocol/value types and bounded framing; `ComputerRuntimeHostCore` owns permission/app/AX/screenshot services behind testable protocols; the `chatgpt-system-computer-runtime` executable owns stdin/stdout request dispatch only. A packaging script stages the release executable inside a background `.app` bundle with a stable bundle identifier so later slices can install and permission it predictably.
+**Architecture:** Add a separate SwiftPM package under `native/macos-computer-runtime`. `ComputerRuntimeCore` owns protocol/value types and bounded framing; `ComputerRuntimeHostCore` owns permission/app/AX/screenshot services behind testable protocols; the `chatgpt-system-computer-runtime` executable owns stdin/stdout dispatch only. A packaging script stages the release executable inside a background `.app` bundle with a fixed bundle identifier so later slices can install and permission it predictably.
 
-**Tech Stack:** Swift 6, SwiftPM, macOS 14+, Foundation, ApplicationServices Accessibility APIs, AppKit, CoreGraphics, ScreenCaptureKit, Vitest/Node for packaging-plan tests, GitHub Actions macOS runner.
+**Tech Stack:** Swift 6, SwiftPM, macOS 14+, Foundation, ApplicationServices Accessibility APIs, AppKit, CoreGraphics, ScreenCaptureKit, Vitest/Node for bundle-plan tests, GitHub Actions macOS runner.
 
 **Spec:** `docs/superpowers/specs/2026-09-09-computer-runtime-v2-design.md`
 
@@ -14,17 +14,20 @@
 
 - Slice 1 adds **no physical mouse/keyboard input** and no `computer_*` MCP tools.
 - The new helper does not depend on `senoldogann/computer-use`.
-- The helper contains no model, planner, OODA loop, plugin manager, browser automation, shell execution, or arbitrary process execution.
-- Protocol transport is versioned NDJSON over inherited stdin/stdout; no TCP or Unix listener.
-- Protocol version is exactly `1` in this slice.
-- Request line limit is `262144` bytes. Oversized/incomplete frames fail closed.
-- Observation element limit is `500`; observation serialized-character limit is `262144`.
-- Screenshot PNG limit is `8388608` bytes.
-- AX observations do not fetch or return `kAXValueAttribute` in Slice 1, so editable/secure current values cannot leak through structured output.
-- Raw AX objects, process IDs, raw native error strings, screenshot pixels, and screen text never enter audit because Slice 1 has no audit/MCP integration.
-- `health` is passive: Accessibility uses `AXIsProcessTrustedWithOptions` with prompting disabled; Screen Recording uses `CGPreflightScreenCaptureAccess()` and does not request permission.
-- Use ScreenCaptureKit for screenshot capture. Apple documents `SCShareableContent` for discovering displays/windows and `SCScreenshotManager` for single-frame capture; the helper therefore has a macOS 14 minimum without changing the existing daemon/broker platform floor.
-- Existing Node 22/24 tests and authority/browser/process behavior must remain unchanged.
+- The helper contains no model, planner, OODA loop, plugin manager, shell execution, arbitrary process execution, or network listener.
+- Protocol transport is versioned NDJSON over inherited stdin/stdout only.
+- Protocol version is exactly `1`.
+- Maximum request line is `262144` bytes.
+- Maximum response line is `12582912` bytes (12 MiB), large enough for one 8 MiB PNG after base64 plus JSON framing.
+- Maximum running-app results is `128`.
+- Maximum string field length in native structured output is `4096` characters.
+- Observation element limit is `500`; observation serialized-character limit is `262144`; traversal depth limit is `12`.
+- Screenshot PNG limit is `8388608` bytes before base64 encoding.
+- AX observations never fetch `kAXValueAttribute` in Slice 1.
+- Raw AX objects, process IDs, native exception text, screenshot pixels, or screen text are never copied into stable error payloads.
+- `health` is passive: Accessibility uses `AXIsProcessTrustedWithOptions` with prompting disabled; Screen Recording uses `CGPreflightScreenCaptureAccess()` and never requests permission.
+- Use ScreenCaptureKit for screenshot capture. The new computer helper has a macOS 14 minimum; this does not change the existing daemon/authority-broker floor.
+- Existing Node 22/24 tests and authority/browser/process behavior remain unchanged.
 
 ---
 
@@ -67,11 +70,11 @@ tests/
   macos-computer-runtime-package.test.ts
 ```
 
-`ComputerRuntimeCore` contains no AppKit/AX/ScreenCaptureKit calls. `ComputerRuntimeHostCore` is the only target that touches macOS host APIs. The executable target contains only process startup and the server loop.
+`ComputerRuntimeCore` contains no AppKit/AX/ScreenCaptureKit calls. `ComputerRuntimeHostCore` is the only target that touches host APIs. The executable target contains only process startup and the server loop.
 
 ---
 
-### Task 1: Swift package, strict JSON protocol, and bounded NDJSON framing
+### Task 1: Swift package, strict protocol model, and bounded NDJSON framing
 
 **Files:**
 - Create: `native/macos-computer-runtime/Package.swift`
@@ -79,97 +82,98 @@ tests/
 - Create: `native/macos-computer-runtime/Sources/ComputerRuntimeCore/Protocol.swift`
 - Create: `native/macos-computer-runtime/Sources/ComputerRuntimeCore/NDJSONFramer.swift`
 - Create: `native/macos-computer-runtime/Sources/ComputerRuntimeCore/Models.swift`
+- Create: `native/macos-computer-runtime/Sources/ComputerRuntimeHostCore/HostProtocols.swift`
+- Create: `native/macos-computer-runtime/Sources/ComputerRuntimeHost/main.swift`
 - Create: `native/macos-computer-runtime/Tests/ComputerRuntimeCoreTests/ProtocolTests.swift`
 - Create: `native/macos-computer-runtime/Tests/ComputerRuntimeCoreTests/NDJSONFramerTests.swift`
 - Modify: `.gitignore`
 
 **Interfaces:**
-- Produces: `JSONValue`, `ComputerProtocolRequest`, `ComputerProtocolResponse`, `ComputerProtocolError`, `NDJSONFramer`, `ComputerHealth`, `ApplicationView`, `ActiveWindowView`, `ComputerObservation`, `ComputerElementView`, `ComputerScreenshot`, `ComputerBounds`.
+- Produces: `JSONValue`, `ComputerProtocolRequest.decodeStrict(from:)`, `ComputerProtocolResponse`, `ComputerProtocolError`, `NDJSONFramer`, safe external view structs.
 - Consumes: Foundation only.
 
-- [ ] **Step 1: Write protocol and framing RED tests**
+- [ ] **Step 1: Write RED protocol/framing tests**
 
-Create `ProtocolTests.swift` with concrete round-trip and strict-version expectations:
+`ProtocolTests.swift` must include these exact behaviors:
 
 ```swift
 import XCTest
 @testable import ComputerRuntimeCore
 
 final class ProtocolTests: XCTestCase {
-    func testRequestRoundTripsWithProtocolVersionOne() throws {
-        let request = ComputerProtocolRequest(
-            protocolVersion: 1,
-            requestId: "req-1",
-            method: "health",
-            params: .object([:])
-        )
-        let data = try JSONEncoder().encode(request)
-        XCTAssertEqual(try JSONDecoder().decode(ComputerProtocolRequest.self, from: data), request)
+    func testStrictRequestAcceptsExactEnvelope() throws {
+        let data = Data(#"{"protocolVersion":1,"requestId":"req-1","method":"health","params":{}}"#.utf8)
+        let request = try ComputerProtocolRequest.decodeStrict(from: data)
+        XCTAssertEqual(request.protocolVersion, 1)
+        XCTAssertEqual(request.requestId, "req-1")
+        XCTAssertEqual(request.method, "health")
+        XCTAssertEqual(request.params, .object([:]))
     }
 
-    func testResponseCarriesEitherResultOrError() throws {
-        let success = ComputerProtocolResponse.success(
-            requestId: "req-1",
-            result: .object(["enabled": .bool(true)])
-        )
-        XCTAssertTrue(success.ok)
-        XCTAssertNotNil(success.result)
-        XCTAssertNil(success.error)
+    func testStrictRequestRejectsUnknownTopLevelField() throws {
+        let data = Data(#"{"protocolVersion":1,"requestId":"req-1","method":"health","params":{},"extra":true}"#.utf8)
+        XCTAssertThrowsError(try ComputerProtocolRequest.decodeStrict(from: data))
+    }
 
-        let failure = ComputerProtocolResponse.failure(
-            requestId: "req-2",
+    func testResponseCarriesEitherResultOrError() {
+        let ok = ComputerProtocolResponse.success(requestId: "r1", result: .object(["ready": .bool(true)]))
+        XCTAssertTrue(ok.ok)
+        XCTAssertNotNil(ok.result)
+        XCTAssertNil(ok.error)
+
+        let failed = ComputerProtocolResponse.failure(
+            requestId: "r2",
             code: "COMPUTER_PROTOCOL_INVALID",
             message: "Invalid computer runtime request."
         )
-        XCTAssertFalse(failure.ok)
-        XCTAssertNil(failure.result)
-        XCTAssertEqual(failure.error?.code, "COMPUTER_PROTOCOL_INVALID")
+        XCTAssertFalse(failed.ok)
+        XCTAssertNil(failed.result)
+        XCTAssertEqual(failed.error?.code, "COMPUTER_PROTOCOL_INVALID")
     }
 }
 ```
 
-Create `NDJSONFramerTests.swift`:
+`NDJSONFramerTests.swift`:
 
 ```swift
 import XCTest
 @testable import ComputerRuntimeCore
 
 final class NDJSONFramerTests: XCTestCase {
-    func testFramerReturnsCompleteLinesAcrossChunks() throws {
+    func testReturnsCompleteLinesAcrossChunks() throws {
         var framer = NDJSONFramer(maxLineBytes: 32)
         XCTAssertEqual(try framer.append(Data("{\"a\":1".utf8)), [])
-        let lines = try framer.append(Data("}\n{\"b\":2}\n".utf8))
-        XCTAssertEqual(lines.map { String(decoding: $0, as: UTF8.self) }, ["{\"a\":1}", "{\"b\":2}"])
+        let frames = try framer.append(Data("}\n{\"b\":2}\n".utf8))
+        XCTAssertEqual(frames.map { String(decoding: $0, as: UTF8.self) }, ["{\"a\":1}", "{\"b\":2}"])
     }
 
-    func testFramerRejectsOversizedLineBeforeNewline() throws {
+    func testRejectsOversizedLineBeforeNewline() throws {
         var framer = NDJSONFramer(maxLineBytes: 4)
         XCTAssertThrowsError(try framer.append(Data("12345".utf8))) { error in
             XCTAssertEqual(error as? NDJSONFramingError, .lineTooLarge)
         }
     }
 
-    func testFinishRejectsTrailingPartialFrame() throws {
-        var framer = NDJSONFramer(maxLineBytes: 32)
-        _ = try framer.append(Data("{\"a\":1}".utf8))
-        XCTAssertThrowsError(try framer.finish())
+    func testRejectsEmptyLineAndTrailingPartialFrame() throws {
+        var empty = NDJSONFramer(maxLineBytes: 32)
+        XCTAssertThrowsError(try empty.append(Data("\n".utf8)))
+
+        var partial = NDJSONFramer(maxLineBytes: 32)
+        _ = try partial.append(Data("{\"a\":1}".utf8))
+        XCTAssertThrowsError(try partial.finish())
     }
 }
 ```
 
-- [ ] **Step 2: Run tests to verify RED**
-
-Run:
+- [ ] **Step 2: Run RED**
 
 ```bash
 swift test --package-path native/macos-computer-runtime
 ```
 
-Expected: compile failure because package/types do not exist yet.
+Expected: package/types missing.
 
-- [ ] **Step 3: Add the SwiftPM package and protocol types**
-
-Create `Package.swift` exactly with separate core/host/executable boundaries:
+- [ ] **Step 3: Create SwiftPM package with all final target names**
 
 ```swift
 // swift-tools-version: 6.0
@@ -181,70 +185,44 @@ let package = Package(
     products: [
         .library(name: "ComputerRuntimeCore", targets: ["ComputerRuntimeCore"]),
         .library(name: "ComputerRuntimeHostCore", targets: ["ComputerRuntimeHostCore"]),
-        .executable(
-            name: "chatgpt-system-computer-runtime",
-            targets: ["ComputerRuntimeHost"]
-        ),
+        .executable(name: "chatgpt-system-computer-runtime", targets: ["ComputerRuntimeHost"]),
     ],
     targets: [
         .target(name: "ComputerRuntimeCore"),
-        .target(
-            name: "ComputerRuntimeHostCore",
-            dependencies: ["ComputerRuntimeCore"]
-        ),
-        .executableTarget(
-            name: "ComputerRuntimeHost",
-            dependencies: ["ComputerRuntimeCore", "ComputerRuntimeHostCore"]
-        ),
-        .testTarget(
-            name: "ComputerRuntimeCoreTests",
-            dependencies: ["ComputerRuntimeCore"]
-        ),
-        .testTarget(
-            name: "ComputerRuntimeHostCoreTests",
-            dependencies: ["ComputerRuntimeCore", "ComputerRuntimeHostCore"]
-        ),
+        .target(name: "ComputerRuntimeHostCore", dependencies: ["ComputerRuntimeCore"]),
+        .executableTarget(name: "ComputerRuntimeHost", dependencies: ["ComputerRuntimeCore", "ComputerRuntimeHostCore"]),
+        .testTarget(name: "ComputerRuntimeCoreTests", dependencies: ["ComputerRuntimeCore"]),
+        .testTarget(name: "ComputerRuntimeHostCoreTests", dependencies: ["ComputerRuntimeCore", "ComputerRuntimeHostCore"]),
     ]
 )
 ```
 
-Implement `JSONValue` as an exhaustive Codable enum, not `[String: Any]`:
+Create `HostProtocols.swift` initially with the concrete empty namespace required to make the target non-empty:
 
 ```swift
-public enum JSONValue: Codable, Equatable, Sendable {
-    case null
-    case bool(Bool)
-    case number(Double)
-    case string(String)
-    case array([JSONValue])
-    case object([String: JSONValue])
+public enum ComputerRuntimeHostCoreModule {}
+```
 
-    public init(from decoder: Decoder) throws {
-        let value = try decoder.singleValueContainer()
-        if value.decodeNil() { self = .null; return }
-        if let bool = try? value.decode(Bool.self) { self = .bool(bool); return }
-        if let number = try? value.decode(Double.self) { self = .number(number); return }
-        if let string = try? value.decode(String.self) { self = .string(string); return }
-        if let array = try? value.decode([JSONValue].self) { self = .array(array); return }
-        if let object = try? value.decode([String: JSONValue].self) { self = .object(object); return }
-        throw DecodingError.dataCorruptedError(in: value, debugDescription: "Unsupported JSON value")
-    }
+Create `main.swift` initially as a valid executable that exits successfully and writes nothing:
 
-    public func encode(to encoder: Encoder) throws {
-        var value = encoder.singleValueContainer()
-        switch self {
-        case .null: try value.encodeNil()
-        case .bool(let item): try value.encode(item)
-        case .number(let item): try value.encode(item)
-        case .string(let item): try value.encode(item)
-        case .array(let item): try value.encode(item)
-        case .object(let item): try value.encode(item)
-        }
+```swift
+import ComputerRuntimeHostCore
+
+@main
+struct ComputerRuntimeHost {
+    static func main() {
+        _ = ComputerRuntimeHostCoreModule.self
     }
 }
 ```
 
-`Protocol.swift` must define the stable envelope and helper constructors:
+Task 2 replaces this executable body with the real server. This is intentional staged TDD, not an unfinished production behavior.
+
+- [ ] **Step 4: Implement `JSONValue` and strict request decoding**
+
+`JSONValue` is an exhaustive Codable enum (`null`, `bool`, `number`, `string`, `array`, `object`) with no `[String: Any]` escape hatch.
+
+`ComputerProtocolRequest` fields:
 
 ```swift
 public struct ComputerProtocolRequest: Codable, Equatable, Sendable {
@@ -253,7 +231,21 @@ public struct ComputerProtocolRequest: Codable, Equatable, Sendable {
     public let method: String
     public let params: JSONValue
 }
+```
 
+Implement `decodeStrict(from:)` by decoding the frame into `JSONValue` first, requiring an object whose key set is **exactly**:
+
+```swift
+Set(["protocolVersion", "requestId", "method", "params"])
+```
+
+Then decode the same data into `ComputerProtocolRequest`. Reject missing or extra top-level fields. Method-specific param strictness is added in Task 2.
+
+Add `JSONValue.fromEncodable<T: Encodable>(_:)` using `JSONEncoder` then `JSONDecoder` so host services can convert typed result models without hand-built dictionaries.
+
+- [ ] **Step 5: Implement response envelope**
+
+```swift
 public struct ComputerProtocolError: Codable, Equatable, Sendable {
     public let code: String
     public let message: String
@@ -271,28 +263,14 @@ public struct ComputerProtocolResponse: Codable, Equatable, Sendable {
         .init(protocolVersion: 1, requestId: requestId, ok: true, result: result, error: nil)
     }
 
-    public static func failure(
-        requestId: String,
-        code: String,
-        message: String,
-        details: JSONValue? = nil
-    ) -> Self {
-        .init(
-            protocolVersion: 1,
-            requestId: requestId,
-            ok: false,
-            result: nil,
-            error: .init(code: code, message: message, details: details)
-        )
+    public static func failure(requestId: String, code: String, message: String, details: JSONValue? = nil) -> Self {
+        .init(protocolVersion: 1, requestId: requestId, ok: false, result: nil,
+              error: .init(code: code, message: message, details: details))
     }
 }
 ```
 
-Add a `JSONValue.fromEncodable(_:)` helper implemented through `JSONEncoder` + `JSONDecoder` so host methods never manually build large response dictionaries.
-
-- [ ] **Step 4: Implement the bounded framer**
-
-`NDJSONFramer` owns an in-memory `Data` buffer, extracts LF-delimited frames, strips one trailing CR, rejects an empty line, rejects any buffered line exceeding the configured byte limit, and rejects non-empty trailing data at EOF:
+- [ ] **Step 6: Implement bounded framer**
 
 ```swift
 public enum NDJSONFramingError: Error, Equatable {
@@ -305,7 +283,7 @@ public struct NDJSONFramer {
     private var buffer = Data()
     private let maxLineBytes: Int
 
-    public init(maxLineBytes: Int = 262_144) {
+    public init(maxLineBytes: Int) {
         precondition(maxLineBytes > 0)
         self.maxLineBytes = maxLineBytes
     }
@@ -313,17 +291,15 @@ public struct NDJSONFramer {
     public mutating func append(_ data: Data) throws -> [Data] {
         buffer.append(data)
         var frames: [Data] = []
-
         while let newline = buffer.firstIndex(of: 0x0A) {
             var line = Data(buffer[..<newline])
             buffer.removeSubrange(...newline)
             if line.last == 0x0D { line.removeLast() }
-            if line.isEmpty { throw NDJSONFramingError.emptyLine }
-            if line.count > maxLineBytes { throw NDJSONFramingError.lineTooLarge }
+            guard !line.isEmpty else { throw NDJSONFramingError.emptyLine }
+            guard line.count <= maxLineBytes else { throw NDJSONFramingError.lineTooLarge }
             frames.append(line)
         }
-
-        if buffer.count > maxLineBytes { throw NDJSONFramingError.lineTooLarge }
+        guard buffer.count <= maxLineBytes else { throw NDJSONFramingError.lineTooLarge }
         return frames
     }
 
@@ -333,9 +309,9 @@ public struct NDJSONFramer {
 }
 ```
 
-- [ ] **Step 5: Add response model types with no PID/raw AX fields**
+- [ ] **Step 7: Add safe external models**
 
-`Models.swift` defines only safe external views:
+`Models.swift` must define:
 
 ```swift
 public struct ComputerHealth: Codable, Equatable, Sendable {
@@ -389,11 +365,11 @@ public struct ComputerScreenshot: Codable, Equatable, Sendable {
 }
 ```
 
-Do **not** add `pid`, raw `value`, `AXUIElement`, pointer identity, or arbitrary dictionaries.
+There is deliberately no PID, raw AX identity, or value field.
 
-- [ ] **Step 6: Ignore the new Swift build directory and run GREEN tests**
+- [ ] **Step 8: Ignore build output and run GREEN**
 
-Append only:
+Append:
 
 ```text
 native/macos-computer-runtime/.build/
@@ -407,9 +383,9 @@ Run:
 swift test --package-path native/macos-computer-runtime
 ```
 
-Expected: core protocol/framing tests PASS and the empty host targets compile once Task 2 adds their first files. If SwiftPM rejects empty targets during this task, create `ComputerRuntimeHostCore/Module.swift` with `public enum ComputerRuntimeHostCoreModule {}` and `ComputerRuntimeHost/main.swift` with `import ComputerRuntimeHostCore` and an empty `@main` that exits 0; Task 2 replaces the executable body with the real server in the same commit cycle.
+Expected: Task 1 tests PASS.
 
-- [ ] **Step 7: Commit Task 1**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add .gitignore native/macos-computer-runtime
@@ -418,10 +394,10 @@ git commit -m "feat: add computer runtime native protocol core"
 
 ---
 
-### Task 2: Passive readiness, running-app discovery, and strict host dispatch
+### Task 2: Passive readiness, bounded app discovery, and strict host server
 
 **Files:**
-- Create: `native/macos-computer-runtime/Sources/ComputerRuntimeHostCore/HostProtocols.swift`
+- Replace: `native/macos-computer-runtime/Sources/ComputerRuntimeHostCore/HostProtocols.swift`
 - Create: `native/macos-computer-runtime/Sources/ComputerRuntimeHostCore/SystemPermissions.swift`
 - Create: `native/macos-computer-runtime/Sources/ComputerRuntimeHostCore/SystemWorkspace.swift`
 - Create: `native/macos-computer-runtime/Sources/ComputerRuntimeHostCore/ComputerHostService.swift`
@@ -432,12 +408,12 @@ git commit -m "feat: add computer runtime native protocol core"
 - Create: `native/macos-computer-runtime/Tests/ComputerRuntimeHostCoreTests/HostServiceTests.swift`
 
 **Interfaces:**
-- Consumes: `ComputerProtocolRequest`, `ComputerProtocolResponse`, `JSONValue`, `ComputerHealth`, `ApplicationView` from Task 1.
 - Produces: `PermissionReading`, `WorkspaceReading`, `WorkspaceApplication`, `SystemPermissionReader`, `SystemWorkspaceReader`, `ComputerHostService.handle(_:)`, `NDJSONHostServer.run()`.
+- Consumes: protocol/models from Task 1.
 
-- [ ] **Step 1: Write RED tests with fake host adapters**
+- [ ] **Step 1: Write RED tests with fake adapters**
 
-Define test fakes and expectations:
+Use fakes:
 
 ```swift
 private struct FakePermissions: PermissionReading {
@@ -450,53 +426,27 @@ private struct FakePermissions: PermissionReading {
 private struct FakeWorkspace: WorkspaceReading {
     let apps: [WorkspaceApplication]
     func runningApplications() -> [WorkspaceApplication] { apps }
-    func frontmostApplication() -> WorkspaceApplication? { apps.first(where: { $0.frontmost }) }
+    func frontmostApplication() -> WorkspaceApplication? { apps.first(where: \.frontmost) }
 }
 ```
 
-Tests must assert:
+Test:
 
-1. `health` returns `state:"running"`, plus the two booleans, and never invokes a permission request method because no such method exists in `PermissionReading`.
-2. `list_apps` returns names/bundle IDs/frontmost flags but no process identifier.
-3. unknown method returns `COMPUTER_PROTOCOL_INVALID` with generic message.
-4. protocolVersion != 1 returns `COMPUTER_PROTOCOL_INVALID`.
-5. non-object params for no-argument methods are rejected.
+- `health` returns state `running` plus both booleans;
+- `list_apps` returns at most 128 apps;
+- names/bundle IDs are capped at 4096 characters;
+- output contains no process identifier;
+- wrong protocolVersion returns `COMPUTER_PROTOCOL_INVALID`;
+- unknown method returns `COMPUTER_PROTOCOL_INVALID`;
+- `health`/`list_apps` reject params other than an empty object.
 
-- [ ] **Step 2: Run targeted tests to verify RED**
+- [ ] **Step 2: Run RED**
 
 ```bash
 swift test --package-path native/macos-computer-runtime --filter ComputerRuntimeHostCoreTests
 ```
 
-Expected: compile failure for missing host protocols/service.
-
-- [ ] **Step 3: Implement passive permission readers**
-
-`SystemPermissions.swift`:
-
-```swift
-import ApplicationServices
-import CoreGraphics
-
-public struct SystemPermissionReader: PermissionReading {
-    public init() {}
-
-    public func accessibilityTrusted() -> Bool {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false] as CFDictionary
-        return AXIsProcessTrustedWithOptions(options)
-    }
-
-    public func screenCaptureAuthorized() -> Bool {
-        CGPreflightScreenCaptureAccess()
-    }
-}
-```
-
-Do not call `CGRequestScreenCaptureAccess()` or set the AX prompt option to true in health/readiness paths.
-
-- [ ] **Step 4: Implement app discovery with private internal PID**
-
-`HostProtocols.swift` defines the internal host identity separately from encoded `ApplicationView`:
+- [ ] **Step 3: Define host protocols and private PID identity**
 
 ```swift
 public struct WorkspaceApplication: Equatable, Sendable {
@@ -510,79 +460,127 @@ public struct WorkspaceApplication: Equatable, Sendable {
     }
 }
 
+public protocol PermissionReading: Sendable {
+    func accessibilityTrusted() -> Bool
+    func screenCaptureAuthorized() -> Bool
+}
+
 public protocol WorkspaceReading: Sendable {
     func runningApplications() -> [WorkspaceApplication]
     func frontmostApplication() -> WorkspaceApplication?
 }
 ```
 
-`SystemWorkspaceReader` uses `NSWorkspace.shared.runningApplications` and `frontmostApplication`. Filter out terminated applications and empty names, sort deterministically by `localizedName`, then bundle ID. The PID is retained only in `WorkspaceApplication` for future AX lookup and is never encoded into protocol output.
+PID exists only in this internal host identity and never in encoded models.
 
-- [ ] **Step 5: Implement strict request dispatch**
+- [ ] **Step 4: Implement passive permission checks**
 
-`ComputerHostService.handle(_:)` must reject wrong protocol version before method dispatch and require `.object([:])` params for `health`/`list_apps`.
+`SystemPermissionReader`:
 
-Supported methods after Task 2:
+```swift
+import ApplicationServices
+import CoreGraphics
+
+public struct SystemPermissionReader: PermissionReading {
+    public init() {}
+
+    public func accessibilityTrusted() -> Bool {
+        let options = [
+            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false
+        ] as CFDictionary
+        return AXIsProcessTrustedWithOptions(options)
+    }
+
+    public func screenCaptureAuthorized() -> Bool {
+        CGPreflightScreenCaptureAccess()
+    }
+}
+```
+
+No request/prompt API is called.
+
+- [ ] **Step 5: Implement bounded workspace discovery**
+
+`SystemWorkspaceReader` reads `NSWorkspace.shared.runningApplications` and `frontmostApplication`, drops terminated/empty-name apps, maps to `WorkspaceApplication`, sorts by name then bundle ID, and lets `ComputerHostService` truncate to 128.
+
+Use a helper:
+
+```swift
+func boundedText(_ value: String?, max: Int = 4096) -> String? {
+    guard let value else { return nil }
+    return String(value.prefix(max))
+}
+```
+
+Apply it before protocol output.
+
+- [ ] **Step 6: Implement strict method dispatch**
+
+After Task 2 only these methods exist:
 
 ```text
 health
 list_apps
 ```
 
-Responses use `JSONValue.fromEncodable(...)` and stable generic errors. Do not embed caught native error descriptions.
+`ComputerHostService` checks `protocolVersion == 1`, exact empty-object params for both methods, then converts typed result models through `JSONValue.fromEncodable`.
 
-- [ ] **Step 6: Implement bounded stdin/stdout server**
+Stable errors:
 
-`NDJSONHostServer`:
+```text
+COMPUTER_PROTOCOL_INVALID / Invalid computer runtime request.
+COMPUTER_OUTPUT_LIMIT / Computer runtime output exceeded the limit.
+```
 
-- reads `FileHandle.standardInput` in chunks no larger than 4096 bytes;
-- feeds `NDJSONFramer(maxLineBytes: 262_144)`;
-- decodes one `ComputerProtocolRequest` per frame;
-- sends exactly one compact JSON response plus `\n` for every decodable request;
-- malformed JSON produces a generic `COMPUTER_PROTOCOL_INVALID` response using `requestId:"unknown"` because no trusted request ID is available;
-- framing errors terminate the helper with non-zero exit rather than trying to resynchronize an oversized stream;
-- writes only protocol responses to stdout; diagnostics go to stderr.
+Caught native errors are not embedded into details.
 
-`main.swift` becomes:
+- [ ] **Step 7: Implement request and response byte bounds in `NDJSONHostServer`**
+
+Server behavior:
+
+- read stdin in chunks <= 4096 bytes;
+- request `NDJSONFramer(maxLineBytes: 262_144)`;
+- decode with `ComputerProtocolRequest.decodeStrict(from:)`;
+- encode one compact response followed by LF;
+- before write, enforce encoded response `<= 12_582_912` bytes;
+- malformed decodable frame produces generic `COMPUTER_PROTOCOL_INVALID` with `requestId:"unknown"`;
+- oversized/incomplete framing terminates non-zero rather than resynchronizing;
+- stdout carries protocol only; stderr gets only fixed categorical diagnostics.
+
+- [ ] **Step 8: Replace executable main with server loop**
 
 ```swift
 import ComputerRuntimeHostCore
+import Darwin
+import Foundation
 
 @main
 struct ComputerRuntimeHost {
     static func main() async {
-        let service = ComputerHostService.system()
-        let server = NDJSONHostServer(service: service)
+        let server = NDJSONHostServer(service: ComputerHostService.system())
         do {
             try await server.run()
         } catch {
             FileHandle.standardError.write(Data("computer runtime host stopped\n".utf8))
-            Foundation.exit(1)
+            exit(1)
         }
     }
 }
 ```
 
-Do not print raw `error` to stderr here; raw native diagnostics can be added behind explicit local debug logging later.
+Never print raw `error` here.
 
-- [ ] **Step 7: Run targeted and full native tests**
+- [ ] **Step 9: Run tests and protocol smoke**
 
 ```bash
 swift test --package-path native/macos-computer-runtime
-```
-
-Expected: Task 1 and Task 2 tests PASS.
-
-- [ ] **Step 8: Smoke-test the executable protocol manually**
-
-```bash
 printf '%s\n' '{"protocolVersion":1,"requestId":"health-1","method":"health","params":{}}' \
   | swift run --package-path native/macos-computer-runtime chatgpt-system-computer-runtime
 ```
 
-Expected: one JSON response with matching requestId, `ok:true`, and categorical readiness booleans. The command must not display a permission prompt.
+Expected: exactly one valid JSON response, no permission prompt.
 
-- [ ] **Step 9: Commit Task 2**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add native/macos-computer-runtime
@@ -601,32 +599,29 @@ git commit -m "feat: add computer runtime readiness and app discovery"
 - Modify: `native/macos-computer-runtime/Tests/ComputerRuntimeHostCoreTests/HostServiceTests.swift`
 
 **Interfaces:**
-- Consumes: frontmost `WorkspaceApplication` with private PID.
-- Produces: `AccessibilityReading.activeWindow(for:)` and `AccessibilityReading.observe(for:limits:)`; host methods `active_window` and `observe`.
+- Produces: `AccessibilityReading.activeWindow(for:)`, `AccessibilityReading.observe(for:limits:)`, methods `active_window` and `observe`.
+- Consumes: frontmost `WorkspaceApplication` private PID and safe output models.
 
-- [ ] **Step 1: Write RED tests for safe observation semantics**
+- [ ] **Step 1: Write RED observation tests**
 
-Create a fake `AccessibilityReading` that returns a deterministic `ComputerObservation`. Test:
+Test with fake `AccessibilityReading`:
 
-1. `active_window` returns app name/bundle + title but no PID.
-2. `observe` returns snapshot ID and elements.
-3. 501 fake elements are truncated to 500 and `truncated:true`.
-4. a serialized observation larger than 262144 characters returns `COMPUTER_OUTPUT_LIMIT` rather than a partial malformed object.
-5. no `ComputerElementView` field named `value` exists; compile-time model shape enforces redaction.
-6. no frontmost app returns `COMPUTER_UNAVAILABLE` with generic text.
-7. Accessibility-untrusted path returns `COMPUTER_PERMISSION_REQUIRED`.
+- active window returns app + bounded title, no PID;
+- observation returns snapshot ID and elements;
+- >500 elements are truncated and `truncated:true`;
+- text fields are capped at 4096 chars;
+- serialized observation >262144 chars returns `COMPUTER_OUTPUT_LIMIT`;
+- no frontmost app returns `COMPUTER_UNAVAILABLE`;
+- untrusted Accessibility returns `COMPUTER_PERMISSION_REQUIRED` before reader invocation;
+- encoded element model has no `value` key.
 
-- [ ] **Step 2: Run RED tests**
+- [ ] **Step 2: Run RED**
 
 ```bash
 swift test --package-path native/macos-computer-runtime --filter ObservationTests
 ```
 
-Expected: compile failure for missing accessibility interfaces.
-
-- [ ] **Step 3: Add `AccessibilityReading` and observation limits**
-
-In `HostProtocols.swift`:
+- [ ] **Step 3: Add observation interface and limits**
 
 ```swift
 public struct ObservationLimits: Sendable {
@@ -643,28 +638,15 @@ public struct ObservationLimits: Sendable {
 
 public protocol AccessibilityReading: Sendable {
     func activeWindow(for application: WorkspaceApplication) throws -> ActiveWindowView
-    func observe(
-        for application: WorkspaceApplication,
-        limits: ObservationLimits
-    ) throws -> ComputerObservation
+    func observe(for application: WorkspaceApplication, limits: ObservationLimits) throws -> ComputerObservation
 }
 ```
 
-- [ ] **Step 4: Implement `SystemAccessibilityReader` with AX attributes only**
+- [ ] **Step 4: Implement `SystemAccessibilityReader`**
 
-Use `AXUIElementCreateApplication(application.processIdentifier)`. Resolve the focused window using `kAXFocusedWindowAttribute`; if absent, traverse from the app element.
+Create application AX root with `AXUIElementCreateApplication(pid)`. Resolve focused window via `kAXFocusedWindowAttribute`; if unavailable, traversal may begin at the app root.
 
-Create small helpers:
-
-```swift
-private func copyString(_ element: AXUIElement, _ attribute: CFString) -> String?
-private func copyBool(_ element: AXUIElement, _ attribute: CFString) -> Bool?
-private func copyElement(_ element: AXUIElement, _ attribute: CFString) -> AXUIElement?
-private func copyChildren(_ element: AXUIElement) -> [AXUIElement]
-private func copyBounds(_ element: AXUIElement) -> ComputerBounds?
-```
-
-Fetch only:
+Implement helpers for string, bool, element, children, position, and size attributes. Fetch only:
 
 ```text
 kAXRoleAttribute
@@ -680,41 +662,25 @@ kAXChildrenAttribute
 kAXFocusedWindowAttribute
 ```
 
-**Never call `kAXValueAttribute` in Slice 1.**
+There must be **no call** to `kAXValueAttribute`.
 
-Traverse depth-first with:
+Traverse depth-first with max depth 12 and max elements 500. Assign index in traversal order. Cap title/description/role/subrole at 4096 chars before storing. Bounds decode `.cgPoint` and `.cgSize` through `AXValueGetValue`; finite negative x/y are allowed for multi-display layout, width/height must be finite and non-negative.
 
-- maxDepth 12;
-- maxElements 500;
-- deterministic child order as returned by AX;
-- `index` assigned in traversal order starting at 0;
-- `truncated=true` as soon as a node/depth budget prevents further traversal.
+Do not expose AX errors. Permission-disabled state maps to `COMPUTER_PERMISSION_REQUIRED`; other failures normalize generically.
 
-`AXValueGetValue` decodes `.cgPoint` and `.cgSize` values for bounds. Negative global coordinates are valid on multi-display setups; width/height must be finite and non-negative.
+- [ ] **Step 5: Add strict `active_window` and `observe` dispatch**
 
-Do not return AX errors verbatim. Map `.apiDisabled`/untrusted state to `COMPUTER_PERMISSION_REQUIRED`; other AX failures become `COMPUTER_UNAVAILABLE` or an internal host error that `ComputerHostService` normalizes generically.
+Both accept exactly `{}` params and operate on the frontmost app only in Slice 1.
 
-- [ ] **Step 5: Add `active_window` and `observe` dispatch**
-
-Both methods require empty object params in Slice 1 and operate on the frontmost app only.
-
-Before AX access, verify `permissions.accessibilityTrusted()`. If false:
+If AX trust is false:
 
 ```text
-code: COMPUTER_PERMISSION_REQUIRED
-message: Accessibility permission is required.
+COMPUTER_PERMISSION_REQUIRED / Accessibility permission is required.
 ```
 
-After encoding observation to JSON, check serialized character count. If it exceeds 262144, return:
+After producing observation, JSON-encode it and reject if serialized character count exceeds 262144. Do not slice serialized JSON.
 
-```text
-code: COMPUTER_OUTPUT_LIMIT
-message: Computer observation exceeded the output limit.
-```
-
-Do not silently slice JSON text.
-
-- [ ] **Step 6: Run native tests and a safe local AX smoke**
+- [ ] **Step 6: Run native tests and safe local smoke**
 
 ```bash
 swift test --package-path native/macos-computer-runtime
@@ -722,9 +688,9 @@ printf '%s\n' '{"protocolVersion":1,"requestId":"obs-1","method":"observe","para
   | swift run --package-path native/macos-computer-runtime chatgpt-system-computer-runtime
 ```
 
-Expected in CI/untrusted shells: stable `COMPUTER_PERMISSION_REQUIRED`. Expected on an already trusted local helper: bounded observation with no editable values/PIDs.
+Expected on untrusted shell: stable permission error. Expected when already trusted: bounded observation with no PID/value fields.
 
-- [ ] **Step 7: Commit Task 3**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add native/macos-computer-runtime
@@ -742,90 +708,65 @@ git commit -m "feat: add AX-first computer observation"
 - Create: `native/macos-computer-runtime/Tests/ComputerRuntimeHostCoreTests/ScreenshotTests.swift`
 
 **Interfaces:**
-- Produces: `ScreenshotCapturing.captureMainDisplay(maxBytes:) async throws -> ComputerScreenshot` and host method `screenshot`.
-- Consumes: Screen Recording preflight state from `PermissionReading`.
+- Produces: `ScreenshotCapturing.captureMainDisplay(maxBytes:) async throws -> ComputerScreenshot`, method `screenshot`.
+- Consumes: Screen Recording preflight state.
 
-- [ ] **Step 1: Write RED tests with fake screenshot capturer**
+- [ ] **Step 1: Write RED tests**
 
-Test:
+Test with a fake capturer:
 
-1. authorized screenshot returns base64, width, height;
-2. screen capture not authorized returns `COMPUTER_PERMISSION_REQUIRED` without invoking the capturer;
-3. capture result over 8388608 decoded bytes returns `COMPUTER_OUTPUT_LIMIT`;
-4. native capture failure returns generic `COMPUTER_UNAVAILABLE` and does not include fake raw error text;
-5. screenshot params other than `{}` are rejected in Slice 1.
+- authorized capture returns base64 + dimensions;
+- unauthorized capture returns `COMPUTER_PERMISSION_REQUIRED` without invoking capturer;
+- decoded PNG >8388608 bytes returns `COMPUTER_OUTPUT_LIMIT`;
+- raw capturer error text is absent from `COMPUTER_UNAVAILABLE` response;
+- params other than `{}` are rejected.
 
-- [ ] **Step 2: Run RED test**
+- [ ] **Step 2: Run RED**
 
 ```bash
 swift test --package-path native/macos-computer-runtime --filter ScreenshotTests
 ```
 
-Expected: compile failure for missing screenshot interface.
+- [ ] **Step 3: Implement main-display one-shot capture**
 
-- [ ] **Step 3: Implement one-shot main-display capture using ScreenCaptureKit**
-
-`SystemScreenshotCapturer` uses:
+Use:
 
 ```swift
-let content = try await SCShareableContent.excludingDesktopWindows(
-    false,
-    onScreenWindowsOnly: true
-)
-let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() })
-    ?? content.displays.first
+let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? content.displays.first
 ```
 
-If no display exists, throw a host-internal unavailable error.
-
-Create:
+Then:
 
 ```swift
-let filter = SCContentFilter(
-    display: display,
-    excludingApplications: [],
-    exceptingWindows: []
-)
+let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
 let configuration = SCStreamConfiguration()
 configuration.width = display.width
 configuration.height = display.height
 configuration.showsCursor = true
-let image = try await SCScreenshotManager.captureImage(
-    contentFilter: filter,
-    configuration: configuration
-)
+let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
 ```
 
-Convert `CGImage` to PNG in memory using `NSBitmapImageRep(cgImage:)` + `.representation(using: .png, properties: [:])`. Reject empty PNG or `png.count > maxBytes` before base64 encoding.
+Convert in memory using `NSBitmapImageRep(cgImage:)` and `.representation(using: .png, properties: [:])`. Reject nil/empty PNG and bytes >8388608 before base64. Return `CGImage.width/height`. Never write image files.
 
-Return actual `CGImage.width/height`; do not write temporary files.
+- [ ] **Step 4: Add screenshot dispatch**
 
-- [ ] **Step 4: Add screenshot dispatch with passive permission boundary**
+Preflight first. If false:
 
-Before capture:
-
-```swift
-guard permissions.screenCaptureAuthorized() else {
-    return .failure(
-        requestId: request.requestId,
-        code: "COMPUTER_PERMISSION_REQUIRED",
-        message: "Screen Recording permission is required."
-    )
-}
+```text
+COMPUTER_PERMISSION_REQUIRED / Screen Recording permission is required.
 ```
 
-Never call `CGRequestScreenCaptureAccess()` from the protocol handler.
+Never call `CGRequestScreenCaptureAccess()` inside the protocol method.
 
-- [ ] **Step 5: Run all Swift tests and release build**
+- [ ] **Step 5: Run full native tests and release build**
 
 ```bash
 swift test --package-path native/macos-computer-runtime
 swift build -c release --package-path native/macos-computer-runtime
 ```
 
-Expected: PASS.
-
-- [ ] **Step 6: Commit Task 4**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add native/macos-computer-runtime
@@ -834,95 +775,88 @@ git commit -m "feat: add computer runtime screenshot capture"
 
 ---
 
-### Task 5: Stage a stable background `.app` bundle and add build/package scripts
+### Task 5: Stage a fixed background `.app` bundle and npm build hooks
 
 **Files:**
 - Create: `scripts/package-macos-computer-runtime.mjs`
 - Create: `tests/macos-computer-runtime-package.test.ts`
 - Modify: `package.json`
-- Modify: `.gitignore` only if staging output is outside the already ignored `.build/` tree.
 
 **Interfaces:**
-- Produces: `buildComputerRuntimeBundlePlan(context)`, CLI staging command, npm scripts `build:computer:macos`, `test:computer:macos`, `package:computer:macos`.
+- Produces: `buildComputerRuntimeBundlePlan(context)`, CLI bundle staging, npm scripts `build:computer:macos`, `test:computer:macos`, `package:computer:macos`.
 - Consumes: release executable from Task 4.
 
-- [ ] **Step 1: Write RED Vitest for bundle-plan invariants**
-
-Test the pure exported planner without executing `swift` or `codesign`:
+- [ ] **Step 1: Write RED Vitest**
 
 ```ts
 import { describe, expect, it } from "vitest";
 import { buildComputerRuntimeBundlePlan } from "../scripts/package-macos-computer-runtime.mjs";
 
 describe("computer runtime app bundle plan", () => {
-  it("uses a fixed bundle identity and executable name", () => {
+  it("uses fixed identity and executable", () => {
     const plan = buildComputerRuntimeBundlePlan({ repoDir: "/repo" });
     expect(plan.bundleIdentifier).toBe("com.senoldogann.chatgpt-system.computer-runtime");
     expect(plan.executableName).toBe("chatgpt-system-computer-runtime");
     expect(plan.bundlePath).toBe("/repo/native/macos-computer-runtime/.build/staged/ChatGPTSystemComputerRuntime.app");
   });
 
-  it("rejects caller overrides for bundle id or executable path", () => {
-    expect(() => buildComputerRuntimeBundlePlan({ repoDir: "/repo", bundleIdentifier: "evil" } as never)).toThrow(/Unsupported/);
+  it("rejects protected identity overrides", () => {
+    expect(() => buildComputerRuntimeBundlePlan({ repoDir: "/repo", bundleIdentifier: "evil" })).toThrow(/Unsupported/);
   });
 });
 ```
 
-- [ ] **Step 2: Run RED test**
+- [ ] **Step 2: Run RED**
 
 ```bash
 npx vitest run tests/macos-computer-runtime-package.test.ts
 ```
 
-Expected: module-not-found failure.
+- [ ] **Step 3: Implement deterministic bundler**
 
-- [ ] **Step 3: Implement deterministic staging script**
-
-The script accepts only:
+CLI accepts only:
 
 ```text
---output <path>      optional, CI/local staging destination
---sign <identity>    optional; `-` means ad-hoc
+--output <path>
+--sign <identity>
 --help
 ```
 
-The pure default plan uses:
+Fixed plan:
 
 ```text
-bundle name: ChatGPTSystemComputerRuntime.app
+bundle: ChatGPTSystemComputerRuntime.app
 bundle id: com.senoldogann.chatgpt-system.computer-runtime
 executable: chatgpt-system-computer-runtime
 source: native/macos-computer-runtime/.build/release/chatgpt-system-computer-runtime
 default output: native/macos-computer-runtime/.build/staged/ChatGPTSystemComputerRuntime.app
 ```
 
-The generated `Contents/Info.plist` must contain:
+Generate `Contents/Info.plist` with:
 
-```xml
-<key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleExecutable</key><string>chatgpt-system-computer-runtime</string>
-<key>CFBundleIdentifier</key><string>com.senoldogann.chatgpt-system.computer-runtime</string>
-<key>CFBundleName</key><string>ChatGPTSystemComputerRuntime</string>
-<key>CFBundleVersion</key><string>1</string>
-<key>CFBundleShortVersionString</key><string>0.1.0</string>
-<key>LSUIElement</key><true/>
-<key>LSMinimumSystemVersion</key><string>14.0</string>
-<key>NSScreenCaptureUsageDescription</key><string>ChatGPT System uses screen capture only when locally enabled to let the approved computer runtime observe the Mac.</string>
+```text
+CFBundlePackageType = APPL
+CFBundleExecutable = chatgpt-system-computer-runtime
+CFBundleIdentifier = com.senoldogann.chatgpt-system.computer-runtime
+CFBundleName = ChatGPTSystemComputerRuntime
+CFBundleVersion = 1
+CFBundleShortVersionString = 0.1.0
+LSUIElement = true
+LSMinimumSystemVersion = 14.0
+NSScreenCaptureUsageDescription = ChatGPT System uses screen capture only when locally enabled to let the approved computer runtime observe the Mac.
 ```
 
-Stage through a fresh temporary sibling directory and rename into place so a failed packaging run cannot leave a half-written bundle. Copy executable mode `0755`.
+Stage into a fresh temporary sibling directory, copy executable mode 0755, then rename into final path. Never mutate a partially staged existing bundle in place.
 
-If `--sign` is supplied, run:
+If `--sign` is present, spawn exactly:
 
 ```text
 /usr/bin/codesign --force --sign <identity> --identifier com.senoldogann.chatgpt-system.computer-runtime <bundle>
 ```
 
-with `shell:false`. Do not discover or select a signing identity automatically in Slice 1. CI uses `--sign -`; real stable signing/install policy is wired by the setup slice later.
+with `shell:false`. Do not auto-discover a signing identity. CI uses `--sign -`. Stable local install/signing policy is wired in a later setup slice.
 
 - [ ] **Step 4: Add npm scripts**
-
-Modify `package.json`:
 
 ```json
 "build:computer:macos": "swift build -c release --package-path native/macos-computer-runtime",
@@ -930,9 +864,9 @@ Modify `package.json`:
 "package:computer:macos": "npm run build:computer:macos && node scripts/package-macos-computer-runtime.mjs --sign -"
 ```
 
-Do not add dependencies.
+No dependency changes.
 
-- [ ] **Step 5: Run package tests and stage bundle**
+- [ ] **Step 5: Run tests and stage bundle**
 
 ```bash
 npx vitest run tests/macos-computer-runtime-package.test.ts
@@ -945,32 +879,28 @@ Verify:
 ```bash
 app="native/macos-computer-runtime/.build/staged/ChatGPTSystemComputerRuntime.app"
 test -x "$app/Contents/MacOS/chatgpt-system-computer-runtime"
-plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist"
+test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = "com.senoldogann.chatgpt-system.computer-runtime"
 codesign -dv "$app" 2>&1 | grep 'Identifier=com.senoldogann.chatgpt-system.computer-runtime'
 ```
 
-Expected bundle ID exactly `com.senoldogann.chatgpt-system.computer-runtime`.
-
-- [ ] **Step 6: Run repository check**
+- [ ] **Step 6: Run repository checks**
 
 ```bash
 npm run check
 ```
 
-Expected: all existing TypeScript tests plus new packaging test PASS.
-
-- [ ] **Step 7: Commit Task 5**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add package.json package-lock.json scripts/package-macos-computer-runtime.mjs tests/macos-computer-runtime-package.test.ts
+git add package.json scripts/package-macos-computer-runtime.mjs tests/macos-computer-runtime-package.test.ts
 git commit -m "build: package macOS computer runtime helper"
 ```
 
-Do not modify `package-lock.json` unless npm actually changes it; adding scripts alone normally does not.
+Do not stage `package-lock.json` unless npm actually changed it.
 
 ---
 
-### Task 6: macOS CI gate, protocol smoke, and Slice 1 verification
+### Task 6: CI gate, docs, privacy review, and Slice 1 merge verification
 
 **Files:**
 - Modify: `.github/workflows/ci.yml`
@@ -978,12 +908,12 @@ Do not modify `package-lock.json` unless npm actually changes it; adding scripts
 - Modify: `docs/CHATGPT_INTEGRATION.md`
 
 **Interfaces:**
-- Produces: CI proof that the native package builds/tests/packages and protocol health works without requiring TCC permissions.
+- Produces: exact CI proof for native build/test/package/protocol health.
 - Consumes: all Slice 1 artifacts.
 
 - [ ] **Step 1: Extend macOS-native CI**
 
-After the existing authority-broker steps, add:
+Add after existing authority-broker checks:
 
 ```yaml
       - name: Test macOS computer runtime
@@ -1009,22 +939,19 @@ After the existing authority-broker steps, add:
           ' "$response"
 ```
 
-CI must not expect Accessibility or Screen Recording to be granted; it only verifies categorical booleans and protocol shape.
+CI does not expect TCC grants.
 
-- [ ] **Step 2: Document Slice 1 as internal foundation, not user-ready computer control**
+- [ ] **Step 2: Document only what exists in Slice 1**
 
-README and ChatGPT integration docs must state:
+README/integration docs state:
 
-- Computer Runtime v2 is still disabled/not registered as MCP in Slice 1;
-- native helper package path and build/test/package commands;
-- macOS 14+ requirement applies to this new helper only;
-- health checks are passive and never request TCC permission;
-- no physical input exists until Slice 2;
-- no `computer_run`/`computer_run_js` exists until later slices.
+- helper package/build/test/package commands;
+- macOS 14+ requirement for this helper only;
+- health checks are passive;
+- no physical input exists yet;
+- no `computer_*` MCP tools, `computer_run`, or `computer_run_js` are advertised yet.
 
-Do not advertise incomplete tools.
-
-- [ ] **Step 3: Run the complete local verification matrix**
+- [ ] **Step 3: Run complete local verification**
 
 ```bash
 npm ci --ignore-scripts --no-audit --no-fund
@@ -1033,25 +960,18 @@ npm run test:computer:macos
 npm run package:computer:macos
 ```
 
-Then protocol checks:
+Protocol smoke:
 
 ```bash
 helper="native/macos-computer-runtime/.build/staged/ChatGPTSystemComputerRuntime.app/Contents/MacOS/chatgpt-system-computer-runtime"
 printf '%s\n' '{"protocolVersion":1,"requestId":"health-final","method":"health","params":{}}' | "$helper"
 printf '%s\n' '{"protocolVersion":1,"requestId":"apps-final","method":"list_apps","params":{}}' | "$helper"
-```
-
-For malformed input:
-
-```bash
 printf '%s\n' '{not-json}' | "$helper"
 ```
 
-Expected: generic protocol error, no crash/backtrace/raw native details.
+Expected malformed frame result: generic protocol error without stack/native details.
 
-- [ ] **Step 4: Perform Slice 1 privacy review**
-
-Search source/output schemas for forbidden fields:
+- [ ] **Step 4: Run privacy/surface review**
 
 ```bash
 rg -n 'processIdentifier|\bpid\b|kAXValueAttribute|AXUIElement' native/macos-computer-runtime/Sources
@@ -1059,37 +979,33 @@ rg -n 'processIdentifier|\bpid\b|kAXValueAttribute|AXUIElement' native/macos-com
 
 Expected:
 
-- `processIdentifier` and `AXUIElement` may exist only inside host implementation/internal types;
-- `kAXValueAttribute` has **zero** matches;
-- protocol models in `ComputerRuntimeCore/Models.swift` contain no PID/raw AX/value field.
+- `processIdentifier` / AX types only in host internals;
+- **zero** `kAXValueAttribute` matches;
+- no PID/raw AX/value fields in `ComputerRuntimeCore/Models.swift`.
 
-Check there is no network listener/shell execution:
+Check forbidden listener/process/shell surfaces:
 
 ```bash
-rg -n 'NWListener|Network\.framework|UnixListener|socket\(|Process\(|/bin/sh|shell' native/macos-computer-runtime/Sources
+rg -n 'NWListener|UnixListener|socket\(|Process\(|/bin/sh|child_process|shell' native/macos-computer-runtime/Sources
 ```
 
-Expected: zero matches for listener/shell/process-execution constructs in the helper.
+Expected: zero matches.
 
-- [ ] **Step 5: Run full `npm run check` and Swift tests one final time**
+- [ ] **Step 5: Final GREEN**
 
 ```bash
 npm run check
 swift test --package-path native/macos-computer-runtime
 ```
 
-Expected: GREEN.
-
-- [ ] **Step 6: Commit Task 6**
+- [ ] **Step 6: Commit CI/docs**
 
 ```bash
 git add .github/workflows/ci.yml README.md docs/CHATGPT_INTEGRATION.md
 git commit -m "ci: verify computer runtime native foundation"
 ```
 
-- [ ] **Step 7: Push, open PR, and verify exact-head CI**
-
-Before push:
+- [ ] **Step 7: Push PR and lock exact head**
 
 ```bash
 git status --short --branch
@@ -1097,13 +1013,13 @@ git rev-parse HEAD
 git merge-base HEAD origin/main
 ```
 
-Push the Slice 1 branch and open a PR titled:
+PR title:
 
 ```text
 feat: add Computer Runtime v2 native host foundation
 ```
 
-Record the exact PR head SHA. Require:
+Require exact-head:
 
 ```text
 test (22)       success
@@ -1111,35 +1027,25 @@ test (24)       success
 macos-native    success
 ```
 
-Do not merge on branch-name assumptions; merge only the verified exact head.
+- [ ] **Step 8: Merge and verify post-merge main before Slice 2**
 
-- [ ] **Step 8: Merge and verify post-merge main CI before Slice 2**
-
-After merge:
-
-```bash
-git fetch origin
-git rev-parse origin/main
-```
-
-Verify the merge SHA's push CI is GREEN for Node 22, Node 24, and macOS-native. Only then write/execute the Slice 2 physical-input plan.
+After merge, fetch and verify `origin/main` merge SHA and its push CI. Do not begin physical-input work until Node 22, Node 24, and macOS-native are all green on the merge commit.
 
 ---
 
 ## Slice 1 definition of done
 
-Slice 1 is complete only when:
-
-- `native/macos-computer-runtime` is a Swift 6/macOS 14+ package;
-- its stdio protocol is versioned, strict, byte-bounded, and tested;
-- `health` passively reports AX and screen-capture readiness;
-- `list_apps` exposes no PID;
-- `active_window`/`observe` use AX and never fetch `kAXValueAttribute`;
-- observation bounds are enforced before output;
-- `screenshot` uses ScreenCaptureKit and enforces the 8 MiB PNG bound;
-- the helper writes no screenshots to disk;
-- a background `.app` bundle with fixed ID `com.senoldogann.chatgpt-system.computer-runtime` can be staged and ad-hoc signed for CI;
-- existing TypeScript behavior remains green;
-- macOS-native CI builds/tests/packages the helper and smoke-tests `health` without requiring TCC grants;
-- no physical input or MCP registration has slipped into the slice;
-- exact-head PR CI and post-merge main CI are green.
+- Swift 6/macOS 14+ native package exists with core/host/executable boundaries.
+- Protocol requests reject unknown top-level fields and method params are strict.
+- Request frame bound is 256 KiB and response bound is 12 MiB.
+- `health` passively reports AX/screen-capture readiness.
+- `list_apps` is bounded and exposes no PID.
+- `active_window` / `observe` use AX and never fetch `kAXValueAttribute`.
+- Observation fields/elements/serialized size are bounded.
+- `screenshot` uses ScreenCaptureKit and enforces 8 MiB PNG bound before base64.
+- Helper writes no screenshot to disk and starts no listener/child process.
+- Background `.app` stages with fixed bundle ID `com.senoldogann.chatgpt-system.computer-runtime`.
+- Existing TypeScript tests remain green.
+- macOS-native CI builds, tests, packages, and smoke-tests health without requiring TCC grants.
+- No physical input or MCP registration has slipped into Slice 1.
+- Exact-head PR CI and post-merge main CI are green.
