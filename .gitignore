@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 native/macos-authority-broker/.build/
+native/macos-computer-runtime/.build/
 .env
 .env.*
 !.env.example

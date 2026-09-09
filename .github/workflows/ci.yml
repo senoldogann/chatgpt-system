@@ -56,3 +56,23 @@ jobs:
           test -f "/Library/Application Support/chatgpt-system/etc/authority-broker.sha256"
           test "$(stat -f '%u' "/Library/Application Support/chatgpt-system/bin/chatgpt-system-authority-broker")" = "0"
           test "$(stat -f '%u' "/Library/Application Support/chatgpt-system/etc/authority-broker.sha256")" = "0"
+      - name: Test macOS computer runtime
+        run: swift test --package-path native/macos-computer-runtime
+      - name: Build and package macOS computer runtime
+        run: |
+          npm run build:computer:macos
+          node scripts/package-macos-computer-runtime.mjs --sign - --output "$RUNNER_TEMP/ChatGPTSystemComputerRuntime.app"
+          app="$RUNNER_TEMP/ChatGPTSystemComputerRuntime.app"
+          test -x "$app/Contents/MacOS/chatgpt-system-computer-runtime"
+          test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = "com.senoldogann.chatgpt-system.computer-runtime"
+          codesign -v "$app"
+      - name: Verify computer runtime protocol health
+        run: |
+          helper="$RUNNER_TEMP/ChatGPTSystemComputerRuntime.app/Contents/MacOS/chatgpt-system-computer-runtime"
+          response="$(printf '%s\n' '{"protocolVersion":1,"requestId":"ci-health","method":"health","params":{}}' | "$helper")"
+          node -e '
+            const r = JSON.parse(process.argv[1]);
+            if (r.protocolVersion !== 1 || r.requestId !== "ci-health" || r.ok !== true) process.exit(1);
+            if (typeof r.result?.accessibilityTrusted !== "boolean") process.exit(1);
+            if (typeof r.result?.screenCaptureAuthorized !== "boolean") process.exit(1);
+          ' "$response"

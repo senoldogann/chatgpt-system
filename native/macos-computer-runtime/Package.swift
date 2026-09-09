@@ -1,0 +1,19 @@
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: "chatgpt-system-computer-runtime",
+    platforms: [.macOS(.v14)],
+    products: [
+        .library(name: "ComputerRuntimeCore", targets: ["ComputerRuntimeCore"]),
+        .library(name: "ComputerRuntimeHostCore", targets: ["ComputerRuntimeHostCore"]),
+        .executable(name: "chatgpt-system-computer-runtime", targets: ["ComputerRuntimeHost"]),
+    ],
+    targets: [
+        .target(name: "ComputerRuntimeCore"),
+        .target(name: "ComputerRuntimeHostCore", dependencies: ["ComputerRuntimeCore"]),
+        .executableTarget(name: "ComputerRuntimeHost", dependencies: ["ComputerRuntimeCore", "ComputerRuntimeHostCore"]),
+        .testTarget(name: "ComputerRuntimeCoreTests", dependencies: ["ComputerRuntimeCore"]),
+        .testTarget(name: "ComputerRuntimeHostCoreTests", dependencies: ["ComputerRuntimeCore", "ComputerRuntimeHostCore"]),
+    ]
+)
