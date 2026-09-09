@@ -18,6 +18,7 @@ import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { ProcessSupervisor } from "./process-supervisor.js";
 import { createScopedRuntime } from "./scoped-runtime.js";
+import { describeSystemEnvironment } from "./system-environment.js";
 import { errorPayload, PolicyError } from "./errors.js";
 import {
   authorityEndOutputSchema,
@@ -35,6 +36,7 @@ import {
   processLogsOutputSchema,
   processSummaryOutputSchema,
   systemCapabilitiesOutputSchema,
+  systemEnvironmentOutputSchema,
   terminalResultOutputSchema,
 } from "./tool-output-schemas.js";
 
@@ -195,6 +197,17 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
         terminalOsSandboxed: false as const,
       },
     })),
+  );
+
+  server.registerTool(
+    "system_environment",
+    {
+      description: "Describe the local runtime environment without running terminal commands: operating system, architecture, effective executable search path, roots, and allowlisted executable resolution (allowed vs available). Read-only; exposes no secret values.",
+      inputSchema: z.object({}),
+      outputSchema: systemEnvironmentOutputSchema,
+      annotations: readAnnotations,
+    },
+    async () => safeCall(async () => describeSystemEnvironment(runtime.config)),
   );
 
   server.registerTool(

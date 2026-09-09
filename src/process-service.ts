@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
 import { AuditLogger } from "./audit.js";
 import type { AppConfig } from "./config.js";
-import { LimitError } from "./errors.js";
+import { CommandTimeoutError, ExecutableNotFoundError, LimitError } from "./errors.js";
+import { resolveExecutablePath } from "./executable-resolution.js";
 import { PathPolicy } from "./policy.js";
 import {
   sanitizedChildEnvironment,
@@ -30,9 +32,16 @@ export class ProcessService {
     validateProcessInvocation(this.config.terminal, command, args);
 
     const cwd = await this.policy.resolve(cwdInput);
+    // Allowlist basename'i korur; PATH'te bulunamayan kullanıcı-local binary'ler
+    // (örn. ~/.local/bin/uv) için çözümlenmiş mutlak yolu spawn eder.
+    // Çözümleme başarısız olursa OS aramasını dener, ENOENT structured hataya döner.
+    const executablePath = (await resolveExecutablePath(command, {
+      pathValue: process.env.PATH,
+      homeDir: homedir(),
+    })) ?? command;
     return this.audit.run("process.run", this.policy.display(cwd), async () => {
       return new Promise<ProcessResult>((resolve, reject) => {
-        const child = spawn(command, args, {
+        const child = spawn(executablePath, args, {
           cwd,
           shell: false,
           env: sanitizedChildEnvironment(),
@@ -57,18 +66,31 @@ export class ProcessService {
 
         child.stdout.on("data", collect(stdout));
         child.stderr.on("data", collect(stderr));
-        child.once("error", reject);
+        child.once("error", (error: Error) => {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+            reject(new ExecutableNotFoundError(command));
+            return;
+          }
+          reject(error);
+        });
 
+        const commandTimeoutMs = this.config.limits.commandTimeoutMs;
         const timer = setTimeout(() => {
           timedOut = true;
           child.kill("SIGKILL");
-        }, this.config.limits.commandTimeoutMs);
+        }, commandTimeoutMs);
         timer.unref();
 
         child.once("close", (exitCode, signal) => {
           clearTimeout(timer);
           if (outputLimited) {
             reject(new LimitError("Command output exceeded configured byte limit.", { limit: this.config.limits.maxCommandOutputBytes }));
+            return;
+          }
+          // Timeout kasıtlı olarak hata verir; managed process'e otomatik
+          // dönüşüm yoktur. Agent process_start + polling kullanmalıdır.
+          if (timedOut) {
+            reject(new CommandTimeoutError(commandTimeoutMs, { command }));
             return;
           }
           resolve({
