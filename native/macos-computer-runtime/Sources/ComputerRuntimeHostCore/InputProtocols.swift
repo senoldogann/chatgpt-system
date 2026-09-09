@@ -29,6 +29,11 @@ protocol InputFocusGuard: Sendable {
     func verifyExpectedFrontmost() async throws
 }
 
+protocol TakeoverMonitoring: Sendable {
+    func start() throws
+    func stop()
+}
+
 protocol ApplicationControlling: Sendable {
     func runningApplications() -> [WorkspaceApplication]
     func frontmostApplication() -> WorkspaceApplication?

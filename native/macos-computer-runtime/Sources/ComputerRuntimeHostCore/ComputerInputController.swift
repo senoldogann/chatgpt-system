@@ -15,6 +15,7 @@ struct ComputerInputController: Sendable {
     private let sleeper: any InputSleeping
     private let lane: PhysicalActionLane
     private let heldInputs: HeldInputStore
+    private let safetyCoordinator: InputSafetyCoordinator?
 
     init(
         eventSink: any InputEventSink,
@@ -22,7 +23,8 @@ struct ComputerInputController: Sendable {
         displayTopology: any DisplayTopologyReading,
         sleeper: any InputSleeping,
         lane: PhysicalActionLane = PhysicalActionLane(),
-        heldInputs: HeldInputStore = HeldInputStore()
+        heldInputs: HeldInputStore = HeldInputStore(),
+        safetyCoordinator: InputSafetyCoordinator? = nil
     ) {
         self.eventSink = eventSink
         self.pointerReader = pointerReader
@@ -30,6 +32,7 @@ struct ComputerInputController: Sendable {
         self.sleeper = sleeper
         self.lane = lane
         self.heldInputs = heldInputs
+        self.safetyCoordinator = safetyCoordinator
     }
 
     func pointerPosition() throws -> ComputerPoint {
@@ -49,6 +52,8 @@ struct ComputerInputController: Sendable {
         mode: PointerMotionMode = .fast
     ) async throws -> ComputerActionResult {
         await lane.acquire()
+        beginSafetyAction()
+        defer { endSafetyAction() }
         do {
             let result = try await moveMouseWithinLane(to: target, mode: mode, dragButton: nil)
             await lane.release()
@@ -66,6 +71,8 @@ struct ComputerInputController: Sendable {
         mode: PointerMotionMode
     ) async throws -> ComputerActionResult {
         await lane.acquire()
+        beginSafetyAction()
+        defer { endSafetyAction() }
         do {
             _ = try await moveMouseWithinLane(to: target, mode: mode, dragButton: nil)
             try verifyPointerNear(target)
@@ -86,12 +93,16 @@ struct ComputerInputController: Sendable {
         mode: PointerMotionMode
     ) async throws -> ComputerActionResult {
         await lane.acquire()
+        beginSafetyAction()
+        defer { endSafetyAction() }
         do {
             _ = try await moveMouseWithinLane(to: target, mode: mode, dragButton: nil)
             try verifyPointerNear(target)
             try await emitMouseDownWithinLane(button, point: target, clickCount: 1)
             try await emitMouseUpWithinLane(button, point: target, clickCount: 1)
+            try checkSafety()
             try await sleeper.sleep(nanoseconds: Self.interClickPauseNanoseconds)
+            try checkSafety()
             try Task.checkCancellation()
             try await emitMouseDownWithinLane(button, point: target, clickCount: 2)
             try await emitMouseUpWithinLane(button, point: target, clickCount: 2)
@@ -106,6 +117,8 @@ struct ComputerInputController: Sendable {
 
     func mouseDown(_ button: ComputerMouseButton) async throws -> ComputerActionResult {
         await lane.acquire()
+        beginSafetyAction()
+        defer { endSafetyAction() }
         do {
             let point = try pointerPosition()
             try await emitMouseDownWithinLane(button, point: point, clickCount: 1)
@@ -120,6 +133,8 @@ struct ComputerInputController: Sendable {
 
     func mouseUp(_ button: ComputerMouseButton) async throws -> ComputerActionResult {
         await lane.acquire()
+        beginSafetyAction()
+        defer { endSafetyAction() }
         do {
             let point = try pointerPosition()
             try await emitMouseUpWithinLane(button, point: point, clickCount: 1)
@@ -139,6 +154,8 @@ struct ComputerInputController: Sendable {
         mode: PointerMotionMode
     ) async throws -> ComputerActionResult {
         await lane.acquire()
+        beginSafetyAction()
+        defer { endSafetyAction() }
         do {
             _ = try await moveMouseWithinLane(to: start, mode: mode, dragButton: nil)
             try verifyPointerNear(start)
@@ -167,13 +184,15 @@ struct ComputerInputController: Sendable {
         }
 
         await lane.acquire()
+        beginSafetyAction()
+        defer { endSafetyAction() }
         do {
             if let point {
                 _ = try await moveMouseWithinLane(to: point, mode: mode, dragButton: nil)
             }
             try Task.checkCancellation()
             if vertical != 0 || horizontal != 0 {
-                try eventSink.emit(.scroll(vertical: vertical, horizontal: horizontal))
+                try emitActionEvent(.scroll(vertical: vertical, horizontal: horizontal))
             }
             let current = try pointerPosition()
             await lane.release()
@@ -195,15 +214,18 @@ struct ComputerInputController: Sendable {
         }
 
         await lane.acquire()
+        beginSafetyAction()
+        defer { endSafetyAction() }
         do {
             try Task.checkCancellation()
-            try await focusGuard.verifyExpectedFrontmost()
+            try await verifyFocus(focusGuard)
             var activeModifiers = (await heldInputs.snapshot()).modifiers
 
             for modifier in KeyMapping.modifierDownOrder where modifiers.contains(modifier) && !activeModifiers.contains(modifier) {
                 try Task.checkCancellation()
-                try await focusGuard.verifyExpectedFrontmost()
+                try await verifyFocus(focusGuard)
                 let nextModifiers = activeModifiers.union([modifier])
+                try checkSafety()
                 try eventSink.emit(.key(
                     keyCode: KeyMapping.modifierKeyCode(for: modifier),
                     down: true,
@@ -211,22 +233,28 @@ struct ComputerInputController: Sendable {
                 ))
                 await heldInputs.insertModifier(modifier)
                 activeModifiers = nextModifiers
+                try checkSafety()
             }
 
             try Task.checkCancellation()
-            try await focusGuard.verifyExpectedFrontmost()
+            try await verifyFocus(focusGuard)
+            try checkSafety()
             try eventSink.emit(.key(keyCode: keyCode, down: true, modifiers: activeModifiers))
             await heldInputs.insertKeyCode(keyCode)
+            try checkSafety()
 
             try Task.checkCancellation()
-            try await focusGuard.verifyExpectedFrontmost()
+            try await verifyFocus(focusGuard)
+            try checkSafety()
             try eventSink.emit(.key(keyCode: keyCode, down: false, modifiers: activeModifiers))
             await heldInputs.removeKeyCode(keyCode)
+            try checkSafety()
 
             for modifier in KeyMapping.modifierReleaseOrder where modifiers.contains(modifier) && activeModifiers.contains(modifier) {
                 try Task.checkCancellation()
-                try await focusGuard.verifyExpectedFrontmost()
+                try await verifyFocus(focusGuard)
                 let nextModifiers = activeModifiers.subtracting([modifier])
+                try checkSafety()
                 try eventSink.emit(.key(
                     keyCode: KeyMapping.modifierKeyCode(for: modifier),
                     down: false,
@@ -234,6 +262,7 @@ struct ComputerInputController: Sendable {
                 ))
                 await heldInputs.removeModifier(modifier)
                 activeModifiers = nextModifiers
+                try checkSafety()
             }
 
             await lane.release()
@@ -250,13 +279,15 @@ struct ComputerInputController: Sendable {
         focusGuard: any InputFocusGuard
     ) async throws -> ComputerActionResult {
         await lane.acquire()
+        beginSafetyAction()
+        defer { endSafetyAction() }
         do {
             try Task.checkCancellation()
-            try await focusGuard.verifyExpectedFrontmost()
+            try await verifyFocus(focusGuard)
             for chunk in Self.unicodeChunks(text) {
                 try Task.checkCancellation()
-                try await focusGuard.verifyExpectedFrontmost()
-                try eventSink.emit(.unicode(chunk))
+                try await verifyFocus(focusGuard)
+                try emitActionEvent(.unicode(chunk))
             }
             await lane.release()
             return ComputerActionResult(state: "completed")
@@ -293,10 +324,15 @@ struct ComputerInputController: Sendable {
             try Task.checkCancellation()
             let delay = sample.offsetNanoseconds - previousOffset
             if delay > 0 {
+                try checkSafety()
                 try await sleeper.sleep(nanoseconds: delay)
+                try checkSafety()
             }
             try Task.checkCancellation()
-            try eventSink.emit(.mouseMove(point: sample.point, dragButton: dragButton))
+            try emitActionEvent(
+                .mouseMove(point: sample.point, dragButton: dragButton),
+                expectedPointer: sample.point
+            )
             previousOffset = sample.offsetNanoseconds
         }
 
@@ -309,8 +345,10 @@ struct ComputerInputController: Sendable {
         clickCount: Int
     ) async throws {
         try Task.checkCancellation()
+        try checkSafety()
         try eventSink.emit(.mouseButton(button: button, down: true, point: point, clickCount: clickCount))
         await heldInputs.insertMouseButton(button)
+        try checkSafety()
     }
 
     private func emitMouseUpWithinLane(
@@ -318,8 +356,40 @@ struct ComputerInputController: Sendable {
         point: ComputerPoint,
         clickCount: Int
     ) async throws {
+        try checkSafety()
         try eventSink.emit(.mouseButton(button: button, down: false, point: point, clickCount: clickCount))
         await heldInputs.removeMouseButton(button)
+        try checkSafety()
+    }
+
+    private func beginSafetyAction() {
+        safetyCoordinator?.beginAction(expectedPointer: try? pointerPosition())
+    }
+
+    private func endSafetyAction() {
+        safetyCoordinator?.endAction()
+    }
+
+    private func checkSafety() throws {
+        try safetyCoordinator?.checkForInterruption()
+    }
+
+    private func emitActionEvent(
+        _ event: InputEvent,
+        expectedPointer: ComputerPoint? = nil
+    ) throws {
+        try checkSafety()
+        try eventSink.emit(event)
+        if let expectedPointer {
+            safetyCoordinator?.updateExpectedPointer(expectedPointer)
+        }
+        try checkSafety()
+    }
+
+    private func verifyFocus(_ focusGuard: any InputFocusGuard) async throws {
+        try checkSafety()
+        try await focusGuard.verifyExpectedFrontmost()
+        try checkSafety()
     }
 
     private func releaseAllInputsWithinLane() async throws {

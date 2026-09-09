@@ -29,11 +29,19 @@ public struct ComputerHostService: Sendable {
 
     public static func system() -> ComputerHostService {
         let topology = SystemDisplayTopology()
+        let safetyCoordinator = InputSafetyCoordinator()
+        let takeoverMonitor = SystemTakeoverMonitor(coordinator: safetyCoordinator)
+        do {
+            try takeoverMonitor.start()
+        } catch {
+            safetyCoordinator.markMonitorUnavailable()
+        }
         let controller = ComputerInputController(
             eventSink: SystemInputEventSink(),
             pointerReader: topology,
             displayTopology: topology,
-            sleeper: SystemInputSleeper()
+            sleeper: SystemInputSleeper(),
+            safetyCoordinator: safetyCoordinator
         )
         return .init(
             permissions: SystemPermissionReader(),
@@ -43,7 +51,8 @@ public struct ComputerHostService: Sendable {
             actions: ComputerActionService(
                 controller: controller,
                 applicationController: SystemWorkspaceController(),
-                appSleeper: SystemInputSleeper()
+                appSleeper: SystemInputSleeper(),
+                takeoverMonitor: takeoverMonitor
             )
         )
     }

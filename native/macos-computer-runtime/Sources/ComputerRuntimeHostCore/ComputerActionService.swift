@@ -36,15 +36,18 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
     private let controller: ComputerInputController
     private let applicationController: (any ApplicationControlling)?
     private let appSleeper: any InputSleeping
+    private let takeoverMonitor: (any TakeoverMonitoring)?
 
     init(
         controller: ComputerInputController,
         applicationController: (any ApplicationControlling)? = nil,
-        appSleeper: any InputSleeping = SystemInputSleeper()
+        appSleeper: any InputSleeping = SystemInputSleeper(),
+        takeoverMonitor: (any TakeoverMonitoring)? = nil
     ) {
         self.controller = controller
         self.applicationController = applicationController
         self.appSleeper = appSleeper
+        self.takeoverMonitor = takeoverMonitor
     }
 
     func handleAction(_ request: ComputerProtocolRequest) async -> ComputerProtocolResponse? {
@@ -66,6 +69,8 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             do {
                 let result = try await controller.moveMouse(to: parsed.point, mode: parsed.mode)
                 return encodeResult(result, requestId: request.requestId)
+            } catch is InputSafetyInterruption {
+                return userTakeover(requestId: request.requestId)
             } catch is CancellationError {
                 return cancelled(requestId: request.requestId)
             } catch {
@@ -81,6 +86,8 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                     ? try await controller.click(at: parsed.point, button: parsed.button, mode: parsed.mode)
                     : try await controller.doubleClick(at: parsed.point, button: parsed.button, mode: parsed.mode)
                 return encodeResult(result, requestId: request.requestId)
+            } catch is InputSafetyInterruption {
+                return userTakeover(requestId: request.requestId)
             } catch is CancellationError {
                 return cancelled(requestId: request.requestId)
             } catch {
@@ -96,6 +103,8 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                     ? try await controller.mouseDown(button)
                     : try await controller.mouseUp(button)
                 return encodeResult(result, requestId: request.requestId)
+            } catch is InputSafetyInterruption {
+                return userTakeover(requestId: request.requestId)
             } catch is CancellationError {
                 return cancelled(requestId: request.requestId)
             } catch {
@@ -114,6 +123,8 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                     mode: parsed.mode
                 )
                 return encodeResult(result, requestId: request.requestId)
+            } catch is InputSafetyInterruption {
+                return userTakeover(requestId: request.requestId)
             } catch is CancellationError {
                 return cancelled(requestId: request.requestId)
             } catch {
@@ -132,6 +143,8 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                     mode: parsed.mode
                 )
                 return encodeResult(result, requestId: request.requestId)
+            } catch is InputSafetyInterruption {
+                return userTakeover(requestId: request.requestId)
             } catch is CancellationError {
                 return cancelled(requestId: request.requestId)
             } catch {
@@ -193,6 +206,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
 
     func shutdown() async {
         try? await controller.releaseAllInputs()
+        takeoverMonitor?.stop()
     }
 
     private func handleKeyboardAction(
@@ -217,6 +231,8 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             return targetAmbiguous(requestId: requestId)
         } catch ComputerInputError.focusMismatch {
             return focusFailed(requestId: requestId)
+        } catch is InputSafetyInterruption {
+            return userTakeover(requestId: requestId)
         } catch is CancellationError {
             return cancelled(requestId: requestId)
         } catch {
@@ -656,6 +672,14 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             requestId: requestId,
             code: "COMPUTER_FOCUS_FAILED",
             message: "Computer focus verification failed."
+        )
+    }
+
+    private func userTakeover(requestId: String) -> ComputerProtocolResponse {
+        .failure(
+            requestId: requestId,
+            code: "COMPUTER_USER_TAKEOVER",
+            message: "User took over computer input."
         )
     }
 
