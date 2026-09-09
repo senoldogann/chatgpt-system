@@ -24,6 +24,29 @@ public struct WorkspaceApplication: Equatable, Sendable {
     }
 }
 
+public struct ObservationLimits: Equatable, Sendable {
+    public let maxElements: Int
+    public let maxSerializedCharacters: Int
+    public let maxDepth: Int
+
+    public init(maxElements: Int, maxSerializedCharacters: Int, maxDepth: Int) {
+        self.maxElements = maxElements
+        self.maxSerializedCharacters = maxSerializedCharacters
+        self.maxDepth = maxDepth
+    }
+
+    public static let `default` = ObservationLimits(
+        maxElements: 500,
+        maxSerializedCharacters: 262_144,
+        maxDepth: 12
+    )
+}
+
+public enum AccessibilityReadError: Error, Equatable, Sendable {
+    case permissionRequired
+    case unavailable
+}
+
 public protocol PermissionReading: Sendable {
     func accessibilityTrusted() -> Bool
     func screenCaptureAuthorized() -> Bool
@@ -32,4 +55,9 @@ public protocol PermissionReading: Sendable {
 public protocol WorkspaceReading: Sendable {
     func runningApplications() -> [WorkspaceApplication]
     func frontmostApplication() -> WorkspaceApplication?
+}
+
+public protocol AccessibilityReading: Sendable {
+    func activeWindow(for application: WorkspaceApplication) throws -> ActiveWindowView
+    func observe(for application: WorkspaceApplication, limits: ObservationLimits) throws -> ComputerObservation
 }
