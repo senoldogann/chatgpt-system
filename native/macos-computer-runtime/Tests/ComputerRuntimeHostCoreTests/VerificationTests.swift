@@ -256,6 +256,33 @@ final class VerificationTests: XCTestCase {
         XCTAssertLessThan(firstEvent, entries.count - 1)
     }
 
+    func testVerificationFailureAfterMouseDownReleasesHeldButton() async {
+        let controller = verificationController()
+        let service = ComputerHostService(
+            permissions: VerificationPermissions(),
+            workspace: VerificationWorkspace(frontmostSequence: [], apps: []),
+            actions: ComputerActionService(
+                controller: controller,
+                verification: TimeoutAXVerificationHandler()
+            )
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "verify-mouse-down",
+            method: "mouse_down",
+            params: .object([
+                "button": .string("left"),
+                "verify": .object(["kind": .string("ax_changed"), "timeoutMs": .number(50)]),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_TIMEOUT")
+        let held = await controller.heldInputState()
+        XCTAssertTrue(held.isEmpty)
+    }
+
     func testActionVerifyScreenRegionCapturesBaselineAndReturnsTimeoutStably() async {
         let log = VerificationCallLog()
         let handler = RecordingVerificationHandler(log: log, screenWaitError: .timeout)
@@ -430,6 +457,16 @@ private struct VerificationPermissions: PermissionReading {
 
 private enum NativeVerificationError: Error {
     case failure(String)
+}
+
+private struct TimeoutAXVerificationHandler: ComputerVerificationHandling {
+    func currentAXDigest() throws -> String { "baseline" }
+    func currentFocusedElementIndex() throws -> Int? { nil }
+    func waitForFrontmost(_ selector: ComputerApplicationSelector, timeoutMs: Int) async throws -> ApplicationView { throw ComputerVerificationError.focusFailed }
+    func waitForText(_ text: String, exact: Bool, timeoutMs: Int) async throws { throw ComputerVerificationError.timeout }
+    func waitUntilAXChanged(from baselineDigest: String, timeoutMs: Int) async throws -> String { throw ComputerVerificationError.timeout }
+    func currentScreenRegionDigest(bounds: ComputerBounds) async throws -> String { "baseline" }
+    func waitUntilScreenRegionChanged(bounds: ComputerBounds, from baselineDigest: String, timeoutMs: Int) async throws -> String { throw ComputerVerificationError.timeout }
 }
 
 private struct FailingVerificationHandler: ComputerVerificationHandling {

@@ -246,16 +246,25 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             try await waitForVerification(verificationSpec, baseline: baseline)
             return encodeResult(result, requestId: requestId)
         } catch ComputerVerificationError.timeout {
+            await releaseInputsAfterFailedAction()
             return timeout(requestId: requestId)
         } catch ComputerInputError.focusMismatch {
+            await releaseInputsAfterFailedAction()
             return focusFailed(requestId: requestId)
         } catch is InputSafetyInterruption {
+            await releaseInputsAfterFailedAction()
             return userTakeover(requestId: requestId)
         } catch is CancellationError {
+            await releaseInputsAfterFailedAction()
             return cancelled(requestId: requestId)
         } catch {
+            await releaseInputsAfterFailedAction()
             return actionFailed(requestId: requestId)
         }
+    }
+
+    private func releaseInputsAfterFailedAction() async {
+        try? await controller.releaseAllInputs()
     }
 
     private func captureVerificationBaseline(_ spec: ActionVerificationSpec?) async throws -> String? {
