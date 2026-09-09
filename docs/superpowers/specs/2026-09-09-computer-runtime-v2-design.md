@@ -7,11 +7,9 @@
 
 ## 1. Goal
 
-Add a fast native macOS computer-control runtime to `chatgpt-system` so the ChatGPT agent can perceive and manipulate the real Mac with low latency, smooth visible pointer movement, multi-step local execution, verification, retry, and bounded fallback.
+Build a fast native macOS computer-control runtime inside `chatgpt-system` so ChatGPT can perceive and manipulate the real Mac with low latency, visible smooth pointer movement, multi-step local execution, verification, retry, and bounded fallback.
 
-The ChatGPT model remains the only reasoning agent. The local runtime is deterministic execution infrastructure. It does not run a second LLM, autonomous planner, or OODA loop.
-
-The target user experience is:
+ChatGPT remains the only reasoning agent. The local runtime is deterministic execution infrastructure. It never runs a second LLM, autonomous planner, or OODA loop.
 
 ```text
 ChatGPT reasoning + MCP/plugins/skills
@@ -19,7 +17,7 @@ ChatGPT reasoning + MCP/plugins/skills
         v
 chatgpt-system authority / policy / audit
         |
-        +--> computer_run(...)       fast typed multi-action path
+        +--> computer_run(...)       typed fast path
         |
         +--> computer_run_js(...)    full Node.js power path
         |
@@ -28,61 +26,54 @@ Computer Runtime v2
         |
         +--> native macOS perception
         +--> native macOS actuation
-        +--> action verification
-        +--> bounded retry/fallback
+        +--> verification/recovery
         v
 real Mac
 ```
 
 A single `computer_run` or `computer_run_js` call may complete many local UI actions without returning to ChatGPT between every click, scroll, observation, and retry.
 
-## 2. Why this replaces the old computer-use bridge direction
+## 2. Superseded direction
 
-The historical `feat/computer-use-bridge` design proposed reusing the separate `senoldogann/computer-use` Python/Rust stack. That stack contains useful safety and driver ideas, but the desired product has changed:
+The historical `feat/computer-use-bridge` design proposed reusing the separate `senoldogann/computer-use` Python/Rust stack. Computer Runtime v2 supersedes that direction.
 
-- the existing Python/OODA orchestration is too slow for the intended interactive daily-driver experience;
-- the new runtime must not add a second reasoning loop;
-- perception and actuation should be native and local;
-- repeated screenshot/OCR/model round trips must not be the default interaction path;
-- ChatGPT should be able to send a multi-step action program and let the Mac execute it locally at high speed.
+The new subsystem has **no runtime/build dependency** on `senoldogann/computer-use`. The old Python/OODA orchestration is not reused. Useful concepts such as takeover, input cleanup, bounded retries, and deterministic actuation may be reimplemented natively.
 
-Computer Runtime v2 therefore does **not** depend on the `senoldogann/computer-use` repository. Useful ideas may be reimplemented, but there is no runtime or build dependency on that repository.
+Reason: the desired daily-driver experience is much faster than repeated Python/OODA/screenshot/OCR/model round trips, and there must be only one reasoning agent.
 
 ## 3. Non-goals
 
-This subsystem does not:
+Computer Runtime v2 does not:
 
-- replace Browser Runtime for ordinary web automation;
-- create a second LLM or local autonomous planner;
-- provide root or automatic `sudo` privileges;
-- bypass macOS TCC permissions;
-- promise that every application exposes a useful Accessibility tree;
-- promise local semantic image understanding equivalent to a multimodal model;
-- provide hidden/stealth input or bot-detection evasion;
-- persist autonomous jobs after the `chatgpt-system` daemon exits;
-- create a generic remote desktop protocol.
+- replace Browser Runtime for ordinary semantic web automation;
+- create another model/agent;
+- bypass macOS TCC;
+- provide hidden/stealth input or anti-detection behavior;
+- promise full semantic visual understanding locally;
+- persist autonomous jobs after daemon shutdown;
+- create a generic remote-desktop server.
 
-Browser Runtime remains the preferred surface for browser-native work. Computer Runtime v2 is the native-app and visual fallback/control layer.
+Browser Runtime remains the preferred browser path. Computer Runtime is the native-app/custom-UI/visual fallback path.
 
-## 4. Core architecture
+## 4. Architecture
 
 ### 4.1 TypeScript control plane
 
 `chatgpt-system` owns:
 
-- MCP registration;
-- authority enforcement;
+- MCP registration and output schemas;
+- Admin authority checks;
 - startup feature gates;
-- native-helper lifecycle;
-- action serialization;
-- typed action program validation;
+- native-host lifecycle;
+- one physical-action mutex;
+- typed action-program validation;
 - full-Node runner lifecycle;
 - time/action/output limits;
-- error normalization;
-- audit metadata and redaction;
-- daemon shutdown ordering.
+- stable error normalization;
+- audit/redaction;
+- shutdown ordering.
 
-Suggested focused modules:
+Focused modules should keep `server.ts` from becoming the implementation:
 
 ```text
 src/computer-types.ts
@@ -91,156 +82,147 @@ src/computer-runtime.ts
 src/computer-action-runner.ts
 src/computer-js-runner-supervisor.ts
 src/computer-tool-registration.ts
-src/computer-errors.ts          // or existing errors.ts if kept focused
 ```
 
-The existing `server.ts` must remain registration/composition code rather than becoming the computer-use implementation.
+Use existing `errors.ts` only if the computer errors remain readable there; otherwise isolate them in a focused internal module.
 
-### 4.2 Native macOS host helper
+### 4.2 Native macOS host
 
-A new native helper lives in this repository:
+A new Swift package lives at:
 
 ```text
 native/macos-computer-runtime/
 ```
 
-It is implemented in Swift using the smallest direct macOS APIs needed for the host boundary:
+It uses native APIs directly:
 
-- Accessibility (`AXUIElement`) for structured UI perception and semantic actions/geometry;
-- `NSWorkspace` / AppKit for application discovery, activation, and launching;
-- CoreGraphics/Quartz events for physical mouse, keyboard, drag, and scroll input;
-- ScreenCaptureKit for screen/window capture where available and appropriate;
+- Accessibility / `AXUIElement` for structured UI perception;
+- AppKit / `NSWorkspace` for app discovery, launch, activation and frontmost checks;
+- CoreGraphics/Quartz events for mouse, keyboard, drag and scroll;
+- ScreenCaptureKit for screen/window capture;
 - Vision for OCR fallback;
 - CoreGraphics display/window geometry for coordinate normalization.
 
-The helper is a deterministic command service, not a GUI application and not a reasoning engine.
+It contains no planner or model.
 
-### 4.3 Parent-owned stdio protocol
+### 4.3 Stable host bundle and TCC identity
 
-`chatgpt-system` launches the fixed installed helper with `shell: false` and communicates over parent-owned stdin/stdout pipes using versioned newline-delimited JSON.
+The Swift executable is staged as a background app bundle with a stable local identity:
 
-No TCP listener and no general Unix socket server are required in v1. Parent-owned stdio provides a smaller attack and lifecycle surface than the historical bridge design.
+```text
+~/.chatgpt-system/ChatGPTSystemComputerHost.app
+```
 
-The helper executable path is startup/operator configuration. MCP arguments cannot choose or replace it.
+Bundle identifier:
 
-Requests and responses are schema-validated on both sides. Stderr is diagnostic-only and is never copied verbatim into MCP errors.
+```text
+com.senoldogann.chatgpt-system.computer-host
+```
 
-### 4.4 One physical-action lane
+`LSUIElement=1` keeps it out of the Dock. `chatgpt-system` launches the bundle executable directly from `Contents/MacOS/` so stdin/stdout remain private parent-owned pipes.
 
-The Mac has one pointer and keyboard. All physical mutations are serialized through one runtime action mutex.
+`npm run setup:computer` builds, stages and locally signs the bundle for development/daily-driver use. Production/distribution signing can later use a stable Developer ID without changing the protocol contract.
 
-Read-only observations may be coalesced or cached, but physical mutations never execute concurrently.
+Accessibility and Screen Recording permissions are granted by macOS to this stable host identity. Setup/doctor may report the required steps but never edits/bypasses TCC.
 
-`computer_run` and `computer_run_js` hold the action lane for the duration of their current atomic action sequence. They must still observe cancellation/user takeover between individual physical actions.
+### 4.4 Parent-owned protocol
 
-## 5. Explicit enablement and authority
+The daemon communicates with the host over versioned newline-delimited JSON on stdin/stdout.
+
+No TCP listener and no general Unix-socket service exists in v1.
+
+The helper path is startup/operator configuration. MCP input cannot choose an executable path.
+
+Both sides strictly validate protocol version, request ID, method, params and byte limits. Native stderr is diagnostic-only and is never copied verbatim into MCP errors.
+
+### 4.5 One physical-action lane
+
+The Mac has one pointer and keyboard. All physical mutations are serialized.
+
+Read-only observations may be cached/coalesced, but two computer programs never click/type/drag concurrently.
+
+`computer_run` and `computer_run_js` retain the lane while their local action sequence runs, while still checking cancellation and user takeover between physical mutations.
+
+## 5. Enablement and authority
 
 ### 5.1 Disabled by default
 
-Computer Runtime v2 is disabled unless the local operator explicitly enables it at daemon/setup time.
-
-Proposed startup options:
+Startup/setup flags:
 
 ```text
 --enable-computer-use
 --enable-full-host-js
---computer-helper <fixed local executable path>   // setup/operator only
 ```
 
-Equivalent config/environment representation may be used internally. The setup tooling should write the fixed helper path; ChatGPT cannot change it through MCP.
+The fixed host path is generated by setup and stored in trusted local configuration. MCP cannot enable either capability.
 
-### 5.2 Admin-only host control
+### 5.2 Admin-only
 
-`computer_health` is lease-free because it returns only categorical readiness.
+`computer_health` is lease-free because it returns categorical readiness only.
 
-All other `computer_*` tools require an active **Admin** lease. Project/User authority cannot observe screen/Accessibility state or actuate the host.
+Every other `computer_*` tool requires an active Admin lease. Project/User authority cannot inspect the screen/AX tree or actuate the host.
 
-### 5.3 Full-host JavaScript is an explicit stronger capability
+### 5.3 Full-host JS is intentionally powerful
 
-`computer_run_js` requires both:
+`computer_run_js` additionally requires `--enable-full-host-js`.
 
-- active Admin authority;
-- startup `--enable-full-host-js`.
+This mode is explicitly **not a sandbox**. The script executes as the current macOS user and may use normal Node.js capabilities including filesystem, network, `child_process`, `require(...)`, dynamic `import(...)`, and resolvable packages.
 
-This is intentionally stronger than `terminal_run` and the ordinary scoped filesystem tools.
+It may invoke any executable the current account itself can invoke. This includes `sudo` if present, but `chatgpt-system` never supplies a password, bypasses a prompt, grants a privileged helper, or otherwise elevates privileges automatically. A machine configured with passwordless `sudo` naturally has the privileges that configuration provides; full-host JS does not pretend otherwise.
 
-The JavaScript runner is **not a sandbox**. It may use normal Node.js capabilities such as:
+The runner receives a sanitized environment so daemon/tunnel credentials and authority secrets are not automatically inherited. HOME, PATH, locale and normal runtime variables needed for ordinary user-level tooling are preserved deliberately.
 
-- `require("node:fs")`;
-- `await import("node:fs")`;
-- `child_process`;
-- networking;
-- the current user's filesystem permissions;
-- ordinary user-level Node packages that are resolvable from the runner environment.
+`system_capabilities` and `system_environment` report whether computer use and full-host JS are enabled without revealing secrets.
 
-It still runs as the current macOS user. It does not gain root privileges merely because full-host JS is enabled.
+## 6. Perception: cheap path first
 
-Enabling `--enable-full-host-js` is therefore an explicit local-owner trust decision and must be reported by `system_capabilities` / `system_environment` without exposing secrets.
+The runtime must not do full screenshot + OCR for every action.
 
-The runner receives a sanitized process environment and must not inherit tunnel credentials, authority secrets, or unrelated daemon-only secret environment variables by default. This is fault/secrets isolation, not a claim that the runner is sandboxed.
+### 6.1 Accessibility first
 
-## 6. Perception model: fast paths first
+`computer_observe` first returns a bounded normalized AX snapshot for the active or requested app/window.
 
-The runtime must avoid a full screenshot + OCR cycle for every action.
-
-### 6.1 Layer 1: Accessibility-first observation
-
-`computer_observe` first attempts to obtain a bounded Accessibility representation for the active or requested application/window.
-
-Returned element data may include:
+Elements may include:
 
 ```text
 snapshotId
 index
-role
-subrole
-label/title/description where available
-focused/enabled/selected state
-logical bounds: x/y/width/height
-supported high-level actions where useful
+role/subrole
+label/title/description
+focused/enabled/selected
+x/y/width/height
+supported semantic actions where useful
 ```
 
-It must not expose raw `AXUIElement` pointers or process IDs.
+Never return raw AX pointers or OS PIDs.
 
-Editable/secure current values are redacted from observations. This rule protects accidental secret reflection even in full-host mode.
+Editable and secure current field values are omitted from structured observations. This prevents accidental reflection of passwords/tokens even in owner-trust mode.
 
-### 6.2 Layer 2: frame/window change detection
+### 6.2 Change detection
 
-The runtime keeps bounded in-memory observation metadata so it can cheaply determine whether the active window, Accessibility tree digest, or requested screen region changed after an action.
+The host keeps bounded in-memory metadata/digests for the current window, AX snapshot and recent capture regions. Verification can cheaply answer “did the UI change?” without running OCR.
 
-This is used for verification and `wait_until_changed` without forcing OCR.
+Screenshot pixels are not written to disk by default.
 
-No screenshot pixels are written to disk by default.
+### 6.3 Screenshot/crop
 
-### 6.3 Layer 3: screenshot/crop
+When AX is absent, stale or insufficient, capture only what is useful when possible: active window, one display, or a bounded region.
 
-When Accessibility information is absent, stale, or insufficient, the runtime may capture:
+`computer_screenshot` explicitly exposes PNG image content to ChatGPT. Internal verification may use captures without returning them.
 
-- the active window;
-- one display;
-- a bounded region/crop.
+### 6.4 Vision OCR fallback
 
-`computer_screenshot` exposes an explicit capture to ChatGPT. Internal verification may use smaller captures without returning them to the caller.
+Vision OCR is the text fallback for custom/canvas UIs that do not expose useful AX text.
 
-### 6.4 Layer 4: Vision OCR fallback
+OCR returns bounded text boxes and geometry. It is not treated as equivalent to model-level visual reasoning.
 
-Vision OCR is used when text exists visually but is not exposed usefully through Accessibility.
+### 6.5 Replan boundary
 
-OCR is a fallback, not the primary perception strategy.
+If deterministic AX/OCR/geometry logic cannot identify the intended target confidently, stop with `COMPUTER_NEEDS_REPLAN` and return a bounded final observation plus an explicit screenshot/crop when useful.
 
-The OCR result is bounded and represented as text boxes/geometry. The runtime does not pretend OCR has full semantic understanding.
+The runtime never silently calls another LLM.
 
-### 6.5 Model replan boundary
-
-If deterministic local methods cannot identify the intended target with sufficient confidence, the local runtime stops and returns a structured failure such as `COMPUTER_NEEDS_REPLAN` with a bounded final observation and, when useful, an explicit screenshot/crop.
-
-The local runtime does not silently invoke a second model. ChatGPT may then inspect the evidence and issue a new action/program.
-
-## 7. Target model
-
-Actions should prefer semantic targets rather than raw coordinates.
-
-Supported target forms in v1:
+## 7. Targets and stale-state safety
 
 ```ts
 type ComputerTarget =
@@ -252,107 +234,114 @@ type ComputerTarget =
   | { by: "point"; x: number; y: number };
 ```
 
-Snapshot indices are short-lived hints. A stale `snapshotId` must never be trusted blindly. The runtime revalidates target geometry before mutation.
+Snapshot indices are short-lived hints. Before mutation the runtime revalidates that the snapshot/target geometry is still usable.
 
-If a semantic target has zero matches, return/fallback from `COMPUTER_TARGET_NOT_FOUND`. If it has multiple unsafe matches and cannot be disambiguated, return `COMPUTER_TARGET_AMBIGUOUS` rather than guessing.
+Zero matches => `COMPUTER_TARGET_NOT_FOUND`.
 
-Raw coordinates remain available because some native/canvas/custom UIs expose no useful semantic tree, but coordinates are bounded to the current display topology and are the least-preferred target form.
+Unsafe multiple matches => `COMPUTER_TARGET_AMBIGUOUS`.
 
-## 8. Human-visible fast pointer motion
+Stale indexed target => `COMPUTER_STALE_SNAPSHOT`, then the configured recovery ladder may re-observe/re-resolve.
 
-Pointer movement should be visible and smooth rather than teleporting to every target.
+Raw coordinates are supported because some applications expose no useful semantic tree, but coordinates are bounded to current display topology and are the least-preferred target form.
 
-The native helper generates a short smooth trajectory between current pointer position and destination using a distance-aware cubic curve and easing.
+## 8. Fast human-visible pointer motion
 
-The design goal is reliability and visually trackable interaction, not stealth or anti-detection behavior.
+The cursor should visibly move rather than teleport for ordinary clicks.
 
-Default motion profile:
+The native host generates a smooth distance-aware cubic path with easing. The objective is reliable, visually trackable interaction, not anti-detection behavior.
 
-```text
-very short move: roughly 50-90 ms
-short move:      roughly 70-130 ms
-medium move:     roughly 100-190 ms
-long move:       roughly 140-260 ms
-```
-
-Exact timing is clamped and may adapt to display distance and drag semantics. The implementation should avoid artificial jitter that reduces targeting reliability.
-
-Supported motion modes may be:
+Default profiles:
 
 ```text
-instant   // explicit troubleshooting/speed option
-fast      // smooth but short duration; recommended default
-natural   // slightly more visible/relaxed
+instant   explicit troubleshooting/speed mode
+fast      smooth, recommended default
+natural   slightly more visible/relaxed
 ```
 
-The local operator may set a startup default. The model may request `fast` or `natural` per action if enabled by schema, but it cannot disable takeover detection or bounds checking.
+Approximate `fast` timing goals:
 
-Clicks are emitted only after the final pointer position is verified within a small tolerance of the intended target.
+```text
+very short: 50-90 ms
+short:      70-130 ms
+medium:     100-190 ms
+long:       140-260 ms
+```
 
-## 9. Physical input and takeover
+The path ends exactly at the requested target. Avoid random jitter that harms hit accuracy.
 
-### 9.1 Native actions
+The model may request `instant`, `fast`, or `natural`, but cannot disable coordinate bounds or user takeover.
 
-The helper supports at minimum:
+## 9. Physical actions, focus, typing and takeover
 
-- move mouse;
-- click / double click;
+Native actions:
+
+- mouse move;
+- click / double-click;
 - mouse down/up;
 - drag;
-- vertical/horizontal scroll;
+- horizontal/vertical scroll;
 - type text;
-- press one key;
-- press a modifier key chord;
+- key press;
+- modifier chord/hotkey;
 - release all held inputs.
+
+Before focus-sensitive actions the intended application/window must be frontmost. Unexpected focus change causes bounded retry or `COMPUTER_FOCUS_FAILED`; typing never continues blindly into another app.
+
+### 9.1 Secure-field behavior
+
+Structured observations never return secure-field values.
+
+Computer Runtime v2 does **not** impose a separate credential-entry refusal on Admin owner-trust input. If ChatGPT explicitly calls `computer_type_text` or a full-host JS program types into a secure field, the host may perform that input. Typed content is never audited.
+
+This is intentionally different from the safer Browser Runtime credential policy and follows the explicit full-host daily-driver goal.
 
 ### 9.2 User takeover
 
-The user must be able to reclaim physical control immediately.
+The user can reclaim control immediately.
 
-During a runtime-owned pointer movement or drag, unexpected pointer deviation beyond a conservative tolerance is treated as user takeover. The current action is interrupted, held inputs are released, and the runtime returns `COMPUTER_USER_TAKEOVER`.
+Synthetic CGEvents are tagged with a helper-owned event-source marker. An event tap ignores those owned events but watches real user input.
 
-The native helper should also provide a fixed local emergency hotkey that cannot be disabled by MCP input. The exact key combination is chosen during implementation based on reliable macOS event-tap behavior and documented in setup/acceptance instructions.
+During runtime-owned motion/drag, unexpected real pointer movement or physical input interrupts the current action, releases held buttons/keys, and returns `COMPUTER_USER_TAKEOVER`.
 
-### 9.3 Focus verification
+Default pointer takeover tolerance is 18 logical pixels. It is startup/operator configuration, not model-controlled input.
 
-Before focus-sensitive mutations, the runtime confirms the intended application/window is frontmost.
-
-If focus cannot be acquired or changes unexpectedly, the action fails or retries through the bounded recovery policy. It does not keep typing into whichever application happened to become active.
-
-## 10. Verification and recovery
-
-A physical input event is not automatically considered success.
-
-### 10.1 Verification primitives
-
-The local runtime provides deterministic checks such as:
-
-- target disappeared/appeared;
-- text appeared;
-- Accessibility state changed;
-- focused element changed;
-- active window changed;
-- selected/checked value changed;
-- specified screen region changed;
-- application became frontmost;
-- elapsed bounded wait completed.
-
-### 10.2 Recovery ladder
-
-For operations that opt into automatic recovery, use a bounded ladder such as:
+Fixed emergency hotkey:
 
 ```text
-1. re-read current AX state
-2. re-resolve the semantic target
-3. refocus intended app/window
-4. try OCR-backed target resolution when applicable
-5. use an explicitly supplied coordinate fallback when present
-6. stop and return COMPUTER_NEEDS_REPLAN
+Control + Option + Command + Escape
 ```
 
-The runtime never invents an arbitrary coordinate simply because semantic resolution failed.
+The hotkey cannot be disabled by MCP. Triggering it cancels the active computer action/program and releases held inputs.
 
-Default recovery budgets are small. Example defaults:
+## 10. Verification and bounded recovery
+
+Emitting an input event is not success by itself.
+
+Deterministic verification primitives include:
+
+- target/text appeared or disappeared;
+- AX state changed;
+- focus changed as expected;
+- active window changed;
+- checkbox/selection value changed;
+- requested screen region changed;
+- app became frontmost;
+- bounded wait completed.
+
+Recovery ladder:
+
+```text
+1. fresh AX observation
+2. re-resolve semantic target
+3. refocus intended app/window
+4. OCR-backed target lookup when relevant
+5. explicitly supplied coordinate fallback
+6. COMPUTER_NEEDS_REPLAN
+```
+
+The runtime never invents a random coordinate because semantic lookup failed.
+
+Default bounds:
 
 ```text
 maxAutomaticRetriesPerAction = 2
@@ -360,11 +349,9 @@ maxActionProgramActions = 100
 maxActionProgramRuntimeMs = 30000
 ```
 
-These are operational bounds rather than security sandbox claims.
-
 ## 11. MCP surface
 
-### 11.1 Readiness and observation
+### 11.1 Health/observation
 
 ```text
 computer_health
@@ -372,7 +359,7 @@ computer_observe
 computer_screenshot
 ```
 
-`computer_health` output is categorical, for example:
+Health example:
 
 ```ts
 {
@@ -384,9 +371,7 @@ computer_screenshot
 }
 ```
 
-No lease is required for health.
-
-### 11.2 Direct low-level operations
+### 11.2 Direct operations
 
 ```text
 computer_open_app
@@ -401,17 +386,33 @@ computer_wait
 computer_release_inputs
 ```
 
-These remain useful for debugging, acceptance, and one-off calls.
+These remain valuable for debugging, acceptance and simple one-off actions.
 
-### 11.3 Fast multi-action path
+### 11.3 `computer_run`: typed multi-action fast path
+
+A single call receives a bounded action array. Initial action vocabulary:
 
 ```text
-computer_run
+observe
+screenshot
+open_app
+focus_app
+move_mouse
+click
+double_click
+drag
+scroll
+type_text
+press_key
+wait
+wait_for_text
+wait_until_changed
+release_inputs
 ```
 
-Input contains a bounded array of typed actions and optional verification/recovery fields.
+Each action may provide an optional verification condition and an explicitly bounded retry policy. Targeted actions may provide one explicit fallback target.
 
-Example conceptual request:
+Example:
 
 ```json
 {
@@ -423,15 +424,9 @@ Example conceptual request:
 }
 ```
 
-The runtime executes the sequence locally under one MCP call and returns per-step summaries plus the final bounded observation.
+The response contains per-step status summaries and one final bounded observation. It does not stream every internal mouse sample back through MCP.
 
-Typed actions are the preferred fast path for routine sequences because they avoid spinning up a Node child.
-
-### 11.4 Full Node.js power path
-
-```text
-computer_run_js
-```
+### 11.4 `computer_run_js`: full Node power path
 
 Conceptual input:
 
@@ -439,20 +434,24 @@ Conceptual input:
 {
   authorityLeaseId: string;
   source: string;
+  cwd?: string;
   timeoutMs?: number;
 }
 ```
 
-`source` executes in a dedicated child Node process owned by `chatgpt-system`, not inside the daemon process.
+`cwd` defaults to the first configured startup root for deterministic daily-driver behavior. Because this is full-host JS, the script itself may later change directory or access paths outside configured roots using ordinary Node APIs.
 
-The child receives a `computer` API that performs native computer operations by private parent-child IPC.
+The source executes in a dedicated Node child, never in the daemon event loop.
 
-Representative API:
+Source is delivered through a private pipe/stdin, not argv or environment.
+
+The child gets a parent-mediated `computer` object:
 
 ```js
 await computer.observe(options)
 await computer.screenshot(options)
 await computer.find(target)
+await computer.exists(target)
 await computer.focusApp(name)
 await computer.openApp(name)
 await computer.moveMouse(targetOrPoint, options)
@@ -464,88 +463,80 @@ await computer.pressKey(keyOrChord)
 await computer.wait(ms)
 await computer.waitForText(text, options)
 await computer.waitUntilChanged(options)
-await computer.exists(target)
 await computer.releaseInputs()
 ```
 
-The JS source may also use ordinary Node capabilities. Example:
+Normal Node APIs remain available:
 
 ```js
 const fs = require("node:fs");
-const files = fs.readdirSync(process.env.HOME);
+const { execFile } = require("node:child_process");
 
 await computer.focusApp("Xcode");
-const run = await computer.find({ by: "role", role: "button", name: "Run" });
-if (!run) throw new Error("Run button not found");
+let run = await computer.find({ by: "role", role: "button", name: "Run" });
+if (!run) {
+  await computer.wait(100);
+  run = await computer.find({ by: "text", text: "Run" });
+}
+if (!run) throw new Error("Run target unavailable");
 await computer.click(run);
 await computer.waitUntilChanged({ timeoutMs: 3000 });
-return { fileCount: files.length, final: await computer.observe() };
+return { homeEntries: fs.readdirSync(process.env.HOME).length };
 ```
 
-The runner supports `require(...)` and dynamic `await import(...)`. It is allowed to spawn ordinary user-level child processes through Node APIs.
+The runner supports CommonJS `require(...)` and dynamic `await import(...)`.
 
-The script's returned value must be JSON-serializable and is output-bounded.
+Returned values must be JSON-serializable and bounded.
 
-### 11.5 JS runner fault containment
+### 11.5 JS fault containment
 
-Full Node capability must not run inside the main daemon event loop.
+The supervisor starts a fixed runner entrypoint with:
 
-The supervisor launches a dedicated runner child with:
-
-- fixed `node` executable resolution;
-- fixed runner entrypoint;
-- `shell: false`;
+- resolved Node executable;
+- `shell:false`;
 - sanitized environment;
-- bounded stdout/stderr capture;
-- private Node IPC channel for `computer` RPC;
-- a separate process group on POSIX where practical;
-- execution timeout;
-- cancellation;
-- process-tree cleanup on timeout/daemon shutdown.
+- bounded stdout/stderr;
+- private Node IPC for `computer` RPC;
+- owned POSIX process group;
+- timeout/cancellation;
+- descendant cleanup on timeout/shutdown.
 
-A JS script calling `process.exit()` therefore exits its runner, not the `chatgpt-system` daemon.
+`process.exit()` exits only the runner. A crash/exception cannot terminate the main daemon.
 
-No script source, stdout/stderr, returned value, typed text, or screenshot pixels are written to audit logs.
+This is process fault containment, not a security sandbox.
 
-## 12. Plugin, MCP, and skill composition
+## 12. Plugin/MCP/skill composition
 
-Computer Runtime v2 does not embed another plugin manager or ChatGPT client.
+The computer runtime does not embed another plugin manager or ChatGPT client.
 
-The intended orchestration remains at the ChatGPT reasoning layer:
+The intended orchestration stays at ChatGPT level:
 
 ```text
 ChatGPT
-  + GitHub plugin
+  + GitHub / other plugins
   + Context7
   + Build macOS Apps skill
   + Build Web Apps skill when relevant
-  + other connected MCP/plugins
-  + chatgpt-system computer tools
+  + chatgpt-system browser/process/fs/git/computer tools
 ```
 
-A single `computer_run_js` may perform many local computer steps, but it cannot pause mid-script and ask the ChatGPT model to call a separate cloud plugin unless such a capability is explicitly added in a future design.
-
-When a workflow needs external reasoning/plugin data, ChatGPT obtains that data before or after the local computer program.
+A `computer_run_js` call can do many local steps, but cannot suspend mid-program to ask ChatGPT to invoke a cloud plugin. Plugin-derived data is obtained by ChatGPT before/after the local program.
 
 ## 13. Browser-first routing
 
-Browser Runtime remains preferred when the task is naturally expressible with browser semantic tools.
-
-Recommended reasoning policy:
+Preferred policy:
 
 ```text
-browser semantic tool
-    -> if sufficient: use it
-    -> if blocked/native/custom UI: computer runtime
+Browser Runtime semantic tool
+    -> sufficient: use Browser Runtime
+    -> native/custom/blocked: use Computer Runtime
 ```
 
-Computer Runtime may control Chromium physically when necessary, but it must not replace the existing safer Browser Runtime for ordinary web navigation, forms, snapshots, and diagnostics.
+Computer Runtime may physically control Chromium when necessary, but does not replace existing Browser Runtime for ordinary navigation, semantic forms, snapshots and diagnostics.
 
-## 14. Native-helper protocol
+## 14. Native protocol
 
-The native helper protocol is versioned NDJSON over stdio.
-
-Example request envelope:
+Versioned NDJSON envelope:
 
 ```ts
 {
@@ -556,7 +547,7 @@ Example request envelope:
 }
 ```
 
-Example response envelope:
+Response:
 
 ```ts
 {
@@ -564,32 +555,17 @@ Example response envelope:
   requestId: string;
   ok: boolean;
   result?: object;
-  error?: {
-    code: string;
-    message: string;
-    details?: object;
-  };
+  error?: { code: string; message: string; details?: object };
 }
 ```
 
-Protocol requests and responses have byte limits. Unknown fields/methods are rejected.
+Unknown methods/fields and oversized frames are rejected.
 
-The native helper never accepts:
+The native host never accepts authority leases, daemon secrets, shell source, arbitrary executable paths, raw PID actuation, or requests to disable takeover/bounds.
 
-- shell source;
-- authority lease IDs;
-- daemon credentials;
-- arbitrary executable paths;
-- raw process IDs for actuation;
-- requests to disable user takeover or protocol bounds.
+Full Node execution stays in the Node control plane.
 
-Full Node execution stays in the TypeScript/Node layer rather than being implemented by the native helper.
-
-## 15. Errors
-
-Stable error codes should distinguish runtime failure from ordinary target/action failure.
-
-Initial set:
+## 15. Stable errors
 
 ```text
 COMPUTER_DISABLED
@@ -611,61 +587,48 @@ COMPUTER_JS_TIMEOUT
 POLICY_DENIED
 ```
 
-Raw AX errors, native exception text, JavaScript stack traces, screen text, absolute secret-bearing command lines, and stderr are not copied blindly into stable MCP error payloads.
+Raw AX/native exception text, JS stack traces, screen text, stderr and secret-bearing command lines are not blindly copied into stable MCP errors.
 
-`computer_run_js` may return a bounded script failure summary to the caller, but audit remains metadata-only.
+## 16. Privacy and audit
 
-## 16. Privacy, redaction, and audit
+Screen/AX data is Admin-only.
 
-### 16.1 Observation output
+Structured observation never returns raw PID, AX pointer identity or secure/editable current field values.
 
-Screen and Accessibility data are sensitive and Admin-only.
+Explicit screenshots contain whatever is visibly on screen by definition.
 
-The runtime never returns:
-
-- raw process IDs;
-- AX pointer identities;
-- secure text-field values;
-- hidden password values.
-
-Editable field values should be omitted by default from structured observations. Explicit screenshots still contain whatever is visibly on screen because that is the purpose of a screenshot.
-
-### 16.2 Audit
-
-Audit computer operations using categorical metadata only, for example:
+Audit computer operations with metadata only:
 
 ```text
 action category
 duration
 success/failure
-safe application bundle/name when useful
+safe app identity when useful
 action count for computer_run
-script byte count + SHA-256 digest for computer_run_js
+JS source byte count + SHA-256 digest
 stable error code
 ```
 
-Audit must not store:
+Never audit:
 
-- script source;
-- script stdout/stderr;
-- script return value;
+- JS source;
+- JS stdout/stderr/return value;
 - typed text;
-- screenshot/image bytes;
-- OCR text;
-- Accessibility document/value text;
+- screenshot pixels;
+- OCR/AX document text;
 - URL query/fragment;
-- authority lease IDs;
-- raw coordinates when avoidable;
-- environment values.
+- lease IDs;
+- environment values;
+- raw coordinates when avoidable.
 
-## 17. Configuration and limits
+## 17. Configuration
 
-Proposed configuration fields:
+Initial config/limits:
 
 ```text
 computerUse.enabled = false
 computerUse.fullHostJsEnabled = false
-computerUse.helperPath
+computerUse.hostBundlePath = ~/.chatgpt-system/ChatGPTSystemComputerHost.app
 computerUse.requestTimeoutMs = 10000
 computerUse.maxObservationElements = 500
 computerUse.maxObservationChars = 262144
@@ -677,270 +640,248 @@ computerUse.maxJsSourceBytes = 262144
 computerUse.maxJsRuntimeMs = 30000
 computerUse.maxJsOutputBytes = 1048576
 computerUse.pointerMode = "fast"
+computerUse.userTakeoverTolerancePx = 18
 ```
 
-All externally configurable numeric limits are bounded positive integers with sensible upper bounds. The model cannot expand limits beyond startup configuration.
+Numeric options are positive bounded startup settings. MCP cannot raise those limits.
 
 ## 18. Lifecycle and shutdown
 
-### 18.1 Lazy startup
+Native host starts lazily on first enabled health probe or authorized computer call.
 
-The native helper starts lazily on the first enabled `computer_health` probe or authorized computer operation.
+A crashed host makes the current call fail closed. A later call may launch a fresh host.
 
-A failed helper start moves the runtime to `unavailable` for that call. A later call may attempt a fresh start unless a permanent configuration error is known.
-
-### 18.2 Shutdown order
-
-Clean daemon shutdown order becomes conceptually:
+Shutdown order:
 
 ```text
-stop accepting new computer programs
+stop accepting computer programs
 -> cancel active JS runner
--> release held mouse/keyboard input
--> terminate JS runner process group
--> close native computer helper
--> existing process supervisor close
--> existing browser close
--> control server / transport close
+-> release held native inputs
+-> terminate owned JS process group
+-> close native host
+-> existing ProcessSupervisor close
+-> existing Browser Runtime close
+-> control/transport shutdown
 ```
 
-The final exact order should preserve current shutdown tests and avoid leaving held input behind.
+No startup sweep scans/kills foreign processes.
 
-No startup sweep kills unrelated system processes.
+## 19. Performance acceptance goals
 
-## 19. macOS permissions and installation
-
-The native helper requires normal macOS user permission appropriate to its capabilities, especially Accessibility and Screen Recording.
-
-The helper must use a stable installed path and signing identity appropriate for the existing project development/deployment model so TCC permission behavior is predictable across daily-driver restarts.
-
-Setup tooling should provide a doctor/readiness command that reports only categorical permission state and remediation guidance.
-
-The implementation must not attempt to bypass or edit the TCC database.
-
-## 20. Performance design goals
-
-These are real-Mac acceptance goals rather than strict CI timing guarantees:
+Real-Mac targets, not flaky CI deadlines:
 
 - warm `computer_health`: effectively immediate;
-- AX-only `computer_observe`: target median under ~150 ms on ordinary native windows;
-- screenshot capture: target under ~250 ms when the OS/capture path is warm;
-- semantic target resolution from a current snapshot: target under ~50 ms locally;
-- smooth long pointer move: normally under ~260 ms in `fast` mode;
-- five simple local actions should execute without five MCP/LLM round trips;
-- no OCR or full-screen capture when AX information already suffices.
+- ordinary AX-only `computer_observe`: median <150 ms target;
+- warm screenshot: <250 ms target;
+- current-snapshot semantic lookup: <50 ms target;
+- long smooth pointer move in `fast`: normally <260 ms;
+- 5 simple UI actions execute locally without 5 MCP/LLM round trips;
+- 10 deterministic fixture actions should normally complete within ~3 seconds excluding deliberate waits/build time;
+- OCR/full capture usage should be exceptional when AX suffices.
 
-Performance instrumentation may record durations and counts, never content.
+Instrument durations/counts only, never UI content.
 
-## 21. Testing strategy
+## 20. Test strategy
 
-### 21.1 TypeScript unit tests
+### 20.1 TypeScript
 
-Cover at minimum:
+Must cover:
 
-1. disabled-by-default configuration;
-2. strict computer tool schemas;
-3. `computer_health` lease-free and categorical only;
-4. every observation/action tool Admin-only;
-5. `computer_run_js` requires explicit full-host-JS startup enablement;
-6. native request serialization and timeout behavior;
-7. malformed/oversized native responses fail closed;
-8. action serialization prevents concurrent physical mutations;
-9. typed action program bounds and cancellation;
-10. target-not-found / ambiguous / stale snapshot mapping;
-11. retry budgets stop deterministically;
-12. raw native error text is not leaked;
-13. audit excludes observations, typed text, JS source/output, screenshot data, and lease IDs;
-14. JS runner timeout kills the owned runner/process group;
-15. JS runner crash does not crash the daemon;
-16. JS source is delivered without argv/environment leakage;
-17. daemon shutdown releases inputs before helper termination;
-18. Browser Runtime and ProcessSupervisor behavior remain unchanged.
+1. disabled-by-default config;
+2. strict tool schemas;
+3. lease-free categorical health;
+4. Admin-only screen/actuation;
+5. explicit full-host-JS gate;
+6. native request correlation/timeout/size validation;
+7. malformed native response fails closed;
+8. physical-action serialization;
+9. typed action count/runtime bounds;
+10. target missing/ambiguous/stale mapping;
+11. retry budget stops deterministically;
+12. native raw errors do not leak;
+13. audit redaction;
+14. JS runner timeout cleans its process group;
+15. runner crash/process.exit does not crash daemon;
+16. JS source absent from argv/env/audit;
+17. daemon secret env absent from runner;
+18. shutdown releases inputs before host termination;
+19. existing Browser/Process behavior remains green.
 
-### 21.2 Native Swift tests
+### 20.2 Swift
 
-Use protocol/logic tests and simulated host adapters where macOS permissions are unavailable in CI.
+Use injectable host adapters so CI can test logic without real TCC permissions.
 
-Cover at minimum:
+Must cover:
 
-1. Accessibility element normalization/redaction;
-2. snapshot node/size bounds;
-3. target resolution and stale snapshot behavior;
-4. coordinate/display bounds;
-5. pointer path generation starts/ends exactly at intended coordinates;
+1. AX normalization/redaction;
+2. observation bounds;
+3. target resolution/stale snapshots;
+4. display coordinate bounds;
+5. pointer path exact endpoints;
 6. pointer duration clamps;
-7. takeover detection interrupts movement;
-8. held-input cleanup on every failure path;
-9. focus verification;
-10. screenshot bounds/encoding;
-11. OCR result bounds;
-12. protocol strictness and request correlation;
-13. helper shutdown cleanup.
+7. owned synthetic event tagging;
+8. user takeover detection;
+9. emergency hotkey cancellation;
+10. input release on every failure path;
+11. focus verification;
+12. screenshot bounds/encoding;
+13. OCR bounds;
+14. strict protocol/correlation;
+15. clean shutdown.
 
-### 21.3 Integration tests
+### 20.3 Disposable native fixture
 
-Add a harmless disposable native acceptance fixture app under tests/native or a purpose-built test fixture target. It should expose deterministic controls through Accessibility:
+Build a harmless fixture app exposing:
 
-- buttons;
+- button;
 - text field;
-- scrollable area;
-- checkbox/state change;
-- visible status text;
-- optional custom-drawn region for visual/OCR fallback testing.
+- checkbox;
+- scroll view;
+- drag targets;
+- deterministic status text;
+- one custom-drawn/OCR-only region.
 
-Tests should prove multi-step execution against this fixture without modifying user applications or files.
+This fixture is the primary deterministic E2E target before touching real user apps.
 
-### 21.4 CI
+### 20.4 CI
 
-Existing Node 22, Node 24, and macOS-native jobs remain required.
+Node 22, Node 24 and macOS-native remain mandatory. macOS-native builds/tests the new Swift package/bundle. Real TCC-dependent capture/input remains real-Mac acceptance unless a safe CI harness exists.
 
-macOS-native CI additionally builds/tests the new Swift helper. Permission-dependent real capture/input tests remain manual/acceptance unless a safe CI harness is available.
+## 21. Serious real-Mac acceptance
 
-## 22. Real-Mac acceptance
+### A. Readiness
 
-Acceptance is intentionally serious and evidence-driven.
+- exact main SHA / clean tree;
+- full CI green;
+- setup/staging/signing succeeds;
+- Accessibility + Screen Recording readiness verified;
+- daily-driver restart uses merged binary/bundle.
 
-### Phase A: readiness
+### B. Deterministic fixture
 
-1. exact `main` SHA and clean tree;
-2. all CI green;
-3. helper build/install succeeds;
-4. `computer_health` reports enabled/readiness correctly;
-5. Accessibility and Screen Recording permission state is verified.
+- observe real AX tree;
+- visible smooth mouse move + click;
+- verify UI state change after click;
+- benign text typing + verification;
+- scroll + verification;
+- drag + verification;
+- 10+ step `computer_run` in one MCP call;
+- intentional stale target recovery;
+- AX failure -> OCR/explicit-coordinate fallback;
+- real mouse takeover -> immediate release;
+- `Ctrl+Option+Command+Esc` -> immediate cancellation/release.
 
-### Phase B: deterministic native fixture
+### C. Full Node
 
-Using only a disposable local fixture app:
+- Node `fs` read-only operation;
+- same script uses injected `computer` API;
+- condition/loop/retry local logic;
+- harmless child process spawn/cleanup;
+- `process.exit()` runner isolation;
+- timeout/descendant cleanup;
+- sanitized environment canary test;
+- source/stdout/stderr/return value absent from audit;
+- explicit cwd/default-root behavior.
 
-1. observe active window and semantic elements;
-2. physically move pointer to a button and click;
-3. verify state change rather than merely event emission;
-4. type benign text and verify resulting UI state;
-5. scroll and verify changed visible/AX state;
-6. drag between known fixture targets;
-7. execute a 10+ step `computer_run` in one MCP call;
-8. inject one intentional stale target and verify bounded recovery;
-9. force semantic lookup failure and verify OCR/explicit-coordinate fallback;
-10. trigger user takeover and verify immediate input release.
+### D. Real applications
 
-### Phase C: full Node runner
+Smoke test Finder, TextEdit, Xcode, System Settings and Chromium without destructive system changes, purchases, account mutations or secret extraction.
 
-1. run harmless JavaScript using normal Node `fs` read-only operations;
-2. use the injected `computer` API from the same JS program;
-3. execute condition + loop + retry logic locally;
-4. spawn and clean up a harmless child process;
-5. verify `process.exit()` kills only the JS runner;
-6. verify timeout kills owned descendants and leaves daemon healthy;
-7. verify daemon secrets are not inherited automatically;
-8. verify script/output content does not enter audit.
+Measure observation latency, target accuracy, pointer quality, action throughput, recovery success and OCR fallback rate.
 
-### Phase D: real applications
+### E. ChatGPT Web E2E
 
-Test a representative set such as Finder, TextEdit, Xcode, System Settings, and Chromium without destructive settings changes or account mutations.
-
-Measure:
-
-- observation latency;
-- target accuracy;
-- mouse movement quality;
-- multi-step throughput;
-- failure/recovery behavior;
-- percentage of actions needing OCR/screenshot fallback.
-
-### Phase E: ChatGPT Web E2E
-
-From a fresh ChatGPT Web conversation through the installed plugin/tunnel:
+Prove:
 
 ```text
 ChatGPT Web
--> chatgpt-system MCP
+-> plugin/tunnel
 -> Admin lease
 -> computer_observe
 -> computer_run / computer_run_js
--> native helper
--> visible Mac action
--> verification result back to ChatGPT
+-> native host
+-> visible real Mac action
+-> verified result back to ChatGPT
 ```
 
-Confirm that connected MCP/plugins can still be used by ChatGPT in the surrounding workflow.
+Also verify ChatGPT can compose the computer tools with connected MCP/plugins in the surrounding workflow.
 
-## 23. Delivery slices
-
-Implementation should be delivered in reviewable slices rather than one giant PR.
+## 22. Delivery slices
 
 ### Slice 1: native host foundation
 
-- Swift helper package;
-- protocol types;
-- categorical health/readiness;
+- Swift package + stable host bundle;
+- setup/doctor;
+- protocol;
+- health/TCC state;
 - app/window discovery;
-- AX observation;
+- AX observe;
 - screenshot;
-- simulated/test adapters;
-- setup/build integration.
+- simulated/native tests.
 
-### Slice 2: physical input and verification
+### Slice 2: physical input + verification
 
 - focus/open app;
-- pointer trajectory;
+- smooth pointer motion;
 - click/drag/scroll;
-- keyboard/hotkeys;
-- takeover/emergency stop;
+- keyboard;
+- synthetic event tagging;
+- takeover + fixed emergency hotkey;
 - release-input cleanup;
 - verification primitives.
 
-### Slice 3: TypeScript ComputerRuntime + MCP
+### Slice 3: TypeScript runtime + MCP
 
-- helper supervisor/client;
+- host supervisor/client;
 - Admin policy;
 - low-level tools;
 - typed `computer_run`;
-- output schemas/errors/audit;
+- output/errors/audit;
 - shutdown integration.
 
-### Slice 4: full Node.js runner
+### Slice 4: full Node power path
 
 - `--enable-full-host-js`;
-- child runner supervisor;
-- private computer RPC;
+- runner supervisor;
+- private `computer` IPC API;
 - `computer_run_js`;
-- process-group timeout/cleanup;
-- sanitized environment;
+- cwd/env semantics;
+- timeout/process-group cleanup;
 - output/audit limits.
 
-### Slice 5: recovery/performance hardening
+### Slice 5: recovery/performance
 
 - observation cache/digests;
-- OCR fallback;
-- bounded retry ladder;
-- stale target recovery;
+- Vision OCR;
+- bounded recovery ladder;
+- stale-target recovery;
 - timing instrumentation;
-- real-Mac performance tuning.
+- real-Mac tuning.
 
-### Slice 6: acceptance and freeze
+### Slice 6: acceptance/freeze
 
-- disposable native fixture acceptance;
-- Finder/TextEdit/Xcode/System Settings/Chromium smoke suite;
+- deterministic fixture suite;
+- real-app smoke suite;
 - ChatGPT Web E2E;
-- evidence-driven bug fixes only;
-- freeze the subsystem if speed/reliability meets acceptance goals.
+- evidence-driven fixes only;
+- freeze if speed/reliability is good enough; otherwise revise/remove instead of preserving it merely because it was expensive.
 
-Each slice uses TDD where practical, full repository verification, exact-head CI, PR review, merge, and post-merge CI before the next slice.
+Every slice uses TDD where practical, full repository verification, exact-head CI, PR review, merge and post-merge CI before the next slice.
 
-## 24. Definition of done
+## 23. Definition of done
 
-Computer Runtime v2 is complete when all of the following are true:
+Computer Runtime v2 is complete only when:
 
-- ChatGPT can inspect the active Mac UI through bounded native observation;
-- ChatGPT can visibly move the real pointer, click, drag, scroll, and type;
-- simple native interactions are AX-first and do not require full screenshots/OCR;
-- a single MCP call can execute many local actions;
-- actions can verify UI effects and perform bounded local retry/fallback;
-- `computer_run_js` can run normal full Node.js under explicit local-owner enablement while using the same computer API;
-- a runner crash/timeout does not crash the daemon or leave held inputs;
-- user takeover interrupts physical automation;
+- ChatGPT can inspect bounded native UI state;
+- the real cursor visibly moves/clicks/drags/scrolls and keyboard input works;
+- ordinary native UI work is AX-first and fast;
+- one MCP call can execute many local actions;
+- actions verify effects and recover locally within bounded budgets;
+- full Node.js is available under explicit local-owner enablement and can use the same computer API;
+- Node runner crashes/timeouts cannot crash the daemon or leave held inputs;
+- the user can interrupt automation physically and with the fixed emergency hotkey;
 - full-host JS does not automatically inherit daemon/tunnel secrets;
-- Browser Runtime remains the preferred browser semantic path and continues passing its existing tests;
-- Node 22, Node 24, macOS-native CI and serious real-Mac acceptance are green;
-- the ChatGPT Web -> plugin/tunnel -> local computer -> visible Mac action path is proven end-to-end;
-- measured speed and reliability are good enough for daily use. If not, the subsystem is revised or removed rather than kept merely because it was expensive to build.
+- Browser Runtime remains preferred for semantic browser work and keeps passing;
+- Node 22/24, macOS-native CI and serious real-Mac acceptance are green;
+- ChatGPT Web -> plugin/tunnel -> local computer -> visible Mac action is proven end-to-end;
+- measured speed and reliability are good enough for daily use.
