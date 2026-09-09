@@ -106,10 +106,10 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(readmeSetupStart).toBeGreaterThanOrEqual(0);
     expect(readmeSetupEnd).toBeGreaterThan(readmeSetupStart);
     const readmeSetup = readme.slice(readmeSetupStart, readmeSetupEnd);
+    expect(readme).toContain("npm run setup:browser");
     expect(readmeSetup).toContain("--enable-terminal");
     expect(readmeSetup).toContain("--personal-admin");
     expect(readmeSetup).toContain("--enable-browser");
-    expect(readmeSetup).toContain("npm run setup:browser");
     expect(readmeSetup).toContain("--force");
   });
 
