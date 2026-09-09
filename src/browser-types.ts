@@ -32,9 +32,9 @@ export const BROWSER_KEYS = [
 export type BrowserKey = (typeof BROWSER_KEYS)[number];
 
 export type BrowserTarget =
-  | { by: "role"; role: BrowserRole; name?: string; exact?: boolean }
-  | { by: "text"; text: string; exact?: boolean }
-  | { by: "label"; label: string; exact?: boolean }
+  | { by: "role"; role: BrowserRole; name?: string | undefined; exact?: boolean | undefined }
+  | { by: "text"; text: string; exact?: boolean | undefined }
+  | { by: "label"; label: string; exact?: boolean | undefined }
   | { by: "testId"; testId: string };
 
 export type BrowserRuntimeState = "disabled" | "stopped" | "running" | "unavailable";
