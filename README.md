@@ -22,6 +22,7 @@ Secure local MCP authority gateway for controlled filesystem, Git, process, and 
 | **Filesystem + Git** | Confined file operations plus typed Git read/write primitives |
 | **Admin execution** | Allowlisted `shell=false` commands and managed development processes |
 | **Browser Runtime** | Admin-only semantic Playwright automation, screenshots, and bounded browser diagnostics |
+| **Computer Runtime v2 foundation** | Standalone Swift/macOS 14+ helper for passive readiness, bounded app/window + AX observation, and ScreenCaptureKit screenshots over inherited NDJSON stdio |
 | **macOS trust** | LocalAuthentication for broad authority and Keychain-backed daily-driver credentials |
 | **Daily driver** | LaunchAgent startup, automatic tunnel reconnect, bounded logs, and no routine Terminal ceremony |
 
@@ -70,18 +71,22 @@ The shared runtime currently includes:
 - Admin-only managed process supervision with opaque IDs, bounded logs, and POSIX process-group cleanup;
 - Admin-only deterministic Playwright Browser Runtime with semantic targeting and bounded diagnostics;
 - browser credential-entry refusal and editable ARIA value redaction;
+- standalone Swift 6/macOS 14+ Computer Runtime v2 helper with strict bounded NDJSON over inherited stdin/stdout;
+- passive Accessibility/Screen Recording readiness, bounded app/window + AX observation, and an 8 MiB ScreenCaptureKit screenshot path;
+- deterministic background `.app` staging with fixed bundle ID `com.senoldogann.chatgpt-system.computer-runtime`;
+- no physical mouse/keyboard input and no `computer_*`, `computer_run`, or `computer_run_js` MCP registration yet;
 - JSONL audit trail with redacted authority/process/browser metadata;
 - localhost Host/Origin validation for HTTP mode;
 - Node 22 / Node 24 CI plus native macOS build/install verification.
 
-The next distinct capability layer is the Computer-Use Bridge for native macOS GUI work that cannot be handled by structured browser automation. It remains separate from Browser Runtime rather than turning Playwright into a pixel-control system.
+Computer Runtime v2 Slice 1 now provides the standalone native perception foundation. It is intentionally not wired into MCP yet. Physical mouse/keyboard input, verification/recovery, `computer_*` registration, `computer_run`, and `computer_run_js` remain later slices rather than being smuggled into the Browser Runtime.
 
 ## Requirements
 
 - Node.js 22 or newer
 - npm
 - Git
-- macOS + Swift/Xcode command-line tools for native User/Admin approval
+- macOS + Swift/Xcode command-line tools for native User/Admin approval; the standalone Computer Runtime v2 helper specifically requires macOS 14+
 - `tunnel-client` when using the personal ChatGPT Plugin route
 - Chromium installed through the repository-pinned Playwright CLI when Browser Runtime is enabled
 
@@ -162,6 +167,28 @@ Raw CSS/XPath selectors, arbitrary JavaScript, generated Playwright code, cookie
 Navigation accepts only `http:` and `https:` URLs. Credential-shaped fields such as passwords, OTPs, verification codes, and payment-card secrets are refused before input reaches Playwright. Editable ARIA values are redacted before snapshots leave the runtime.
 
 Browser actions are serialized through one runtime-owned operation chain so concurrent sessions cannot race tab/focus mutations inside the owned context.
+
+## Computer Runtime v2 native foundation
+
+Slice 1 builds a standalone Swift helper under `native/macos-computer-runtime`. This helper requires macOS 14+ and communicates only over inherited stdin/stdout using strict bounded NDJSON. Its native protocol currently supports passive `health`, bounded `list_apps`, AX-first `active_window` / `observe`, and bounded ScreenCaptureKit `screenshot`.
+
+Build, test, and stage the fixed background app bundle with:
+
+```bash
+npm run test:computer:macos
+npm run build:computer:macos
+npm run package:computer:macos
+```
+
+The default staged bundle is:
+
+```text
+native/macos-computer-runtime/.build/staged/ChatGPTSystemComputerRuntime.app
+```
+
+Its bundle identifier is fixed to `com.senoldogann.chatgpt-system.computer-runtime`. `health` uses passive TCC preflight checks only and does not request Accessibility or Screen Recording permission. Screenshot capture stays in memory and enforces an 8 MiB PNG limit before base64 encoding.
+
+Slice 1 has **no physical mouse/keyboard input**, no native listener, no `computer_*` MCP tools, and no `computer_run` / `computer_run_js`. The existing Browser Runtime remains the only GUI/web automation surface exposed through MCP in this release.
 
 ## Personal ChatGPT Plugin
 
@@ -398,6 +425,8 @@ browser_close
 
 `browser_health` needs no lease; every other browser tool is Admin-only.
 
+Computer Runtime v2 Slice 1 registers **no** `computer_*` MCP tools. Its `health`, `list_apps`, `active_window`, `observe`, and `screenshot` methods exist only on the standalone native NDJSON helper in this slice. There is no `computer_run` or `computer_run_js` surface yet.
+
 Every MCP tool declares explicit safety annotations and output schemas. Successful calls return readable text plus validated structured content.
 
 ## Conflict-safe file editing
@@ -484,6 +513,7 @@ CI verifies:
 - Node.js 22 build/tests;
 - Node.js 24 build/tests;
 - native macOS authority helper build/install contract;
+- macOS Computer Runtime v2 Swift tests, fixed `.app` packaging, and passive native protocol-health smoke;
 - setup CLI smoke contracts without downloading a browser binary.
 
 Browser unit tests use injected/fake backends and do not require graphical Chromium in CI. Real browser acceptance is performed separately on the target Mac after merge.
@@ -498,12 +528,13 @@ Browser unit tests use injected/fake backends and do not require graphical Chrom
 
 ## Roadmap boundary
 
-Browser Runtime is implemented as the structured web layer.
+Browser Runtime is implemented as the structured web layer. Computer Runtime v2 now has a standalone native host foundation, but it is not wired into MCP in Slice 1.
 
 Next separate work:
 
-1. deterministic execution queue for serial local workflows, explicitly **not** a scheduler for future ChatGPT reasoning turns;
-2. Computer-Use Bridge for native macOS GUI work and browser cases that cannot be handled semantically;
-3. typed root-only ServiceManagement/XPC operations only when a concrete need justifies them.
+1. Computer Runtime v2 physical input + deterministic verification/recovery;
+2. the TypeScript host lifecycle/policy layer and explicit `computer_*` MCP registration;
+3. later multi-action/full-Node execution surfaces only after their dedicated gates and containment are implemented;
+4. typed root-only ServiceManagement/XPC operations only when a concrete need justifies them.
 
-Those are separate capability boundaries, not reasons to widen the existing Browser Runtime into arbitrary remote code execution.
+Those remain separate capability boundaries, not reasons to widen Browser Runtime or pretend Slice 1 already controls the Mac.
