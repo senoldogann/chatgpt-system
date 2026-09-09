@@ -69,8 +69,10 @@ export class BrowserService {
   }
 
   newTab(url?: string): Promise<BrowserTabView> {
-    if (url !== undefined) this.assertNavigableUrl(url);
-    return this.serialize(() => this.backend.newTab(url));
+    return this.serialize(async () => {
+      if (url !== undefined) this.assertNavigableUrl(url);
+      return this.backend.newTab(url);
+    });
   }
 
   selectTab(pageId: string): Promise<BrowserTabView> {
@@ -85,8 +87,10 @@ export class BrowserService {
   }
 
   navigate(pageId: string, url: string): Promise<BrowserTabView> {
-    this.assertNavigableUrl(url);
-    return this.serialize(() => this.backend.navigate(pageId, url, this.timeoutMs));
+    return this.serialize(async () => {
+      this.assertNavigableUrl(url);
+      return this.backend.navigate(pageId, url, this.timeoutMs);
+    });
   }
 
   snapshot(pageId: string): Promise<{ pageId: string; snapshot: string }> {
