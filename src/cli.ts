@@ -23,6 +23,7 @@ Server options:
   --personal-admin                 Allow this MCP client to mint short-lived Admin leases directly. Disabled by default.
   --allow-command <name>           Terminal executable allowlist (repeatable).
   --enable-browser                 Enable the Admin-only Playwright browser runtime. Disabled by default.
+  --enable-computer-use            Enable the Admin-only native Computer Runtime. Disabled by default.
   --browser-headless               Run the enabled browser headlessly. Headed is the default when browser is enabled.
   --browser-timeout-ms <ms>        Browser operation timeout in milliseconds. Default: 10000.
   --browser-user-data-dir <path>   Dedicated persistent browser profile. Default: ~/.chatgpt-system/browser-profile.
@@ -42,6 +43,7 @@ Security:
   Existing file writes/removals require the SHA-256 returned by fs_read/fs_stat.
   Project and User authority have no terminal capability. Admin alone can use the bounded terminal/process allowlist.
   Browser automation is an explicit runtime opt-in and remains Admin-only. Raw CSS/XPath/JavaScript selectors are not exposed.
+  Computer Runtime is a separate explicit opt-in; health is categorical and all screen/actuation tools remain Admin-only.
   Browser input into password, OTP, and payment-credential-shaped fields is refused.
   Personal Admin is an explicit private-workstation opt-in and does not bypass the runtime terminal or browser gates.
   Managed process tools expose opaque IDs only; callers cannot provide OS PIDs, signals, shell mode, or child environments.
@@ -113,14 +115,14 @@ async function main(): Promise<void> {
         reportError: reportShutdownError,
       }));
       console.error(
-        `[chatgpt-system] stdio ready; roots=${config.roots.join(",")}; terminal=${config.terminal.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`,
+        `[chatgpt-system] stdio ready; roots=${config.roots.join(",")}; terminal=${config.terminal.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`,
       );
       return;
     }
 
     const server = startHttp(runtime);
     server.once("listening", () => {
-      console.error(`[chatgpt-system] HTTP MCP listening on http://${config.http.host}:${config.http.port}/mcp; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`);
+      console.error(`[chatgpt-system] HTTP MCP listening on http://${config.http.host}:${config.http.port}/mcp; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`);
     });
     installShutdown(() => closeRuntimeResources({
       runtime,

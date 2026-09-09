@@ -186,6 +186,10 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
         enabled: personalAdminEnabled,
         adminLeaseMaxTtlSeconds: 3600 as const,
       },
+      computerUse: {
+        enabled: runtime.config.computerUse?.enabled === true,
+        fullHostJsEnabled: false as const,
+      },
       limits: runtime.config.limits,
       safety: {
         filesystemConfinement: true as const,

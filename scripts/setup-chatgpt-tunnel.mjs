@@ -23,6 +23,7 @@ Options:
   --personal-admin        Allow ChatGPT to mint short-lived Admin leases directly. Disabled by default.
   --allow-command <name>  Allowlisted executable basename. Repeatable.
   --enable-browser        Opt in to the Admin-only Playwright browser capability. Disabled by default.
+  --enable-computer-use   Opt in to the Admin-only native Computer Runtime. Disabled by default.
   --browser-headless      Run the opted-in browser headlessly; requires --enable-browser.
   --force                 Replace an existing tunnel-client profile. Never implied.
   --doctor                Create the profile, then run tunnel-client doctor.
@@ -66,6 +67,7 @@ function parseArgs(argv) {
     terminal: false,
     personalAdmin: false,
     browser: false,
+    computerUse: false,
     browserHeadless: false,
     commands: [],
     force: false,
@@ -90,6 +92,10 @@ function parseArgs(argv) {
     }
     if (arg === "--enable-browser") {
       options.browser = true;
+      continue;
+    }
+    if (arg === "--enable-computer-use") {
+      options.computerUse = true;
       continue;
     }
     if (arg === "--browser-headless") {
@@ -209,6 +215,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   if (options.terminal) commandParts.push("--enable-terminal");
   if (options.personalAdmin) commandParts.push("--personal-admin");
   if (options.browser) commandParts.push("--enable-browser");
+  if (options.computerUse) commandParts.push("--enable-computer-use");
   if (options.browserHeadless) commandParts.push("--browser-headless");
   for (const command of options.commands) commandParts.push("--allow-command", command);
   const mcpCommand = commandParts.map(quoteCommandArg).join(" ");
@@ -312,6 +319,7 @@ async function main() {
   console.log("  Bootstrap terminal: " + (setup.mcpCommand.includes("--enable-terminal") ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Personal Admin: " + (setup.mcpCommand.includes("--personal-admin") ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Browser: " + (setup.mcpCommand.includes("--enable-browser") ? (setup.mcpCommand.includes("--browser-headless") ? "EXPLICITLY ENABLED (headless)" : "EXPLICITLY ENABLED (headed)") : "disabled"));
+  console.log("  Computer Runtime: " + (setup.mcpCommand.includes("--enable-computer-use") ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Local User/Admin authorization: enabled through private Unix socket");
 
   if (!setup.executeDoctor && !setup.executeRun) {

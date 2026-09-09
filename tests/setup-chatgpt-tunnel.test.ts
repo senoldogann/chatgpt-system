@@ -49,6 +49,7 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.mcpCommand).not.toContain("--personal-admin");
     expect(setup.mcpCommand).not.toContain("--enable-browser");
     expect(setup.mcpCommand).not.toContain("--browser-headless");
+    expect(setup.mcpCommand).not.toContain("--enable-computer-use");
     expect(setup.mcpCommand).toContain("stdio");
     expect(setup.mcpCommand).toContain(ROOT);
     expect(setup.mcpCommand).toContain("--enable-control");
@@ -64,6 +65,17 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
 
     expect(setup.mcpCommand).toContain("--enable-browser");
     expect(setup.mcpCommand).not.toContain("--browser-headless");
+  });
+
+  it("adds computer use only when explicitly requested", () => {
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-computer-use",
+    ], {}, context);
+
+    expect(setup.mcpCommand).toContain("--enable-computer-use");
+    expect(setup.mcpCommand).not.toContain("--enable-browser");
   });
 
   it("supports explicit headless browser mode only with browser capability enabled", () => {

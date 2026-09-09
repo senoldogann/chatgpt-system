@@ -26,6 +26,10 @@ export const systemCapabilitiesOutputSchema = z.object({
     enabled: z.boolean(),
     adminLeaseMaxTtlSeconds: z.literal(3600),
   }),
+  computerUse: z.object({
+    enabled: z.boolean(),
+    fullHostJsEnabled: z.literal(false),
+  }),
   limits: z.object({
     maxReadBytes: z.number().int().positive(),
     maxWriteBytes: z.number().int().positive(),

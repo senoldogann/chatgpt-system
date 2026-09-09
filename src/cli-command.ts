@@ -61,6 +61,10 @@ export function parseCliCommand(argv: string[]): CliCommand {
       overrides.personalAdminEnabled = true;
       continue;
     }
+    if (arg === "--enable-computer-use") {
+      overrides.computerUseEnabled = true;
+      continue;
+    }
     if (arg === "--enable-browser") {
       overrides.browserEnabled = true;
       continue;
