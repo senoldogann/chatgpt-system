@@ -109,7 +109,7 @@ export class BrowserService {
     return this.serialize(async () => {
       this.assertNavigableUrl(url);
       return this.assertTabViewWithinLimits(await this.backend.navigate(pageId, url, this.timeoutMs));
-    });
+    }, "navigation");
   }
 
   snapshot(pageId: string): Promise<{ pageId: string; snapshot: string }> {
@@ -211,11 +211,11 @@ export class BrowserService {
     });
   }
 
-  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+  private serialize<T>(operation: () => Promise<T>, errorContext: "generic" | "navigation" = "generic"): Promise<T> {
     const result = this.operationChain
       .then(operation)
       .catch((error: unknown) => {
-        throw this.normalizeBackendError(error);
+        throw this.normalizeBackendError(error, errorContext);
       });
     this.operationChain = result.then(
       () => undefined,
@@ -224,10 +224,13 @@ export class BrowserService {
     return result;
   }
 
-  private normalizeBackendError(error: unknown): BrowserError {
+  private normalizeBackendError(error: unknown, errorContext: "generic" | "navigation"): BrowserError {
     if (error instanceof BrowserError) return error;
     if (error instanceof Error && error.name === "TimeoutError") {
       return new BrowserError("BROWSER_TIMEOUT", "Browser operation timed out.");
+    }
+    if (errorContext === "navigation") {
+      return new BrowserError("BROWSER_NAVIGATION_FAILED", "Browser navigation failed.");
     }
     return new BrowserError("BROWSER_UNAVAILABLE", "Browser operation failed.");
   }
