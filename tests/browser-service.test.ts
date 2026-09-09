@@ -311,6 +311,51 @@ describe("BrowserService policy", () => {
     });
   });
 
+  it("refuses tab lists that exceed the configured output count limit", async () => {
+    const fake = new FakeBrowserBackend();
+    fake.tabsValue = [fake.tabsValue[0]!, { ...fake.tabsValue[0]!, pageId: `${PAGE_ID}_2` }];
+    const service = new BrowserService(fake, { timeoutMs: 10_000, maxTabs: 1 });
+
+    await expect(service.tabs()).rejects.toMatchObject({ code: "BROWSER_PROTOCOL_INVALID" });
+  });
+
+  it("refuses oversized tab metadata before it reaches MCP output", async () => {
+    const fake = new FakeBrowserBackend();
+    fake.tabsValue = [{
+      ...fake.tabsValue[0]!,
+      title: "title-too-long",
+      url: "https://example.com/path-that-is-too-long",
+    }];
+    const service = new BrowserService(fake, {
+      timeoutMs: 10_000,
+      maxTabTitleChars: 8,
+      maxUrlChars: 24,
+    });
+
+    await expect(service.tabs()).rejects.toMatchObject({ code: "BROWSER_PROTOCOL_INVALID" });
+  });
+
+  it("refuses oversized snapshots before returning browser content", async () => {
+    const fake = new FakeBrowserBackend();
+    fake.snapshotValue = "x".repeat(33);
+    const service = new BrowserService(fake, { timeoutMs: 10_000, maxSnapshotChars: 32 });
+
+    await expect(service.snapshot(PAGE_ID)).rejects.toMatchObject({ code: "BROWSER_PROTOCOL_INVALID" });
+  });
+
+  it("refuses oversized screenshots before returning image content", async () => {
+    const fake = new FakeBrowserBackend();
+    fake.screenshotValue = {
+      pageId: PAGE_ID,
+      pngBase64: Buffer.alloc(33).toString("base64"),
+      width: 1,
+      height: 1,
+    };
+    const service = new BrowserService(fake, { timeoutMs: 10_000, maxScreenshotBytes: 32 });
+
+    await expect(service.screenshot(PAGE_ID)).rejects.toMatchObject({ code: "BROWSER_PROTOCOL_INVALID" });
+  });
+
   it("serializes browser operations so concurrent sessions cannot interleave state mutations", async () => {
     const fake = new FakeBrowserBackend();
     fake.block("tabs");
