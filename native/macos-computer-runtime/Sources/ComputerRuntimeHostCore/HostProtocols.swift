@@ -47,6 +47,11 @@ public enum AccessibilityReadError: Error, Equatable, Sendable {
     case unavailable
 }
 
+public enum ScreenshotCaptureError: Error, Equatable, Sendable {
+    case unavailable
+    case outputLimit
+}
+
 public protocol PermissionReading: Sendable {
     func accessibilityTrusted() -> Bool
     func screenCaptureAuthorized() -> Bool
@@ -60,4 +65,8 @@ public protocol WorkspaceReading: Sendable {
 public protocol AccessibilityReading: Sendable {
     func activeWindow(for application: WorkspaceApplication) throws -> ActiveWindowView
     func observe(for application: WorkspaceApplication, limits: ObservationLimits) throws -> ComputerObservation
+}
+
+public protocol ScreenshotCapturing: Sendable {
+    func captureMainDisplay(maxBytes: Int) async throws -> ComputerScreenshot
 }

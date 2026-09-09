@@ -5,26 +5,31 @@ public struct ComputerHostService: Sendable {
     private static let protocolVersion = 1
     private static let maxApplications = 128
     private static let maxStructuredTextCharacters = 4_096
+    private static let maxScreenshotBytes = 8_388_608
 
     private let permissions: any PermissionReading
     private let workspace: any WorkspaceReading
     private let accessibility: (any AccessibilityReading)?
+    private let screenshot: (any ScreenshotCapturing)?
 
     public init(
         permissions: any PermissionReading,
         workspace: any WorkspaceReading,
-        accessibility: (any AccessibilityReading)? = nil
+        accessibility: (any AccessibilityReading)? = nil,
+        screenshot: (any ScreenshotCapturing)? = nil
     ) {
         self.permissions = permissions
         self.workspace = workspace
         self.accessibility = accessibility
+        self.screenshot = screenshot
     }
 
     public static func system() -> ComputerHostService {
         .init(
             permissions: SystemPermissionReader(),
             workspace: SystemWorkspaceReader(),
-            accessibility: SystemAccessibilityReader()
+            accessibility: SystemAccessibilityReader(),
+            screenshot: SystemScreenshotCapturer()
         )
     }
 
@@ -68,6 +73,12 @@ public struct ComputerHostService: Sendable {
             }
             return handleObservation(requestId: request.requestId)
 
+        case "screenshot":
+            guard hasEmptyObjectParams(request.params) else {
+                return protocolInvalid(requestId: request.requestId)
+            }
+            return await handleScreenshot(requestId: request.requestId)
+
         default:
             return protocolInvalid(requestId: request.requestId)
         }
@@ -105,6 +116,34 @@ public struct ComputerHostService: Sendable {
             return encodeBoundedObservation(safeObservation, requestId: requestId)
         } catch AccessibilityReadError.permissionRequired {
             return accessibilityPermissionRequired(requestId: requestId)
+        } catch {
+            return unavailable(requestId: requestId)
+        }
+    }
+
+    private func handleScreenshot(requestId: String) async -> ComputerProtocolResponse {
+        guard permissions.screenCaptureAuthorized() else {
+            return screenCapturePermissionRequired(requestId: requestId)
+        }
+        guard let screenshot else {
+            return unavailable(requestId: requestId)
+        }
+
+        do {
+            let capture = try await screenshot.captureMainDisplay(maxBytes: Self.maxScreenshotBytes)
+            guard capture.width > 0,
+                  capture.height > 0,
+                  let png = Data(base64Encoded: capture.pngBase64),
+                  !png.isEmpty
+            else {
+                return unavailable(requestId: requestId)
+            }
+            guard png.count <= Self.maxScreenshotBytes else {
+                return outputLimit(requestId: requestId)
+            }
+            return encodeResult(capture, requestId: requestId)
+        } catch ScreenshotCaptureError.outputLimit {
+            return outputLimit(requestId: requestId)
         } catch {
             return unavailable(requestId: requestId)
         }
@@ -197,6 +236,14 @@ public struct ComputerHostService: Sendable {
             requestId: requestId,
             code: "COMPUTER_PERMISSION_REQUIRED",
             message: "Accessibility permission is required."
+        )
+    }
+
+    private func screenCapturePermissionRequired(requestId: String) -> ComputerProtocolResponse {
+        .failure(
+            requestId: requestId,
+            code: "COMPUTER_PERMISSION_REQUIRED",
+            message: "Screen Recording permission is required."
         )
     }
 
