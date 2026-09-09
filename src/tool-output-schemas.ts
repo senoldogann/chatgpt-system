@@ -174,3 +174,70 @@ export const processLogsOutputSchema = z.object({
   stdout: processLogStreamOutputSchema,
   stderr: processLogStreamOutputSchema,
 });
+
+const browserPageIdSchema = z.string().min(40).max(128);
+const browserTabOutputSchema = z.object({
+  pageId: browserPageIdSchema,
+  title: z.string(),
+  url: z.string(),
+  active: z.boolean(),
+});
+
+export const browserHealthOutputSchema = z.object({
+  enabled: z.boolean(),
+  state: z.enum(["disabled", "stopped", "running", "unavailable"]),
+  browserInstalled: z.boolean(),
+});
+
+export const browserTabsOutputSchema = z.object({
+  tabs: z.array(browserTabOutputSchema),
+});
+
+export const browserTabOutputSchema = browserTabOutputSchema;
+
+export const browserCloseTabOutputSchema = z.object({
+  closed: z.literal(true),
+});
+
+export const browserSnapshotOutputSchema = z.object({
+  pageId: browserPageIdSchema,
+  snapshot: z.string(),
+});
+
+export const browserActionOutputSchema = z.object({
+  ok: z.literal(true),
+});
+
+export const browserWaitOutputSchema = z.object({
+  found: z.literal(true),
+});
+
+export const browserScreenshotMetadataOutputSchema = z.object({
+  pageId: browserPageIdSchema,
+  width: nonNegativeInt,
+  height: nonNegativeInt,
+});
+
+export const browserConsoleOutputSchema = z.object({
+  pageId: browserPageIdSchema,
+  entries: z.array(z.object({
+    level: z.enum(["error", "warning"]),
+    message: z.string(),
+  })),
+  truncated: z.boolean(),
+});
+
+export const browserNetworkOutputSchema = z.object({
+  pageId: browserPageIdSchema,
+  entries: z.array(z.object({
+    method: z.string(),
+    url: z.string(),
+    status: z.number().int().optional(),
+    failure: z.string().optional(),
+  })),
+  truncated: z.boolean(),
+});
+
+export const browserCloseOutputSchema = z.object({
+  closed: z.literal(true),
+});
