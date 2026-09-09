@@ -13,6 +13,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "build:broker:macos": "swift build -c release --package-path native/macos-authority-broker",
+    "build:computer:macos": "swift build -c release --package-path native/macos-computer-runtime",
+    "test:computer:macos": "swift test --package-path native/macos-computer-runtime",
+    "package:computer:macos": "npm run build:computer:macos && node scripts/package-macos-computer-runtime.mjs --sign -",
     "install:broker:macos": "node scripts/install-macos-authority-broker.mjs",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
