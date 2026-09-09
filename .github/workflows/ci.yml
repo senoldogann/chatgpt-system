@@ -37,6 +37,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Build macOS native helpers
         run: swift build -c release --package-path native/macos-authority-broker
       - name: Verify Keychain helper CLI contract
@@ -57,7 +59,9 @@ jobs:
           test "$(stat -f '%u' "/Library/Application Support/chatgpt-system/bin/chatgpt-system-authority-broker")" = "0"
           test "$(stat -f '%u' "/Library/Application Support/chatgpt-system/etc/authority-broker.sha256")" = "0"
       - name: Test macOS computer runtime
-        run: swift test --package-path native/macos-computer-runtime
+        run: npm run test:computer:macos
+      - name: Test computer runtime package contracts
+        run: npx vitest run tests/macos-computer-runtime-package.test.ts tests/macos-computer-runtime-fixture-package.test.ts
       - name: Build and package macOS computer runtime
         run: |
           npm run build:computer:macos
@@ -65,7 +69,19 @@ jobs:
           app="$RUNNER_TEMP/ChatGPTSystemComputerRuntime.app"
           test -x "$app/Contents/MacOS/chatgpt-system-computer-runtime"
           test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = "com.senoldogann.chatgpt-system.computer-runtime"
-          codesign -v "$app"
+          test "$(plutil -extract LSUIElement raw "$app/Contents/Info.plist")" = "true"
+          test "$(plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist")" = "14.0"
+          codesign -v --strict --deep "$app"
+      - name: Build and package computer runtime fixture
+        run: |
+          npm run build:computer-fixture:macos
+          node scripts/package-macos-computer-runtime-fixture.mjs --sign - --output "$RUNNER_TEMP/ChatGPTSystemComputerRuntimeFixture.app"
+          app="$RUNNER_TEMP/ChatGPTSystemComputerRuntimeFixture.app"
+          test -x "$app/Contents/MacOS/chatgpt-system-computer-runtime-fixture"
+          test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = "com.senoldogann.chatgpt-system.computer-runtime.fixture"
+          test "$(plutil -extract LSUIElement raw "$app/Contents/Info.plist")" = "false"
+          test "$(plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist")" = "14.0"
+          codesign -v --strict --deep "$app"
       - name: Verify computer runtime protocol health
         run: |
           helper="$RUNNER_TEMP/ChatGPTSystemComputerRuntime.app/Contents/MacOS/chatgpt-system-computer-runtime"

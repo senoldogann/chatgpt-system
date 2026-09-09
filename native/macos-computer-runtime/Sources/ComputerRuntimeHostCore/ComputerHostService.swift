@@ -11,25 +11,58 @@ public struct ComputerHostService: Sendable {
     private let workspace: any WorkspaceReading
     private let accessibility: (any AccessibilityReading)?
     private let screenshot: (any ScreenshotCapturing)?
+    private let actions: (any ComputerActionHandling)?
 
     public init(
         permissions: any PermissionReading,
         workspace: any WorkspaceReading,
         accessibility: (any AccessibilityReading)? = nil,
-        screenshot: (any ScreenshotCapturing)? = nil
+        screenshot: (any ScreenshotCapturing)? = nil,
+        actions: (any ComputerActionHandling)? = nil
     ) {
         self.permissions = permissions
         self.workspace = workspace
         self.accessibility = accessibility
         self.screenshot = screenshot
+        self.actions = actions
     }
 
     public static func system() -> ComputerHostService {
-        .init(
+        let topology = SystemDisplayTopology()
+        let workspaceReader = SystemWorkspaceReader()
+        let accessibilityReader = SystemAccessibilityReader()
+        let verification = ComputerVerificationEngine(
+            workspace: workspaceReader,
+            accessibility: accessibilityReader,
+            screenDigester: SystemScreenRegionDigester(),
+            sleeper: SystemInputSleeper()
+        )
+        let safetyCoordinator = InputSafetyCoordinator()
+        let takeoverMonitor = SystemTakeoverMonitor(coordinator: safetyCoordinator)
+        do {
+            try takeoverMonitor.start()
+        } catch {
+            safetyCoordinator.markMonitorUnavailable()
+        }
+        let controller = ComputerInputController(
+            eventSink: SystemInputEventSink(),
+            pointerReader: topology,
+            displayTopology: topology,
+            sleeper: SystemPointerSleeper(),
+            safetyCoordinator: safetyCoordinator
+        )
+        return .init(
             permissions: SystemPermissionReader(),
-            workspace: SystemWorkspaceReader(),
-            accessibility: SystemAccessibilityReader(),
-            screenshot: SystemScreenshotCapturer()
+            workspace: workspaceReader,
+            accessibility: accessibilityReader,
+            screenshot: SystemScreenshotCapturer(),
+            actions: ComputerActionService(
+                controller: controller,
+                applicationController: SystemWorkspaceController(),
+                appSleeper: SystemInputSleeper(),
+                takeoverMonitor: takeoverMonitor,
+                verification: verification
+            )
         )
     }
 
@@ -80,8 +113,15 @@ public struct ComputerHostService: Sendable {
             return await handleScreenshot(requestId: request.requestId)
 
         default:
+            if let actions, let response = await actions.handleAction(request) {
+                return response
+            }
             return protocolInvalid(requestId: request.requestId)
         }
+    }
+
+    public func shutdown() async {
+        await actions?.shutdown()
     }
 
     private func handleActiveWindow(requestId: String) -> ComputerProtocolResponse {
@@ -113,7 +153,16 @@ public struct ComputerHostService: Sendable {
         do {
             let observation = try accessibility.observe(for: application, limits: .default)
             let safeObservation = sanitizeObservation(observation, limits: .default)
-            return encodeBoundedObservation(safeObservation, requestId: requestId)
+            let digest = try ObservationDigest.digest(safeObservation)
+            let digestedObservation = ComputerObservation(
+                snapshotId: safeObservation.snapshotId,
+                application: safeObservation.application,
+                windowTitle: safeObservation.windowTitle,
+                elements: safeObservation.elements,
+                truncated: safeObservation.truncated,
+                digest: digest
+            )
+            return encodeBoundedObservation(digestedObservation, requestId: requestId)
         } catch AccessibilityReadError.permissionRequired {
             return accessibilityPermissionRequired(requestId: requestId)
         } catch {
