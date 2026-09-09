@@ -71,8 +71,7 @@ describe("ManagedProcessService", () => {
     expect((await secondAdmin.stop(started.processId)).state).toBe("stopped");
   });
 
-  it("escalates an uncooperative process from SIGTERM to SIGKILL", async () => {
-    const { root, admin } = await fixture(50);
+    it("escalates an uncooperative process from SIGTERM to SIGKILL", async () => {    const { root, admin } = await fixture(50);
     const started = await admin.start(
       "node",
       ["-e", "process.on('SIGTERM', () => {}); console.log('ignoring-term'); setInterval(() => {}, 1000)"],
@@ -83,5 +82,24 @@ describe("ManagedProcessService", () => {
     const stopped = await admin.stop(started.processId);
     expect(stopped.state).toBe("stopped");
     expect(stopped.signal).toBe("SIGKILL");
+  });
+
+  it("returns a structured executable-not-found error for allowlisted but missing binaries", async () => {
+    const { root, supervisor } = await fixture();
+    const scoped = new ManagedProcessService(
+      new PathPolicy([root]),
+      { enabled: true, commands: ["node", "chatgpt-system-missing-binary-xyz"] },
+      supervisor,
+    );
+
+    await expect(scoped.start("chatgpt-system-missing-binary-xyz", [], root)).rejects.toMatchObject({
+      code: "EXECUTABLE_NOT_FOUND",
+      details: {
+        command: "chatgpt-system-missing-binary-xyz",
+        allowed: true,
+        available: false,
+      },
+    });
+    expect(supervisor.descriptors()).toEqual([]);
   });
 });
