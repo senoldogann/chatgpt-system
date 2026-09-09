@@ -1,5 +1,6 @@
 import type { AuthorityContext } from "./authority.js";
 import { AuditLogger } from "./audit.js";
+import type { BrowserService } from "./browser-service.js";
 import type { AppConfig } from "./config.js";
 import { FileSystemService } from "./fs-service.js";
 import { GitService } from "./git-service.js";
@@ -7,6 +8,7 @@ import { ManagedProcessService } from "./managed-process-service.js";
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import type { ProcessSupervisor } from "./process-supervisor.js";
+import { ScopedBrowserService } from "./scoped-browser-service.js";
 
 export interface ScopedRuntime {
   policy: PathPolicy;
@@ -14,12 +16,14 @@ export interface ScopedRuntime {
   git: GitService;
   process: ProcessService;
   processes: ManagedProcessService;
+  browser: ScopedBrowserService;
 }
 
 export interface ScopedRuntimeBase {
   config: AppConfig;
   audit: AuditLogger;
   processSupervisor: ProcessSupervisor;
+  browser: BrowserService;
 }
 
 export function createScopedRuntime(base: ScopedRuntimeBase, authority: AuthorityContext): ScopedRuntime {
@@ -39,5 +43,6 @@ export function createScopedRuntime(base: ScopedRuntimeBase, authority: Authorit
     git: new GitService(policy, base.audit, config, { remoteWriteEnabled: authority.profile === "admin" }),
     process: new ProcessService(policy, base.audit, config),
     processes: new ManagedProcessService(policy, config.terminal, base.processSupervisor),
+    browser: new ScopedBrowserService(base.browser, base.audit, authority.profile === "admin"),
   };
 }
