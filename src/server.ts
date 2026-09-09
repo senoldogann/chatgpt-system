@@ -3,8 +3,11 @@ import { homedir } from "node:os";
 import { z } from "zod";
 import { AuthorityManager } from "./authority.js";
 import { AuthorityRequestManager } from "./authority-request-manager.js";
-import type { AppConfig } from "./config.js";
 import { AuditLogger } from "./audit.js";
+import { createBrowserService, type BrowserFactoryOptions } from "./browser-factory.js";
+import type { BrowserService } from "./browser-service.js";
+import { registerBrowserTools } from "./browser-tool-registration.js";
+import type { AppConfig } from "./config.js";
 import { FileSystemService } from "./fs-service.js";
 import { GitService } from "./git-service.js";
 import {
@@ -46,9 +49,10 @@ export interface RuntimeServices {
   git: GitService;
   process: ProcessService;
   processSupervisor: ProcessSupervisor;
+  browser: BrowserService;
 }
 
-export interface RuntimeOptions {
+export interface RuntimeOptions extends BrowserFactoryOptions {
   approvalBroker?: LocalAuthorityBroker;
   authorityRequests?: AuthorityRequestManager;
 }
@@ -92,6 +96,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     },
   });
   const processSupervisor = new ProcessSupervisor({ limits: config.limits, audit });
+  const browser = createBrowserService(config, options);
   return {
     config,
     policy,
@@ -103,6 +108,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     git: new GitService(policy, audit, config),
     process: new ProcessService(policy, audit, config),
     processSupervisor,
+    browser,
   };
 }
 
@@ -559,5 +565,6 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     async ({ authorityLeaseId, processId }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.stop(processId)),
   );
 
+  registerBrowserTools(server, runtime);
   return server;
 }
