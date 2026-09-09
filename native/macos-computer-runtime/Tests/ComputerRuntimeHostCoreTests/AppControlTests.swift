@@ -114,6 +114,22 @@ final class AppControlTests: XCTestCase {
         XCTAssertEqual(response.error?.message, "Computer focus verification failed.")
     }
 
+    func testFocusTimeoutDoesNotStartAnotherPollAfterDeadlinePasses() async {
+        let target = app(pid: 61, name: "Fixture", bundle: "com.example.fixture")
+        let workspace = FakeApplicationController(apps: [target], activationAccepted: true, becomesFrontmost: false)
+        let sleeper = SlowAppSleeper(delayNanoseconds: 60_000_000)
+        let response = await request(
+            makeAppHostService(workspace: workspace, appSleeper: sleeper),
+            method: "focus_app",
+            params: .object(["bundleIdentifier": .string("com.example.fixture"), "timeoutMs": .number(50)])
+        )
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_FOCUS_FAILED")
+        let calls = await sleeper.callCount()
+        XCTAssertEqual(calls, 1)
+    }
+
     func testOpenAndFocusRejectUnknownParams() async {
         let workspace = FakeApplicationController(apps: [])
         let service = makeAppHostService(workspace: workspace)
@@ -255,10 +271,26 @@ private struct AppNoopSink: InputEventSink { func emit(_ event: InputEvent) thro
 private struct AppPointer: PointerReading { func currentPointerPosition() throws -> ComputerPoint { ComputerPoint(x: 0, y: 0) } }
 private struct AppDisplays: DisplayTopologyReading { func activeDisplayBounds() throws -> [ComputerBounds] { [ComputerBounds(x: 0, y: 0, width: 100, height: 100)] } }
 private struct AppImmediateSleeper: InputSleeping { func sleep(nanoseconds: UInt64) async throws {} }
+private actor SlowAppSleeper: InputSleeping {
+    private let delayNanoseconds: UInt64
+    private var calls = 0
+
+    init(delayNanoseconds: UInt64) { self.delayNanoseconds = delayNanoseconds }
+
+    func sleep(nanoseconds: UInt64) async throws {
+        calls += 1
+        try await Task.sleep(nanoseconds: delayNanoseconds)
+    }
+
+    func callCount() -> Int { calls }
+}
 private struct AppPermissions: PermissionReading { func accessibilityTrusted() -> Bool { true }; func screenCaptureAuthorized() -> Bool { false } }
 private struct AppWorkspaceReader: WorkspaceReading { func runningApplications() -> [WorkspaceApplication] { [] }; func frontmostApplication() -> WorkspaceApplication? { nil } }
 
-private func makeAppHostService(workspace: FakeApplicationController) -> ComputerHostService {
+private func makeAppHostService(
+    workspace: FakeApplicationController,
+    appSleeper: any InputSleeping = AppImmediateSleeper()
+) -> ComputerHostService {
     let controller = ComputerInputController(
         eventSink: AppNoopSink(),
         pointerReader: AppPointer(),
@@ -271,7 +303,7 @@ private func makeAppHostService(workspace: FakeApplicationController) -> Compute
         actions: ComputerActionService(
             controller: controller,
             applicationController: workspace,
-            appSleeper: AppImmediateSleeper()
+            appSleeper: appSleeper
         )
     )
 }

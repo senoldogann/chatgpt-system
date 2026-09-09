@@ -427,12 +427,20 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
         using applicationController: any ApplicationControlling
     ) async throws -> WorkspaceApplication? {
         let attempts = max(1, Int(ceil(Double(timeoutMs) / Double(Self.focusPollIntervalMs))))
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .milliseconds(timeoutMs))
         for attempt in 0...attempts {
             try Task.checkCancellation()
+            if attempt > 0, clock.now >= deadline {
+                return nil
+            }
             if let frontmost = applicationController.frontmostApplication(),
                matches(frontmost, target: target, selector: selector)
             {
                 return frontmost
+            }
+            if clock.now >= deadline {
+                return nil
             }
             if attempt < attempts {
                 try await appSleeper.sleep(nanoseconds: UInt64(Self.focusPollIntervalMs) * 1_000_000)
