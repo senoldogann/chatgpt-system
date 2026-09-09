@@ -6,6 +6,17 @@ import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const defaultRepoDir = path.resolve(path.dirname(scriptPath), "..");
+const INSTALL_TIMEOUT_MS = 600_000;
+
+export function parseBrowserSetupArgs(args) {
+  if (!Array.isArray(args)) {
+    throw new TypeError("Browser setup arguments must be an array.");
+  }
+  if (args.length > 0) {
+    throw new Error("Browser setup does not accept command-line arguments.");
+  }
+  return {};
+}
 
 export function buildBrowserInstallInvocation({
   repoDir = defaultRepoDir,
@@ -37,10 +48,17 @@ export function runBrowserSetup(options = {}, dependencies = {}) {
     cwd: invocation.cwd,
     stdio: "inherit",
     shell: false,
+    timeout: INSTALL_TIMEOUT_MS,
   });
 
   if (result.error) {
-    throw new Error("Playwright Chromium installation failed to start.", { cause: result.error });
+    const timedOut = result.error?.code === "ETIMEDOUT";
+    throw new Error(
+      timedOut
+        ? "Playwright Chromium installation timed out."
+        : "Playwright Chromium installation failed to start.",
+      { cause: result.error },
+    );
   }
   if (result.status !== 0) {
     const detail = result.status === null
@@ -54,7 +72,8 @@ export function runBrowserSetup(options = {}, dependencies = {}) {
 
 function main() {
   try {
-    const result = runBrowserSetup();
+    const options = parseBrowserSetupArgs(process.argv.slice(2));
+    const result = runBrowserSetup(options);
     console.log(`Installed Playwright ${result.browser}.`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
