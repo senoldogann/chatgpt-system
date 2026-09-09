@@ -1,7 +1,7 @@
 {
   "name": "chatgpt-system",
   "version": "0.1.0",
-  "description": "Secure local MCP bridge for controlled filesystem, Git, and process access.",
+  "description": "Secure local MCP bridge for controlled filesystem, Git, process, and browser automation access.",
   "type": "module",
   "private": true,
   "bin": {
@@ -16,6 +16,7 @@
     "install:broker:macos": "node scripts/install-macos-authority-broker.mjs",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
+    "setup:browser": "node scripts/setup-browser.mjs",
     "setup:codex": "npm run build && node scripts/setup-codex.mjs",
     "setup:chatgpt": "npm run build && node scripts/setup-chatgpt-tunnel.mjs",
     "doctor:chatgpt": "node scripts/setup-chatgpt-tunnel.mjs --doctor",
