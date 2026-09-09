@@ -235,6 +235,12 @@ final class InputSafetyTests: XCTestCase {
         }
     }
 
+    func testSystemMonitorTreatsBothTapDisableReasonsAsRecoveryEvents() {
+        XCTAssertTrue(SystemTakeoverMonitor.shouldReenableTap(for: .tapDisabledByTimeout))
+        XCTAssertTrue(SystemTakeoverMonitor.shouldReenableTap(for: .tapDisabledByUserInput))
+        XCTAssertFalse(SystemTakeoverMonitor.shouldReenableTap(for: .keyDown))
+    }
+
     func testSystemMonitorClassifierDropsRuntimeOwnedEvents() throws {
         let source = try XCTUnwrap(CGEventSource(stateID: .privateState))
         let event = try XCTUnwrap(CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: true))

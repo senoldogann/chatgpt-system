@@ -102,6 +102,10 @@ final class SystemTakeoverMonitor: TakeoverMonitoring, @unchecked Sendable {
         }
     }
 
+    static func shouldReenableTap(for type: CGEventType) -> Bool {
+        type == .tapDisabledByTimeout || type == .tapDisabledByUserInput
+    }
+
     static func classify(type: CGEventType, event: CGEvent) -> ObservedPhysicalInput? {
         let sourceTag = event.getIntegerValueField(.eventSourceUserData)
         guard sourceTag != RuntimeOwnedEventTag.value else { return nil }
@@ -197,15 +201,15 @@ final class SystemTakeoverMonitor: TakeoverMonitoring, @unchecked Sendable {
     }
 
     private func handle(type: CGEventType, event: CGEvent) {
-        if type == .tapDisabledByTimeout {
-            reenableAfterTimeout()
+        if Self.shouldReenableTap(for: type) {
+            reenableTap()
             return
         }
         guard let observed = Self.classify(type: type, event: event) else { return }
         coordinator.observe(observed)
     }
 
-    private func reenableAfterTimeout() {
+    private func reenableTap() {
         lock.lock()
         let tap = eventTap
         lock.unlock()
