@@ -99,6 +99,13 @@ final class InputControllerTests: XCTestCase {
     func testRuntimeOwnedTagConstantIsSingleStableValue() {
         XCTAssertEqual(RuntimeOwnedEventTag.value, 0x4352_5632_494E_5054)
     }
+
+    func testSystemPointerSleeperUsesPrecisePacingOnlyForTrajectoryScaleDelays() {
+        XCTAssertFalse(SystemPointerSleeper.usesPrecisePacing(for: 0))
+        XCTAssertTrue(SystemPointerSleeper.usesPrecisePacing(for: 8_000_000))
+        XCTAssertTrue(SystemPointerSleeper.usesPrecisePacing(for: 10_000_000))
+        XCTAssertFalse(SystemPointerSleeper.usesPrecisePacing(for: 10_000_001))
+    }
 }
 
 private let fixtureDisplays = [

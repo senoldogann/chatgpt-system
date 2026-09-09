@@ -48,7 +48,7 @@ public struct ComputerHostService: Sendable {
             eventSink: SystemInputEventSink(),
             pointerReader: topology,
             displayTopology: topology,
-            sleeper: SystemInputSleeper(),
+            sleeper: SystemPointerSleeper(),
             safetyCoordinator: safetyCoordinator
         )
         return .init(
