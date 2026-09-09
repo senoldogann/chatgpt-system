@@ -80,10 +80,18 @@ struct ComputerVerificationEngine: ComputerVerificationHandling, Sendable {
     ) async throws -> ApplicationView {
         try validateTimeout(timeoutMs)
         let attempts = pollAttempts(timeoutMs)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .milliseconds(timeoutMs))
         for attempt in 0...attempts {
             try Task.checkCancellation()
+            if attempt > 0, clock.now >= deadline {
+                throw ComputerVerificationError.focusFailed
+            }
             if let frontmost = workspace.frontmostApplication(), matches(frontmost, selector: selector) {
                 return frontmost.view
+            }
+            if clock.now >= deadline {
+                throw ComputerVerificationError.focusFailed
             }
             if attempt < attempts {
                 try await sleeper.sleep(nanoseconds: Self.pollIntervalNanoseconds)
@@ -95,8 +103,13 @@ struct ComputerVerificationEngine: ComputerVerificationHandling, Sendable {
     func waitForText(_ text: String, exact: Bool, timeoutMs: Int) async throws {
         try validateTimeout(timeoutMs)
         let attempts = pollAttempts(timeoutMs)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .milliseconds(timeoutMs))
         for attempt in 0...attempts {
             try Task.checkCancellation()
+            if attempt > 0, clock.now >= deadline {
+                throw ComputerVerificationError.timeout
+            }
             let observation = try currentObservation()
             if observation.elements.contains(where: { element in
                 [element.title, element.description].compactMap { $0 }.contains(where: { candidate in
@@ -104,6 +117,9 @@ struct ComputerVerificationEngine: ComputerVerificationHandling, Sendable {
                 })
             }) {
                 return
+            }
+            if clock.now >= deadline {
+                throw ComputerVerificationError.timeout
             }
             if attempt < attempts {
                 try await sleeper.sleep(nanoseconds: Self.pollIntervalNanoseconds)
@@ -118,11 +134,19 @@ struct ComputerVerificationEngine: ComputerVerificationHandling, Sendable {
     ) async throws -> String {
         try validateTimeout(timeoutMs)
         let attempts = pollAttempts(timeoutMs)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .milliseconds(timeoutMs))
         for attempt in 0...attempts {
             try Task.checkCancellation()
+            if attempt > 0, clock.now >= deadline {
+                throw ComputerVerificationError.timeout
+            }
             let digest = try currentAXDigest()
             if digest != baselineDigest {
                 return digest
+            }
+            if clock.now >= deadline {
+                throw ComputerVerificationError.timeout
             }
             if attempt < attempts {
                 try await sleeper.sleep(nanoseconds: Self.pollIntervalNanoseconds)
@@ -142,11 +166,19 @@ struct ComputerVerificationEngine: ComputerVerificationHandling, Sendable {
     ) async throws -> String {
         try validateTimeout(timeoutMs)
         let attempts = pollAttempts(timeoutMs)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .milliseconds(timeoutMs))
         for attempt in 0...attempts {
             try Task.checkCancellation()
+            if attempt > 0, clock.now >= deadline {
+                throw ComputerVerificationError.timeout
+            }
             let digest = try await screenDigester.digest(bounds: bounds)
             if digest != baselineDigest {
                 return digest
+            }
+            if clock.now >= deadline {
+                throw ComputerVerificationError.timeout
             }
             if attempt < attempts {
                 try await sleeper.sleep(nanoseconds: Self.pollIntervalNanoseconds)

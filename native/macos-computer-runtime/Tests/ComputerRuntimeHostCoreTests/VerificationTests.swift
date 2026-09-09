@@ -154,6 +154,26 @@ final class VerificationTests: XCTestCase {
         XCTAssertEqual(requestedBounds, [bounds, bounds, bounds])
     }
 
+    func testScreenRegionTimeoutDoesNotStartAnotherCaptureAfterDeadlinePasses() async {
+        let digester = SlowVerificationScreenDigester(delayNanoseconds: 60_000_000)
+        let engine = makeVerificationEngine(screenDigester: digester)
+        let bounds = ComputerBounds(x: 10, y: 10, width: 50, height: 50)
+
+        do {
+            _ = try await engine.waitUntilScreenRegionChanged(
+                bounds: bounds,
+                from: "baseline",
+                timeoutMs: 50
+            )
+            XCTFail("Expected timeout")
+        } catch {
+            XCTAssertEqual(error as? ComputerVerificationError, .timeout)
+        }
+
+        let calls = await digester.callCount()
+        XCTAssertEqual(calls, 1)
+    }
+
     func testVerificationNativeErrorDoesNotLeak() async throws {
         let service = ComputerHostService(
             permissions: VerificationPermissions(),
@@ -380,6 +400,23 @@ private actor VerificationScreenDigester: ScreenRegionDigesting {
     }
 
     func requestedBounds() -> [ComputerBounds] { bounds }
+}
+
+private actor SlowVerificationScreenDigester: ScreenRegionDigesting {
+    private let delayNanoseconds: UInt64
+    private var count = 0
+
+    init(delayNanoseconds: UInt64) {
+        self.delayNanoseconds = delayNanoseconds
+    }
+
+    func digest(bounds: ComputerBounds) async throws -> String {
+        count += 1
+        try await Task.sleep(nanoseconds: delayNanoseconds)
+        return "baseline"
+    }
+
+    func callCount() -> Int { count }
 }
 
 private struct VerificationSleeper: InputSleeping {
