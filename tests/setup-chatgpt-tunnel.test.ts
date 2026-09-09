@@ -42,18 +42,49 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(() => buildTunnelSetup(["--root", ROOT, "--tunnel-id", "abc"], {}, context)).toThrow(/tunnel id/i);
   });
 
-  it("keeps bootstrap terminal disabled while enabling the private local control socket", () => {
+  it("keeps bootstrap terminal and browser disabled while enabling the private local control socket", () => {
     const setup = buildTunnelSetup(["--root", ROOT, "--tunnel-id", VALID_TUNNEL], {}, context);
     expect(setup.profile).toBe("chatgpt-system");
     expect(setup.mcpCommand).not.toContain("--enable-terminal");
     expect(setup.mcpCommand).not.toContain("--personal-admin");
+    expect(setup.mcpCommand).not.toContain("--enable-browser");
+    expect(setup.mcpCommand).not.toContain("--browser-headless");
     expect(setup.mcpCommand).toContain("stdio");
     expect(setup.mcpCommand).toContain(ROOT);
     expect(setup.mcpCommand).toContain("--enable-control");
     expect(setup.controlSocketPath).toBe("/home/tester/.chatgpt-system/control.sock");
   });
 
-  it("documents terminal opt-in and explicit stale-profile replacement for the daily-driver ChatGPT profile", async () => {
+  it("adds browser capability only when explicitly requested", () => {
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-browser",
+    ], {}, context);
+
+    expect(setup.mcpCommand).toContain("--enable-browser");
+    expect(setup.mcpCommand).not.toContain("--browser-headless");
+  });
+
+  it("supports explicit headless browser mode only with browser capability enabled", () => {
+    expect(() => buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--browser-headless",
+    ], {}, context)).toThrow(/enable-browser/i);
+
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-browser",
+      "--browser-headless",
+    ], {}, context);
+
+    expect(setup.mcpCommand).toContain("--enable-browser");
+    expect(setup.mcpCommand).toContain("--browser-headless");
+  });
+
+  it("documents terminal, browser opt-in and explicit stale-profile replacement for the daily-driver ChatGPT profile", async () => {
     const [runbook, readme] = await Promise.all([
       readFile(new URL("../docs/CHATGPT_INTEGRATION.md", import.meta.url), "utf8"),
       readFile(new URL("../README.md", import.meta.url), "utf8"),
@@ -66,6 +97,8 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     const runbookSetup = runbook.slice(runbookSetupStart, runbookSetupEnd);
     expect(runbookSetup).toContain("--enable-terminal");
     expect(runbookSetup).toContain("--personal-admin");
+    expect(runbookSetup).toContain("--enable-browser");
+    expect(runbookSetup).toContain("npm run setup:browser");
     expect(runbookSetup).toContain("--force");
 
     const readmeSetupStart = readme.indexOf("## Personal ChatGPT Plugin");
@@ -75,6 +108,8 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     const readmeSetup = readme.slice(readmeSetupStart, readmeSetupEnd);
     expect(readmeSetup).toContain("--enable-terminal");
     expect(readmeSetup).toContain("--personal-admin");
+    expect(readmeSetup).toContain("--enable-browser");
+    expect(readmeSetup).toContain("npm run setup:browser");
     expect(readmeSetup).toContain("--force");
   });
 
