@@ -77,6 +77,35 @@ function cloneContext(lease: StoredLease): AuthorityContext {
   };
 }
 
+export async function canonicalizeProjectRoots(
+  homeDirInput: string,
+  requestedRootsInput: string[],
+): Promise<string[]> {
+  const home = await realpath(path.resolve(homeDirInput));
+  const filesystemRoot = path.parse(home).root;
+  const requestedRoots = requestedRootsInput.map((root) => root.trim()).filter(Boolean);
+  if (requestedRoots.length === 0) {
+    throw new AuthorityDeniedError("Project authority requires at least one explicit project root.");
+  }
+
+  const canonicalRoots: string[] = [];
+  for (const requestedRoot of requestedRoots) {
+    const canonical = await realpath(path.resolve(requestedRoot));
+    const info = await stat(canonical);
+    if (!info.isDirectory()) {
+      throw new AuthorityDeniedError("Project authority roots must be directories.", { root: requestedRoot });
+    }
+    if (canonical === filesystemRoot || canonical === home) {
+      throw new AuthorityDeniedError("Project authority may not target the filesystem root or the entire home directory.", {
+        root: requestedRoot,
+      });
+    }
+    canonicalRoots.push(canonical);
+  }
+
+  return [...new Set(canonicalRoots)];
+}
+
 export class AuthorityManager {
   private readonly leases = new Map<string, StoredLease>();
   private readonly now: () => number;
@@ -189,27 +218,6 @@ export class AuthorityManager {
 
     if (request.profile === "user") return [home];
     if (request.profile === "admin") return [filesystemRoot];
-
-    const requestedRoots = request.projectRoots?.map((root) => root.trim()).filter(Boolean) ?? [];
-    if (requestedRoots.length === 0) {
-      throw new AuthorityDeniedError("Project authority requires at least one explicit project root.");
-    }
-
-    const canonicalRoots: string[] = [];
-    for (const requestedRoot of requestedRoots) {
-      const canonical = await realpath(path.resolve(requestedRoot));
-      const info = await stat(canonical);
-      if (!info.isDirectory()) {
-        throw new AuthorityDeniedError("Project authority roots must be directories.", { root: requestedRoot });
-      }
-      if (canonical === filesystemRoot || canonical === home) {
-        throw new AuthorityDeniedError("Project authority may not target the filesystem root or the entire home directory.", {
-          root: requestedRoot,
-        });
-      }
-      canonicalRoots.push(canonical);
-    }
-
-    return [...new Set(canonicalRoots)];
+    return canonicalizeProjectRoots(this.homeDirInput, request.projectRoots ?? []);
   }
 }

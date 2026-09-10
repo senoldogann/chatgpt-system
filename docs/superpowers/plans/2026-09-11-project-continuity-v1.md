@@ -473,7 +473,7 @@ git commit -m "feat: inspect continuity worktree state"
 - Modify: `src/authority.ts`
 - Create: `src/project-continuity-service.ts`
 - Test: `tests/project-continuity-service.test.ts`
-- Modify: `tests/authority.test.ts`
+- Test: `tests/continuity-authority.test.ts`
 
 **Interfaces:**
 - Consumes `ContinuityStore`, `ContinuityGitInspector`, and `AuthorityManager`.
@@ -529,7 +529,7 @@ Tests must prove the same existing rules: canonical real directories, deduplicat
 Run:
 
 ```bash
-npm test -- tests/authority.test.ts
+npm test -- tests/continuity-authority.test.ts tests/authority.test.ts
 ```
 
 Expected initial RED because the helper is not exported.
@@ -607,14 +607,14 @@ Context read only returns one immutable semantic record; no history search API i
 - [ ] **Step 7: Run service + authority tests GREEN**
 
 ```bash
-npm test -- tests/authority.test.ts tests/project-continuity-service.test.ts
+npm test -- tests/continuity-authority.test.ts tests/authority.test.ts tests/project-continuity-service.test.ts
 npm run build
 ```
 
 - [ ] **Step 8: Commit Task 3**
 
 ```bash
-git add src/authority.ts src/project-continuity-service.ts tests/authority.test.ts tests/project-continuity-service.test.ts
+git add src/authority.ts src/project-continuity-service.ts tests/continuity-authority.test.ts tests/project-continuity-service.test.ts docs/superpowers/plans/2026-09-11-project-continuity-v1.md
 git diff --cached --check
 git commit -m "feat: register and checkpoint project continuity"
 ```
