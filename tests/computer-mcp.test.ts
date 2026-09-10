@@ -191,7 +191,7 @@ const expectedComputerTools = [
 ] as const;
 
 describe("computer MCP tools", () => {
-  it("exposes the exact strict catalog with lease-free health and no direct hold or JS tools", async () => {
+  it("exposes the exact strict low-level catalog with lease-free health and no direct hold tools", async () => {
     const { client, transport } = await fixture();
     try {
       const { tools } = await client.listTools();
@@ -202,7 +202,7 @@ describe("computer MCP tools", () => {
         expect(tool?.inputSchema).toMatchObject({ type: "object", additionalProperties: false });
         expect(tool?.outputSchema).toMatchObject({ type: "object" });
       }
-      for (const absent of ["computer_mouse_down", "computer_mouse_up", "computer_run_js"]) {
+      for (const absent of ["computer_mouse_down", "computer_mouse_up"]) {
         expect(byName.has(absent)).toBe(false);
       }
 

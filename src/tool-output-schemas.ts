@@ -364,6 +364,12 @@ const computerRunStepTypeSchema = z.enum([
   "release_inputs",
 ]);
 
+export const computerJsRunOutputSchema = z.object({
+  stdout: z.string(),
+  stderr: z.string(),
+  result: z.unknown().optional(),
+}).strict();
+
 export const computerRunOutputSchema = z.object({
   state: z.enum(["completed", "completed_unverified"]),
   completedCount: z.number().int().nonnegative(),

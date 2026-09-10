@@ -15,6 +15,7 @@ import { loadConfig } from "../src/config.js";
 import { createRuntimeServices } from "../src/server.js";
 import { createScopedRuntime } from "../src/scoped-runtime.js";
 import { ScopedComputerService, type ScopedComputerBackend } from "../src/scoped-computer-service.js";
+import { ScopedComputerJsService } from "../src/scoped-computer-js-service.js";
 
 const cleanups: string[] = [];
 
@@ -188,6 +189,55 @@ describe("ScopedComputerService policy and audit", () => {
     expect(log).toContain('"errorCode":"COMPUTER_ACTION_FAILED"');
     expect(log).not.toContain("REQUEST_ID_CANARY");
     expect(log).not.toContain("SECRET_TYPED_CANARY");
+  });
+
+  it("records computer.run_js without source cwd output result or runner diagnostics", async () => {
+    const { auditFile, audit } = await fixture();
+    const source = "SOURCE_SECRET_CANARY";
+    const cwd = "/tmp/CWD_SECRET_CANARY";
+    const service = new ScopedComputerJsService({
+      run: async () => ({
+        stdout: "STDOUT_SECRET_CANARY",
+        stderr: "STDERR_SECRET_CANARY",
+        result: { secret: "RESULT_SECRET_CANARY" },
+      }),
+    }, audit, true, true);
+
+    await expect(service.run({ source, cwd })).resolves.toEqual({
+      stdout: "STDOUT_SECRET_CANARY",
+      stderr: "STDERR_SECRET_CANARY",
+      result: { secret: "RESULT_SECRET_CANARY" },
+    });
+
+    const failing = new ScopedComputerJsService({
+      run: async () => {
+        throw new ComputerError("COMPUTER_JS_FAILED", {
+          requestId: "RUNNER_RPC_ID_CANARY",
+          nativeRequestId: "NATIVE_REQUEST_ID_CANARY",
+          detail: "JS_EXCEPTION_SECRET_CANARY",
+        });
+      },
+    }, audit, true, true);
+    await expect(failing.run({ source: "FAIL_SOURCE_SECRET_CANARY", cwd })).rejects.toMatchObject({ code: "COMPUTER_JS_FAILED" });
+
+    const log = await readFile(auditFile, "utf8");
+    expect(log).toContain('"action":"computer.run_js"');
+    expect(log).toContain('"outcome":"ok"');
+    expect(log).toContain('"outcome":"error"');
+    expect(log).toContain('"errorCode":"COMPUTER_JS_FAILED"');
+    for (const forbidden of [
+      source,
+      cwd,
+      "STDOUT_SECRET_CANARY",
+      "STDERR_SECRET_CANARY",
+      "RESULT_SECRET_CANARY",
+      "FAIL_SOURCE_SECRET_CANARY",
+      "RUNNER_RPC_ID_CANARY",
+      "NATIVE_REQUEST_ID_CANARY",
+      "JS_EXCEPTION_SECRET_CANARY",
+    ]) {
+      expect(log).not.toContain(forbidden);
+    }
   });
 
   it("keeps actual native request ids and captured stderr out of audit across the supervisor stack", async () => {
