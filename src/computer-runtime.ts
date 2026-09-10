@@ -30,20 +30,20 @@ export type ComputerMouseButton = "left" | "right" | "middle";
 export type ComputerKeyModifier = "control" | "option" | "shift" | "command";
 
 export type ComputerVerification =
-  | { kind: "ax_changed"; timeoutMs?: number }
-  | { kind: "text_appeared"; text: string; exact?: boolean; timeoutMs?: number }
+  | { kind: "ax_changed"; timeoutMs?: number | undefined }
+  | { kind: "text_appeared"; text: string; exact?: boolean | undefined; timeoutMs?: number | undefined }
   | {
       kind: "screen_region_changed";
       x: number;
       y: number;
       width: number;
       height: number;
-      timeoutMs?: number;
+      timeoutMs?: number | undefined;
     };
 
 export interface ComputerApplicationSelector {
-  bundleIdentifier?: string;
-  name?: string;
+  bundleIdentifier?: string | undefined;
+  name?: string | undefined;
 }
 
 export interface ComputerPoint {
@@ -371,19 +371,19 @@ export class ComputerRuntime {
     };
   }
 
-  async openApp(input: ComputerApplicationSelector & { timeoutMs?: number }): Promise<unknown> {
+  async openApp(input: ComputerApplicationSelector & { timeoutMs?: number | undefined }): Promise<unknown> {
     const params = selectorParams(input);
     if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 5_000);
     return this.physical("open_app", params);
   }
 
-  async focusApp(input: ComputerApplicationSelector & { timeoutMs?: number }): Promise<unknown> {
+  async focusApp(input: ComputerApplicationSelector & { timeoutMs?: number | undefined }): Promise<unknown> {
     const params = selectorParams(input);
     if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 5_000);
     return this.physical("focus_app", params);
   }
 
-  async moveMouse(input: ComputerPoint & { motionMode?: PointerMotionMode; verify?: ComputerVerification }): Promise<unknown> {
+  async moveMouse(input: ComputerPoint & { motionMode?: PointerMotionMode | undefined; verify?: ComputerVerification | undefined }): Promise<unknown> {
     const params: Record<string, unknown> = { x: finite(input.x), y: finite(input.y) };
     const mode = motionMode(input.motionMode);
     const verify = verification(input.verify);
@@ -393,10 +393,10 @@ export class ComputerRuntime {
   }
 
   async click(input: ComputerPoint & {
-    count?: 1 | 2;
-    button?: ComputerMouseButton;
-    motionMode?: PointerMotionMode;
-    verify?: ComputerVerification;
+    count?: 1 | 2 | undefined;
+    button?: ComputerMouseButton | undefined;
+    motionMode?: PointerMotionMode | undefined;
+    verify?: ComputerVerification | undefined;
   }): Promise<unknown> {
     const count = input.count ?? 1;
     if (count !== 1 && count !== 2) invalid();
@@ -413,9 +413,9 @@ export class ComputerRuntime {
   async drag(input: {
     from: ComputerPoint;
     to: ComputerPoint;
-    button?: ComputerMouseButton;
-    motionMode?: PointerMotionMode;
-    verify?: ComputerVerification;
+    button?: ComputerMouseButton | undefined;
+    motionMode?: PointerMotionMode | undefined;
+    verify?: ComputerVerification | undefined;
   }): Promise<unknown> {
     const params: Record<string, unknown> = {
       from: { x: finite(input.from.x), y: finite(input.from.y) },
@@ -433,10 +433,10 @@ export class ComputerRuntime {
   async scroll(input: {
     vertical: number;
     horizontal: number;
-    x?: number;
-    y?: number;
-    motionMode?: PointerMotionMode;
-    verify?: ComputerVerification;
+    x?: number | undefined;
+    y?: number | undefined;
+    motionMode?: PointerMotionMode | undefined;
+    verify?: ComputerVerification | undefined;
   }): Promise<unknown> {
     integerInRange(input.vertical, -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA);
     integerInRange(input.horizontal, -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA);
@@ -453,7 +453,7 @@ export class ComputerRuntime {
     return this.physical("scroll", params);
   }
 
-  async typeText(input: ComputerApplicationSelector & { text: string; verify?: ComputerVerification }): Promise<unknown> {
+  async typeText(input: ComputerApplicationSelector & { text: string; verify?: ComputerVerification | undefined }): Promise<unknown> {
     if (input.text.length > MAX_TYPED_CHARS) invalid();
     const params = selectorParams(input);
     params.text = input.text;
@@ -464,8 +464,8 @@ export class ComputerRuntime {
 
   async pressKey(input: ComputerApplicationSelector & {
     key: string;
-    modifiers?: ComputerKeyModifier[];
-    verify?: ComputerVerification;
+    modifiers?: ComputerKeyModifier[] | undefined;
+    verify?: ComputerVerification | undefined;
   }): Promise<unknown> {
     if (input.key.length === 0 || input.key.length > 128) invalid();
     const params = selectorParams(input);
@@ -483,13 +483,13 @@ export class ComputerRuntime {
     return this.physical("press_key", params);
   }
 
-  async waitForFrontmost(input: ComputerApplicationSelector & { timeoutMs?: number }): Promise<unknown> {
+  async waitForFrontmost(input: ComputerApplicationSelector & { timeoutMs?: number | undefined }): Promise<unknown> {
     const params = selectorParams(input);
     if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 10_000);
     return this.read("wait_for_frontmost", params);
   }
 
-  async waitForText(input: { text: string; exact?: boolean; timeoutMs?: number }): Promise<unknown> {
+  async waitForText(input: { text: string; exact?: boolean | undefined; timeoutMs?: number | undefined }): Promise<unknown> {
     if (input.text.length === 0 || input.text.length > MAX_SELECTOR_CHARS) invalid();
     const params: Record<string, unknown> = { text: input.text };
     if (input.exact !== undefined) params.exact = input.exact;
@@ -497,7 +497,7 @@ export class ComputerRuntime {
     return this.read("wait_for_text", params);
   }
 
-  async waitUntilChanged(input: { baselineDigest: string; timeoutMs?: number }): Promise<unknown> {
+  async waitUntilChanged(input: { baselineDigest: string; timeoutMs?: number | undefined }): Promise<unknown> {
     if (input.baselineDigest.length === 0 || input.baselineDigest.length > MAX_SELECTOR_CHARS) invalid();
     const params: Record<string, unknown> = { baselineDigest: input.baselineDigest };
     if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 10_000);
@@ -510,8 +510,8 @@ export class ComputerRuntime {
 
   async run(input: {
     actions: ComputerAction[];
-    finalObservation?: ComputerFinalObservation;
-    timeoutMs?: number;
+    finalObservation?: ComputerFinalObservation | undefined;
+    timeoutMs?: number | undefined;
   }): Promise<ComputerRunResult> {
     this.requireEnabled();
     if (!Array.isArray(input.actions) || input.actions.length === 0) invalid();

@@ -9,6 +9,7 @@ import type { BrowserService } from "./browser-service.js";
 import { ComputerNativeSupervisor } from "./computer-native-supervisor.js";
 import { ComputerRuntime, type ComputerNativeRequesting } from "./computer-runtime.js";
 import { registerBrowserTools } from "./browser-tool-registration.js";
+import { registerComputerTools } from "./computer-tool-registration.js";
 import type { AppConfig } from "./config.js";
 import { FileSystemService } from "./fs-service.js";
 import { GitService } from "./git-service.js";
@@ -597,5 +598,6 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   );
 
   registerBrowserTools(server, runtime);
+  registerComputerTools(server, runtime);
   return server;
 }

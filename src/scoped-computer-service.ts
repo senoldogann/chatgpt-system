@@ -29,8 +29,8 @@ export type ScopedComputerBackend = Pick<
 
 type RunInput = {
   actions: ComputerAction[];
-  finalObservation?: ComputerFinalObservation;
-  timeoutMs?: number;
+  finalObservation?: ComputerFinalObservation | undefined;
+  timeoutMs?: number | undefined;
 };
 
 export class ScopedComputerService {
@@ -41,7 +41,7 @@ export class ScopedComputerService {
   ) {}
 
   health() {
-    return this.runAudit("computer.health", () => this.service.health());
+    return this.runAudit("computer.health", () => this.service.health(), undefined, undefined, false);
   }
 
   observe() {
@@ -146,10 +146,11 @@ export class ScopedComputerService {
     operation: () => Promise<T>,
     metadata?: Record<string, unknown>,
     successMetadata?: (result: T) => Record<string, unknown>,
+    requireAdmin = true,
   ): Promise<T> {
     const started = performance.now();
     try {
-      if (!this.adminEnabled) {
+      if (requireAdmin && !this.adminEnabled) {
         throw new PolicyError("Computer Runtime requires an Admin authority lease.");
       }
       const result = await operation();
@@ -194,7 +195,7 @@ export class ScopedComputerService {
     return safe;
   }
 
-  private applicationMetadata(input: { bundleIdentifier?: string }): Record<string, unknown> | undefined {
+  private applicationMetadata(input: { bundleIdentifier?: string | undefined }): Record<string, unknown> | undefined {
     return input.bundleIdentifier ? { bundleIdentifier: input.bundleIdentifier } : undefined;
   }
 
