@@ -157,6 +157,32 @@ describe("fixed full-host computer JavaScript runner", () => {
     });
   });
 
+  it("passes object-shaped Slice 3 inputs through the computer proxy unchanged", async () => {
+    const rpcCalls: Array<{ method: string; params: unknown }> = [];
+    const execution = await runRunner({
+      cwd: await tempCwd(),
+      source: `
+        await computer.drag({ from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, button: "left" });
+        await computer.typeText({ text: "hello", name: "Fixture" });
+        await computer.pressKey({ key: "k", modifiers: ["command"], name: "Fixture" });
+        await computer.waitForText({ text: "Ready", exact: true, timeoutMs: 200 });
+        return "ok";
+      `,
+      onRpc: (message) => {
+        rpcCalls.push({ method: message.method, params: message.params });
+        return { type: "rpc_result", id: message.id, ok: true, result: { state: "completed" } };
+      },
+    });
+
+    expect(execution.exitCode).toBe(0);
+    expect(rpcCalls).toEqual([
+      { method: "drag", params: { from: { x: 1, y: 2 }, to: { x: 3, y: 4 }, button: "left" } },
+      { method: "type_text", params: { text: "hello", name: "Fixture" } },
+      { method: "press_key", params: { key: "k", modifiers: ["command"], name: "Fixture" } },
+      { method: "wait_for_text", params: { text: "Ready", exact: true, timeoutMs: 200 } },
+    ]);
+  });
+
   it("contains process.exit inside the worker and reports only its exit code", async () => {
     const execution = await runRunner({
       cwd: await tempCwd(),
