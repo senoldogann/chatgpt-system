@@ -47,6 +47,9 @@ export interface AppConfig {
     enabled: boolean;
     commands: string[];
   };
+  projectExec: {
+    enabled: boolean;
+  };
   personalAdmin: {
     enabled: boolean;
   };
@@ -68,6 +71,7 @@ export interface ConfigOverrides {
   roots?: string[];
   auditFile?: string;
   terminalEnabled?: boolean;
+  projectExecEnabled?: boolean;
   personalAdminEnabled?: boolean;
   computerUseEnabled?: boolean;
   fullHostJsEnabled?: boolean;
@@ -87,6 +91,7 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_ROOTS: z.string().optional(),
   CHATGPT_SYSTEM_AUDIT_FILE: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_TERMINAL: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_PERSONAL_ADMIN: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ENABLE_COMPUTER_USE: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ENABLE_FULL_HOST_JS: z.enum(["true", "false", "1", "0"]).optional(),
@@ -204,6 +209,9 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     terminal: {
       enabled: overrides.terminalEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_TERMINAL),
       commands: [...new Set(overrides.commands ?? splitCsv(env.CHATGPT_SYSTEM_ALLOW_COMMANDS) ?? DEFAULT_COMMANDS)],
+    },
+    projectExec: {
+      enabled: overrides.projectExecEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC),
     },
     personalAdmin: {
       enabled: overrides.personalAdminEnabled ?? enabled(env.CHATGPT_SYSTEM_PERSONAL_ADMIN),

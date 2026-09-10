@@ -25,7 +25,12 @@ tunnel-client on the Mac
         v
 chatgpt-system shared runtime
         |
-        +-- Project authority: direct MCP, filesystem/Git, no terminal/browser content
+        +-- Project authority: direct MCP, filesystem/Git, no host terminal/browser content
+        |      |
+        |      +-- project_exec when explicit gate enabled
+        |               |
+        |               v
+        |         local Docker sandbox (network=none, /workspace bind mount)
         |
         +-- private Unix control socket ~/.chatgpt-system/control.sock
         |            ^
@@ -67,6 +72,7 @@ ChatGPT Web is the canonical first acceptance surface. Desktop uses the same ins
 - ChatGPT Developer Mode enabled.
 - Node.js 22+.
 - Git.
+- Docker Desktop or another trusted local Docker daemon when Project execution is enabled; the active context must use a local Unix socket.
 - `tunnel-client`.
 - Secure MCP Tunnel associated with the intended ChatGPT workspace.
 - Runtime tunnel credential available to `tunnel-client`, normally through `CONTROL_PLANE_API_KEY`.
@@ -88,6 +94,17 @@ npm run check
 ```
 
 When validating an unmerged feature branch, replace `main` with that exact branch and keep the tunnel child on the same build.
+
+### 2a. Build the Project execution sandbox image
+
+Project execution is optional and disabled by default. With a trusted local Docker daemon running, build the fixed repository image once:
+
+```bash
+cd ~/chatgpt-system
+npm run setup:project-exec
+```
+
+The setup command accepts no caller-controlled Docker flags. Runtime `project_exec` requires the separate `--enable-project-exec` gate, accepts only Project leases, rejects non-local Docker contexts, disables container networking, uses a read-only container root with bounded `/tmp`, bind-mounts the selected Project root at `/workspace`, and never falls back to host execution. Because the sandbox is Linux-based, macOS-native/Xcode checks remain on the explicit Admin host-execution path.
 
 ## 3. Build and install the protected native broker
 
@@ -179,7 +196,7 @@ git add fixture.txt
 git commit -m 'test fixture' || true
 ```
 
-For a private daily-driver acceptance profile with terminal, personal-admin, Browser Runtime, and Computer Runtime enabled:
+For a private daily-driver acceptance profile with sandboxed Project execution, host terminal, personal-admin, Browser Runtime, and Computer Runtime enabled:
 
 ```bash
 cd ~/chatgpt-system
@@ -187,6 +204,7 @@ npm run setup:chatgpt -- \
   --root /tmp/chatgpt-system-acceptance \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
   --enable-terminal \
+  --enable-project-exec \
   --personal-admin \
   --enable-browser \
   --enable-computer-use \
@@ -212,13 +230,15 @@ npm run setup:chatgpt -- \
 
 The capability gates are independent:
 
-- omitting `--enable-terminal` keeps one-shot/managed process execution disabled;
+- omitting `--enable-terminal` keeps one-shot/managed **host** process execution disabled;
+- omitting `--enable-project-exec` keeps `project_exec` disabled even for Project leases; enabling it does not grant host-terminal authority;
 - omitting `--personal-admin` preserves local User/Admin approval;
 - omitting `--enable-browser` keeps Browser Runtime disabled even for Admin;
 - omitting `--enable-computer-use` keeps Computer Runtime disabled even for Admin;
 - omitting `--enable-full-host-js` keeps `computer_run_js` disabled even when Computer Runtime is enabled;
 - `--enable-full-host-js` without `--enable-computer-use` is rejected;
-- enabling Browser, Computer Runtime, or full-host JavaScript does not make Project/User capable of using those surfaces.
+- enabling Browser, Computer Runtime, or full-host JavaScript does not make Project/User capable of using those surfaces;
+- `project_exec` accepts Project authority only; User/Admin leases are rejected instead of being silently widened.
 
 The default browser profile is:
 
@@ -320,6 +340,17 @@ git_stage_paths
 git_commit
 git_merge_branch
 git_push
+```
+
+Sandboxed Project execution:
+
+```text
+project_exec
+```
+
+Host execution/process tools:
+
+```text
 terminal_run
 process_start
 process_list
@@ -378,11 +409,11 @@ computer_run_js
 
 ## 8. Privilege ladder
 
-| Profile | Scope | TTL max | Terminal/process | Browser content/actions | Computer content/actions | Creation |
-| --- | --- | ---: | --- | --- | --- | --- |
-| Project | explicit project roots | 8 h | No | No | No | MCP direct |
-| User | current user's canonical home | 4 h | No | No | No | local CLI + native auth |
-| Admin | `/` as current OS user | 1 h | Yes when terminal gate enabled | Yes when browser gate enabled | Yes when computer-use gate enabled | local CLI + native auth by default; MCP direct in personal-admin mode |
+| Profile | Scope | TTL max | Host terminal/process | Project sandbox | Browser content/actions | Computer content/actions | Creation |
+| --- | --- | ---: | --- | --- | --- | --- | --- |
+| Project | explicit project roots | 8 h | No | Yes when Project-exec gate enabled | No | No | MCP direct |
+| User | current user's canonical home | 4 h | No | No | No | No | local CLI + native auth |
+| Admin | `/` as current OS user | 1 h | Yes when terminal gate enabled | No; use a Project lease | Yes when browser gate enabled | Yes when computer-use gate enabled | local CLI + native auth by default; MCP direct in personal-admin mode |
 
 Admin is not UID 0. Root-only operations are not part of this boundary.
 
@@ -399,11 +430,12 @@ Verify:
 1. `fs_read fixture.txt` succeeds.
 2. `git_status` succeeds.
 3. sibling/outside read returns `POLICY_DENIED`.
-4. `terminal_run node --version` returns `POLICY_DENIED`.
-5. `process_start node ...` returns `POLICY_DENIED`.
-6. `browser_tabs` returns `POLICY_DENIED` even if Browser Runtime is enabled globally.
-7. `session_authority_end` succeeds.
-8. ended-lease reuse returns `AUTHORITY_REQUIRED`.
+4. with `--enable-project-exec` and the fixed image installed, `project_exec node --version` runs in the Docker sandbox; without the gate it returns `PROJECT_EXEC_DISABLED`.
+5. `terminal_run node --version` still returns `POLICY_DENIED` for the same Project lease.
+6. `process_start node ...` returns `POLICY_DENIED`.
+7. `browser_tabs` returns `POLICY_DENIED` even if Browser Runtime is enabled globally.
+8. `session_authority_end` succeeds.
+9. ended-lease reuse returns `AUTHORITY_REQUIRED`.
 
 ## 10. User authorization and acceptance
 

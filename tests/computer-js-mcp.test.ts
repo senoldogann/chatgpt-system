@@ -49,6 +49,7 @@ async function fixture(fullHostJsEnabled = true) {
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: false, commands: [] },
+    projectExec: { enabled: false },
     personalAdmin: { enabled: true },
     computerUse: {
       enabled: true,

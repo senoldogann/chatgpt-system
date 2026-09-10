@@ -90,6 +90,7 @@ async function fixture() {
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: true, commands: ["node", "git"] },
+    projectExec: { enabled: false },
     personalAdmin: { enabled: false },
     computerUse: {
       enabled: false,

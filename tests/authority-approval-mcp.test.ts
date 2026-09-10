@@ -59,6 +59,7 @@ async function fixture() {
     roots: [bootstrapRoot],
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: true, commands: ["node", "git"] },
+    projectExec: { enabled: false },
     computerUse: {
       enabled: false,
       hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",

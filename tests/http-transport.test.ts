@@ -41,6 +41,7 @@ const expectedAnnotations = {
   process_status: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   process_logs: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   process_stop: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  project_exec: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   browser_health: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   browser_tabs: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   browser_new_tab: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -104,6 +105,7 @@ async function fixture() {
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: false, commands: ["node"] },
+    projectExec: { enabled: false },
     computerUse: {
       enabled: false,
       hostBundlePath: path.join(base, "ChatGPTSystemComputerRuntime.app"),

@@ -97,17 +97,17 @@ project_exec({
 
 The first backend uses a fixed trusted local image and `docker run --pull=never --rm --network=none`. The active Project root is mounted read-write at `/workspace`; unrelated host paths and secrets are not mounted or inherited.
 
-- [ ] Write RED policy/backend tests.
-- [ ] Verify RED for missing production implementation.
-- [ ] Implement stable sandbox errors.
-- [ ] Implement deterministic Docker invocation builder with no caller-controlled Docker flags/image/mounts.
-- [ ] Implement bounded runner and fail-closed Docker availability/image checks.
-- [ ] Wire Project-scoped service and strict MCP registration.
-- [ ] Preserve existing Admin `terminal_run` unchanged.
-- [ ] Run focused GREEN tests.
-- [ ] Run full `npm run check` and `git diff --check`.
-- [ ] Perform independent security/diff review.
-- [ ] Commit only after fresh verification.
+- [x] Write RED policy/backend tests.
+- [x] Verify RED for missing production implementation.
+- [x] Implement stable sandbox errors.
+- [x] Implement deterministic Docker invocation builder with no caller-controlled Docker flags/image/mounts.
+- [x] Implement bounded runner and fail-closed Docker availability/image checks.
+- [x] Wire Project-scoped service and strict MCP registration.
+- [x] Preserve existing Admin `terminal_run` unchanged.
+- [x] Run focused GREEN tests.
+- [x] Run full `npm run check` and `git diff --check`.
+- [x] Perform independent security/diff review.
+- [x] Commit only after fresh verification.
 
 ---
 

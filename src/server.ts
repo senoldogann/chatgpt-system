@@ -6,6 +6,7 @@ import { AuthorityManager } from "./authority.js";
 import { AuthorityRequestManager } from "./authority-request-manager.js";
 import { AuditLogger } from "./audit.js";
 import { createBrowserService, type BrowserFactoryOptions } from "./browser-factory.js";
+import { DockerProjectExecBackend, PROJECT_EXEC_IMAGE } from "./docker-project-exec-backend.js";
 import type { BrowserService } from "./browser-service.js";
 import { ComputerJsRuntime } from "./computer-js-runtime.js";
 import { ComputerJsRunnerSupervisor } from "./computer-js-runner-supervisor.js";
@@ -24,6 +25,8 @@ import {
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { ProcessSupervisor } from "./process-supervisor.js";
+import { registerProjectExecTool } from "./project-exec-tool-registration.js";
+import type { ProjectExecBackend } from "./project-exec-types.js";
 import { createScopedRuntime } from "./scoped-runtime.js";
 import { describeSystemEnvironment } from "./system-environment.js";
 import { errorPayload, PolicyError } from "./errors.js";
@@ -58,6 +61,7 @@ export interface RuntimeServices {
   git: GitService;
   process: ProcessService;
   processSupervisor: ProcessSupervisor;
+  projectExecBackend: ProjectExecBackend;
   browser: BrowserService;
   computer: ComputerRuntime;
   computerJs: ComputerJsRuntime;
@@ -69,6 +73,7 @@ export interface RuntimeOptions extends BrowserFactoryOptions {
   computerNative?: ComputerNativeRequesting;
   computerRuntime?: ComputerRuntime;
   computerJsRuntime?: ComputerJsRuntime;
+  projectExecBackend?: ProjectExecBackend;
 }
 
 export function createRuntimeServices(config: AppConfig, options: RuntimeOptions = {}): RuntimeServices {
@@ -110,6 +115,10 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     },
   });
   const processSupervisor = new ProcessSupervisor({ limits: config.limits, audit });
+  const projectExecBackend = options.projectExecBackend ?? new DockerProjectExecBackend({
+    maxOutputBytes: config.limits.maxCommandOutputBytes,
+    cleanupTimeoutMs: config.limits.processStopGraceMs,
+  });
   const browser = createBrowserService(config, options);
   const computer = options.computerRuntime ?? new ComputerRuntime(
     options.computerNative ?? new ComputerNativeSupervisor({
@@ -140,6 +149,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     git: new GitService(policy, audit, config),
     process: new ProcessService(policy, audit, config),
     processSupervisor,
+    projectExecBackend,
     browser,
     computer,
     computerJs,
@@ -221,6 +231,14 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       computerUse: {
         enabled: runtime.config.computerUse?.enabled === true,
         fullHostJsEnabled: runtime.config.computerUse?.fullHostJsEnabled === true,
+      },
+      projectExecution: {
+        enabled: runtime.config.projectExec.enabled,
+        sandboxed: true as const,
+        backend: "docker" as const,
+        network: "none" as const,
+        hostFallback: false as const,
+        image: PROJECT_EXEC_IMAGE,
       },
       limits: runtime.config.limits,
       safety: {
@@ -614,6 +632,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     async ({ authorityLeaseId, processId }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.stop(processId)),
   );
 
+  registerProjectExecTool(server, runtime);
   registerBrowserTools(server, runtime);
   registerComputerTools(server, runtime);
   registerComputerJsTools(server, runtime);

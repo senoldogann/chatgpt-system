@@ -31,6 +31,14 @@ export const systemCapabilitiesOutputSchema = z.object({
     enabled: z.boolean(),
     fullHostJsEnabled: z.boolean(),
   }),
+  projectExecution: z.object({
+    enabled: z.boolean(),
+    sandboxed: z.literal(true),
+    backend: z.literal("docker"),
+    network: z.literal("none"),
+    hostFallback: z.literal(false),
+    image: z.string(),
+  }),
   limits: z.object({
     maxReadBytes: z.number().int().positive(),
     maxWriteBytes: z.number().int().positive(),
@@ -174,6 +182,22 @@ export const terminalResultOutputSchema = z.object({
   stderr: z.string(),
   timedOut: z.boolean(),
 });
+
+export const projectExecResultOutputSchema = z.object({
+  command: z.string(),
+  args: z.array(z.string()),
+  cwd: z.string(),
+  exitCode: z.number().int().nullable(),
+  signal: z.string().nullable(),
+  stdout: z.string(),
+  stderr: z.string(),
+  timedOut: z.boolean(),
+  sandbox: z.object({
+    backend: z.literal("docker"),
+    network: z.literal("none"),
+    hostFallback: z.literal(false),
+  }),
+}).strict();
 
 export const processSummaryOutputSchema = z.object({
   processId: z.string(),

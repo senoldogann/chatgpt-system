@@ -45,6 +45,46 @@ export class ExecutableNotFoundError extends AppError {
   }
 }
 
+export class ProjectExecDisabledError extends AppError {
+  constructor() {
+    super(
+      "Sandboxed project execution is disabled. Restart with --enable-project-exec or CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC=true.",
+      "PROJECT_EXEC_DISABLED",
+      { retryable: false },
+    );
+  }
+}
+
+export class CommandNotAllowedError extends AppError {
+  constructor(command: string, allowed: string[]) {
+    super(
+      `Command "${command}" is not allowed for sandboxed project execution.`,
+      "COMMAND_NOT_ALLOWED",
+      { command, allowed, retryable: false },
+    );
+  }
+}
+
+export class SandboxUnavailableError extends AppError {
+  constructor(reason: "docker_unavailable" | "image_unavailable" | "backend_failure" | "nonlocal_docker_context") {
+    super(
+      "Sandboxed project execution is unavailable on this host.",
+      "SANDBOX_UNAVAILABLE",
+      { backend: "docker", reason, retryable: true },
+    );
+  }
+}
+
+export class ProjectExecTimeoutError extends AppError {
+  constructor(timedOutAfterMs: number) {
+    super(
+      `Sandboxed project command timed out after ${timedOutAfterMs}ms.`,
+      "COMMAND_TIMEOUT",
+      { timedOutAfterMs, retryable: true },
+    );
+  }
+}
+
 export class CommandTimeoutError extends AppError {
   constructor(timedOutAfterMs: number, details?: Record<string, unknown>) {
     super(

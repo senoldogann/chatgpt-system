@@ -22,6 +22,7 @@
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "setup:browser": "node scripts/setup-browser.mjs",
+    "setup:project-exec": "node scripts/setup-project-exec.mjs",
     "setup:codex": "npm run build && node scripts/setup-codex.mjs",
     "setup:chatgpt": "npm run build && node scripts/setup-chatgpt-tunnel.mjs",
     "doctor:chatgpt": "node scripts/setup-chatgpt-tunnel.mjs --doctor",

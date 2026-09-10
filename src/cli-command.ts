@@ -57,6 +57,10 @@ export function parseCliCommand(argv: string[]): CliCommand {
       overrides.terminalEnabled = true;
       continue;
     }
+    if (arg === "--enable-project-exec") {
+      overrides.projectExecEnabled = true;
+      continue;
+    }
     if (arg === "--personal-admin") {
       overrides.personalAdminEnabled = true;
       continue;
