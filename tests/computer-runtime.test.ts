@@ -8,6 +8,7 @@ type Call = { method: ComputerNativeMethod; params: Record<string, unknown>; tim
 
 const config: ComputerUseConfig = {
   enabled: true,
+  fullHostJsEnabled: false,
   hostBundlePath: "/Users/test/.chatgpt-system/ChatGPTSystemComputerRuntime.app",
   requestTimeoutMs: 10_000,
   maxObservationElements: 500,
@@ -15,6 +16,9 @@ const config: ComputerUseConfig = {
   maxScreenshotBytes: 8_388_608,
   maxActionProgramActions: 100,
   maxActionProgramRuntimeMs: 30_000,
+  maxJsSourceBytes: 262_144,
+  maxJsRuntimeMs: 30_000,
+  maxJsOutputBytes: 1_048_576,
 };
 
 class FakeNative implements ComputerNativeRequesting {
@@ -78,6 +82,16 @@ describe("ComputerRuntime direct operations", () => {
       fullHostJsEnabled: false,
     });
     expect(native.calls[0]).toMatchObject({ method: "health", params: {}, timeoutMs: 10_000 });
+  });
+
+  it("reports the configured full-host JavaScript gate without asking the native host to decide it", async () => {
+    const { runtime: subject } = runtime(new FakeNative(), { fullHostJsEnabled: true });
+
+    await expect(subject.health()).resolves.toMatchObject({
+      enabled: true,
+      state: "running",
+      fullHostJsEnabled: true,
+    });
   });
 
   it("reports unavailable categorical health when the enabled host cannot answer", async () => {

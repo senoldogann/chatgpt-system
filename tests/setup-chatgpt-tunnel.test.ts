@@ -54,6 +54,7 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.mcpCommand).not.toContain("--enable-browser");
     expect(setup.mcpCommand).not.toContain("--browser-headless");
     expect(setup.mcpCommand).not.toContain("--enable-computer-use");
+    expect(setup.mcpCommand).not.toContain("--enable-full-host-js");
     expect(setup.mcpCommand).toContain("stdio");
     expect(setup.mcpCommand).toContain(ROOT);
     expect(setup.mcpCommand).toContain("--enable-control");
@@ -80,6 +81,34 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
 
     expect(setup.mcpCommand).toContain("--enable-computer-use");
     expect(setup.mcpCommand).not.toContain("--enable-browser");
+  });
+
+  it("requires computer use before full-host JavaScript can be enabled", () => {
+    expect(() => buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-full-host-js",
+    ], {}, context)).toThrow(/enable-computer-use/i);
+
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-computer-use",
+      "--enable-full-host-js",
+    ], {}, context);
+    expect(setup.mcpCommand).toContain("--enable-computer-use");
+    expect(setup.mcpCommand).toContain("--enable-full-host-js");
+    expect(setup.fullHostJsEnabled).toBe(true);
+  });
+
+  it("documents and reports the explicit full-host JavaScript setup gate", async () => {
+    const script = await readFile(new URL("../scripts/setup-chatgpt-tunnel.mjs", import.meta.url), "utf8");
+    const usageStart = script.indexOf("Options:");
+    const usageEnd = script.indexOf("The generated ChatGPT tunnel target");
+    expect(usageStart).toBeGreaterThanOrEqual(0);
+    expect(usageEnd).toBeGreaterThan(usageStart);
+    expect(script.slice(usageStart, usageEnd)).toContain("--enable-full-host-js");
+    expect(script).toContain("Full-host JavaScript: ");
   });
 
   it("uses one fixed installed Computer Runtime path when computer use is enabled", () => {

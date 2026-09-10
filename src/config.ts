@@ -3,6 +3,10 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 
+export const COMPUTER_MAX_JS_SOURCE_BYTES = 262_144;
+export const COMPUTER_MAX_JS_RUNTIME_MS = 30_000;
+export const COMPUTER_MAX_JS_OUTPUT_BYTES = 1_048_576;
+
 export interface LimitsConfig {
   maxReadBytes: number;
   maxWriteBytes: number;
@@ -23,6 +27,7 @@ export interface BrowserConfig {
 
 export interface ComputerUseConfig {
   enabled: boolean;
+  fullHostJsEnabled: boolean;
   hostBundlePath: string;
   requestTimeoutMs: number;
   maxObservationElements: number;
@@ -30,6 +35,9 @@ export interface ComputerUseConfig {
   maxScreenshotBytes: number;
   maxActionProgramActions: number;
   maxActionProgramRuntimeMs: number;
+  maxJsSourceBytes: number;
+  maxJsRuntimeMs: number;
+  maxJsOutputBytes: number;
 }
 
 export interface AppConfig {
@@ -62,6 +70,7 @@ export interface ConfigOverrides {
   terminalEnabled?: boolean;
   personalAdminEnabled?: boolean;
   computerUseEnabled?: boolean;
+  fullHostJsEnabled?: boolean;
   commands?: string[];
   browserEnabled?: boolean;
   browserHeadless?: boolean;
@@ -80,12 +89,16 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_ENABLE_TERMINAL: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_PERSONAL_ADMIN: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ENABLE_COMPUTER_USE: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_ENABLE_FULL_HOST_JS: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_COMPUTER_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_OBSERVATION_ELEMENTS: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_OBSERVATION_CHARS: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_SCREENSHOT_BYTES: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_ACTION_PROGRAM_ACTIONS: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_ACTION_PROGRAM_RUNTIME_MS: z.coerce.number().int().positive().optional(),
+  CHATGPT_SYSTEM_COMPUTER_MAX_JS_SOURCE_BYTES: z.coerce.number().int().positive().max(COMPUTER_MAX_JS_SOURCE_BYTES).optional(),
+  CHATGPT_SYSTEM_COMPUTER_MAX_JS_RUNTIME_MS: z.coerce.number().int().positive().max(COMPUTER_MAX_JS_RUNTIME_MS).optional(),
+  CHATGPT_SYSTEM_COMPUTER_MAX_JS_OUTPUT_BYTES: z.coerce.number().int().positive().max(COMPUTER_MAX_JS_OUTPUT_BYTES).optional(),
   CHATGPT_SYSTEM_ALLOW_COMMANDS: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_BROWSER: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_BROWSER_HEADLESS: z.enum(["true", "false", "1", "0"]).optional(),
@@ -183,7 +196,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     homeDir,
   );
 
-  return {
+  const config: AppConfig = {
     roots,
     auditFile: path.resolve(
       overrides.auditFile ?? env.CHATGPT_SYSTEM_AUDIT_FILE ?? path.join(homeDir, ".chatgpt-system", "audit.jsonl"),
@@ -197,6 +210,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     },
     computerUse: {
       enabled: overrides.computerUseEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_COMPUTER_USE),
+      fullHostJsEnabled: overrides.fullHostJsEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_FULL_HOST_JS),
       hostBundlePath: path.join(homeDir, ".chatgpt-system", "ChatGPTSystemComputerRuntime.app"),
       requestTimeoutMs: env.CHATGPT_SYSTEM_COMPUTER_REQUEST_TIMEOUT_MS ?? 10_000,
       maxObservationElements: env.CHATGPT_SYSTEM_COMPUTER_MAX_OBSERVATION_ELEMENTS ?? 500,
@@ -204,6 +218,9 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       maxScreenshotBytes: env.CHATGPT_SYSTEM_COMPUTER_MAX_SCREENSHOT_BYTES ?? 8_388_608,
       maxActionProgramActions: env.CHATGPT_SYSTEM_COMPUTER_MAX_ACTION_PROGRAM_ACTIONS ?? 100,
       maxActionProgramRuntimeMs: env.CHATGPT_SYSTEM_COMPUTER_MAX_ACTION_PROGRAM_RUNTIME_MS ?? 30_000,
+      maxJsSourceBytes: env.CHATGPT_SYSTEM_COMPUTER_MAX_JS_SOURCE_BYTES ?? COMPUTER_MAX_JS_SOURCE_BYTES,
+      maxJsRuntimeMs: env.CHATGPT_SYSTEM_COMPUTER_MAX_JS_RUNTIME_MS ?? COMPUTER_MAX_JS_RUNTIME_MS,
+      maxJsOutputBytes: env.CHATGPT_SYSTEM_COMPUTER_MAX_JS_OUTPUT_BYTES ?? COMPUTER_MAX_JS_OUTPUT_BYTES,
     },
     browser: {
       enabled: overrides.browserEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_BROWSER),
@@ -227,4 +244,10 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       processStopGraceMs: env.CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS ?? 3_000,
     },
   };
+
+  if (config.computerUse.fullHostJsEnabled && !config.computerUse.enabled) {
+    throw new Error("Full-host JavaScript requires Computer Runtime to be explicitly enabled.");
+  }
+
+  return config;
 }

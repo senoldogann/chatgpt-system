@@ -35,7 +35,7 @@ class FakeComputerRuntime {
           screenCaptureAuthorized: true,
           eventListenAuthorized: true,
           eventPostAuthorized: true,
-          fullHostJsEnabled: false,
+          fullHostJsEnabled: true,
         };
       case "observe":
         return {
@@ -121,6 +121,7 @@ async function fixture() {
     personalAdmin: { enabled: true },
     computerUse: {
       enabled: true,
+      fullHostJsEnabled: true,
       hostBundlePath: path.join(base, "ChatGPTSystemComputerRuntime.app"),
       requestTimeoutMs: 10_000,
       maxObservationElements: 500,
@@ -128,6 +129,9 @@ async function fixture() {
       maxScreenshotBytes: 8_388_608,
       maxActionProgramActions: 100,
       maxActionProgramRuntimeMs: 30_000,
+      maxJsSourceBytes: 262_144,
+      maxJsRuntimeMs: 30_000,
+      maxJsOutputBytes: 1_048_576,
     },
     browser: { enabled: false, headless: true, timeoutMs: 2_000, userDataDir: path.join(base, "browser") },
     control: { enabled: false, socketPath: path.join(base, "control.sock") },
@@ -222,9 +226,15 @@ describe("computer MCP tools", () => {
   it("enforces authority before runtime work and returns structured Admin results", async () => {
     const { root, runtime, fake, client, transport } = await fixture();
     try {
+      const capabilities = await client.callTool({ name: "system_capabilities", arguments: {} });
+      expect(capabilities.isError).not.toBe(true);
+      expect(capabilities.structuredContent).toMatchObject({
+        computerUse: { enabled: true, fullHostJsEnabled: true },
+      });
+
       const health = await client.callTool({ name: "computer_health", arguments: {} });
       expect(health.isError).not.toBe(true);
-      expect(health.structuredContent).toMatchObject({ enabled: true, state: "running", fullHostJsEnabled: false });
+      expect(health.structuredContent).toMatchObject({ enabled: true, state: "running", fullHostJsEnabled: true });
       expect(fake.calls.map((call) => call.method)).toEqual(["health"]);
 
       const project = await runtime.authority.start({ profile: "project", projectRoots: [root] });

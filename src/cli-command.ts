@@ -65,6 +65,10 @@ export function parseCliCommand(argv: string[]): CliCommand {
       overrides.computerUseEnabled = true;
       continue;
     }
+    if (arg === "--enable-full-host-js") {
+      overrides.fullHostJsEnabled = true;
+      continue;
+    }
     if (arg === "--enable-browser") {
       overrides.browserEnabled = true;
       continue;

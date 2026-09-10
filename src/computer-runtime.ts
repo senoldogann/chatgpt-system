@@ -22,7 +22,7 @@ export interface ComputerHealthResult {
   screenCaptureAuthorized: boolean;
   eventListenAuthorized: boolean;
   eventPostAuthorized: boolean;
-  fullHostJsEnabled: false;
+  fullHostJsEnabled: boolean;
 }
 
 export type PointerMotionMode = "instant" | "fast" | "natural";
@@ -327,7 +327,7 @@ export class ComputerRuntime {
         screenCaptureAuthorized: result.screenCaptureAuthorized === true,
         eventListenAuthorized: result.eventListenAuthorized === true,
         eventPostAuthorized: result.eventPostAuthorized === true,
-        fullHostJsEnabled: false,
+        fullHostJsEnabled: this.config.fullHostJsEnabled,
       };
     } catch {
       return this.unavailableHealth("unavailable", true);
@@ -694,7 +694,7 @@ export class ComputerRuntime {
       screenCaptureAuthorized: false,
       eventListenAuthorized: false,
       eventPostAuthorized: false,
-      fullHostJsEnabled: false,
+      fullHostJsEnabled: this.config.fullHostJsEnabled,
     };
   }
 }

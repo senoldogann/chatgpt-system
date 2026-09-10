@@ -203,7 +203,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       },
       computerUse: {
         enabled: runtime.config.computerUse?.enabled === true,
-        fullHostJsEnabled: false as const,
+        fullHostJsEnabled: runtime.config.computerUse?.fullHostJsEnabled === true,
       },
       limits: runtime.config.limits,
       safety: {

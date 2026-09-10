@@ -28,7 +28,7 @@ export const systemCapabilitiesOutputSchema = z.object({
   }),
   computerUse: z.object({
     enabled: z.boolean(),
-    fullHostJsEnabled: z.literal(false),
+    fullHostJsEnabled: z.boolean(),
   }),
   limits: z.object({
     maxReadBytes: z.number().int().positive(),
@@ -95,6 +95,10 @@ export const systemEnvironmentOutputSchema = z.object({
   roots: z.array(z.string()),
   terminal: z.object({
     enabled: z.boolean(),
+  }),
+  computerUse: z.object({
+    enabled: z.boolean(),
+    fullHostJsEnabled: z.boolean(),
   }),
   executables: z.array(executableResolutionOutputSchema),
 });
@@ -303,7 +307,7 @@ export const computerHealthOutputSchema = z.object({
   screenCaptureAuthorized: z.boolean(),
   eventListenAuthorized: z.boolean(),
   eventPostAuthorized: z.boolean(),
-  fullHostJsEnabled: z.literal(false),
+  fullHostJsEnabled: z.boolean(),
 });
 
 export const computerPointResultOutputSchema = computerPointOutputSchema;

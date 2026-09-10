@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { parseCliCommand } from "../src/cli-command.js";
 
@@ -31,6 +32,20 @@ describe("CLI command routing", () => {
     });
   });
 
+  it("parses full-host JavaScript only as an explicit independent server flag", () => {
+    expect(parseCliCommand(["stdio", "--enable-full-host-js"])).toEqual({
+      kind: "server",
+      mode: "stdio",
+      help: false,
+      overrides: { fullHostJsEnabled: true },
+    });
+  });
+
+  it("documents the full-host JavaScript server flag in CLI help", async () => {
+    const source = await readFile(new URL("../src/cli.ts", import.meta.url), "utf8");
+    expect(source).toContain("--enable-full-host-js");
+  });
+
   it("parses server control flags independently", () => {
     expect(parseCliCommand([
       "stdio",
@@ -62,5 +77,6 @@ describe("CLI command routing", () => {
     expect(() => parseCliCommand(["authorize", "admin", "--enable-control"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--personal-admin"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--enable-computer-use"])).toThrow();
+    expect(() => parseCliCommand(["authorize", "admin", "--enable-full-host-js"])).toThrow();
   });
 });

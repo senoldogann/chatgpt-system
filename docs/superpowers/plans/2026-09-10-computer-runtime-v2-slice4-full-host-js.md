@@ -39,12 +39,14 @@
 - Modify: `src/config.ts`
 - Modify: `src/cli-command.ts`
 - Modify: `src/cli.ts`
+- Modify: `src/computer-runtime.ts`
 - Modify: `src/server.ts`
 - Modify: `src/system-environment.ts`
 - Modify: `src/tool-output-schemas.ts`
 - Modify: `scripts/setup-chatgpt-tunnel.mjs`
 - Test: `tests/computer-config.test.ts`
 - Test: `tests/cli-command.test.ts`
+- Test: `tests/computer-runtime.test.ts`
 - Test: `tests/system-environment.test.ts`
 - Test: `tests/setup-chatgpt-tunnel.test.ts`
 - Test: `tests/computer-mcp.test.ts`
@@ -87,7 +89,7 @@ Add CLI tests proving `--enable-full-host-js` sets only the full-host override a
 Run:
 
 ```bash
-npx vitest run tests/computer-config.test.ts tests/cli-command.test.ts tests/system-environment.test.ts tests/setup-chatgpt-tunnel.test.ts tests/computer-mcp.test.ts
+npx vitest run tests/computer-config.test.ts tests/cli-command.test.ts tests/computer-runtime.test.ts tests/system-environment.test.ts tests/setup-chatgpt-tunnel.test.ts tests/computer-mcp.test.ts
 ```
 
 Expected: failures because the full-host config fields/flag/capability values do not exist yet.
@@ -141,7 +143,7 @@ Run the same Vitest command. Expected: all selected files pass.
 - [ ] **Step 6: Commit Task 1**
 
 ```bash
-git add src/config.ts src/cli-command.ts src/cli.ts src/server.ts src/system-environment.ts src/tool-output-schemas.ts scripts/setup-chatgpt-tunnel.mjs tests/computer-config.test.ts tests/cli-command.test.ts tests/system-environment.test.ts tests/setup-chatgpt-tunnel.test.ts tests/computer-mcp.test.ts
+git add src/config.ts src/cli-command.ts src/cli.ts src/computer-runtime.ts src/server.ts src/system-environment.ts src/tool-output-schemas.ts scripts/setup-chatgpt-tunnel.mjs tests/computer-config.test.ts tests/cli-command.test.ts tests/computer-runtime.test.ts tests/system-environment.test.ts tests/setup-chatgpt-tunnel.test.ts tests/computer-mcp.test.ts
 git diff --cached --check
 git commit -m "feat: gate full-host computer JavaScript"
 ```
