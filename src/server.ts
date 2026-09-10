@@ -1,11 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { AuthorityManager } from "./authority.js";
 import { AuthorityRequestManager } from "./authority-request-manager.js";
 import { AuditLogger } from "./audit.js";
 import { createBrowserService, type BrowserFactoryOptions } from "./browser-factory.js";
 import type { BrowserService } from "./browser-service.js";
+import { ComputerJsRuntime } from "./computer-js-runtime.js";
+import { ComputerJsRunnerSupervisor } from "./computer-js-runner-supervisor.js";
 import { ComputerNativeSupervisor } from "./computer-native-supervisor.js";
 import { ComputerRuntime, type ComputerNativeRequesting } from "./computer-runtime.js";
 import { registerBrowserTools } from "./browser-tool-registration.js";
@@ -56,6 +59,7 @@ export interface RuntimeServices {
   processSupervisor: ProcessSupervisor;
   browser: BrowserService;
   computer: ComputerRuntime;
+  computerJs: ComputerJsRuntime;
 }
 
 export interface RuntimeOptions extends BrowserFactoryOptions {
@@ -63,6 +67,7 @@ export interface RuntimeOptions extends BrowserFactoryOptions {
   authorityRequests?: AuthorityRequestManager;
   computerNative?: ComputerNativeRequesting;
   computerRuntime?: ComputerRuntime;
+  computerJsRuntime?: ComputerJsRuntime;
 }
 
 export function createRuntimeServices(config: AppConfig, options: RuntimeOptions = {}): RuntimeServices {
@@ -113,6 +118,16 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     }),
     config.computerUse,
   );
+  const computerJs = options.computerJsRuntime ?? new ComputerJsRuntime(
+    computer,
+    config,
+    new ComputerJsRunnerSupervisor({
+      runnerEntrypoint: fileURLToPath(new URL("./computer-js-runner.js", import.meta.url)),
+      maxSourceBytes: config.computerUse.maxJsSourceBytes,
+      maxOutputBytes: config.computerUse.maxJsOutputBytes,
+      processStopGraceMs: config.limits.processStopGraceMs,
+    }),
+  );
   return {
     config,
     policy,
@@ -126,6 +141,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     processSupervisor,
     browser,
     computer,
+    computerJs,
   };
 }
 
