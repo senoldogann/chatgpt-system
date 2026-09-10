@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -11,6 +11,16 @@ import { ProjectContinuityService } from "../src/project-continuity-service.js";
 
 const execFileAsync = promisify(execFile);
 const cleanups: string[] = [];
+
+class TrackingAuthorityManager extends AuthorityManager {
+  readonly startedLeaseIds: string[] = [];
+
+  override async start(request: Parameters<AuthorityManager["start"]>[0]) {
+    const lease = await super.start(request);
+    this.startedLeaseIds.push(lease.leaseId);
+    return lease;
+  }
+}
 
 async function git(cwd: string, args: readonly string[]): Promise<void> {
   await execFileAsync("git", [...args], {
@@ -28,8 +38,9 @@ interface ServiceFixture {
   secondWorktree: string;
   otherRoot: string;
   store: ContinuityStore;
+  inspector: ContinuityGitInspector;
   service: ProjectContinuityService;
-  authority: AuthorityManager;
+  authority: TrackingAuthorityManager;
   authorityStarts: { count: number };
 }
 
@@ -55,7 +66,7 @@ async function createFixture(): Promise<ServiceFixture> {
   await git(repository, ["worktree", "add", "-b", "feature/y", secondWorktree]);
 
   const authorityStarts = { count: 0 };
-  const authority = new AuthorityManager({
+  const authority = new TrackingAuthorityManager({
     homeDir: home,
     commands: ["git", "node"],
     terminalEnabled: true,
@@ -69,7 +80,13 @@ async function createFixture(): Promise<ServiceFixture> {
     remoteVerificationTimeoutMs: 2_000,
     maxCommandOutputBytes: 1_048_576,
   });
-  const service = new ProjectContinuityService({ store, inspector, authority, homeDir: home });
+  const service = new ProjectContinuityService({
+    store,
+    inspector,
+    authority,
+    homeDir: home,
+    maxResumeChars: 12_000,
+  });
 
   return {
     root,
@@ -80,6 +97,7 @@ async function createFixture(): Promise<ServiceFixture> {
     secondWorktree,
     otherRoot,
     store,
+    inspector,
     service,
     authority,
     authorityStarts,
@@ -235,6 +253,96 @@ describe("ProjectContinuityService registration", () => {
       decisions: registrationInput(fixture).decisions ?? [],
     })).rejects.toMatchObject({ code: "CONTINUITY_WORKTREE_MISMATCH" });
     expect(fixture.store.getByAlias("project-x").currentRecord.recordVersion).toBe(1);
+    fixture.store.close();
+  });
+
+  it("resumes the same project with a fresh Project lease on every call", async () => {
+    const fixture = await createFixture();
+    await fixture.service.register(registrationInput(fixture));
+    await writeFile(path.join(fixture.worktree, "tracked.txt"), "changed before resume\n");
+    const canonicalRoot = await realpath(fixture.projectRoot);
+
+    const first = await fixture.service.resume({ alias: "project-x", requestedTtlSeconds: 120 });
+    const second = await fixture.service.resume({ alias: "Project-X", requestedTtlSeconds: 120 });
+
+    expect(first.authorityLease.profile).toBe("project");
+    expect(second.authorityLease.profile).toBe("project");
+    expect(first.authorityLease.leaseId).not.toBe(second.authorityLease.leaseId);
+    expect(first.authorityLease.roots).toEqual([canonicalRoot]);
+    expect(second.authorityLease.roots).toEqual([canonicalRoot]);
+    expect(first.resumePackage).toContain("nextStep: Implement project registration.");
+    expect(first.resumePackage).toContain(`worktree: ${await realpath(fixture.worktree)}`);
+    expect(first.resumePackage).toContain("unstaged: tracked.txt");
+    expect(fixture.store.getByAlias("project-x").currentRecord.recordVersion).toBe(1);
+    expect(fixture.store.getByAlias("project-x").localState.unstagedPaths).toContain("tracked.txt");
+    expect(fixture.authority.startedLeaseIds.slice(-2)).toEqual([
+      first.authorityLease.leaseId,
+      second.authorityLease.leaseId,
+    ]);
+
+    fixture.authority.end(first.authorityLease.leaseId);
+    fixture.authority.end(second.authorityLease.leaseId);
+    fixture.store.close();
+  });
+
+  it("revokes only the fresh lease when resume fails after authority creation", async () => {
+    const fixture = await createFixture();
+    await fixture.service.register(registrationInput(fixture));
+    const failingService = new ProjectContinuityService({
+      store: fixture.store,
+      inspector: fixture.inspector,
+      authority: fixture.authority,
+      homeDir: fixture.home,
+      maxResumeChars: 12_000,
+      packageBuilder: () => {
+        throw new Error("package assembly failed");
+      },
+    });
+    const before = fixture.authority.startedLeaseIds.length;
+
+    await expect(failingService.resume({ alias: "project-x" })).rejects.toThrow("package assembly failed");
+
+    expect(fixture.authority.startedLeaseIds).toHaveLength(before + 1);
+    const failedLeaseId = fixture.authority.startedLeaseIds.at(-1);
+    expect(failedLeaseId).toBeDefined();
+    expect(() => fixture.authority.status(failedLeaseId!)).toThrowError(
+      expect.objectContaining({ code: "AUTHORITY_REQUIRED" }),
+    );
+    fixture.store.close();
+  });
+
+  it("preserves the primary resume failure when the fresh lease was already revoked", async () => {
+    const fixture = await createFixture();
+    await fixture.service.register(registrationInput(fixture));
+    const failingService = new ProjectContinuityService({
+      store: fixture.store,
+      inspector: fixture.inspector,
+      authority: fixture.authority,
+      homeDir: fixture.home,
+      maxResumeChars: 12_000,
+      packageBuilder: () => {
+        const leaseId = fixture.authority.startedLeaseIds.at(-1);
+        if (leaseId !== undefined) fixture.authority.end(leaseId);
+        throw new Error("package assembly failed after external revocation");
+      },
+    });
+
+    await expect(failingService.resume({ alias: "project-x" })).rejects.toThrow(
+      "package assembly failed after external revocation",
+    );
+    fixture.store.close();
+  });
+
+  it("does not create a lease when strict worktree verification fails before resume authority", async () => {
+    const fixture = await createFixture();
+    await fixture.service.register(registrationInput(fixture));
+    const before = fixture.authority.startedLeaseIds.length;
+    await git(fixture.repository, ["worktree", "remove", "--force", fixture.worktree]);
+
+    await expect(fixture.service.resume({ alias: "project-x" })).rejects.toMatchObject({
+      code: "CONTINUITY_WORKTREE_INVALID",
+    });
+    expect(fixture.authority.startedLeaseIds).toHaveLength(before);
     fixture.store.close();
   });
 });

@@ -3,9 +3,14 @@ import { realpath } from "node:fs/promises";
 import path from "node:path";
 import {
   canonicalizeProjectRoots,
+  type AuthorityLeaseView,
   type AuthorityManager,
 } from "./authority.js";
 import { ContinuityWorktreeInvalidError } from "./continuity-errors.js";
+import {
+  buildResumePackage,
+  type ResumePackageInput,
+} from "./continuity-resume-package.js";
 import type { ContinuityGitInspector } from "./continuity-git-inspector.js";
 import type { ContinuityStore } from "./continuity-store.js";
 import type {
@@ -17,7 +22,7 @@ import type {
   StoredProject,
   StoredWorktreeIdentity,
 } from "./continuity-types.js";
-import { AuthorityDeniedError } from "./errors.js";
+import { AuthorityDeniedError, AuthorityRequiredError } from "./errors.js";
 
 export interface ProjectRegisterInput {
   alias: string;
@@ -39,6 +44,21 @@ export interface ProjectCheckpointInput {
   verificationSummary?: string[];
 }
 
+export interface ProjectResumeInput {
+  alias: string;
+  requestedTtlSeconds?: number;
+}
+
+export interface ProjectResumeResult {
+  projectId: string;
+  alias: string;
+  recordVersion: number;
+  authorityLease: AuthorityLeaseView;
+  resumePackage: string;
+  packageTruncated: boolean;
+  contextAvailable: boolean;
+}
+
 export interface ProjectContinuityResult {
   projectId: string;
   alias: string;
@@ -58,6 +78,8 @@ export interface ProjectContinuityServiceOptions {
   inspector: ContinuityGitInspector;
   authority: AuthorityManager;
   homeDir: string;
+  maxResumeChars: number;
+  packageBuilder?: (input: ResumePackageInput, maxChars: number) => ReturnType<typeof buildResumePackage>;
 }
 
 function pathIsInside(root: string, candidate: string): boolean {
@@ -89,12 +111,16 @@ export class ProjectContinuityService {
   private readonly inspector: ContinuityGitInspector;
   private readonly authority: AuthorityManager;
   private readonly homeDir: string;
+  private readonly maxResumeChars: number;
+  private readonly packageBuilder: (input: ResumePackageInput, maxChars: number) => ReturnType<typeof buildResumePackage>;
 
   constructor(options: ProjectContinuityServiceOptions) {
     this.store = options.store;
     this.inspector = options.inspector;
     this.authority = options.authority;
     this.homeDir = options.homeDir;
+    this.maxResumeChars = options.maxResumeChars;
+    this.packageBuilder = options.packageBuilder ?? buildResumePackage;
   }
 
   async register(input: ProjectRegisterInput): Promise<ProjectRegistrationResult> {
@@ -163,6 +189,64 @@ export class ProjectContinuityService {
     const stored = this.store.getByAlias(input.alias);
     this.requireRegisteredProjectLease(input.authorityLeaseId, stored.roots);
     return continuityResult(stored);
+  }
+
+  async resume(input: ProjectResumeInput): Promise<ProjectResumeResult> {
+    const project = this.store.getByAlias(input.alias);
+    const revalidatedRoots = await canonicalizeProjectRoots(this.homeDir, project.roots);
+    if (!sameCanonicalRootSet(revalidatedRoots, project.roots)) {
+      throw new AuthorityDeniedError("Stored Project roots no longer resolve to the registered root set.");
+    }
+
+    const inspection = await this.inspector.verifyIdentity(
+      project.worktree.canonicalPath,
+      project.worktree,
+      project.publishedState,
+    );
+    const authorityLease = await this.authority.start({
+      profile: "project",
+      projectRoots: revalidatedRoots,
+      ...(input.requestedTtlSeconds !== undefined
+        ? { requestedTtlSeconds: input.requestedTtlSeconds }
+        : {}),
+    });
+
+    try {
+      const packaged = this.packageBuilder(
+        { project, record: project.currentRecord, inspection },
+        this.maxResumeChars,
+      );
+      this.store.updateOperationalState(
+        project.id,
+        inspection.local,
+        inspection.published,
+        inspection.local.checkedAt,
+      );
+      return {
+        projectId: project.id,
+        alias: project.alias,
+        recordVersion: project.currentRecord.recordVersion,
+        authorityLease,
+        resumePackage: packaged.text,
+        packageTruncated: packaged.truncated,
+        contextAvailable: packaged.contextAvailable,
+      };
+    } catch (error) {
+      let rollbackError: unknown;
+      try {
+        this.authority.end(authorityLease.leaseId);
+      } catch (candidate) {
+        if (!(candidate instanceof AuthorityRequiredError)) rollbackError = candidate;
+      }
+      await this.authority.flushAudit();
+      if (rollbackError !== undefined) {
+        throw new AggregateError(
+          [error, rollbackError],
+          "Project resume failed and fresh authority rollback also failed.",
+        );
+      }
+      throw error;
+    }
   }
 
   private requireRegisteredProjectLease(leaseId: string, storedRoots: string[]): void {
