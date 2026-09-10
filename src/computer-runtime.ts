@@ -521,8 +521,9 @@ export class ComputerRuntime {
     this.requireEnabled();
     return this.physicalLane.run(async () => {
       this.requireEnabled();
+      const sessionLane = new PhysicalActionLane();
       const session: ComputerProgramSession = Object.freeze({
-        execute: (action: ComputerAction) => this.executeProgramAction(action),
+        execute: (action: ComputerAction) => sessionLane.run(() => this.executeProgramAction(action)),
         listApps: () => this.listApps(),
         activeWindow: () => this.activeWindow(),
         screenshot: () => this.screenshot(),
@@ -530,6 +531,7 @@ export class ComputerRuntime {
       try {
         return await work(session);
       } finally {
+        await sessionLane.run(async () => undefined);
         await this.releaseInputsBestEffort();
       }
     });

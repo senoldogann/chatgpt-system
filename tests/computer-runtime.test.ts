@@ -468,6 +468,58 @@ describe("ComputerRuntime exclusive program session", () => {
     expect(native.calls.map((call) => call.method)).toEqual(["release_inputs", "release_inputs"]);
   });
 
+  it("serializes concurrent execute calls inside one exclusive program", async () => {
+    const { native, runtime: subject } = runtime();
+    let releaseMove!: () => void;
+    const blocked = new Promise<void>((resolve) => { releaseMove = resolve; });
+    native.responder = async (call) => {
+      if (call.method === "move_mouse") await blocked;
+      return { state: "completed" };
+    };
+
+    const program = subject.withExclusiveProgram(async (session) => {
+      const first = session.execute({ type: "move_mouse", x: 1, y: 1 });
+      await new Promise((resolve) => setImmediate(resolve));
+      const second = session.execute({ type: "click", x: 2, y: 2 });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(native.calls.map((call) => call.method)).toEqual(["move_mouse"]);
+      releaseMove();
+      await Promise.all([first, second]);
+    });
+
+    await program;
+    expect(native.calls.map((call) => call.method)).toEqual(["move_mouse", "click", "release_inputs"]);
+  });
+
+  it("drains an unawaited session action before final release and outer lane handoff", async () => {
+    const { native, runtime: subject } = runtime();
+    let releaseMove!: () => void;
+    const blocked = new Promise<void>((resolve) => { releaseMove = resolve; });
+    native.responder = async (call) => {
+      if (call.method === "move_mouse") await blocked;
+      return { state: "completed" };
+    };
+
+    let programResolved = false;
+    const program = subject.withExclusiveProgram(async (session) => {
+      void session.execute({ type: "move_mouse", x: 1, y: 1 });
+      return "done";
+    }).then((value) => {
+      programResolved = true;
+      return value;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    const outside = subject.click({ x: 3, y: 3 });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(programResolved).toBe(false);
+    expect(native.calls.map((call) => call.method)).toEqual(["move_mouse"]);
+    releaseMove();
+    await expect(program).resolves.toBe("done");
+    await outside;
+    expect(native.calls.map((call) => call.method)).toEqual(["move_mouse", "release_inputs", "click"]);
+  });
+
   it("releases inputs after both successful and failed program bodies", async () => {
     const { native, runtime: subject } = runtime();
     await expect(subject.withExclusiveProgram(async () => "ok")).resolves.toBe("ok");

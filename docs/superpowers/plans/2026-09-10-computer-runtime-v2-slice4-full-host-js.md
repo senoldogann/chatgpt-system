@@ -205,7 +205,7 @@ Expected: compile/test failure because `withExclusiveProgram` and `ComputerProgr
 
 - [ ] **Step 3: Implement non-reentrant session execution**
 
-Refactor only what is required so the outer lane is acquired once. Use existing `preparedAction(...)` validation. The session executes prepared actions directly against `native.request(...)` rather than calling public physical methods that reacquire the lane.
+Refactor only what is required so the outer lane is acquired once. Use existing `preparedAction(...)` validation. The session executes prepared actions directly against `native.request(...)` rather than calling public physical methods that reacquire the lane. A session-local FIFO serializes concurrent `execute(...)` calls, and the finalizer drains that FIFO before releasing inputs or handing the outer physical lane to another caller.
 
 Core shape:
 
