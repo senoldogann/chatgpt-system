@@ -133,6 +133,15 @@ Requirements:
 
 Verification should use fixture repositories and integration-style MCP calls.
 
+- [x] Add RED MCP integration coverage for repository search/symbol behavior.
+- [x] Honor Git ignore rules and exclude dependency/build/cache/binary/obvious-secret files.
+- [x] Return bounded current-content search/symbol results with SHA-256 hashes.
+- [x] Verify dirty-file and deleted-file results are refreshed from the working tree.
+- [x] Keep query/symbol payloads out of audit metadata.
+- [x] Run focused GREEN tests, full `npm run check`, and `git diff --check`.
+
+**Task 2A verification evidence:** focused MCP tests 5/5 PASS; full suite 62 files / 400 tests PASS; `git diff --check` PASS.
+
 ---
 
 ### Task 2B: LSP code intelligence

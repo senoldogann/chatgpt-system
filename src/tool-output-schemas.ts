@@ -183,6 +183,32 @@ export const terminalResultOutputSchema = z.object({
   timedOut: z.boolean(),
 });
 
+const codeQuerySearchResultSchema = z.object({
+  path: z.string(),
+  line: z.number().int().positive(),
+  column: z.number().int().positive(),
+  preview: z.string(),
+  sha256: sha256Schema,
+}).strict();
+
+const codeQuerySymbolResultSchema = z.object({
+  path: z.string(),
+  name: z.string(),
+  kind: z.enum(["variable", "function", "class", "interface", "type", "enum"]),
+  line: z.number().int().positive(),
+  column: z.number().int().positive(),
+  sha256: sha256Schema,
+}).strict();
+
+export const codeQueryOutputSchema = z.object({
+  operation: z.enum(["search", "symbols"]),
+  repositoryRoot: z.string(),
+  results: z.array(z.union([codeQuerySearchResultSchema, codeQuerySymbolResultSchema])),
+  truncated: z.boolean(),
+  scannedFiles: nonNegativeInt,
+  bytesScanned: nonNegativeInt,
+}).strict();
+
 export const projectExecResultOutputSchema = z.object({
   command: z.string(),
   args: z.array(z.string()),

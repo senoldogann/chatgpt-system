@@ -13,6 +13,7 @@ import { ComputerJsRunnerSupervisor } from "./computer-js-runner-supervisor.js";
 import { ComputerNativeSupervisor } from "./computer-native-supervisor.js";
 import { ComputerRuntime, type ComputerNativeRequesting } from "./computer-runtime.js";
 import { registerBrowserTools } from "./browser-tool-registration.js";
+import { registerCodeQueryTool } from "./code-query-tool-registration.js";
 import { registerComputerTools } from "./computer-tool-registration.js";
 import { registerComputerJsTools } from "./computer-js-tool-registration.js";
 import type { AppConfig } from "./config.js";
@@ -632,6 +633,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     async ({ authorityLeaseId, processId }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.stop(processId)),
   );
 
+  registerCodeQueryTool(server, runtime);
   registerProjectExecTool(server, runtime);
   registerBrowserTools(server, runtime);
   registerComputerTools(server, runtime);

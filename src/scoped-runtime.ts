@@ -1,6 +1,7 @@
 import type { AuthorityContext } from "./authority.js";
 import { AuditLogger } from "./audit.js";
 import type { BrowserService } from "./browser-service.js";
+import { CodeQueryService } from "./code-query-service.js";
 import type { ComputerRuntime } from "./computer-runtime.js";
 import type { AppConfig } from "./config.js";
 import { FileSystemService } from "./fs-service.js";
@@ -20,6 +21,7 @@ export interface ScopedRuntime {
   git: GitService;
   process: ProcessService;
   processes: ManagedProcessService;
+  codeQuery: CodeQueryService;
   projectExec: ProjectExecService;
   browser: ScopedBrowserService;
   computer: ScopedComputerService;
@@ -51,6 +53,7 @@ export function createScopedRuntime(base: ScopedRuntimeBase, authority: Authorit
     git: new GitService(policy, base.audit, config, { remoteWriteEnabled: authority.profile === "admin" }),
     process: new ProcessService(policy, base.audit, config),
     processes: new ManagedProcessService(policy, config.terminal, base.processSupervisor),
+    codeQuery: new CodeQueryService(policy, base.audit, config.limits),
     projectExec: new ProjectExecService(
       policy,
       base.audit,
