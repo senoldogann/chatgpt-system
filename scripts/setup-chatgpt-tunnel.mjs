@@ -5,6 +5,7 @@ import { access, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { inspectInstalledComputerRuntime } from "./setup-macos-computer-runtime.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const defaultRepoDir = path.resolve(path.dirname(scriptPath), "..");
@@ -204,6 +205,11 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     "chatgpt-system-authority-broker",
   );
   const controlSocketPath = path.join(homeDir, ".chatgpt-system", "control.sock");
+  const computerRuntimeBundlePath = path.join(
+    homeDir,
+    ".chatgpt-system",
+    "ChatGPTSystemComputerRuntime.app",
+  );
   const commandParts = [
     process.execPath,
     serverPath,
@@ -226,6 +232,8 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     tunnelId: options.tunnelId,
     serverPath,
     controlSocketPath,
+    computerUseEnabled: options.computerUse,
+    computerRuntimeBundlePath,
     brokerPackageDir,
     brokerBuildPath,
     brokerHelperPath: protectedBrokerHelperPath,
@@ -279,6 +287,24 @@ async function inspectProtectedBroker() {
   }
 }
 
+export async function validateComputerUseReadiness(
+  setup,
+  inspector = inspectInstalledComputerRuntime,
+) {
+  if (!setup.computerUseEnabled) return { required: false, ready: true };
+  const state = await inspector(setup.computerRuntimeBundlePath);
+  if (!state?.available) {
+    throw new Error(
+      `Computer Runtime is ${state?.reason ?? "missing-or-untrusted"}. Run 'npm run setup:computer:macos' before enabling computer use.`,
+    );
+  }
+  return {
+    required: true,
+    ready: true,
+    tccIdentityStable: state.tccIdentityStable === true,
+  };
+}
+
 async function validateRuntime(setup) {
   await access(setup.serverPath);
   await validateRootBoundary(setup.root, homedir());
@@ -286,6 +312,13 @@ async function validateRuntime(setup) {
   if (process.platform === "darwin" && !broker.available) {
     console.warn(
       "[chatgpt-system] Protected macOS authority broker is missing or untrusted. Project authority remains available; User/Admin local authorization will fail closed until you run 'npm run build:broker:macos' and 'sudo npm run install:broker:macos'.",
+    );
+  }
+
+  const computer = await validateComputerUseReadiness(setup);
+  if (computer.required && !computer.tccIdentityStable) {
+    console.warn(
+      "[chatgpt-system] Computer Runtime is installed with development-only ad-hoc signing. It is usable, but macOS TCC identity will not be stable across rebuilds.",
     );
   }
 
@@ -320,6 +353,7 @@ async function main() {
   console.log("  Personal Admin: " + (setup.mcpCommand.includes("--personal-admin") ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Browser: " + (setup.mcpCommand.includes("--enable-browser") ? (setup.mcpCommand.includes("--browser-headless") ? "EXPLICITLY ENABLED (headless)" : "EXPLICITLY ENABLED (headed)") : "disabled"));
   console.log("  Computer Runtime: " + (setup.mcpCommand.includes("--enable-computer-use") ? "EXPLICITLY ENABLED" : "disabled"));
+  if (setup.computerUseEnabled) console.log(`  Computer Runtime bundle: ${setup.computerRuntimeBundlePath}`);
   console.log("  Local User/Admin authorization: enabled through private Unix socket");
 
   if (!setup.executeDoctor && !setup.executeRun) {

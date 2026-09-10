@@ -2,7 +2,11 @@ import { mkdtemp, mkdir, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildTunnelSetup, validateRootBoundary } from "../scripts/setup-chatgpt-tunnel.mjs";
+import {
+  buildTunnelSetup,
+  validateComputerUseReadiness,
+  validateRootBoundary,
+} from "../scripts/setup-chatgpt-tunnel.mjs";
 
 const VALID_TUNNEL = "tunnel_0123456789abcdef";
 const ROOT = "/tmp/chatgpt-system-fixture";
@@ -76,6 +80,55 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
 
     expect(setup.mcpCommand).toContain("--enable-computer-use");
     expect(setup.mcpCommand).not.toContain("--enable-browser");
+  });
+
+  it("uses one fixed installed Computer Runtime path when computer use is enabled", () => {
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-computer-use",
+    ], {}, context);
+
+    expect(setup.computerUseEnabled).toBe(true);
+    expect(setup.computerRuntimeBundlePath).toBe(
+      "/home/tester/.chatgpt-system/ChatGPTSystemComputerRuntime.app",
+    );
+  });
+
+  it("skips installed Computer Runtime validation when computer use is disabled", async () => {
+    const setup = buildTunnelSetup(["--root", ROOT, "--tunnel-id", VALID_TUNNEL], {}, context);
+    let calls = 0;
+    await expect(validateComputerUseReadiness(setup, async () => {
+      calls += 1;
+      throw new Error("must not run");
+    })).resolves.toEqual({ required: false, ready: true });
+    expect(calls).toBe(0);
+  });
+
+  it("fails readiness when enabled Computer Runtime is missing or untrusted", async () => {
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-computer-use",
+    ], {}, context);
+
+    await expect(validateComputerUseReadiness(setup, async () => ({
+      available: false,
+      reason: "missing-or-untrusted",
+    }))).rejects.toThrow(/computer runtime.*missing-or-untrusted/i);
+  });
+
+  it("accepts readiness only after the enabled installed Computer Runtime validates", async () => {
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-computer-use",
+    ], {}, context);
+
+    await expect(validateComputerUseReadiness(setup, async (bundlePath) => {
+      expect(bundlePath).toBe("/home/tester/.chatgpt-system/ChatGPTSystemComputerRuntime.app");
+      return { available: true, tccIdentityStable: true };
+    })).resolves.toEqual({ required: true, ready: true, tccIdentityStable: true });
   });
 
   it("supports explicit headless browser mode only with browser capability enabled", () => {
