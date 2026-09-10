@@ -1,10 +1,10 @@
 import type { ControlServerHandle } from "./control-server.js";
 import type { RuntimeServices } from "./server.js";
 
-export type RuntimeShutdownPhase = "processes" | "browser" | "control" | "transport";
+export type RuntimeShutdownPhase = "computer" | "processes" | "browser" | "control" | "transport";
 
 export async function closeRuntimeResources(input: {
-  runtime: Pick<RuntimeServices, "processSupervisor" | "browser">;
+  runtime: Pick<RuntimeServices, "computer" | "processSupervisor" | "browser">;
   control?: ControlServerHandle;
   closeTransport: () => Promise<void>;
   reportError?: (phase: RuntimeShutdownPhase, error: unknown) => void;
@@ -17,6 +17,7 @@ export async function closeRuntimeResources(input: {
     }
   };
 
+  await attempt("computer", () => input.runtime.computer.close());
   await attempt("processes", () => input.runtime.processSupervisor.close());
   await attempt("browser", async () => {
     await input.runtime.browser.close();

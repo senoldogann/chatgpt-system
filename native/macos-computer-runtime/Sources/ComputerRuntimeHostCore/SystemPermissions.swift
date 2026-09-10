@@ -14,4 +14,12 @@ public struct SystemPermissionReader: PermissionReading {
     public func screenCaptureAuthorized() -> Bool {
         CGPreflightScreenCaptureAccess()
     }
+
+    public func eventListenAuthorized() -> Bool {
+        CGPreflightListenEventAccess()
+    }
+
+    public func eventPostAuthorized() -> Bool {
+        CGPreflightPostEventAccess()
+    }
 }

@@ -355,7 +355,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 return encodeResult(safeApplicationView(frontmost), requestId: requestId)
             }
 
-            guard applicationController.activate(application) else {
+            guard await applicationController.activate(application) else {
                 return focusFailed(requestId: requestId)
             }
 

@@ -119,9 +119,10 @@ private func makeController(
     displays: [ComputerBounds] = fixtureDisplays,
     sleeper: any InputSleeping = ImmediateInputSleeper()
 ) -> ComputerInputController {
-    ComputerInputController(
-        eventSink: sink,
-        pointerReader: FixedPointerReader(point: pointer),
+    let pointerState = InputControllerPointerState(pointer)
+    return ComputerInputController(
+        eventSink: TrackingInputSink(recording: sink, pointer: pointerState),
+        pointerReader: InputControllerPointerReader(state: pointerState),
         displayTopology: FixedDisplayTopology(bounds: displays),
         sleeper: sleeper
     )
@@ -144,9 +145,42 @@ private final class RecordingInputSink: InputEventSink, @unchecked Sendable {
     }
 }
 
-private struct FixedPointerReader: PointerReading {
-    let point: ComputerPoint
-    func currentPointerPosition() throws -> ComputerPoint { point }
+private final class InputControllerPointerState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var point: ComputerPoint
+
+    init(_ point: ComputerPoint) { self.point = point }
+
+    func get() -> ComputerPoint {
+        lock.lock(); defer { lock.unlock() }
+        return point
+    }
+
+    func set(_ point: ComputerPoint) {
+        lock.lock(); self.point = point; lock.unlock()
+    }
+}
+
+private struct InputControllerPointerReader: PointerReading {
+    let state: InputControllerPointerState
+    func currentPointerPosition() throws -> ComputerPoint { state.get() }
+}
+
+private final class TrackingInputSink: InputEventSink, @unchecked Sendable {
+    let recording: RecordingInputSink
+    let pointer: InputControllerPointerState
+
+    init(recording: RecordingInputSink, pointer: InputControllerPointerState) {
+        self.recording = recording
+        self.pointer = pointer
+    }
+
+    func emit(_ event: InputEvent) throws {
+        try recording.emit(event)
+        if case let .mouseMove(point, _) = event {
+            pointer.set(point)
+        }
+    }
 }
 
 private struct FixedDisplayTopology: DisplayTopologyReading {

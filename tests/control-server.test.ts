@@ -83,6 +83,16 @@ async function fixture(
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: terminalEnabled, commands: ["node", "git"] },
+    computerUse: {
+      enabled: false,
+      hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",
+      requestTimeoutMs: 10_000,
+      maxObservationElements: 500,
+      maxObservationChars: 262_144,
+      maxScreenshotBytes: 8_388_608,
+      maxActionProgramActions: 100,
+      maxActionProgramRuntimeMs: 30_000,
+    },
     http: { host: "127.0.0.1", port: 4312 },
     limits: {
       maxReadBytes: 1024,

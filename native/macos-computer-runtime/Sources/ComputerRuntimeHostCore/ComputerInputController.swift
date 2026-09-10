@@ -4,6 +4,8 @@ import Foundation
 
 struct ComputerInputController: Sendable {
     private static let clickTolerancePixels = 2.0
+    private static let pointerSettleMaxChecks = 20
+    private static let pointerSettlePollNanoseconds: UInt64 = 2_000_000
     private static let interClickPauseNanoseconds: UInt64 = 60_000_000
     private static let maxScrollDelta: Int32 = 10_000
     private static let maxUnicodeChunkUTF16Units = 20
@@ -336,7 +338,22 @@ struct ComputerInputController: Sendable {
             previousOffset = sample.offsetNanoseconds
         }
 
+        try await waitForPointerToSettle(near: target)
         return ComputerActionResult(state: "completed", pointer: target)
+    }
+
+    private func waitForPointerToSettle(near target: ComputerPoint) async throws {
+        for check in 0..<Self.pointerSettleMaxChecks {
+            try Task.checkCancellation()
+            try checkSafety()
+            let current = try pointerPosition()
+            if hypot(current.x - target.x, current.y - target.y) <= Self.clickTolerancePixels {
+                return
+            }
+            guard check + 1 < Self.pointerSettleMaxChecks else { break }
+            try await sleeper.sleep(nanoseconds: Self.pointerSettlePollNanoseconds)
+        }
+        throw ComputerInputError.unavailable
     }
 
     private func emitMouseDownWithinLane(

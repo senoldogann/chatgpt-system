@@ -22,6 +22,15 @@ describe("CLI command routing", () => {
     });
   });
 
+  it("parses computer use only as an explicit server flag", () => {
+    expect(parseCliCommand(["stdio", "--enable-computer-use"])).toEqual({
+      kind: "server",
+      mode: "stdio",
+      help: false,
+      overrides: { computerUseEnabled: true },
+    });
+  });
+
   it("parses server control flags independently", () => {
     expect(parseCliCommand([
       "stdio",
@@ -52,5 +61,6 @@ describe("CLI command routing", () => {
     expect(() => parseCliCommand(["authorize", "user", "--root", "/tmp/project"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--enable-control"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--personal-admin"])).toThrow();
+    expect(() => parseCliCommand(["authorize", "admin", "--enable-computer-use"])).toThrow();
   });
 });

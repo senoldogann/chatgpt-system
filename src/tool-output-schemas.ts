@@ -26,6 +26,10 @@ export const systemCapabilitiesOutputSchema = z.object({
     enabled: z.boolean(),
     adminLeaseMaxTtlSeconds: z.literal(3600),
   }),
+  computerUse: z.object({
+    enabled: z.boolean(),
+    fullHostJsEnabled: z.literal(false),
+  }),
   limits: z.object({
     maxReadBytes: z.number().int().positive(),
     maxWriteBytes: z.number().int().positive(),
@@ -259,4 +263,114 @@ export const browserNetworkOutputSchema = z.object({
 
 export const browserCloseOutputSchema = z.object({
   closed: z.literal(true),
+});
+
+
+const computerApplicationOutputSchema = z.object({
+  name: z.string(),
+  bundleIdentifier: z.string().optional(),
+  frontmost: z.boolean(),
+});
+
+const computerPointOutputSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+});
+
+const computerBoundsOutputSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number().nonnegative(),
+  height: z.number().nonnegative(),
+});
+
+const computerElementOutputSchema = z.object({
+  index: z.number().int().nonnegative(),
+  role: z.string(),
+  subrole: z.string().optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  focused: z.boolean().optional(),
+  enabled: z.boolean().optional(),
+  selected: z.boolean().optional(),
+  bounds: computerBoundsOutputSchema.optional(),
+});
+
+export const computerHealthOutputSchema = z.object({
+  enabled: z.boolean(),
+  state: z.enum(["disabled", "stopped", "running", "unavailable"]),
+  accessibilityTrusted: z.boolean(),
+  screenCaptureAuthorized: z.boolean(),
+  eventListenAuthorized: z.boolean(),
+  eventPostAuthorized: z.boolean(),
+  fullHostJsEnabled: z.literal(false),
+});
+
+export const computerPointResultOutputSchema = computerPointOutputSchema;
+
+export const computerApplicationResultOutputSchema = computerApplicationOutputSchema;
+
+export const computerActiveWindowOutputSchema = z.object({
+  application: computerApplicationOutputSchema,
+  title: z.string().optional(),
+});
+
+export const computerObservationOutputSchema = z.object({
+  snapshotId: z.string(),
+  application: computerApplicationOutputSchema,
+  windowTitle: z.string().optional(),
+  elements: z.array(computerElementOutputSchema),
+  truncated: z.boolean(),
+  digest: z.string().optional(),
+});
+
+export const computerActionResultOutputSchema = z.object({
+  state: z.string(),
+  pointer: computerPointOutputSchema.optional(),
+  changed: z.boolean().optional(),
+});
+
+export const computerChangedDigestOutputSchema = z.object({
+  digest: z.string(),
+});
+
+export const computerScreenshotMetadataOutputSchema = z.object({
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+});
+
+const computerRunStepTypeSchema = z.enum([
+  "observe",
+  "pointer_position",
+  "open_app",
+  "focus_app",
+  "move_mouse",
+  "click",
+  "double_click",
+  "mouse_down",
+  "mouse_up",
+  "drag",
+  "scroll",
+  "type_text",
+  "press_key",
+  "wait",
+  "wait_for_frontmost",
+  "wait_for_text",
+  "wait_until_changed",
+  "release_inputs",
+]);
+
+export const computerRunOutputSchema = z.object({
+  state: z.enum(["completed", "completed_unverified"]),
+  completedCount: z.number().int().nonnegative(),
+  actionCount: z.number().int().nonnegative(),
+  steps: z.array(z.object({
+    index: z.number().int().nonnegative(),
+    type: computerRunStepTypeSchema,
+    state: z.literal("completed"),
+  })),
+  finalObservation: z.union([
+    computerActiveWindowOutputSchema,
+    computerObservationOutputSchema,
+  ]).optional(),
 });

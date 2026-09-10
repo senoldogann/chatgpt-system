@@ -29,7 +29,8 @@
     "daily-driver:status": "node scripts/setup-daily-driver.mjs status",
     "daily-driver:uninstall": "node scripts/setup-daily-driver.mjs uninstall",
     "test": "vitest run",
-    "check": "npm run build && npm test"
+    "check": "npm run build && npm test",
+    "setup:computer:macos": "node scripts/setup-macos-computer-runtime.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/node": "^2.0.0",

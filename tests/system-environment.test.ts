@@ -254,6 +254,16 @@ describe("system_environment MCP tool", () => {
       roots: [root],
       auditFile: path.join(base, "audit.jsonl"),
       terminal: { enabled: false, commands: ["node", "chatgpt-system-missing-binary-xyz"] },
+      computerUse: {
+        enabled: false,
+        hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",
+        requestTimeoutMs: 10_000,
+        maxObservationElements: 500,
+        maxObservationChars: 262_144,
+        maxScreenshotBytes: 8_388_608,
+        maxActionProgramActions: 100,
+        maxActionProgramRuntimeMs: 30_000,
+      },
       control: { enabled: false, socketPath: path.join(base, "control.sock") },
       http: { host: "127.0.0.1", port: 0, token },
       limits: {

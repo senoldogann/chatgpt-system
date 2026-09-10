@@ -21,6 +21,17 @@ export interface BrowserConfig {
   userDataDir: string;
 }
 
+export interface ComputerUseConfig {
+  enabled: boolean;
+  hostBundlePath: string;
+  requestTimeoutMs: number;
+  maxObservationElements: number;
+  maxObservationChars: number;
+  maxScreenshotBytes: number;
+  maxActionProgramActions: number;
+  maxActionProgramRuntimeMs: number;
+}
+
 export interface AppConfig {
   roots: string[];
   auditFile: string;
@@ -31,6 +42,7 @@ export interface AppConfig {
   personalAdmin: {
     enabled: boolean;
   };
+  computerUse: ComputerUseConfig;
   browser: BrowserConfig;
   control: {
     enabled: boolean;
@@ -49,6 +61,7 @@ export interface ConfigOverrides {
   auditFile?: string;
   terminalEnabled?: boolean;
   personalAdminEnabled?: boolean;
+  computerUseEnabled?: boolean;
   commands?: string[];
   browserEnabled?: boolean;
   browserHeadless?: boolean;
@@ -66,6 +79,13 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_AUDIT_FILE: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_TERMINAL: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_PERSONAL_ADMIN: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_ENABLE_COMPUTER_USE: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_COMPUTER_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  CHATGPT_SYSTEM_COMPUTER_MAX_OBSERVATION_ELEMENTS: z.coerce.number().int().positive().optional(),
+  CHATGPT_SYSTEM_COMPUTER_MAX_OBSERVATION_CHARS: z.coerce.number().int().positive().optional(),
+  CHATGPT_SYSTEM_COMPUTER_MAX_SCREENSHOT_BYTES: z.coerce.number().int().positive().optional(),
+  CHATGPT_SYSTEM_COMPUTER_MAX_ACTION_PROGRAM_ACTIONS: z.coerce.number().int().positive().optional(),
+  CHATGPT_SYSTEM_COMPUTER_MAX_ACTION_PROGRAM_RUNTIME_MS: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_ALLOW_COMMANDS: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_BROWSER: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_BROWSER_HEADLESS: z.enum(["true", "false", "1", "0"]).optional(),
@@ -174,6 +194,16 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     },
     personalAdmin: {
       enabled: overrides.personalAdminEnabled ?? enabled(env.CHATGPT_SYSTEM_PERSONAL_ADMIN),
+    },
+    computerUse: {
+      enabled: overrides.computerUseEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_COMPUTER_USE),
+      hostBundlePath: path.join(homeDir, ".chatgpt-system", "ChatGPTSystemComputerRuntime.app"),
+      requestTimeoutMs: env.CHATGPT_SYSTEM_COMPUTER_REQUEST_TIMEOUT_MS ?? 10_000,
+      maxObservationElements: env.CHATGPT_SYSTEM_COMPUTER_MAX_OBSERVATION_ELEMENTS ?? 500,
+      maxObservationChars: env.CHATGPT_SYSTEM_COMPUTER_MAX_OBSERVATION_CHARS ?? 262_144,
+      maxScreenshotBytes: env.CHATGPT_SYSTEM_COMPUTER_MAX_SCREENSHOT_BYTES ?? 8_388_608,
+      maxActionProgramActions: env.CHATGPT_SYSTEM_COMPUTER_MAX_ACTION_PROGRAM_ACTIONS ?? 100,
+      maxActionProgramRuntimeMs: env.CHATGPT_SYSTEM_COMPUTER_MAX_ACTION_PROGRAM_RUNTIME_MS ?? 30_000,
     },
     browser: {
       enabled: overrides.browserEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_BROWSER),

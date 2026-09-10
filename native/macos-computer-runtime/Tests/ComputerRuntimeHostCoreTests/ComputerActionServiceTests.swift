@@ -92,6 +92,7 @@ private struct ActionWorkspace: WorkspaceReading {
 private final class ActionRecordingSink: InputEventSink, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [InputEvent] = []
+    private var pointer: ComputerPoint?
 
     var events: [InputEvent] {
         lock.lock()
@@ -99,16 +100,27 @@ private final class ActionRecordingSink: InputEventSink, @unchecked Sendable {
         return storage
     }
 
+    func configurePointer(_ point: ComputerPoint) {
+        lock.lock(); pointer = point; lock.unlock()
+    }
+
+    func currentPointer() throws -> ComputerPoint {
+        lock.lock(); defer { lock.unlock() }
+        guard let pointer else { throw ComputerInputError.unavailable }
+        return pointer
+    }
+
     func emit(_ event: InputEvent) throws {
         lock.lock()
         storage.append(event)
+        if case let .mouseMove(point, _) = event { pointer = point }
         lock.unlock()
     }
 }
 
 private struct ActionPointerReader: PointerReading {
-    let point: ComputerPoint
-    func currentPointerPosition() throws -> ComputerPoint { point }
+    let sink: ActionRecordingSink
+    func currentPointerPosition() throws -> ComputerPoint { try sink.currentPointer() }
 }
 
 private struct ActionDisplayTopology: DisplayTopologyReading {
@@ -125,9 +137,10 @@ private func makeActionHostService(
     pointer: ComputerPoint,
     sink: ActionRecordingSink = ActionRecordingSink()
 ) -> ComputerHostService {
+    sink.configurePointer(pointer)
     let controller = ComputerInputController(
         eventSink: sink,
-        pointerReader: ActionPointerReader(point: pointer),
+        pointerReader: ActionPointerReader(sink: sink),
         displayTopology: ActionDisplayTopology(),
         sleeper: ActionImmediateSleeper()
     )

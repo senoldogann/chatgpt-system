@@ -6,7 +6,10 @@ import { AuthorityRequestManager } from "./authority-request-manager.js";
 import { AuditLogger } from "./audit.js";
 import { createBrowserService, type BrowserFactoryOptions } from "./browser-factory.js";
 import type { BrowserService } from "./browser-service.js";
+import { ComputerNativeSupervisor } from "./computer-native-supervisor.js";
+import { ComputerRuntime, type ComputerNativeRequesting } from "./computer-runtime.js";
 import { registerBrowserTools } from "./browser-tool-registration.js";
+import { registerComputerTools } from "./computer-tool-registration.js";
 import type { AppConfig } from "./config.js";
 import { FileSystemService } from "./fs-service.js";
 import { GitService } from "./git-service.js";
@@ -52,11 +55,14 @@ export interface RuntimeServices {
   process: ProcessService;
   processSupervisor: ProcessSupervisor;
   browser: BrowserService;
+  computer: ComputerRuntime;
 }
 
 export interface RuntimeOptions extends BrowserFactoryOptions {
   approvalBroker?: LocalAuthorityBroker;
   authorityRequests?: AuthorityRequestManager;
+  computerNative?: ComputerNativeRequesting;
+  computerRuntime?: ComputerRuntime;
 }
 
 export function createRuntimeServices(config: AppConfig, options: RuntimeOptions = {}): RuntimeServices {
@@ -99,6 +105,14 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
   });
   const processSupervisor = new ProcessSupervisor({ limits: config.limits, audit });
   const browser = createBrowserService(config, options);
+  const computer = options.computerRuntime ?? new ComputerRuntime(
+    options.computerNative ?? new ComputerNativeSupervisor({
+      enabled: config.computerUse.enabled,
+      hostBundlePath: config.computerUse.hostBundlePath,
+      requestTimeoutMs: config.computerUse.requestTimeoutMs,
+    }),
+    config.computerUse,
+  );
   return {
     config,
     policy,
@@ -111,6 +125,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     process: new ProcessService(policy, audit, config),
     processSupervisor,
     browser,
+    computer,
   };
 }
 
@@ -185,6 +200,10 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       personalAdmin: {
         enabled: personalAdminEnabled,
         adminLeaseMaxTtlSeconds: 3600 as const,
+      },
+      computerUse: {
+        enabled: runtime.config.computerUse?.enabled === true,
+        fullHostJsEnabled: false as const,
       },
       limits: runtime.config.limits,
       safety: {
@@ -579,5 +598,6 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   );
 
   registerBrowserTools(server, runtime);
+  registerComputerTools(server, runtime);
   return server;
 }

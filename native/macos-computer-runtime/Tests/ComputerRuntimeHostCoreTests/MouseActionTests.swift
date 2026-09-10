@@ -18,6 +18,57 @@ final class MouseActionTests: XCTestCase {
         ])
     }
 
+    func testClickWaitsForPostedPointerMoveToSettleBeforeMouseDown() async throws {
+        let start = ComputerPoint(x: 20, y: 20)
+        let target = ComputerPoint(x: 320, y: 240)
+        let pointer = LaggingMousePointerState(start: start, staleReadsAfterMove: 1)
+        let sink = LaggingMouseSink(pointer: pointer)
+        let sleeper = CountingMouseSleeper()
+        let controller = ComputerInputController(
+            eventSink: sink,
+            pointerReader: LaggingMousePointerReader(state: pointer),
+            displayTopology: MouseDisplays(),
+            sleeper: sleeper
+        )
+
+        let result = try await controller.click(at: target, button: .left, mode: .instant)
+
+        XCTAssertEqual(result.pointer, target)
+        XCTAssertEqual(sink.events, [
+            .mouseMove(point: target, dragButton: nil),
+            .mouseButton(button: .left, down: true, point: target, clickCount: 1),
+            .mouseButton(button: .left, down: false, point: target, clickCount: 1),
+        ])
+        let settleSleeps = await sleeper.callCount()
+        XCTAssertGreaterThan(settleSleeps, 0)
+    }
+
+    func testClickFailsBoundedlyWithoutMouseDownWhenPostedMoveNeverSettles() async {
+        let start = ComputerPoint(x: 20, y: 20)
+        let target = ComputerPoint(x: 320, y: 240)
+        let pointer = LaggingMousePointerState(start: start, staleReadsAfterMove: .max)
+        let sink = LaggingMouseSink(pointer: pointer)
+        let sleeper = CountingMouseSleeper()
+        let controller = ComputerInputController(
+            eventSink: sink,
+            pointerReader: LaggingMousePointerReader(state: pointer),
+            displayTopology: MouseDisplays(),
+            sleeper: sleeper
+        )
+
+        do {
+            _ = try await controller.click(at: target, button: .left, mode: .instant)
+            XCTFail("Expected pointer settle failure")
+        } catch {
+            XCTAssertEqual(error as? ComputerInputError, .unavailable)
+        }
+
+        let sleeps = await sleeper.callCount()
+        XCTAssertGreaterThan(sleeps, 0)
+        XCTAssertLessThanOrEqual(sleeps, 20)
+        XCTAssertEqual(sink.events, [.mouseMove(point: target, dragButton: nil)])
+    }
+
     func testDoubleClickUsesClickCountOneThenTwo() async throws {
         let harness = MouseHarness(point: ComputerPoint(x: 10, y: 10))
         let target = ComputerPoint(x: 40, y: 50)
@@ -251,6 +302,72 @@ private final class MouseRecordingSink: InputEventSink, @unchecked Sendable {
             break
         }
     }
+}
+
+
+private final class LaggingMousePointerState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var visible: ComputerPoint
+    private var pending: ComputerPoint?
+    private var staleReadsRemaining: Int
+    private let staleReadsAfterMove: Int
+
+    init(start: ComputerPoint, staleReadsAfterMove: Int) {
+        self.visible = start
+        self.staleReadsRemaining = 0
+        self.staleReadsAfterMove = staleReadsAfterMove
+    }
+
+    func scheduleMove(to point: ComputerPoint) {
+        lock.lock()
+        pending = point
+        staleReadsRemaining = staleReadsAfterMove
+        lock.unlock()
+    }
+
+    func read() -> ComputerPoint {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let pending else { return visible }
+        if staleReadsRemaining > 0 {
+            staleReadsRemaining -= 1
+            return visible
+        }
+        visible = pending
+        self.pending = nil
+        return visible
+    }
+}
+
+private struct LaggingMousePointerReader: PointerReading {
+    let state: LaggingMousePointerState
+    func currentPointerPosition() throws -> ComputerPoint { state.read() }
+}
+
+private final class LaggingMouseSink: InputEventSink, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [InputEvent] = []
+    private let pointer: LaggingMousePointerState
+
+    init(pointer: LaggingMousePointerState) { self.pointer = pointer }
+
+    var events: [InputEvent] {
+        lock.lock(); defer { lock.unlock() }
+        return storage
+    }
+
+    func emit(_ event: InputEvent) throws {
+        lock.lock(); storage.append(event); lock.unlock()
+        if case let .mouseMove(point, _) = event {
+            pointer.scheduleMove(to: point)
+        }
+    }
+}
+
+private actor CountingMouseSleeper: InputSleeping {
+    private var calls = 0
+    func sleep(nanoseconds: UInt64) async throws { calls += 1 }
+    func callCount() -> Int { calls }
 }
 
 private enum MouseInjectedError: Error { case failure }

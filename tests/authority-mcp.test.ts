@@ -38,6 +38,16 @@ async function fixture(options: { personalAdmin?: boolean; terminalEnabled?: boo
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: options.terminalEnabled ?? false, commands: ["node", "git"] },
     personalAdmin: { enabled: options.personalAdmin ?? false },
+    computerUse: {
+      enabled: true,
+      hostBundlePath: path.join(base, "ChatGPTSystemComputerRuntime.app"),
+      requestTimeoutMs: 10_000,
+      maxObservationElements: 500,
+      maxObservationChars: 262_144,
+      maxScreenshotBytes: 8_388_608,
+      maxActionProgramActions: 100,
+      maxActionProgramRuntimeMs: 30_000,
+    },
     http: { host: "127.0.0.1", port: 0, token },
     limits: {
       maxReadBytes: 1024 * 1024,
@@ -87,6 +97,7 @@ describe("session authority MCP tools", () => {
       expect(capabilities.isError).not.toBe(true);
       expect(capabilities.structuredContent).toMatchObject({
         personalAdmin: { enabled: true, adminLeaseMaxTtlSeconds: 3600 },
+        computerUse: { enabled: true, fullHostJsEnabled: false },
       });
     } finally {
       await transport.terminateSession();

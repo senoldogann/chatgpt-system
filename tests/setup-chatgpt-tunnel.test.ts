@@ -2,7 +2,11 @@ import { mkdtemp, mkdir, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildTunnelSetup, validateRootBoundary } from "../scripts/setup-chatgpt-tunnel.mjs";
+import {
+  buildTunnelSetup,
+  validateComputerUseReadiness,
+  validateRootBoundary,
+} from "../scripts/setup-chatgpt-tunnel.mjs";
 
 const VALID_TUNNEL = "tunnel_0123456789abcdef";
 const ROOT = "/tmp/chatgpt-system-fixture";
@@ -49,6 +53,7 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.mcpCommand).not.toContain("--personal-admin");
     expect(setup.mcpCommand).not.toContain("--enable-browser");
     expect(setup.mcpCommand).not.toContain("--browser-headless");
+    expect(setup.mcpCommand).not.toContain("--enable-computer-use");
     expect(setup.mcpCommand).toContain("stdio");
     expect(setup.mcpCommand).toContain(ROOT);
     expect(setup.mcpCommand).toContain("--enable-control");
@@ -64,6 +69,66 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
 
     expect(setup.mcpCommand).toContain("--enable-browser");
     expect(setup.mcpCommand).not.toContain("--browser-headless");
+  });
+
+  it("adds computer use only when explicitly requested", () => {
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-computer-use",
+    ], {}, context);
+
+    expect(setup.mcpCommand).toContain("--enable-computer-use");
+    expect(setup.mcpCommand).not.toContain("--enable-browser");
+  });
+
+  it("uses one fixed installed Computer Runtime path when computer use is enabled", () => {
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-computer-use",
+    ], {}, context);
+
+    expect(setup.computerUseEnabled).toBe(true);
+    expect(setup.computerRuntimeBundlePath).toBe(
+      "/home/tester/.chatgpt-system/ChatGPTSystemComputerRuntime.app",
+    );
+  });
+
+  it("skips installed Computer Runtime validation when computer use is disabled", async () => {
+    const setup = buildTunnelSetup(["--root", ROOT, "--tunnel-id", VALID_TUNNEL], {}, context);
+    let calls = 0;
+    await expect(validateComputerUseReadiness(setup, async () => {
+      calls += 1;
+      throw new Error("must not run");
+    })).resolves.toEqual({ required: false, ready: true });
+    expect(calls).toBe(0);
+  });
+
+  it("fails readiness when enabled Computer Runtime is missing or untrusted", async () => {
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-computer-use",
+    ], {}, context);
+
+    await expect(validateComputerUseReadiness(setup, async () => ({
+      available: false,
+      reason: "missing-or-untrusted",
+    }))).rejects.toThrow(/computer runtime.*missing-or-untrusted/i);
+  });
+
+  it("accepts readiness only after the enabled installed Computer Runtime validates", async () => {
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-computer-use",
+    ], {}, context);
+
+    await expect(validateComputerUseReadiness(setup, async (bundlePath) => {
+      expect(bundlePath).toBe("/home/tester/.chatgpt-system/ChatGPTSystemComputerRuntime.app");
+      return { available: true, tccIdentityStable: true };
+    })).resolves.toEqual({ required: true, ready: true, tccIdentityStable: true });
   });
 
   it("supports explicit headless browser mode only with browser capability enabled", () => {
@@ -96,9 +161,11 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(runbookSetupEnd).toBeGreaterThan(runbookSetupStart);
     const runbookSetup = runbook.slice(runbookSetupStart, runbookSetupEnd);
     expect(runbook).toContain("npm run setup:browser");
+    expect(runbook).toContain("npm run setup:computer:macos");
     expect(runbookSetup).toContain("--enable-terminal");
     expect(runbookSetup).toContain("--personal-admin");
     expect(runbookSetup).toContain("--enable-browser");
+    expect(runbookSetup).toContain("--enable-computer-use");
     expect(runbookSetup).toContain("--force");
 
     const readmeSetupStart = readme.indexOf("## Personal ChatGPT Plugin");
@@ -107,9 +174,11 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(readmeSetupEnd).toBeGreaterThan(readmeSetupStart);
     const readmeSetup = readme.slice(readmeSetupStart, readmeSetupEnd);
     expect(readme).toContain("npm run setup:browser");
+    expect(readme).toContain("npm run setup:computer:macos");
     expect(readmeSetup).toContain("--enable-terminal");
     expect(readmeSetup).toContain("--personal-admin");
     expect(readmeSetup).toContain("--enable-browser");
+    expect(readmeSetup).toContain("--enable-computer-use");
     expect(readmeSetup).toContain("--force");
   });
 
