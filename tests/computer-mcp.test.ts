@@ -42,7 +42,13 @@ class FakeComputerRuntime {
           snapshotId: "snap-1",
           application: { name: "Fixture", bundleIdentifier: "com.example.fixture", frontmost: true },
           windowTitle: "Fixture",
-          elements: [{ index: 0, role: "button", title: "Go", enabled: true }],
+          elements: [{
+            index: 0,
+            role: "button",
+            title: "Go",
+            enabled: true,
+            bounds: { x: 10, y: 20, width: 0, height: 0 },
+          }],
           truncated: false,
           digest: "digest-1",
         };
@@ -245,7 +251,11 @@ describe("computer MCP tools", () => {
         arguments: { authorityLeaseId: admin.leaseId },
       });
       expect(adminObserve.isError).not.toBe(true);
-      expect(adminObserve.structuredContent).toMatchObject({ snapshotId: "snap-1", digest: "digest-1" });
+      expect(adminObserve.structuredContent).toMatchObject({
+        snapshotId: "snap-1",
+        digest: "digest-1",
+        elements: [{ bounds: { x: 10, y: 20, width: 0, height: 0 } }],
+      });
       expect(textContent(adminObserve)).toContain("snap-1");
     } finally {
       await transport.terminateSession();

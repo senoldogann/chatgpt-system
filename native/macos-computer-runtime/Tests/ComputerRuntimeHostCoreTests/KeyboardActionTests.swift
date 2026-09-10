@@ -381,7 +381,7 @@ private final class KeyboardApplicationController: ApplicationControlling, @unch
 
     func applicationURL(bundleIdentifier: String) -> URL? { nil }
     func openApplication(at url: URL) async throws -> WorkspaceApplication { throw KeyboardInjectedError.failure }
-    func activate(_ application: WorkspaceApplication) -> Bool { false }
+    func activate(_ application: WorkspaceApplication) async -> Bool { false }
 }
 
 private enum KeyboardServiceFactory {

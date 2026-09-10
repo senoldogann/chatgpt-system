@@ -241,6 +241,20 @@ final class InputSafetyTests: XCTestCase {
         XCTAssertFalse(SystemTakeoverMonitor.shouldReenableTap(for: .keyDown))
     }
 
+    func testSystemMonitorSuccessfulReenableRecoversFromTransientUnavailableState() throws {
+        let coordinator = InputSafetyCoordinator()
+        let monitor = SystemTakeoverMonitor(coordinator: coordinator)
+        coordinator.beginAction(expectedPointer: ComputerPoint(x: 0, y: 0))
+
+        monitor.recordReenableResult(tapIsEnabled: false)
+        XCTAssertThrowsError(try coordinator.checkForInterruption()) { error in
+            XCTAssertEqual(error as? ComputerInputError, .unavailable)
+        }
+
+        monitor.recordReenableResult(tapIsEnabled: true)
+        XCTAssertNoThrow(try coordinator.checkForInterruption())
+    }
+
     func testSystemMonitorClassifierDropsRuntimeOwnedEvents() throws {
         let source = try XCTUnwrap(CGEventSource(stateID: .privateState))
         let event = try XCTUnwrap(CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: true))

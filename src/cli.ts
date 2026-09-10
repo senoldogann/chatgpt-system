@@ -70,10 +70,6 @@ function reportShutdownError(phase: RuntimeShutdownPhase, error: unknown): void 
   console.error(`[chatgpt-system] shutdown ${phase} error: ${error instanceof Error ? error.message : String(error)}`);
 }
 
-async function closeControl(control: ControlServerHandle | undefined): Promise<void> {
-  if (control) await control.close();
-}
-
 async function main(): Promise<void> {
   const command = parseCliCommand(process.argv.slice(2));
 
@@ -133,17 +129,12 @@ async function main(): Promise<void> {
       reportError: reportShutdownError,
     }));
   } catch (error) {
-    try {
-      await runtime.processSupervisor.close();
-    } catch {
-      // Startup failure still continues local cleanup below.
-    }
-    try {
-      await runtime.browser.close();
-    } catch {
-      // Startup failure still continues local cleanup below.
-    }
-    await closeControl(control);
+    await closeRuntimeResources({
+      runtime,
+      ...(control ? { control } : {}),
+      closeTransport: async () => {},
+      reportError: reportShutdownError,
+    });
     throw error;
   }
 }

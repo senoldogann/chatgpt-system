@@ -1,9 +1,15 @@
+import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AuditLogger } from "../src/audit.js";
 import { ComputerError } from "../src/computer-errors.js";
+import {
+  ComputerNativeSupervisor,
+  type ComputerSpawn,
+} from "../src/computer-native-supervisor.js";
+import { ComputerRuntime } from "../src/computer-runtime.js";
 import type { ComputerAction, ComputerRunResult } from "../src/computer-types.js";
 import { loadConfig } from "../src/config.js";
 import { createRuntimeServices } from "../src/server.js";
@@ -80,6 +86,25 @@ async function fixture() {
   return { base, auditFile, audit: new AuditLogger(auditFile) };
 }
 
+function parseAuditJsonl(log: string): unknown[] {
+  return log.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as unknown);
+}
+
+function expectAuditToExcludeKeys(records: unknown[], forbiddenKeys: ReadonlySet<string>): void {
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (typeof value !== "object" || value === null) return;
+    for (const [key, child] of Object.entries(value)) {
+      expect(forbiddenKeys.has(key), `forbidden audit key: ${key}`).toBe(false);
+      visit(child);
+    }
+  };
+  records.forEach(visit);
+}
+
 describe("ScopedComputerService policy and audit", () => {
   it("denies non-Admin scopes before touching the shared computer runtime and allows Admin", async () => {
     const { audit } = await fixture();
@@ -119,6 +144,25 @@ describe("ScopedComputerService policy and audit", () => {
     ]) {
       expect(log).not.toContain(forbidden);
     }
+    expectAuditToExcludeKeys(
+      parseAuditJsonl(log),
+      new Set([
+        "authorityLeaseId",
+        "leaseId",
+        "requestId",
+        "x",
+        "y",
+        "width",
+        "height",
+        "from",
+        "to",
+        "point",
+        "pointer",
+        "bounds",
+        "region",
+        "coordinates",
+      ]),
+    );
     expect(log).toContain('"action":"computer.type_text"');
     expect(log).toContain('"action":"computer.wait_for_text"');
     expect(log).toContain('"action":"computer.move_mouse"');
@@ -144,6 +188,85 @@ describe("ScopedComputerService policy and audit", () => {
     expect(log).toContain('"errorCode":"COMPUTER_ACTION_FAILED"');
     expect(log).not.toContain("REQUEST_ID_CANARY");
     expect(log).not.toContain("SECRET_TYPED_CANARY");
+  });
+
+  it("keeps actual native request ids and captured stderr out of audit across the supervisor stack", async () => {
+    const { base, auditFile, audit } = await fixture();
+    const config = await loadConfig({
+      roots: [base],
+      auditFile,
+      computerUseEnabled: true,
+      personalAdminEnabled: true,
+    });
+    const spawnCalls: Array<{ command: string; args: readonly string[]; shell: false }> = [];
+    const childScript = `
+      let buffer = "";
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", (chunk) => {
+        buffer += chunk;
+        for (;;) {
+          const newline = buffer.indexOf("\\n");
+          if (newline < 0) return;
+          const line = buffer.slice(0, newline);
+          buffer = buffer.slice(newline + 1);
+          if (!line) continue;
+          const request = JSON.parse(line);
+          process.stderr.write("NATIVE_STDERR_CANARY:" + request.requestId + "\\n");
+          process.stdout.write(JSON.stringify({
+            protocolVersion: 1,
+            requestId: request.requestId,
+            ok: false,
+            error: {
+              code: "COMPUTER_ACTION_FAILED",
+              message: "PRIVATE_NATIVE_MESSAGE",
+            },
+          }) + "\\n");
+        }
+      });
+    `;
+    const spawnImpl: ComputerSpawn = (command, args, options) => {
+      spawnCalls.push({ command, args, shell: options.shell });
+      return spawn(process.execPath, ["-e", childScript], {
+        shell: false,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    };
+    const supervisor = new ComputerNativeSupervisor({
+      enabled: true,
+      hostBundlePath: config.computerUse.hostBundlePath,
+      requestTimeoutMs: config.computerUse.requestTimeoutMs,
+      spawnImpl,
+    });
+    const runtime = new ComputerRuntime(supervisor, config.computerUse);
+    const service = new ScopedComputerService(runtime, audit, true);
+
+    try {
+      await expect(service.observe()).rejects.toMatchObject({ code: "COMPUTER_ACTION_FAILED" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const stderr = supervisor.diagnosticStderr().content;
+      expect(stderr).toContain("NATIVE_STDERR_CANARY:");
+      const requestId = /NATIVE_STDERR_CANARY:([A-Za-z0-9_-]+)/.exec(stderr)?.[1];
+      expect(requestId).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+      expect(spawnCalls).toEqual([{
+        command: path.join(
+          config.computerUse.hostBundlePath,
+          "Contents",
+          "MacOS",
+          "chatgpt-system-computer-runtime",
+        ),
+        args: [],
+        shell: false,
+      }]);
+
+      const log = await readFile(auditFile, "utf8");
+      expect(log).toContain('"errorCode":"COMPUTER_ACTION_FAILED"');
+      expect(log).not.toContain("NATIVE_STDERR_CANARY");
+      expect(log).not.toContain("PRIVATE_NATIVE_MESSAGE");
+      expect(log).not.toContain(requestId!);
+    } finally {
+      await supervisor.close();
+    }
   });
 });
 

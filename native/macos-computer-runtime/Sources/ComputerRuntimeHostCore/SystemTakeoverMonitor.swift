@@ -218,10 +218,17 @@ final class SystemTakeoverMonitor: TakeoverMonitoring, @unchecked Sendable {
             return
         }
         CGEvent.tapEnable(tap: tap, enable: true)
-        if !CGEvent.tapIsEnabled(tap: tap) {
-            lock.lock()
-            ready = false
-            lock.unlock()
+        recordReenableResult(tapIsEnabled: CGEvent.tapIsEnabled(tap: tap))
+    }
+
+    func recordReenableResult(tapIsEnabled: Bool) {
+        lock.lock()
+        ready = tapIsEnabled
+        lock.unlock()
+
+        if tapIsEnabled {
+            coordinator.markMonitorAvailable()
+        } else {
             coordinator.markMonitorUnavailable()
         }
     }

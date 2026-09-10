@@ -100,6 +100,24 @@ final class AppControlTests: XCTestCase {
         XCTAssertTrue(try decodeAppResult(ApplicationView.self, from: response).frontmost)
     }
 
+    func testFocusAwaitsAsynchronousActivationHandoffBeforePolling() async throws {
+        let target = app(pid: 55, name: "Fixture", bundle: "com.example.fixture")
+        let workspace = FakeApplicationController(
+            apps: [target],
+            becomesFrontmost: true,
+            activationDelayNanoseconds: 20_000_000
+        )
+        let response = await request(
+            makeAppHostService(workspace: workspace),
+            method: "focus_app",
+            params: .object(["bundleIdentifier": .string("com.example.fixture"), "timeoutMs": .number(100)])
+        )
+
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(workspace.activatedProcessIdentifiers, [55])
+        XCTAssertTrue(try decodeAppResult(ApplicationView.self, from: response).frontmost)
+    }
+
     func testFocusFailureReturnsComputerFocusFailed() async {
         let target = app(pid: 60, name: "Fixture", bundle: "com.example.fixture")
         let workspace = FakeApplicationController(apps: [target], activationAccepted: true, becomesFrontmost: false)
@@ -180,6 +198,7 @@ private final class FakeApplicationController: ApplicationControlling, @unchecke
     private let openError: Error?
     private let activationAccepted: Bool
     private let becomesFrontmost: Bool
+    private let activationDelayNanoseconds: UInt64
     private var activationLog: [pid_t] = []
     private var bundleLog: [String] = []
     private var openLog: [URL] = []
@@ -190,7 +209,8 @@ private final class FakeApplicationController: ApplicationControlling, @unchecke
         openResult: WorkspaceApplication? = nil,
         openError: Error? = nil,
         activationAccepted: Bool = true,
-        becomesFrontmost: Bool = false
+        becomesFrontmost: Bool = false,
+        activationDelayNanoseconds: UInt64 = 0
     ) {
         self.apps = apps
         self.urls = urls
@@ -198,6 +218,7 @@ private final class FakeApplicationController: ApplicationControlling, @unchecke
         self.openError = openError
         self.activationAccepted = activationAccepted
         self.becomesFrontmost = becomesFrontmost
+        self.activationDelayNanoseconds = activationDelayNanoseconds
     }
 
     var activatedProcessIdentifiers: [pid_t] { withLock { activationLog } }
@@ -250,8 +271,11 @@ private final class FakeApplicationController: ApplicationControlling, @unchecke
         return result
     }
 
-    func activate(_ application: WorkspaceApplication) -> Bool {
-        withLock {
+    func activate(_ application: WorkspaceApplication) async -> Bool {
+        if activationDelayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: activationDelayNanoseconds)
+        }
+        return withLock {
             activationLog.append(application.processIdentifier)
             if activationAccepted && becomesFrontmost {
                 frontmostPID = application.processIdentifier

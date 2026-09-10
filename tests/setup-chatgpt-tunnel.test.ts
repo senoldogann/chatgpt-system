@@ -161,9 +161,11 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(runbookSetupEnd).toBeGreaterThan(runbookSetupStart);
     const runbookSetup = runbook.slice(runbookSetupStart, runbookSetupEnd);
     expect(runbook).toContain("npm run setup:browser");
+    expect(runbook).toContain("npm run setup:computer:macos");
     expect(runbookSetup).toContain("--enable-terminal");
     expect(runbookSetup).toContain("--personal-admin");
     expect(runbookSetup).toContain("--enable-browser");
+    expect(runbookSetup).toContain("--enable-computer-use");
     expect(runbookSetup).toContain("--force");
 
     const readmeSetupStart = readme.indexOf("## Personal ChatGPT Plugin");
@@ -172,9 +174,11 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(readmeSetupEnd).toBeGreaterThan(readmeSetupStart);
     const readmeSetup = readme.slice(readmeSetupStart, readmeSetupEnd);
     expect(readme).toContain("npm run setup:browser");
+    expect(readme).toContain("npm run setup:computer:macos");
     expect(readmeSetup).toContain("--enable-terminal");
     expect(readmeSetup).toContain("--personal-admin");
     expect(readmeSetup).toContain("--enable-browser");
+    expect(readmeSetup).toContain("--enable-computer-use");
     expect(readmeSetup).toContain("--force");
   });
 

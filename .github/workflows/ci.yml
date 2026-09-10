@@ -62,6 +62,8 @@ jobs:
         run: npm run test:computer:macos
       - name: Test computer runtime package contracts
         run: npx vitest run tests/macos-computer-runtime-package.test.ts tests/macos-computer-runtime-fixture-package.test.ts
+      - name: Validate Computer Runtime installer CLI
+        run: node scripts/setup-macos-computer-runtime.mjs --help
       - name: Build and package macOS computer runtime
         run: |
           npm run build:computer:macos
@@ -91,4 +93,6 @@ jobs:
             if (r.protocolVersion !== 1 || r.requestId !== "ci-health" || r.ok !== true) process.exit(1);
             if (typeof r.result?.accessibilityTrusted !== "boolean") process.exit(1);
             if (typeof r.result?.screenCaptureAuthorized !== "boolean") process.exit(1);
+            if (typeof r.result?.eventListenAuthorized !== "boolean") process.exit(1);
+            if (typeof r.result?.eventPostAuthorized !== "boolean") process.exit(1);
           ' "$response"

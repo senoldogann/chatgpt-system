@@ -280,8 +280,8 @@ const computerPointOutputSchema = z.object({
 const computerBoundsOutputSchema = z.object({
   x: z.number(),
   y: z.number(),
-  width: z.number().positive(),
-  height: z.number().positive(),
+  width: z.number().nonnegative(),
+  height: z.number().nonnegative(),
 });
 
 const computerElementOutputSchema = z.object({

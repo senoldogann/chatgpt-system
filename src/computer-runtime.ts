@@ -303,6 +303,8 @@ export class ComputerRuntime {
   private readonly physicalLane = new PhysicalActionLane();
   private readonly now: () => number;
   private readonly sleep: (milliseconds: number) => Promise<void>;
+  private closing = false;
+  private closePromise: Promise<void> | undefined;
 
   constructor(
     private readonly native: ComputerNativeRequesting,
@@ -536,6 +538,7 @@ export class ComputerRuntime {
     const holdCapablePresent = prepared.some((action) => action.type === "mouse_down" || action.type === "mouse_up");
 
     return this.physicalLane.run(async () => {
+      this.requireEnabled();
       const deadline = this.now() + boundedRuntimeMs;
       const steps: ComputerRunResult["steps"] = [];
       let needsCleanup = holdCapablePresent;
@@ -543,6 +546,15 @@ export class ComputerRuntime {
       try {
         for (let index = 0; index < prepared.length; index += 1) {
           const action = prepared[index]!;
+          if (this.closing) {
+            throw this.runFailure(
+              new ComputerError("COMPUTER_UNAVAILABLE"),
+              index,
+              action.type,
+              steps.length,
+              actionCount,
+            );
+          }
           const remainingMs = Math.floor(deadline - this.now());
           if (remainingMs <= 0) {
             throw this.runFailure(
@@ -615,8 +627,27 @@ export class ComputerRuntime {
     });
   }
 
-  async close(): Promise<void> {
-    await this.native.close();
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    this.closing = true;
+    this.closePromise = this.closeInternal();
+    return this.closePromise;
+  }
+
+  private async closeInternal(): Promise<void> {
+    await this.physicalLane.run(async () => {
+      try {
+        if (this.config.enabled && this.native.healthState() === "running") {
+          try {
+            await this.native.request("release_inputs", {}, this.config.requestTimeoutMs);
+          } catch {
+            // Input release is best effort; owned-host close must still run.
+          }
+        }
+      } finally {
+        await this.native.close();
+      }
+    });
   }
 
   private runFailure(
@@ -637,18 +668,22 @@ export class ComputerRuntime {
     });
   }
 
-  private read(method: ComputerNativeMethod, params: Record<string, unknown>, timeoutMs = this.config.requestTimeoutMs): Promise<unknown> {
+  private async read(method: ComputerNativeMethod, params: Record<string, unknown>, timeoutMs = this.config.requestTimeoutMs): Promise<unknown> {
     this.requireEnabled();
     return this.native.request(method, params, timeoutMs);
   }
 
   private physical(method: ComputerNativeMethod, params: Record<string, unknown>, timeoutMs = this.config.requestTimeoutMs): Promise<unknown> {
     this.requireEnabled();
-    return this.physicalLane.run(() => this.native.request(method, params, timeoutMs));
+    return this.physicalLane.run(() => {
+      this.requireEnabled();
+      return this.native.request(method, params, timeoutMs);
+    });
   }
 
   private requireEnabled(): void {
     if (!this.config.enabled) throw new ComputerError("COMPUTER_DISABLED");
+    if (this.closing) throw new ComputerError("COMPUTER_UNAVAILABLE");
   }
 
   private unavailableHealth(state: "disabled" | "unavailable", enabled: boolean): ComputerHealthResult {

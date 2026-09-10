@@ -15,8 +15,36 @@ struct SystemWorkspaceController: ApplicationControlling {
     }
 
     func openApplication(at url: URL) async throws -> WorkspaceApplication {
-        let application: NSRunningApplication = try await withCheckedThrowingContinuation { continuation in
-            let configuration = NSWorkspace.OpenConfiguration()
+        let application = try await openApplicationUsingWorkspace(at: url)
+        return try workspaceApplication(from: application)
+    }
+
+    func activate(_ application: WorkspaceApplication) async -> Bool {
+        guard let running = NSRunningApplication(processIdentifier: application.processIdentifier),
+              !running.isTerminated
+        else {
+            return false
+        }
+        if running.isActive { return true }
+        guard let bundleURL = running.bundleURL else { return false }
+
+        do {
+            let activated = try await openApplicationUsingWorkspace(at: bundleURL)
+            return activated.processIdentifier == running.processIdentifier
+        } catch {
+            return false
+        }
+    }
+
+    @MainActor
+    private func openApplicationUsingWorkspace(at url: URL) async throws -> NSRunningApplication {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.createsNewApplicationInstance = false
+        configuration.addsToRecentItems = false
+        configuration.promptsUserIfNeeded = false
+
+        return try await withCheckedThrowingContinuation { continuation in
             NSWorkspace.shared.openApplication(at: url, configuration: configuration) { application, error in
                 if let application {
                     continuation.resume(returning: application)
@@ -27,16 +55,6 @@ struct SystemWorkspaceController: ApplicationControlling {
                 }
             }
         }
-        return try workspaceApplication(from: application)
-    }
-
-    func activate(_ application: WorkspaceApplication) -> Bool {
-        guard let running = NSRunningApplication(processIdentifier: application.processIdentifier),
-              !running.isTerminated
-        else {
-            return false
-        }
-        return running.activate(options: [.activateAllWindows])
     }
 
     private func workspaceApplication(from application: NSRunningApplication) throws -> WorkspaceApplication {

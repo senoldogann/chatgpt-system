@@ -398,3 +398,76 @@ describe("ComputerRuntime computer_run", () => {
     expect(result.steps).toEqual([{ index: 0, type: "type_text", state: "completed" }]);
   });
 });
+
+
+describe("ComputerRuntime shutdown", () => {
+  it("does not spawn a stopped native host only to release inputs during shutdown", async () => {
+    const events: string[] = [];
+    const native: ComputerNativeRequesting = {
+      healthState: () => "stopped",
+      request: async (method) => {
+        events.push(method);
+        return { state: "completed" };
+      },
+      close: async () => { events.push("close"); },
+    };
+    const subject = new ComputerRuntime(native, config);
+
+    await subject.close();
+    expect(events).toEqual(["close"]);
+  });
+
+  it("releases inputs before closing a running native host and rejects later calls", async () => {
+    const events: string[] = [];
+    const native: ComputerNativeRequesting = {
+      healthState: () => "running",
+      request: async (method) => {
+        events.push(method);
+        return method === "pointer_position" ? { x: 1, y: 2 } : { state: "completed" };
+      },
+      close: async () => { events.push("close"); },
+    };
+    const subject = new ComputerRuntime(native, config);
+
+    await subject.close();
+    await subject.close();
+    expect(events).toEqual(["release_inputs", "close"]);
+    await expect(subject.pointerPosition()).rejects.toMatchObject({ code: "COMPUTER_UNAVAILABLE" });
+    expect(events).toEqual(["release_inputs", "close"]);
+  });
+
+  it("stops an active computer_run before the next step when shutdown begins", async () => {
+    const events: string[] = [];
+    let releaseMove!: () => void;
+    const blocked = new Promise<void>((resolve) => { releaseMove = resolve; });
+    const native: ComputerNativeRequesting = {
+      healthState: () => "running",
+      request: async (method) => {
+        events.push(method);
+        if (method === "move_mouse") await blocked;
+        return { state: "completed" };
+      },
+      close: async () => { events.push("close"); },
+    };
+    const subject = new ComputerRuntime(native, config);
+    const running = subject.run({
+      actions: [
+        { type: "move_mouse", x: 1, y: 1 },
+        { type: "click", x: 2, y: 2 },
+      ],
+      finalObservation: "none",
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    const closing = subject.close();
+    releaseMove();
+
+    await expect(running).rejects.toMatchObject({
+      code: "COMPUTER_UNAVAILABLE",
+      details: { failedStepIndex: 1, failedActionType: "click", completedCount: 1, actionCount: 2 },
+    });
+    await closing;
+    expect(events).not.toContain("click");
+    expect(events.at(-1)).toBe("close");
+    expect(events.filter((event) => event === "release_inputs").length).toBeGreaterThanOrEqual(1);
+  });
+});
