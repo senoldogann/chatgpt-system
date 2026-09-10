@@ -25,6 +25,7 @@ Options:
   --allow-command <name>  Allowlisted executable basename. Repeatable.
   --enable-browser        Opt in to the Admin-only Playwright browser capability. Disabled by default.
   --enable-computer-use   Opt in to the Admin-only native Computer Runtime. Disabled by default.
+  --enable-full-host-js   Opt in to full-host Node.js for Computer Runtime; requires --enable-computer-use. Disabled by default.
   --browser-headless      Run the opted-in browser headlessly; requires --enable-browser.
   --force                 Replace an existing tunnel-client profile. Never implied.
   --doctor                Create the profile, then run tunnel-client doctor.
@@ -69,6 +70,7 @@ function parseArgs(argv) {
     personalAdmin: false,
     browser: false,
     computerUse: false,
+    fullHostJs: false,
     browserHeadless: false,
     commands: [],
     force: false,
@@ -97,6 +99,10 @@ function parseArgs(argv) {
     }
     if (arg === "--enable-computer-use") {
       options.computerUse = true;
+      continue;
+    }
+    if (arg === "--enable-full-host-js") {
+      options.fullHostJs = true;
       continue;
     }
     if (arg === "--browser-headless") {
@@ -191,6 +197,9 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   if (options.browserHeadless && !options.browser) {
     throw new Error("--browser-headless requires --enable-browser.");
   }
+  if (options.fullHostJs && !options.computerUse) {
+    throw new Error("--enable-full-host-js requires --enable-computer-use.");
+  }
   for (const command of options.commands) {
     if (command !== path.basename(command)) throw new Error("--allow-command values must be executable basenames, not paths.");
     if (!/^[A-Za-z0-9._+-]+$/.test(command)) throw new Error(`Invalid command basename: ${command}`);
@@ -222,6 +231,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   if (options.personalAdmin) commandParts.push("--personal-admin");
   if (options.browser) commandParts.push("--enable-browser");
   if (options.computerUse) commandParts.push("--enable-computer-use");
+  if (options.fullHostJs) commandParts.push("--enable-full-host-js");
   if (options.browserHeadless) commandParts.push("--browser-headless");
   for (const command of options.commands) commandParts.push("--allow-command", command);
   const mcpCommand = commandParts.map(quoteCommandArg).join(" ");
@@ -233,6 +243,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     serverPath,
     controlSocketPath,
     computerUseEnabled: options.computerUse,
+    fullHostJsEnabled: options.fullHostJs,
     computerRuntimeBundlePath,
     brokerPackageDir,
     brokerBuildPath,
@@ -353,6 +364,7 @@ async function main() {
   console.log("  Personal Admin: " + (setup.mcpCommand.includes("--personal-admin") ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Browser: " + (setup.mcpCommand.includes("--enable-browser") ? (setup.mcpCommand.includes("--browser-headless") ? "EXPLICITLY ENABLED (headless)" : "EXPLICITLY ENABLED (headed)") : "disabled"));
   console.log("  Computer Runtime: " + (setup.mcpCommand.includes("--enable-computer-use") ? "EXPLICITLY ENABLED" : "disabled"));
+  console.log("  Full-host JavaScript: " + (setup.fullHostJsEnabled ? "EXPLICITLY ENABLED" : "disabled"));
   if (setup.computerUseEnabled) console.log(`  Computer Runtime bundle: ${setup.computerRuntimeBundlePath}`);
   console.log("  Local User/Admin authorization: enabled through private Unix socket");
 

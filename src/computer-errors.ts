@@ -14,6 +14,9 @@ export const COMPUTER_ERROR_MESSAGES = {
   COMPUTER_USER_TAKEOVER: "User took over computer input.",
   COMPUTER_NEEDS_REPLAN: "Computer operation needs replanning.",
   COMPUTER_OUTPUT_LIMIT: "Computer Runtime output exceeded the limit.",
+  COMPUTER_JS_DISABLED: "Full-host computer JavaScript is disabled.",
+  COMPUTER_JS_FAILED: "Full-host computer JavaScript failed.",
+  COMPUTER_JS_TIMEOUT: "Full-host computer JavaScript timed out.",
 } as const;
 
 export type ComputerErrorCode = keyof typeof COMPUTER_ERROR_MESSAGES;

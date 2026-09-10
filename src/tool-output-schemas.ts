@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { COMPUTER_MAX_JS_OUTPUT_BYTES } from "./config.js";
 
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 const pathTypeSchema = z.enum(["directory", "file", "symlink", "other"]);
@@ -28,7 +29,7 @@ export const systemCapabilitiesOutputSchema = z.object({
   }),
   computerUse: z.object({
     enabled: z.boolean(),
-    fullHostJsEnabled: z.literal(false),
+    fullHostJsEnabled: z.boolean(),
   }),
   limits: z.object({
     maxReadBytes: z.number().int().positive(),
@@ -95,6 +96,10 @@ export const systemEnvironmentOutputSchema = z.object({
   roots: z.array(z.string()),
   terminal: z.object({
     enabled: z.boolean(),
+  }),
+  computerUse: z.object({
+    enabled: z.boolean(),
+    fullHostJsEnabled: z.boolean(),
   }),
   executables: z.array(executableResolutionOutputSchema),
 });
@@ -303,7 +308,7 @@ export const computerHealthOutputSchema = z.object({
   screenCaptureAuthorized: z.boolean(),
   eventListenAuthorized: z.boolean(),
   eventPostAuthorized: z.boolean(),
-  fullHostJsEnabled: z.literal(false),
+  fullHostJsEnabled: z.boolean(),
 });
 
 export const computerPointResultOutputSchema = computerPointOutputSchema;
@@ -359,6 +364,12 @@ const computerRunStepTypeSchema = z.enum([
   "wait_until_changed",
   "release_inputs",
 ]);
+
+export const computerJsRunOutputSchema = z.object({
+  stdout: z.string().max(COMPUTER_MAX_JS_OUTPUT_BYTES),
+  stderr: z.string().max(COMPUTER_MAX_JS_OUTPUT_BYTES),
+  result: z.unknown().optional(),
+}).strict();
 
 export const computerRunOutputSchema = z.object({
   state: z.enum(["completed", "completed_unverified"]),

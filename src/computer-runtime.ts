@@ -22,7 +22,14 @@ export interface ComputerHealthResult {
   screenCaptureAuthorized: boolean;
   eventListenAuthorized: boolean;
   eventPostAuthorized: boolean;
-  fullHostJsEnabled: false;
+  fullHostJsEnabled: boolean;
+}
+
+export interface ComputerProgramSession {
+  execute(action: ComputerAction): Promise<unknown>;
+  listApps(): Promise<unknown>;
+  activeWindow(): Promise<unknown>;
+  screenshot(): Promise<{ pngBase64: string; width: number; height: number }>;
 }
 
 export type PointerMotionMode = "instant" | "fast" | "natural";
@@ -327,7 +334,7 @@ export class ComputerRuntime {
         screenCaptureAuthorized: result.screenCaptureAuthorized === true,
         eventListenAuthorized: result.eventListenAuthorized === true,
         eventPostAuthorized: result.eventPostAuthorized === true,
-        fullHostJsEnabled: false,
+        fullHostJsEnabled: this.config.fullHostJsEnabled,
       };
     } catch {
       return this.unavailableHealth("unavailable", true);
@@ -510,6 +517,26 @@ export class ComputerRuntime {
     return this.physical("release_inputs", {});
   }
 
+  async withExclusiveProgram<T>(work: (session: ComputerProgramSession) => Promise<T>): Promise<T> {
+    this.requireEnabled();
+    return this.physicalLane.run(async () => {
+      this.requireEnabled();
+      const sessionLane = new PhysicalActionLane();
+      const session: ComputerProgramSession = Object.freeze({
+        execute: (action: ComputerAction) => sessionLane.run(() => this.executeProgramAction(action)),
+        listApps: () => this.listApps(),
+        activeWindow: () => this.activeWindow(),
+        screenshot: () => this.screenshot(),
+      });
+      try {
+        return await work(session);
+      } finally {
+        await sessionLane.run(async () => undefined);
+        await this.releaseInputsBestEffort();
+      }
+    });
+  }
+
   async run(input: {
     actions: ComputerAction[];
     finalObservation?: ComputerFinalObservation | undefined;
@@ -650,6 +677,35 @@ export class ComputerRuntime {
     });
   }
 
+  private async executeProgramAction(action: ComputerAction): Promise<unknown> {
+    this.requireEnabled();
+    const prepared = preparedAction(action);
+    if (prepared.localWaitMs !== undefined) {
+      if (prepared.localWaitMs > this.config.maxActionProgramRuntimeMs) {
+        throw new ComputerError("COMPUTER_TIMEOUT");
+      }
+      await this.sleep(prepared.localWaitMs);
+      this.requireEnabled();
+      return { state: "completed" };
+    }
+
+    const result = await this.native.request(
+      prepared.method!,
+      prepared.params,
+      this.config.requestTimeoutMs,
+    );
+    if (prepared.type === "observe") return validateObservationOutput(result, this.config);
+    return result;
+  }
+
+  private async releaseInputsBestEffort(): Promise<void> {
+    try {
+      await this.native.request("release_inputs", {}, this.config.requestTimeoutMs);
+    } catch {
+      // Program cleanup must not replace the program's primary result or error.
+    }
+  }
+
   private runFailure(
     error: unknown,
     failedStepIndex: number,
@@ -694,7 +750,7 @@ export class ComputerRuntime {
       screenCaptureAuthorized: false,
       eventListenAuthorized: false,
       eventPostAuthorized: false,
-      fullHostJsEnabled: false,
+      fullHostJsEnabled: this.config.fullHostJsEnabled,
     };
   }
 }

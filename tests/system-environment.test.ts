@@ -45,6 +45,20 @@ function serviceConfig(root: string, base: string, commands: string[], commandTi
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: true, commands },
+    computerUse: {
+      enabled: true,
+      fullHostJsEnabled: true,
+      hostBundlePath: path.join(base, "ChatGPTSystemComputerRuntime.app"),
+      requestTimeoutMs: 10_000,
+      maxObservationElements: 500,
+      maxObservationChars: 262_144,
+      maxScreenshotBytes: 8_388_608,
+      maxActionProgramActions: 100,
+      maxActionProgramRuntimeMs: 30_000,
+      maxJsSourceBytes: 262_144,
+      maxJsRuntimeMs: 30_000,
+      maxJsOutputBytes: 1_048_576,
+    },
     http: { host: "127.0.0.1", port: 4312 },
     limits: {
       maxReadBytes: 1024,
@@ -155,6 +169,7 @@ describe("describeSystemEnvironment", () => {
     expect(environment.os).toBe(prettyOperatingSystemName(platform()));
     expect(environment.roots).toEqual([root]);
     expect(environment.terminal).toEqual({ enabled: true });
+    expect(environment.computerUse).toEqual({ enabled: true, fullHostJsEnabled: true });
     expect(environment.pathEntries).toEqual(resolutionSearchDirs(process.env.PATH, homedir()));
     expect(environment.executables).toHaveLength(2);
     expect(environment.executables[0]).toMatchObject({ name: "node", allowed: true, available: true });
@@ -166,7 +181,7 @@ describe("describeSystemEnvironment", () => {
     });
     expect(JSON.stringify(environment)).not.toContain("canary-secret-value-12345");
     expect(Object.keys(environment).sort()).toEqual(
-      ["arch", "executables", "os", "pathEntries", "platform", "roots", "terminal"],
+      ["arch", "computerUse", "executables", "os", "pathEntries", "platform", "roots", "terminal"],
     );
   });
 });
@@ -255,7 +270,8 @@ describe("system_environment MCP tool", () => {
       auditFile: path.join(base, "audit.jsonl"),
       terminal: { enabled: false, commands: ["node", "chatgpt-system-missing-binary-xyz"] },
       computerUse: {
-        enabled: false,
+        enabled: true,
+        fullHostJsEnabled: true,
         hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",
         requestTimeoutMs: 10_000,
         maxObservationElements: 500,
@@ -263,6 +279,9 @@ describe("system_environment MCP tool", () => {
         maxScreenshotBytes: 8_388_608,
         maxActionProgramActions: 100,
         maxActionProgramRuntimeMs: 30_000,
+        maxJsSourceBytes: 262_144,
+        maxJsRuntimeMs: 30_000,
+        maxJsOutputBytes: 1_048_576,
       },
       control: { enabled: false, socketPath: path.join(base, "control.sock") },
       http: { host: "127.0.0.1", port: 0, token },
@@ -300,6 +319,7 @@ describe("system_environment MCP tool", () => {
         arch: arch(),
         roots: [root],
         terminal: { enabled: false },
+        computerUse: { enabled: true, fullHostJsEnabled: true },
       });
       const executables = (result.structuredContent as { executables: unknown }).executables as Array<{
         name: string;

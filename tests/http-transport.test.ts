@@ -74,6 +74,7 @@ const expectedAnnotations = {
   computer_wait_for_text: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   computer_wait_until_changed: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   computer_run: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  computer_run_js: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
 } as const;
 
 async function closeServer(server: ReturnType<typeof startHttp>): Promise<void> {

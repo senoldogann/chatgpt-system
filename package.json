@@ -28,7 +28,7 @@
     "setup:daily-driver": "npm run build && node scripts/setup-daily-driver.mjs install",
     "daily-driver:status": "node scripts/setup-daily-driver.mjs status",
     "daily-driver:uninstall": "node scripts/setup-daily-driver.mjs uninstall",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=50%",
     "check": "npm run build && npm test",
     "setup:computer:macos": "node scripts/setup-macos-computer-runtime.mjs"
   },

@@ -24,6 +24,10 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Build and test
         run: npm run check
+      - name: Verify built computer JavaScript runner
+        run: |
+          test -f dist/computer-js-runner.js
+          node --check dist/computer-js-runner.js
       - name: Validate Codex setup CLI
         run: node scripts/setup-codex.mjs --help
       - name: Validate ChatGPT tunnel setup CLI

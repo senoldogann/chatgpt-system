@@ -4,7 +4,7 @@ This runbook connects `chatgpt-system` to ChatGPT Web/Desktop through an OpenAI 
 
 Browser Runtime is part of the same shared authority boundary. ChatGPT remains the reasoning agent; Playwright is deterministic browser infrastructure.
 
-Computer Runtime v2 Slice 3 connects the accepted Swift/macOS 14+ helper to the same shared TypeScript authority boundary. ChatGPT remains the reasoning agent; the native helper is deterministic observation/input infrastructure reached through strict Admin-scoped `computer_*` tools and bounded typed `computer_run`.
+Computer Runtime v2 Slice 4 keeps the accepted Swift/macOS 14+ helper and strict low-level `computer_*` surface, then adds separately gated owner-trust `computer_run_js`. ChatGPT remains the reasoning agent; the native helper stays deterministic observation/input infrastructure while the JavaScript runner is an explicit full-host capability boundary.
 
 ## Architecture
 
@@ -112,9 +112,9 @@ Production locations:
 
 The runtime never executes repository `.build/release` output as the production approval helper. Before every User/Admin approval it verifies protected-path ownership, file type, permissions, and SHA-256 identity.
 
-## 3a. Build, sign, and install Computer Runtime v2 Slice 3
+## 3a. Build, sign, and install Computer Runtime v2
 
-The native helper remains under `native/macos-computer-runtime`, requires macOS 14+, and communicates only through inherited stdin/stdout using strict bounded NDJSON. Slice 3 adds the TypeScript supervisor, Admin policy, strict MCP registration, bounded typed `computer_run`, stable daily-driver installation, and ordered shutdown cleanup.
+The native helper remains under `native/macos-computer-runtime`, requires macOS 14+, and communicates only through inherited stdin/stdout using strict bounded NDJSON. Slice 3 established the TypeScript supervisor, Admin policy, strict low-level MCP registration, bounded typed `computer_run`, stable daily-driver installation, takeover safety, and ordered shutdown cleanup. Slice 4 adds the separate full-host JavaScript runner without changing the native helper protocol.
 
 Run:
 
@@ -150,7 +150,7 @@ The native protocol implements passive `health`, bounded `list_apps`, AX-first `
 
 Physical mutations are serialized and every synthetic CoreGraphics event uses one runtime-owned tag. A listen-only takeover monitor ignores owned events, interrupts active actions on conservative unowned user input, and recognizes the fixed Control+Option+Command+Escape emergency chord. TCC is only preflighted; the protocol does not request or bypass Accessibility, Screen Recording, event-listen, or event-post permission.
 
-The fixture remains deterministic local acceptance infrastructure only and contains no user data. Slice 3 installs the production helper at the fixed daily-driver path and exposes it through one shared TypeScript supervisor. `computer_run_js`, arbitrary full-host JavaScript, OCR, semantic target resolution, and stale-target recovery remain absent. Installing or testing the helper does not itself require restarting the daily-driver daemon.
+The fixture remains deterministic local acceptance infrastructure only and contains no user data. Slice 4 adds `computer_run_js` behind `--enable-computer-use --enable-full-host-js`. Scripts run as the current macOS user with normal Node.js APIs; they are not root-confined and this is not an OS sandbox. Source is delivered only over stdin to the fixed runner entrypoint. The daemon strips its secret-bearing environment before spawn while preserving basic user environment such as HOME/PATH. Ordinary descendants remain in the owned POSIX process group and are terminated on normal completion, timeout, cancellation, takeover, or shutdown; deliberately detached or daemonized descendants can escape that group and are not claimed as contained. Slice 5 OCR fallback, semantic target resolution, stale-target detection, and the recovery ladder remain absent. Installing or testing the native helper does not itself require restarting the daily-driver daemon.
 
 ## 4. Install the browser binary
 
@@ -190,6 +190,7 @@ npm run setup:chatgpt -- \
   --personal-admin \
   --enable-browser \
   --enable-computer-use \
+  --enable-full-host-js \
   --doctor
 ```
 
@@ -215,7 +216,9 @@ The capability gates are independent:
 - omitting `--personal-admin` preserves local User/Admin approval;
 - omitting `--enable-browser` keeps Browser Runtime disabled even for Admin;
 - omitting `--enable-computer-use` keeps Computer Runtime disabled even for Admin;
-- enabling Browser or Computer Runtime does not make Project/User capable of using those surfaces.
+- omitting `--enable-full-host-js` keeps `computer_run_js` disabled even when Computer Runtime is enabled;
+- `--enable-full-host-js` without `--enable-computer-use` is rejected;
+- enabling Browser, Computer Runtime, or full-host JavaScript does not make Project/User capable of using those surfaces.
 
 The default browser profile is:
 
@@ -236,6 +239,7 @@ npm run setup:chatgpt -- \
   --personal-admin \
   --enable-browser \
   --enable-computer-use \
+  --enable-full-host-js \
   --force \
   --doctor
 ```
@@ -347,7 +351,7 @@ browser_close
 
 `browser_health` is lease-free and categorical. Every other browser tool requires Admin authority. Browser MCP schemas do not accept raw selectors, JavaScript, CDP endpoints, proxy/executable settings, cookie/storage operations, or file-upload paths.
 
-Computer Runtime v2 Slice 3 exposes this strict MCP catalog:
+Computer Runtime v2 Slice 4 exposes this strict MCP catalog:
 
 ```text
 computer_health
@@ -367,9 +371,10 @@ computer_wait_for_frontmost
 computer_wait_for_text
 computer_wait_until_changed
 computer_run
+computer_run_js
 ```
 
-`computer_health` is lease-free and categorical. Every other computer tool requires Admin authority. Direct `computer_mouse_down` / `computer_mouse_up` are not registered, but raw hold primitives may be used inside one bounded `computer_run`, whose finalizer releases held input. `computer_run_js` is absent.
+`computer_health` is lease-free and categorical. Every other computer tool requires Admin authority. `computer_run_js` additionally requires the full-host startup gate. Its successful public result is the existing bounded structured contract: `stdout`, `stderr`, and optional JSON-compatible `result`. No synthetic `cleanupStatus` field is invented; if cleanup prevents a successful terminal result, the call fails with the stable runtime error path rather than reporting unknown cleanup as success. Direct `computer_mouse_down` / `computer_mouse_up` are not registered, but raw hold primitives may be used inside one bounded `computer_run`, whose finalizer releases held input.
 
 ## 8. Privilege ladder
 
@@ -571,6 +576,7 @@ Repository helper rebuilds must not change the production executable selected fr
 On a controlled local run with Computer Runtime, a managed process, and Browser Runtime active, terminate the daemon normally and verify cleanup is attempted in this order:
 
 ```text
+full-host JavaScript runner/process-group cleanup
 computer runtime / held-input cleanup
 managed processes
 browser context
@@ -586,7 +592,7 @@ Browser page IDs and diagnostic buffers are in-memory only. The dedicated browse
 
 Validate Web first, then Desktop with the same installed plugin/backend. Do not create a second permanent authority implementation for Desktop. Count actual MCP calls, not UI labels, as acceptance evidence.
 
-Browser Runtime exists so normal web tasks can prefer deterministic semantic automation. Computer Runtime v2 Slice 3 is now the separate Admin-gated native desktop-control surface. ChatGPT can use strict low-level computer tools and typed `computer_run`; semantic recovery and arbitrary full-host JavaScript remain separate later capabilities.
+Browser Runtime exists so normal web tasks can prefer deterministic semantic automation. Computer Runtime v2 Slice 4 is the separate Admin-gated native desktop-control surface. ChatGPT can use strict low-level computer tools, typed `computer_run`, and separately gated owner-trust `computer_run_js`. Slice 5 semantic target resolution, OCR fallback, stale-target recovery, and recovery ladder remain separate later capabilities.
 
 ## 20. Troubleshooting order
 
@@ -598,7 +604,7 @@ Browser Runtime exists so normal web tasks can prefer deterministic semantic aut
 6. `npm run build:broker:macos`
 7. `sudo npm run install:broker:macos`
 8. `npm run setup:browser` when Browser Runtime is required
-9. for a stale profile, rerun `npm run setup:chatgpt -- ... --enable-terminal --personal-admin --enable-browser --enable-computer-use --force --doctor`
+9. for a stale full-capability profile, rerun `npm run setup:chatgpt -- ... --enable-terminal --personal-admin --enable-browser --enable-computer-use --enable-full-host-js --force --doctor`
 10. `tunnel-client doctor --profile chatgpt-system --explain`
 11. restart `tunnel-client run --profile chatgpt-system` only when applying a new child command/build
 12. verify `~/.chatgpt-system/control.sock`
@@ -628,17 +634,17 @@ Implemented:
 - deterministic Admin-only Playwright Browser Runtime;
 - semantic browser targets, credential refusal, snapshot/network redaction, and bounded diagnostics;
 - dedicated persistent Chromium automation profile;
-- ordered computer/process/browser/control/transport runtime cleanup;
+- ordered full-host JavaScript/computer/process/browser/control/transport runtime cleanup;
 - Swift 6/macOS 14+ Computer Runtime v2 native layer plus dedicated TypeScript native-host supervisor;
 - passive TCC health, bounded app/window + AX observation, ScreenCaptureKit screenshot capture, deterministic open/focus, physical mouse/keyboard input, held-input cleanup, takeover/emergency safety, and deterministic AX/text/screen-region verification;
 - stable fixed-path daily-driver helper signing/install plus disposable helper/fixture packaging;
-- lease-free `computer_health`, Admin-only strict `computer_*` MCP tools, and bounded typed `computer_run`;
-- no `computer_run_js`, arbitrary full-host JavaScript runner, OCR, semantic target resolver, or recovery engine in Slice 3;
+- lease-free `computer_health`, Admin-only strict `computer_*` MCP tools, bounded typed `computer_run`, and separately gated Admin-only `computer_run_js`;
+- fixed per-call full-host runner with stdin-only source, sanitized secret-bearing environment, bounded source/runtime/output, private low-level computer RPC, process-group cleanup for ordinary descendants, request cancellation, and takeover-fatal termination;
+- no OCR, semantic target resolver, stale-target recovery, or recovery engine in Slice 4;
 - lease expiry/revoke/isolation;
 - audit redaction.
 
 Next separate capability layers:
 
-- Slice 4 full-host execution only behind its dedicated containment and policy gates;
 - Slice 5 semantic target resolution, OCR fallback, stale-target recovery, and recovery ladder;
 - typed root-only ServiceManagement/XPC operations only for concrete root-only needs.

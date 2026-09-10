@@ -15,6 +15,10 @@ export interface SystemEnvironment {
   terminal: {
     enabled: boolean;
   };
+  computerUse: {
+    enabled: boolean;
+    fullHostJsEnabled: boolean;
+  };
   executables: ExecutableResolution[];
 }
 
@@ -38,6 +42,10 @@ export async function describeSystemEnvironment(config: AppConfig): Promise<Syst
     roots: [...config.roots],
     terminal: {
       enabled: config.terminal.enabled,
+    },
+    computerUse: {
+      enabled: config.computerUse.enabled,
+      fullHostJsEnabled: config.computerUse.fullHostJsEnabled,
     },
     executables: await resolveAllowedCommands(config.terminal.commands, {
       pathValue: process.env.PATH,

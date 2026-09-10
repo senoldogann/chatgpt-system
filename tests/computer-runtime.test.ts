@@ -8,6 +8,7 @@ type Call = { method: ComputerNativeMethod; params: Record<string, unknown>; tim
 
 const config: ComputerUseConfig = {
   enabled: true,
+  fullHostJsEnabled: false,
   hostBundlePath: "/Users/test/.chatgpt-system/ChatGPTSystemComputerRuntime.app",
   requestTimeoutMs: 10_000,
   maxObservationElements: 500,
@@ -15,6 +16,9 @@ const config: ComputerUseConfig = {
   maxScreenshotBytes: 8_388_608,
   maxActionProgramActions: 100,
   maxActionProgramRuntimeMs: 30_000,
+  maxJsSourceBytes: 262_144,
+  maxJsRuntimeMs: 30_000,
+  maxJsOutputBytes: 1_048_576,
 };
 
 class FakeNative implements ComputerNativeRequesting {
@@ -78,6 +82,16 @@ describe("ComputerRuntime direct operations", () => {
       fullHostJsEnabled: false,
     });
     expect(native.calls[0]).toMatchObject({ method: "health", params: {}, timeoutMs: 10_000 });
+  });
+
+  it("reports the configured full-host JavaScript gate without asking the native host to decide it", async () => {
+    const { runtime: subject } = runtime(new FakeNative(), { fullHostJsEnabled: true });
+
+    await expect(subject.health()).resolves.toMatchObject({
+      enabled: true,
+      state: "running",
+      fullHostJsEnabled: true,
+    });
   });
 
   it("reports unavailable categorical health when the enabled host cannot answer", async () => {
@@ -399,6 +413,153 @@ describe("ComputerRuntime computer_run", () => {
   });
 });
 
+
+describe("ComputerRuntime exclusive program session", () => {
+  it("holds the physical lane across the whole program while session actions execute without re-entry", async () => {
+    const { native, runtime: subject } = runtime();
+    let reachedProgramHold!: () => void;
+    const programHolding = new Promise<void>((resolve) => { reachedProgramHold = resolve; });
+    let releaseProgram!: () => void;
+    const programBlocked = new Promise<void>((resolve) => { releaseProgram = resolve; });
+
+    const program = subject.withExclusiveProgram(async (session) => {
+      await session.execute({ type: "move_mouse", x: 10, y: 20 });
+      reachedProgramHold();
+      await programBlocked;
+      return "done";
+    });
+    await programHolding;
+
+    const direct = subject.click({ x: 30, y: 40 });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(native.calls.map((call) => call.method)).toEqual(["move_mouse"]);
+
+    releaseProgram();
+    await expect(program).resolves.toBe("done");
+    await direct;
+    expect(native.calls.map((call) => call.method)).toEqual(["move_mouse", "release_inputs", "click"]);
+  });
+
+  it("serializes two exclusive programs before either program body can overlap", async () => {
+    const { native, runtime: subject } = runtime();
+    const events: string[] = [];
+    let releaseFirst!: () => void;
+    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let firstStarted!: () => void;
+    const firstRunning = new Promise<void>((resolve) => { firstStarted = resolve; });
+
+    const first = subject.withExclusiveProgram(async () => {
+      events.push("first-start");
+      firstStarted();
+      await firstBlocked;
+      events.push("first-end");
+    });
+    await firstRunning;
+    const second = subject.withExclusiveProgram(async () => {
+      events.push("second-start");
+      events.push("second-end");
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(events).toEqual(["first-start"]);
+
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(events).toEqual(["first-start", "first-end", "second-start", "second-end"]);
+    expect(native.calls.map((call) => call.method)).toEqual(["release_inputs", "release_inputs"]);
+  });
+
+  it("serializes concurrent execute calls inside one exclusive program", async () => {
+    const { native, runtime: subject } = runtime();
+    let releaseMove!: () => void;
+    const blocked = new Promise<void>((resolve) => { releaseMove = resolve; });
+    native.responder = async (call) => {
+      if (call.method === "move_mouse") await blocked;
+      return { state: "completed" };
+    };
+
+    const program = subject.withExclusiveProgram(async (session) => {
+      const first = session.execute({ type: "move_mouse", x: 1, y: 1 });
+      await new Promise((resolve) => setImmediate(resolve));
+      const second = session.execute({ type: "click", x: 2, y: 2 });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(native.calls.map((call) => call.method)).toEqual(["move_mouse"]);
+      releaseMove();
+      await Promise.all([first, second]);
+    });
+
+    await program;
+    expect(native.calls.map((call) => call.method)).toEqual(["move_mouse", "click", "release_inputs"]);
+  });
+
+  it("drains an unawaited session action before final release and outer lane handoff", async () => {
+    const { native, runtime: subject } = runtime();
+    let releaseMove!: () => void;
+    const blocked = new Promise<void>((resolve) => { releaseMove = resolve; });
+    native.responder = async (call) => {
+      if (call.method === "move_mouse") await blocked;
+      return { state: "completed" };
+    };
+
+    let programResolved = false;
+    const program = subject.withExclusiveProgram(async (session) => {
+      void session.execute({ type: "move_mouse", x: 1, y: 1 });
+      return "done";
+    }).then((value) => {
+      programResolved = true;
+      return value;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    const outside = subject.click({ x: 3, y: 3 });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(programResolved).toBe(false);
+    expect(native.calls.map((call) => call.method)).toEqual(["move_mouse"]);
+    releaseMove();
+    await expect(program).resolves.toBe("done");
+    await outside;
+    expect(native.calls.map((call) => call.method)).toEqual(["move_mouse", "release_inputs", "click"]);
+  });
+
+  it("releases inputs after both successful and failed program bodies", async () => {
+    const { native, runtime: subject } = runtime();
+    await expect(subject.withExclusiveProgram(async () => "ok")).resolves.toBe("ok");
+
+    const failure = new Error("program-failed");
+    await expect(subject.withExclusiveProgram(async () => {
+      throw failure;
+    })).rejects.toBe(failure);
+
+    expect(native.calls.map((call) => call.method)).toEqual(["release_inputs", "release_inputs"]);
+  });
+
+  it("exposes bounded read helpers and prepared read actions inside the exclusive session", async () => {
+    const { native, runtime: subject } = runtime();
+    native.responder = (call) => {
+      if (call.method === "list_apps") return [{ name: "Fixture", frontmost: true }];
+      if (call.method === "active_window") return { application: { name: "Fixture", frontmost: true }, title: "Fixture" };
+      if (call.method === "screenshot") return { pngBase64: Buffer.from("png").toString("base64"), width: 1, height: 1 };
+      if (call.method === "observe") return { snapshotId: "snap", application: { name: "Fixture", frontmost: true }, elements: [], truncated: false };
+      return { state: "completed" };
+    };
+
+    const result = await subject.withExclusiveProgram(async (session) => ({
+      apps: await session.listApps(),
+      active: await session.activeWindow(),
+      screenshot: await session.screenshot(),
+      observation: await session.execute({ type: "observe" }),
+    }));
+
+    expect(result).toMatchObject({
+      apps: [{ name: "Fixture" }],
+      active: { title: "Fixture" },
+      screenshot: { width: 1, height: 1 },
+      observation: { snapshotId: "snap" },
+    });
+    expect(native.calls.map((call) => call.method)).toEqual([
+      "list_apps", "active_window", "screenshot", "observe", "release_inputs",
+    ]);
+  });
+});
 
 describe("ComputerRuntime shutdown", () => {
   it("does not spawn a stopped native host only to release inputs during shutdown", async () => {
