@@ -22,7 +22,7 @@ Secure local MCP authority gateway for controlled filesystem, Git, process, and 
 | **Filesystem + Git** | Confined file operations plus typed Git read/write primitives |
 | **Admin execution** | Allowlisted `shell=false` commands and managed development processes |
 | **Browser Runtime** | Admin-only semantic Playwright automation, screenshots, and bounded browser diagnostics |
-| **Computer Runtime v2 Slice 3** | Admin-gated MCP computer control backed by a signed Swift/macOS 14+ helper, strict TypeScript supervisor, typed batching, takeover safety, and deterministic verification |
+| **Computer Runtime v2 Slice 4** | Slice 3 native control plus Admin-only bounded full-host Node.js execution behind a separate explicit gate, private computer RPC, process containment, takeover safety, and redacted audit |
 | **macOS trust** | LocalAuthentication for broad authority and Keychain-backed daily-driver credentials |
 | **Daily driver** | LaunchAgent startup, automatic tunnel reconnect, bounded logs, and no routine Terminal ceremony |
 
@@ -80,12 +80,13 @@ The shared runtime currently includes:
 - dedicated TypeScript native-host supervisor with fixed helper path, strict request/response correlation, crash/restart handling, bounded frames, and one shared `ComputerRuntime`;
 - lease-free categorical `computer_health`, Admin-only strict `computer_*` MCP tools, and bounded typed `computer_run` with no automatic mutation retry or rollback claim;
 - stable daily-driver installer at `~/.chatgpt-system/ChatGPTSystemComputerRuntime.app`, preserving the fixed bundle ID `com.senoldogann.chatgpt-system.computer-runtime` and designated requirement across updates;
-- no `computer_run_js`, arbitrary full-host JavaScript runner, OCR, semantic target resolver, or stale-target recovery ladder yet;
+- Admin-only `computer_run_js` behind the separate `--enable-full-host-js` gate, using a fixed runner entrypoint, stdin-only source delivery, sanitized child environment, bounded runtime/output, private low-level computer RPC, and per-call process isolation;
+- no OCR, semantic target resolver, `computer.find` / `computer.exists`, stale-target recovery, or recovery ladder yet;
 - JSONL audit trail with redacted authority/process/browser/computer metadata;
 - localhost Host/Origin validation for HTTP mode;
 - Node 22 / Node 24 CI plus native macOS build/install verification.
 
-Computer Runtime v2 Slice 3 connects the accepted native physical-input layer to the shared TypeScript runtime and MCP surface. The helper remains deterministic infrastructure while ChatGPT remains the reasoning agent. Full-host JavaScript, OCR, semantic target resolution, and autonomous recovery remain later capability boundaries rather than being smuggled into this slice.
+Computer Runtime v2 Slice 4 keeps the Slice 3 native physical-input layer deterministic while adding a separate owner-trust full-host JavaScript boundary. `computer_run_js` executes as the current macOS user with normal Node.js APIs; it is not root-confined and is not an OS sandbox. Source is delivered only over stdin to a fixed child entrypoint, the daemon strips its secret-bearing environment before spawn, and ordinary descendants are terminated through the owned POSIX process group on completion, timeout, cancellation, takeover, or shutdown. Deliberately detached or daemonized descendants can escape that process group and are not claimed as sandbox-contained. Slice 5 semantic target resolution, OCR fallback, stale-target recovery, and the recovery ladder remain absent.
 
 ## Requirements
 
@@ -174,9 +175,9 @@ Navigation accepts only `http:` and `https:` URLs. Credential-shaped fields such
 
 Browser actions are serialized through one runtime-owned operation chain so concurrent sessions cannot race tab/focus mutations inside the owned context.
 
-## Computer Runtime v2 Slice 3
+## Computer Runtime v2 Slice 4
 
-Slice 3 keeps the Swift helper under `native/macos-computer-runtime` and adds the TypeScript native-host supervisor, Admin policy, strict MCP tools, bounded typed `computer_run`, stable installation, and shutdown integration. The helper requires macOS 14+ and communicates only over inherited stdin/stdout using strict bounded NDJSON; there is no computer socket or caller-selected executable path. The native protocol includes passive `health`, bounded `list_apps`, AX-first `active_window` / `observe`, bounded ScreenCaptureKit `screenshot`, app open/focus, pointer/mouse/scroll actions, keyboard text/key/chords, `release_inputs`, `wait_for_frontmost`, `wait_for_text`, `wait_until_changed`, and optional post-action verification.
+Slice 3 established the Swift helper, TypeScript native-host supervisor, Admin policy, strict low-level MCP tools, bounded typed `computer_run`, stable installation, takeover handling, and shutdown integration. Slice 4 keeps those contracts and adds the separately gated `computer_run_js` full-host execution layer. The helper still requires macOS 14+ and communicates only over inherited stdin/stdout using strict bounded NDJSON; there is no computer socket or caller-selected native executable path. The native protocol includes passive `health`, bounded `list_apps`, AX-first `active_window` / `observe`, bounded ScreenCaptureKit `screenshot`, app open/focus, pointer/mouse/scroll actions, keyboard text/key/chords, `release_inputs`, `wait_for_frontmost`, `wait_for_text`, `wait_until_changed`, and optional post-action verification.
 
 Build, test, and stage the fixed background app bundle with:
 
@@ -205,7 +206,7 @@ The helper bundle identifier is fixed to `com.senoldogann.chatgpt-system.compute
 
 Physical mutations are serialized and tagged with one runtime-owned CoreGraphics tag. A listen-only monitor ignores owned events, interrupts active automation on conservative unowned user input, and recognizes the fixed Control+Option+Command+Escape emergency chord. Verification uses bounded safe AX title/description state or in-memory screen-region digests; it does not read editable AX values or use OCR.
 
-Slice 3 exposes strict Computer Runtime MCP tools through the shared authority boundary. `computer_health` is lease-free and categorical; every observation, screenshot, app-focus, physical-input, wait, release, and `computer_run` operation requires Admin authority. Raw `mouse_down` / `mouse_up` are intentionally absent as direct MCP tools but are available inside one bounded `computer_run`, whose finalizer releases held input. There is still no `computer_run_js`, OCR, semantic resolver, or recovery engine.
+Slice 4 preserves the strict Computer Runtime authority boundary. `computer_health` is lease-free and categorical; every observation, screenshot, app-focus, physical-input, wait, release, `computer_run`, and `computer_run_js` operation requires Admin authority. `computer_run_js` additionally requires the independent `--enable-full-host-js` startup gate. It runs as the current macOS user with normal Node.js APIs and is not an OS sandbox or filesystem-root confinement boundary. Source is stdin-only, the child receives a sanitized environment with daemon secret-bearing environment values removed, and ordinary descendants are cleaned through the owned process group. Deliberately detached or daemonized descendants are outside that containment claim. Raw `mouse_down` / `mouse_up` remain absent as direct MCP tools but are available inside bounded typed `computer_run`. Slice 5 OCR, semantic target resolution, stale-target detection, and recovery remain absent.
 
 ## Personal ChatGPT Plugin
 
@@ -221,10 +222,11 @@ npm run setup:chatgpt -- \
   --personal-admin \
   --enable-browser \
   --enable-computer-use \
+  --enable-full-host-js \
   --doctor
 ```
 
-The generated tunnel child command always enables the private local authority control socket. `--enable-terminal`, `--personal-admin`, and `--enable-browser` are separate explicit trust decisions. Omitting any of them preserves that capability's secure default.
+The generated tunnel child command always enables the private local authority control socket. `--enable-terminal`, `--personal-admin`, `--enable-browser`, `--enable-computer-use`, and `--enable-full-host-js` are separate explicit trust decisions. Full-host JavaScript cannot be enabled without Computer Runtime; omitting either gate preserves the secure default.
 
 Headless browser mode is optional:
 
@@ -443,7 +445,7 @@ browser_close
 
 `browser_health` needs no lease; every other browser tool is Admin-only.
 
-Computer Runtime v2 Slice 3 exposes the following MCP surface:
+Computer Runtime v2 Slice 4 exposes the following MCP surface:
 
 ```text
 computer_health
@@ -463,9 +465,10 @@ computer_wait_for_frontmost
 computer_wait_for_text
 computer_wait_until_changed
 computer_run
+computer_run_js
 ```
 
-`computer_health` is lease-free; every other computer tool is Admin-only. Direct raw `computer_mouse_down` / `computer_mouse_up` and `computer_run_js` are not registered. Hold primitives exist only inside bounded typed `computer_run`.
+`computer_health` is lease-free; every other computer tool is Admin-only. `computer_run_js` additionally requires the explicit full-host JavaScript gate and returns only its bounded structured `stdout`, `stderr`, and optional JSON-compatible `result`; it does not report a synthetic cleanup-success field. Direct raw `computer_mouse_down` / `computer_mouse_up` are not registered. Hold primitives exist only inside bounded typed `computer_run`.
 
 Every MCP tool declares explicit safety annotations and output schemas. Successful calls return readable text plus validated structured content.
 
@@ -520,7 +523,8 @@ It is not a browser/network sandbox. Remote pages still execute in Chromium with
 Clean shutdown attempts resources in order:
 
 ```text
-computer runtime / held-input cleanup
+full-host JavaScript runner/process-group cleanup
+      -> computer runtime / held-input cleanup
       -> managed processes
       -> browser runtime/context
       -> local authority control socket
@@ -537,7 +541,7 @@ Default audit location:
 ~/.chatgpt-system/audit.jsonl
 ```
 
-Audit records are operational metadata, not a tamper-proof compliance log. Browser audit intentionally excludes page IDs, typed text, snapshots, screenshots, console payloads, cookies/storage, credentials, and URL query/fragment data. Computer audit records only constructed operation metadata such as action, outcome, duration, safe error code, and bounded batch counts; typed text, coordinates, AX/UI text, screenshot bytes, native stderr, request IDs, and authority lease IDs are excluded.
+Audit records are operational metadata, not a tamper-proof compliance log. Browser audit intentionally excludes page IDs, typed text, snapshots, screenshots, console payloads, cookies/storage, credentials, and URL query/fragment data. Computer audit records only constructed operation metadata such as action, outcome, duration, safe error code, and bounded batch counts; typed text, coordinates, AX/UI text, screenshot bytes, native stderr, request IDs, and authority lease IDs are excluded. `computer.run_js` audit also excludes JavaScript source, cwd, stdout, stderr, returned values, runner RPC IDs, native request IDs, and JavaScript exception text.
 
 See [SECURITY.md](SECURITY.md) for the complete trust model and limitations.
 
@@ -555,7 +559,7 @@ CI verifies:
 - Node.js 24 build/tests;
 - native macOS authority helper build/install contract;
 - macOS Computer Runtime v2 Swift tests, deterministic fake-sink physical-input/verification tests, fixed helper + fixture `.app` packaging, four-field passive native readiness smoke, and installer CLI contract;
-- TypeScript Computer Runtime protocol/supervisor/policy/MCP/batch/shutdown tests;
+- TypeScript Computer Runtime protocol/supervisor/policy/MCP/batch/shutdown tests plus real built-runner full-host JavaScript integration and containment tests;
 - setup CLI smoke contracts without downloading a browser binary.
 
 Browser unit tests use injected/fake backends and do not require graphical Chromium in CI. Real browser acceptance is performed separately on the target Mac after merge.
@@ -570,12 +574,11 @@ Browser unit tests use injected/fake backends and do not require graphical Chrom
 
 ## Roadmap boundary
 
-Browser Runtime remains the structured web layer. Computer Runtime v2 Slice 3 now provides the separate native desktop-control layer through explicit Admin-gated MCP tools and a bounded typed `computer_run`.
+Browser Runtime remains the structured web layer. Computer Runtime v2 Slice 4 provides the separate native desktop-control layer through explicit Admin-gated MCP tools, bounded typed `computer_run`, and separately gated owner-trust `computer_run_js`.
 
 Next separate work:
 
-1. Slice 4 full-host execution only behind its dedicated containment and policy gates;
-2. Slice 5 semantic target resolution, OCR fallback, stale-target recovery, and recovery ladder;
-3. typed root-only ServiceManagement/XPC operations only when a concrete need justifies them.
+1. Slice 5 semantic target resolution, OCR fallback, stale-target recovery, and recovery ladder;
+2. typed root-only ServiceManagement/XPC operations only when a concrete need justifies them.
 
-Those remain separate capability boundaries. Slice 3 deliberately provides strong low-level computer capability without pretending that semantic recovery or arbitrary host JavaScript already exists.
+Those remain separate capability boundaries. Slice 4 deliberately adds full-host execution without pretending that semantic target resolution, OCR, or autonomous recovery already exists.

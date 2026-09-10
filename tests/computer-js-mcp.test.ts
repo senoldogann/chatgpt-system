@@ -7,6 +7,8 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { afterEach, describe, expect, it } from "vitest";
 import type { AppConfig } from "../src/config.js";
 import { ComputerError } from "../src/computer-errors.js";
+import { COMPUTER_MAX_JS_OUTPUT_BYTES, COMPUTER_MAX_JS_SOURCE_BYTES } from "../src/config.js";
+import { computerJsRunOutputSchema } from "../src/tool-output-schemas.js";
 import type { ComputerJsRunInput } from "../src/computer-js-runtime.js";
 import { registerComputerJsTools } from "../src/computer-js-tool-registration.js";
 import { createRuntimeServices, type RuntimeServices } from "../src/server.js";
@@ -168,6 +170,32 @@ describe("computer_run_js MCP tool", () => {
       await disabled.transport.terminateSession();
       await disabled.client.close();
     }
+  });
+
+  it("bounds source at the MCP schema and stdout/stderr at the public output schema", async () => {
+    const enabled = await fixture(true);
+    try {
+      const admin = await enabled.runtime.authority.start({ profile: "admin" });
+      const oversizedSource = "x".repeat(COMPUTER_MAX_JS_SOURCE_BYTES + 1);
+      const rejected = await enabled.client.callTool({
+        name: "computer_run_js",
+        arguments: { authorityLeaseId: admin.leaseId, source: oversizedSource },
+      });
+      expect(rejected.isError).toBe(true);
+      expect(enabled.fake.calls).toHaveLength(0);
+    } finally {
+      await enabled.transport.terminateSession();
+      await enabled.client.close();
+    }
+
+    expect(computerJsRunOutputSchema.safeParse({
+      stdout: "x".repeat(COMPUTER_MAX_JS_OUTPUT_BYTES + 1),
+      stderr: "",
+    }).success).toBe(false);
+    expect(computerJsRunOutputSchema.safeParse({
+      stdout: "",
+      stderr: "x".repeat(COMPUTER_MAX_JS_OUTPUT_BYTES + 1),
+    }).success).toBe(false);
   });
 
   it("passes the MCP request AbortSignal into the scoped runtime call", async () => {

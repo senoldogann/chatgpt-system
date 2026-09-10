@@ -211,6 +211,35 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(readmeSetup).toContain("--force");
   });
 
+  it("documents the Slice 4 full-host gate and containment boundary in both operator guides", async () => {
+    const [runbook, readme, workflow, packageJson] = await Promise.all([
+      readFile(new URL("../docs/CHATGPT_INTEGRATION.md", import.meta.url), "utf8"),
+      readFile(new URL("../README.md", import.meta.url), "utf8"),
+      readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"),
+      readFile(new URL("../package.json", import.meta.url), "utf8"),
+    ]);
+
+    for (const document of [runbook, readme]) {
+      expect(document).toContain("--enable-computer-use");
+      expect(document).toContain("--enable-full-host-js");
+      expect(document).toMatch(/current macOS user/i);
+      expect(document).toMatch(/not (?:an )?OS sandbox|not OS-sandboxed/i);
+      expect(document).toMatch(/stdin/i);
+      expect(document).toMatch(/secret-bearing environment/i);
+      expect(document).toMatch(/process group/i);
+      expect(document).toMatch(/detached|daemonized/i);
+      expect(document).toMatch(/Slice 5/i);
+      expect(document).toMatch(/OCR/i);
+      expect(document).toMatch(/semantic target/i);
+      expect(document).toMatch(/recovery/i);
+    }
+
+    expect(workflow).toContain("dist/computer-js-runner.js");
+    expect(workflow).toMatch(/Verify built computer JavaScript runner/i);
+    const packageData = JSON.parse(packageJson) as { scripts?: Record<string, string> };
+    expect(packageData.scripts?.test).toContain("--maxWorkers=50%");
+  });
+
   it("adds personal admin only when explicitly requested", () => {
     const setup = buildTunnelSetup([
       "--root", ROOT,

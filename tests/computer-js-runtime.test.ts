@@ -145,7 +145,7 @@ describe("ComputerJsRuntime", () => {
     expect(native.calls).toHaveLength(0);
     releaseFirst();
     await first;
-    await new Promise((resolve) => setImmediate(resolve));
+    await waitUntil(() => supervisor.calls.length === 2);
     expect(supervisor.calls).toHaveLength(2);
     await second;
     await direct;

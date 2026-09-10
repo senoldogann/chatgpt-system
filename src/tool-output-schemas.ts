@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { COMPUTER_MAX_JS_OUTPUT_BYTES } from "./config.js";
 
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 const pathTypeSchema = z.enum(["directory", "file", "symlink", "other"]);
@@ -365,8 +366,8 @@ const computerRunStepTypeSchema = z.enum([
 ]);
 
 export const computerJsRunOutputSchema = z.object({
-  stdout: z.string(),
-  stderr: z.string(),
+  stdout: z.string().max(COMPUTER_MAX_JS_OUTPUT_BYTES),
+  stderr: z.string().max(COMPUTER_MAX_JS_OUTPUT_BYTES),
   result: z.unknown().optional(),
 }).strict();
 

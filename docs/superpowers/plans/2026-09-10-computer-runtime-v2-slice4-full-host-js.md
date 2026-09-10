@@ -712,8 +712,16 @@ git commit -m "fix: stop computer JavaScript before native shutdown"
 - Modify: `.github/workflows/ci.yml`
 - Modify: `README.md`
 - Modify: `docs/CHATGPT_INTEGRATION.md`
+- Modify: `package.json`
+- Modify: `src/computer-js-runner.ts`
+- Modify: `src/computer-js-runner-supervisor.ts`
+- Modify: `src/computer-js-tool-registration.ts`
+- Modify: `src/tool-output-schemas.ts`
 - Create: `tests/computer-js-integration.test.ts`
+- Modify: `tests/computer-js-mcp.test.ts`
+- Modify: `tests/computer-js-runtime.test.ts`
 - Modify: `tests/setup-chatgpt-tunnel.test.ts`
+- Modify: `docs/superpowers/plans/2026-09-10-computer-runtime-v2-slice4-full-host-js.md`
 
 **Interfaces:**
 - CI must exercise the real built `dist/computer-js-runner.js` on Node 22 and 24.
@@ -732,7 +740,10 @@ Use temporary cwd fixtures and the real runner/supervisor. Cover:
 7. env canaries `CONTROL_PLANE_API_KEY` and `CHATGPT_SYSTEM_TEST_CANARY` are absent while HOME/PATH remain available;
 8. source is absent from child argv/env and audit;
 9. stdout/stderr/return are available to the successful caller but absent from audit;
-10. initial cwd omitted/relative/absolute semantics match Task 5.
+10. initial cwd omitted/relative/absolute semantics match Task 5;
+11. large but in-budget stdout/stderr is fully drained before a successful result resolves, including when ordinary descendants must be terminated at finalization.
+
+Implementation discovery: real-runner testing exposed that Worker `complete` IPC can become observable before the runner's stdout/stderr pipes are fully drained. Waiting for natural runner exit is not correct because an ordinary descendant can keep the Worker alive. The accepted protocol fix therefore uses per-run opaque stdout/stderr boundaries generated outside user source, forwards Worker output with backpressure awareness, sends `complete` only after both boundary writes finish, then lets the supervisor terminate the owned process group and resolve only after child `close`. This preserves full output and ordinary-descendant cleanup without a timing heuristic.
 
 - [ ] **Step 2: Run integration tests under the local Node and confirm behavior**
 
@@ -757,6 +768,8 @@ Keep Slice 5 items listed as absent: semantic target resolver, `find`/`exists`, 
 
 Node 22/24 `npm run check` already executes the real integration test. Add a lightweight built-runner smoke step only if needed to make `dist/computer-js-runner.js` packaging/entrypoint existence explicit; do not duplicate the full test suite unnecessarily.
 
+Because the real-runner integration launches nested Node processes, keep Vitest file parallelism enabled but cap the default worker pool to `50%`. This is a resource-contention bound, not a timeout/retry relaxation: existing 5-second test budgets stay unchanged, the real integration remains part of the same `npm test`/`npm run check` command, and Node 22/24 CI still executes it. The cap is verified by the setup/CI contract test.
+
 - [ ] **Step 5: Run full repository verification**
 
 ```bash
@@ -777,7 +790,7 @@ Expected: all commands pass; the boundary grep has no Slice 5 implementation hit
 - [ ] **Step 6: Commit Task 8**
 
 ```bash
-git add .github/workflows/ci.yml README.md docs/CHATGPT_INTEGRATION.md tests/computer-js-integration.test.ts tests/setup-chatgpt-tunnel.test.ts
+git add .github/workflows/ci.yml README.md docs/CHATGPT_INTEGRATION.md package.json src/computer-js-runner.ts src/computer-js-runner-supervisor.ts src/computer-js-tool-registration.ts src/tool-output-schemas.ts tests/computer-js-integration.test.ts tests/computer-js-mcp.test.ts tests/computer-js-runtime.test.ts tests/setup-chatgpt-tunnel.test.ts docs/superpowers/plans/2026-09-10-computer-runtime-v2-slice4-full-host-js.md
 git diff --cached --check
 git commit -m "ci: verify full-host computer JavaScript"
 ```

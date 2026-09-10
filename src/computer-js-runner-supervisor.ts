@@ -139,12 +139,20 @@ export class ComputerJsRunnerSupervisor {
 
     return new Promise<ComputerJsRunnerResult>((resolve, reject) => {
       let terminal = false;
+      let completing = false;
       let outputBytes = 0;
       let timer: NodeJS.Timeout | undefined;
       const abort = (): void => finishError(new ComputerError("COMPUTER_JS_FAILED"));
 
+      const clearExecutionTimer = (): void => {
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+      };
+
       const detachRequestGuards = (): void => {
-        if (timer !== undefined) clearTimeout(timer);
+        clearExecutionTimer();
         request.signal?.removeEventListener("abort", abort);
       };
 
@@ -171,7 +179,10 @@ export class ComputerJsRunnerSupervisor {
       };
 
       const finishSuccess = (message: { resultJson?: string | undefined }): void => {
-        if (terminal) return;
+        if (terminal || completing) {
+          finishError(new ComputerError("COMPUTER_JS_FAILED"));
+          return;
+        }
         const resultBytes = message.resultJson === undefined ? 0 : Buffer.byteLength(message.resultJson, "utf8");
         if (outputBytes + resultBytes > this.options.maxOutputBytes) {
           finishError(new ComputerError("COMPUTER_OUTPUT_LIMIT"));
@@ -186,25 +197,43 @@ export class ComputerJsRunnerSupervisor {
           return;
         }
 
-        terminal = true;
-        detachRequestGuards();
+        outputBytes += resultBytes;
+        completing = true;
+        clearExecutionTimer();
+        // The fixed runner sends `complete` only after its worker-output boundaries
+        // have been forwarded through the runner's stdout/stderr write callbacks.
+        // Start group cleanup now so ordinary descendants cannot keep the Worker alive,
+        // but keep collectors active until `terminate()` observes child `close`, which
+        // occurs after the child stdio streams have closed.
         void this.terminate(active).then(() => {
+          if (terminal) return;
+          terminal = true;
+          detachRequestGuards();
           resolve({
             stdout: Buffer.concat(stdout).toString("utf8"),
             stderr: Buffer.concat(stderr).toString("utf8"),
             ...(message.resultJson !== undefined ? { result } : {}),
           });
-        }, () => reject(new ComputerError("COMPUTER_JS_FAILED")));
+        }, () => {
+          if (terminal) return;
+          terminal = true;
+          detachRequestGuards();
+          reject(new ComputerError("COMPUTER_JS_FAILED"));
+        });
       };
 
       child.stdout!.on("data", (chunk: Buffer | string) => appendOutput(stdout, chunk));
       child.stderr!.on("data", (chunk: Buffer | string) => appendOutput(stderr, chunk));
       child.once("error", () => finishError(new ComputerError("COMPUTER_JS_FAILED")));
       child.once("close", () => {
-        if (!terminal) finishError(new ComputerError("COMPUTER_JS_FAILED"));
+        if (!terminal && !completing) finishError(new ComputerError("COMPUTER_JS_FAILED"));
       });
       child.on("message", (raw: unknown) => {
         if (terminal) return;
+        if (completing) {
+          finishError(new ComputerError("COMPUTER_JS_FAILED"));
+          return;
+        }
         const parsed = runnerMessageSchema.safeParse(raw);
         if (!parsed.success) {
           finishError(new ComputerError("COMPUTER_JS_FAILED"));

@@ -11,6 +11,7 @@ export interface ComputerJsToolRuntime {
   config: {
     computerUse: {
       fullHostJsEnabled: boolean;
+      maxJsSourceBytes: number;
       maxJsRuntimeMs: number;
     };
   };
@@ -68,7 +69,7 @@ export function registerComputerJsTools(server: McpServer, runtime: ComputerJsTo
       description: "Run bounded owner-trust JavaScript as the current user with normal Node APIs and the low-level computer proxy. Requires Admin authority. This execution is not OS-sandboxed.",
       inputSchema: z.object({
         ...authorityLeaseField,
-        source: z.string(),
+        source: z.string().max(runtime.config.computerUse.maxJsSourceBytes),
         cwd: z.string().min(1).max(16_384).optional(),
         timeoutMs: z.number().int().positive().max(runtime.config.computerUse.maxJsRuntimeMs).optional(),
       }).strict(),
