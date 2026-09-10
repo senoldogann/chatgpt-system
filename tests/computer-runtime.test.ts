@@ -193,3 +193,208 @@ describe("ComputerRuntime direct operations", () => {
     expect(native.calls).toHaveLength(0);
   });
 });
+
+
+describe("ComputerRuntime computer_run", () => {
+  it("validates every action before any native mutation", async () => {
+    const { native, runtime: subject } = runtime();
+    await expect(subject.run({
+      actions: [
+        { type: "move_mouse", x: 10, y: 20 },
+        { type: "scroll", vertical: 10_001, horizontal: 0 },
+      ],
+      finalObservation: "none",
+    })).rejects.toMatchObject({ code: "COMPUTER_PROTOCOL_INVALID" });
+    expect(native.calls).toHaveLength(0);
+  });
+
+  it("holds one physical lane across all steps and final input cleanup", async () => {
+    const { native, runtime: subject } = runtime();
+    let releaseMove!: () => void;
+    const blocked = new Promise<void>((resolve) => { releaseMove = resolve; });
+    native.responder = async (call) => {
+      if (call.method === "move_mouse") await blocked;
+      return { state: "completed" };
+    };
+
+    const running = subject.run({
+      actions: [
+        { type: "move_mouse", x: 1, y: 1 },
+        { type: "click", x: 2, y: 2 },
+      ],
+      finalObservation: "none",
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    const outside = subject.click({ x: 3, y: 3 });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(native.calls.map((call) => call.method)).toEqual(["move_mouse"]);
+    releaseMove();
+    await running;
+    await outside;
+    expect(native.calls.map((call) => call.method)).toEqual([
+      "move_mouse", "click", "release_inputs", "click",
+    ]);
+  });
+
+  it("rejects more than configured max actions before native work", async () => {
+    const { native, runtime: subject } = runtime(undefined, { maxActionProgramActions: 1 });
+    await expect(subject.run({
+      actions: [{ type: "pointer_position" }, { type: "pointer_position" }],
+      finalObservation: "none",
+    })).rejects.toMatchObject({ code: "COMPUTER_OUTPUT_LIMIT" });
+    expect(native.calls).toHaveLength(0);
+  });
+
+  it("uses one absolute deadline and does not start another step after expiry", async () => {
+    const native = new FakeNative();
+    let now = 1_000;
+    native.responder = (call) => {
+      if (call.method === "pointer_position") now += 81;
+      return { x: 1, y: 1 };
+    };
+    const subject = new ComputerRuntime(native, config, { now: () => now });
+
+    await expect(subject.run({
+      actions: [{ type: "pointer_position" }, { type: "pointer_position" }],
+      finalObservation: "none",
+      timeoutMs: 80,
+    })).rejects.toMatchObject({
+      code: "COMPUTER_TIMEOUT",
+      details: { failedStepIndex: 1, failedActionType: "pointer_position", completedCount: 1, actionCount: 2 },
+    });
+    expect(native.calls).toHaveLength(1);
+  });
+
+  it("clamps each native request timeout to the remaining run deadline", async () => {
+    const native = new FakeNative();
+    let now = 2_000;
+    native.responder = (call) => {
+      if (call.method === "pointer_position") now += 30;
+      return { x: 1, y: 1 };
+    };
+    const subject = new ComputerRuntime(native, config, { now: () => now });
+
+    await subject.run({
+      actions: [{ type: "pointer_position" }, { type: "pointer_position" }],
+      finalObservation: "none",
+      timeoutMs: 80,
+    });
+    expect(native.calls.map((call) => call.timeoutMs)).toEqual([80, 50]);
+  });
+
+  it("stops on the first failed step with no automatic retry and safe failure details", async () => {
+    const { native, runtime: subject } = runtime();
+    native.responder = (call) => {
+      if (call.method === "wait_for_text") throw new ComputerError("COMPUTER_TIMEOUT");
+      return { x: 1, y: 1 };
+    };
+
+    await expect(subject.run({
+      actions: [
+        { type: "pointer_position" },
+        { type: "wait_for_text", text: "secret-ready" },
+        { type: "pointer_position" },
+      ],
+      finalObservation: "none",
+    })).rejects.toMatchObject({
+      code: "COMPUTER_TIMEOUT",
+      details: {
+        failedStepIndex: 1,
+        failedActionType: "wait_for_text",
+        completedCount: 1,
+        actionCount: 3,
+      },
+    });
+    expect(native.calls.map((call) => call.method)).toEqual(["pointer_position", "wait_for_text"]);
+    expect(JSON.stringify(native.calls)).toContain("secret-ready");
+  });
+
+  it("reports completed physical side effects without a rollback claim and releases input after failure", async () => {
+    const { native, runtime: subject } = runtime();
+    native.responder = (call) => {
+      if (call.method === "click") throw new ComputerError("COMPUTER_ACTION_FAILED");
+      return { state: "completed" };
+    };
+
+    let caught: unknown;
+    try {
+      await subject.run({
+        actions: [
+          { type: "move_mouse", x: 1, y: 1 },
+          { type: "click", x: 2, y: 2 },
+        ],
+        finalObservation: "none",
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toMatchObject({
+      code: "COMPUTER_ACTION_FAILED",
+      details: { failedStepIndex: 1, completedCount: 1, actionCount: 2 },
+    });
+    expect(JSON.stringify(caught)).not.toContain("rollback");
+    expect(native.calls.map((call) => call.method)).toEqual(["move_mouse", "click", "release_inputs"]);
+  });
+
+  it("allows raw mouse_down and mouse_up only inside a run and always finalizes with release_inputs", async () => {
+    const { native, runtime: subject } = runtime();
+    const result = await subject.run({
+      actions: [
+        { type: "mouse_down", button: "left" },
+        { type: "mouse_up", button: "left" },
+      ],
+      finalObservation: "none",
+    });
+    expect(result).toMatchObject({ state: "completed", completedCount: 2, actionCount: 2 });
+    expect(native.calls.map((call) => call.method)).toEqual(["mouse_down", "mouse_up", "release_inputs"]);
+    expect("mouseDown" in subject).toBe(false);
+    expect("mouseUp" in subject).toBe(false);
+  });
+
+  it("supports finalObservation none active_window and observe", async () => {
+    for (const [mode, expected] of [
+      ["none", ["pointer_position"]],
+      ["active_window", ["pointer_position", "active_window"]],
+      ["observe", ["pointer_position", "observe"]],
+    ] as const) {
+      const { native, runtime: subject } = runtime();
+      native.responder = (call) => {
+        if (call.method === "pointer_position") return { x: 1, y: 2 };
+        if (call.method === "active_window") return { application: { name: "A", frontmost: true }, title: "Window" };
+        if (call.method === "observe") return { snapshotId: "s", application: { name: "A", frontmost: true }, elements: [], truncated: false };
+        return { state: "completed" };
+      };
+      const result = await subject.run({ actions: [{ type: "pointer_position" }], finalObservation: mode });
+      expect(result.state).toBe("completed");
+      expect(native.calls.map((call) => call.method)).toEqual(expected);
+      if (mode !== "none") expect(result.finalObservation).toBeDefined();
+    }
+  });
+
+  it("marks completed_unverified when only final observation fails and never replays mutations", async () => {
+    const { native, runtime: subject } = runtime();
+    native.responder = (call) => {
+      if (call.method === "observe") throw new ComputerError("COMPUTER_UNAVAILABLE");
+      return { state: "completed" };
+    };
+
+    const result = await subject.run({
+      actions: [{ type: "click", x: 1, y: 1 }],
+      finalObservation: "observe",
+    });
+    expect(result).toMatchObject({ state: "completed_unverified", completedCount: 1, actionCount: 1 });
+    expect(native.calls.map((call) => call.method)).toEqual(["click", "observe", "release_inputs"]);
+  });
+
+  it("never echoes typed text in successful step summaries", async () => {
+    const { runtime: subject } = runtime();
+    const secretText = "do-not-echo-this-text";
+    const result = await subject.run({
+      actions: [{ type: "type_text", text: secretText, name: "Example" }],
+      finalObservation: "none",
+    });
+    expect(JSON.stringify(result)).not.toContain(secretText);
+    expect(result.steps).toEqual([{ index: 0, type: "type_text", state: "completed" }]);
+  });
+});
