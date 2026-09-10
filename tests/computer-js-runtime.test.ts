@@ -16,6 +16,7 @@ import {
   type ComputerProgramSession,
 } from "../src/computer-runtime.js";
 import type { ComputerNativeMethod } from "../src/computer-types.js";
+import { closeRuntimeResources } from "../src/runtime-shutdown.js";
 
 const cleanups: string[] = [];
 
@@ -166,6 +167,60 @@ describe("ComputerJsRuntime", () => {
     await expect(dispatchComputerJsRpc(session, "active_window", {})).resolves.toEqual({ title: "Fixture" });
     await expect(dispatchComputerJsRpc(session, "wait", { durationMs: 25 })).resolves.toEqual({ state: "completed" });
     expect(actions.at(-1)).toEqual({ type: "wait", durationMs: 25 });
+  });
+
+  it("shutdown closes JavaScript first so program input cleanup finishes before native computer close", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "chatgpt-system-js-shutdown-"));
+    cleanups.push(root);
+    const events: string[] = [];
+    const native: ComputerNativeRequesting = {
+      healthState: () => "running",
+      request: async (method) => {
+        events.push(method);
+        return { state: "completed" };
+      },
+      close: async () => { events.push("native-close"); },
+    };
+    const computer = new ComputerRuntime(native, computerConfig);
+    let rejectRun!: (error: unknown) => void;
+    let started = false;
+    let fallback: NodeJS.Timeout | undefined;
+    const supervisor = {
+      run: async () => {
+        events.push("runner-start");
+        started = true;
+        return new Promise<ComputerJsRunnerResult>((_resolve, reject) => {
+          rejectRun = reject;
+          fallback = setTimeout(() => reject(new ComputerError("COMPUTER_JS_FAILED")), 150);
+        });
+      },
+      close: async () => {
+        events.push("runner-close");
+        if (fallback) clearTimeout(fallback);
+        rejectRun(new ComputerError("COMPUTER_JS_FAILED"));
+      },
+    };
+    const runtime = new ComputerJsRuntime(computer, { roots: [root], computerUse: computerConfig }, supervisor);
+    const running = runtime.run({ source: "await new Promise(() => {});" });
+    const observedRun = running.catch((error) => error);
+    await waitUntil(() => started);
+
+    await closeRuntimeResources({
+      runtime: {
+        computerJs: runtime,
+        computer,
+        processSupervisor: { close: async () => { events.push("processes"); } },
+        browser: { close: async () => { events.push("browser"); return { closed: true as const }; } },
+      } as never,
+      closeTransport: async () => { events.push("transport"); },
+    });
+
+    await expect(observedRun).resolves.toMatchObject({ code: "COMPUTER_JS_FAILED" });
+    expect(events[0]).toBe("runner-start");
+    expect(events.indexOf("runner-close")).toBeGreaterThan(0);
+    expect(events.indexOf("runner-close")).toBeLessThan(events.indexOf("native-close"));
+    expect(events.filter((event) => event === "release_inputs").length).toBeGreaterThanOrEqual(1);
+    expect(events.at(-1)).toBe("transport");
   });
 
   it("closes the shared supervisor and refuses later runs", async () => {
