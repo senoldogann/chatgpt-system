@@ -290,6 +290,7 @@ git commit -m "feat: add project continuity store"
 
 **Files:**
 - Create: `src/continuity-git-inspector.ts`
+- Modify: `src/continuity-errors.ts`
 - Test: `tests/continuity-git-inspector.test.ts`
 
 **Interfaces:**
@@ -345,7 +346,13 @@ export interface ContinuityGitInspectorOptions {
   remoteVerificationTimeoutMs: number;
   maxCommandOutputBytes: number;
   now?: () => number;
-  runGit?: (cwd: string, args: readonly string[], timeoutMs?: number) => Promise<{ exitCode: number; stdout: Buffer; stderr: Buffer; timedOut: boolean }>;
+  runGit?: (cwd: string, args: readonly string[], timeoutMs?: number) => Promise<{
+  exitCode: number;
+  stdout: Buffer;
+  stderr: Buffer;
+  timedOut: boolean;
+  outputLimitExceeded?: boolean;
+}>;
 }
 
 export class ContinuityGitInspector {
@@ -453,7 +460,7 @@ npm run build
 - [ ] **Step 7: Commit Task 2**
 
 ```bash
-git add src/continuity-git-inspector.ts tests/continuity-git-inspector.test.ts
+git add src/continuity-git-inspector.ts src/continuity-errors.ts tests/continuity-git-inspector.test.ts docs/superpowers/plans/2026-09-11-project-continuity-v1.md
 git diff --cached --check
 git commit -m "feat: inspect continuity worktree state"
 ```
