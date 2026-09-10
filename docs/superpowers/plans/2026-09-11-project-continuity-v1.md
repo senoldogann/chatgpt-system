@@ -37,23 +37,7 @@
 - Create: `src/continuity-store.ts`
 - Create: `src/continuity-errors.ts`
 - Test: `tests/continuity-store.test.ts`
-- Modify: `tests/control-revoke.test.ts`
-- Modify: `tests/http-transport.test.ts`
-- Modify: `tests/process-service.test.ts`
-- Modify: `tests/computer-js-mcp.test.ts`
-- Modify: `tests/control-server.test.ts`
-- Modify: `tests/system-environment.test.ts`
-- Modify: `tests/process-mcp.test.ts`
-- Modify: `tests/authority-request-audit.test.ts`
-- Modify: `tests/control-parent-security.test.ts`
-- Modify: `tests/browser-audit.test.ts`
-- Modify: `tests/authority-audit.test.ts`
-- Modify: `tests/authority.test.ts`
-- Modify: `tests/browser-mcp.test.ts`
-- Modify: `tests/computer-mcp.test.ts`
-- Modify: `tests/authority-mcp.test.ts`
-- Modify: `tests/authority-approval-mcp.test.ts`
-- Modify: `tests/authority-catalog.test.ts`
+- Test: `tests/continuity-config.test.ts`
 
 **Interfaces:**
 - Produces:
@@ -104,7 +88,6 @@ export interface ContinuitySemanticRecord {
 interface RegisterProjectRecord {
   id: string;
   alias: string;
-  aliasKey: string;
   roots: string[];
   worktree: StoredWorktreeIdentity;
   localState: ContinuityLocalState;
@@ -166,7 +149,7 @@ Also set `CHATGPT_SYSTEM_CONTINUITY_DATABASE` to an absolute temporary path and 
 Run:
 
 ```bash
-npm test -- tests/computer-config.test.ts
+npm test -- tests/continuity-config.test.ts
 ```
 
 Expected: RED because `AppConfig.continuity` and the env input do not exist.
@@ -271,7 +254,7 @@ CREATE TABLE continuity_records (
 
 Use `PRAGMA foreign_keys = ON` and bounded `busy_timeout`. Force the DB file mode to `0600` after open. Parse every JSON column through Zod schemas from `continuity-types.ts`; malformed stored JSON maps to `CONTINUITY_DATABASE_INVALID`.
 
-Normalize alias with:
+Derive the normalized alias key inside the store, never from caller-supplied state:
 
 ```ts
 export function continuityAliasKey(alias: string): string {
@@ -284,7 +267,7 @@ Registration uses one transaction. `checkpoint(...)` uses one transaction whose 
 - [ ] **Step 6: Run focused store tests GREEN, then build**
 
 ```bash
-npm test -- tests/continuity-store.test.ts tests/computer-config.test.ts
+npm test -- tests/continuity-store.test.ts tests/continuity-config.test.ts
 npm run build
 ```
 
@@ -296,7 +279,7 @@ Review exact diff and run:
 
 ```bash
 git diff --check
-git add package.json package-lock.json src/config.ts src/continuity-types.ts src/continuity-store.ts src/continuity-errors.ts tests/continuity-store.test.ts tests/computer-config.test.ts tests/control-revoke.test.ts tests/http-transport.test.ts tests/process-service.test.ts tests/computer-js-mcp.test.ts tests/control-server.test.ts tests/system-environment.test.ts tests/process-mcp.test.ts tests/authority-request-audit.test.ts tests/control-parent-security.test.ts tests/browser-audit.test.ts tests/authority-audit.test.ts tests/authority.test.ts tests/browser-mcp.test.ts tests/computer-mcp.test.ts tests/authority-mcp.test.ts tests/authority-approval-mcp.test.ts tests/authority-catalog.test.ts
+git add package.json package-lock.json src/config.ts src/continuity-types.ts src/continuity-store.ts src/continuity-errors.ts tests/continuity-store.test.ts tests/continuity-config.test.ts docs/superpowers/plans/2026-09-11-project-continuity-v1.md
 git diff --cached --check
 git commit -m "feat: add project continuity store"
 ```
