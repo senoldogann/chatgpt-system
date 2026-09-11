@@ -276,6 +276,112 @@ describe("ContinuityStore", () => {
     store.close();
   });
 
+  it("rejects out-of-bounds semantic state before registration or checkpoint persistence", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "chatgpt-system-continuity-store-"));
+    cleanups.push(root);
+    const store = new ContinuityStore({ databasePath: path.join(root, "continuity.db") });
+
+    expect(() => store.register({
+      ...registrationFixture(),
+      alias: "Oversized",
+      semantic: {
+        ...registrationFixture().semantic,
+        task: { ...registrationFixture().semantic.task, goal: "g".repeat(8_001) },
+      },
+    })).toThrow();
+    expect(() => store.getByAlias("oversized")).toThrowError(
+      expect.objectContaining({ code: "CONTINUITY_NOT_FOUND" }),
+    );
+
+    const registered = store.register(registrationFixture());
+    expect(() => store.checkpoint({
+      projectId: registered.id,
+      expectedRecordVersion: 1,
+      semantic: {
+        ...registrationFixture().semantic,
+        decisions: Array.from({ length: 21 }, (_, index) => ({
+          decision: `Decision ${index}`,
+          rationale: "Rationale",
+          alternatives: [],
+          evidence: [],
+        })),
+      },
+      localState: registered.localState,
+      publishedState: registered.publishedState,
+      checkedAt: registered.localState.checkedAt,
+    })).toThrow();
+    expect(store.getByAlias("project-x").currentRecord.recordVersion).toBe(1);
+    store.close();
+  });
+
+  it("rejects out-of-bounds registration and operational state before persistence", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "chatgpt-system-continuity-store-"));
+    cleanups.push(root);
+    const store = new ContinuityStore({ databasePath: path.join(root, "continuity.db") });
+
+    const invalidRegistrations = [
+      {
+        alias: "AliasTooLong",
+        input: { ...registrationFixture(), id: "alias-too-long", alias: "a".repeat(129) },
+      },
+      {
+        alias: "TooManyRoots",
+        input: {
+          ...registrationFixture(),
+          id: "too-many-roots",
+          alias: "TooManyRoots",
+          roots: Array.from({ length: 17 }, (_, index) => `/tmp/project-${index}`),
+        },
+      },
+      {
+        alias: "PathTooLong",
+        input: {
+          ...registrationFixture(),
+          id: "path-too-long",
+          alias: "PathTooLong",
+          worktree: {
+            ...registrationFixture().worktree,
+            canonicalPath: `/${"x".repeat(16_384)}`,
+          },
+        },
+      },
+      {
+        alias: "TooManyDirtyPaths",
+        input: {
+          ...registrationFixture(),
+          id: "too-many-dirty-paths",
+          alias: "TooManyDirtyPaths",
+          localState: {
+            ...registrationFixture().localState,
+            stagedPaths: Array.from({ length: 101 }, (_, index) => `src/file-${index}.ts`),
+          },
+        },
+      },
+    ];
+
+    for (const testCase of invalidRegistrations) {
+      expect(() => store.register(testCase.input)).toThrow();
+      expect(() => store.getByAlias(testCase.alias)).toThrowError(
+        expect.objectContaining({ code: "CONTINUITY_NOT_FOUND" }),
+      );
+    }
+
+    const registered = store.register(registrationFixture());
+    expect(() => store.checkpoint({
+      projectId: registered.id,
+      expectedRecordVersion: 1,
+      semantic: registrationFixture().semantic,
+      localState: {
+        ...registered.localState,
+        unstagedPaths: Array.from({ length: 101 }, (_, index) => `src/changed-${index}.ts`),
+      },
+      publishedState: registered.publishedState,
+      checkedAt: registered.localState.checkedAt,
+    })).toThrow();
+    expect(store.getByAlias("project-x").currentRecord.recordVersion).toBe(1);
+    store.close();
+  });
+
   it("creates private local storage and closes idempotently", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "chatgpt-system-continuity-store-"));
     cleanups.push(root);

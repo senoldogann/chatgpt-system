@@ -5,6 +5,17 @@ import {
   projectContinuityResultOutputSchema,
   projectResumeOutputSchema,
 } from "./continuity-output-schemas.js";
+import {
+  CONTINUITY_MAX_DECISIONS,
+  CONTINUITY_MAX_PROJECT_ROOTS,
+  CONTINUITY_MAX_UNCERTAINTIES,
+  CONTINUITY_MAX_VERIFICATION_SUMMARY,
+  continuityAliasSchema,
+  continuityDecisionSchema,
+  continuityPathSchema,
+  continuitySemanticLineSchema,
+  continuityTaskSchema,
+} from "./continuity-types.js";
 import type {
   ProjectCheckpointInput,
   ProjectContinuityResult,
@@ -14,36 +25,19 @@ import type {
   ProjectResumeResult,
 } from "./project-continuity-service.js";
 
-const aliasSchema = z.string().trim().min(1).max(128);
-const pathSchema = z.string().min(1).max(16_384);
 const authorityLeaseSchema = z.string().min(40).max(256);
-const semanticLineSchema = z.string().min(1).max(2_000);
 
-export const projectTaskInputSchema = z.object({
-  goal: z.string().min(1).max(8_000),
-  constraints: z.array(semanticLineSchema).max(32),
-  successCriteria: z.array(semanticLineSchema).max(32),
-  status: z.enum(["active", "blocked", "completed"]),
-  nextStep: z.string().min(1).max(4_000),
-  detail: z.string().max(32_000).optional(),
-}).strict();
+export const projectTaskInputSchema = continuityTaskSchema;
+export const projectDecisionInputSchema = continuityDecisionSchema;
 
-export const projectDecisionInputSchema = z.object({
-  decision: z.string().min(1).max(4_000),
-  rationale: z.string().min(1).max(8_000),
-  alternatives: z.array(semanticLineSchema).max(12),
-  evidence: z.array(semanticLineSchema).max(20),
-  validWhile: z.string().max(4_000).optional(),
-}).strict();
-
-const uncertaintySchema = z.array(semanticLineSchema).max(20).optional();
-const verificationSummarySchema = z.array(semanticLineSchema).max(20).optional();
-const decisionsSchema = z.array(projectDecisionInputSchema).max(20);
+const uncertaintySchema = z.array(continuitySemanticLineSchema).max(CONTINUITY_MAX_UNCERTAINTIES).optional();
+const verificationSummarySchema = z.array(continuitySemanticLineSchema).max(CONTINUITY_MAX_VERIFICATION_SUMMARY).optional();
+const decisionsSchema = z.array(projectDecisionInputSchema).max(CONTINUITY_MAX_DECISIONS);
 
 export const projectRegisterInputSchema = z.object({
-  alias: aliasSchema,
-  worktreePath: pathSchema,
-  projectRoots: z.array(pathSchema).min(1).max(16),
+  alias: continuityAliasSchema,
+  worktreePath: continuityPathSchema,
+  projectRoots: z.array(continuityPathSchema).min(1).max(CONTINUITY_MAX_PROJECT_ROOTS),
   task: projectTaskInputSchema,
   decisions: decisionsSchema.optional(),
   uncertainties: uncertaintySchema,
@@ -51,13 +45,13 @@ export const projectRegisterInputSchema = z.object({
 }).strict();
 
 export const projectResumeInputSchema = z.object({
-  alias: aliasSchema,
+  alias: continuityAliasSchema,
   requestedTtlSeconds: z.number().int().positive().max(8 * 60 * 60).optional(),
 }).strict();
 
 export const projectCheckpointInputSchema = z.object({
   authorityLeaseId: authorityLeaseSchema,
-  alias: aliasSchema,
+  alias: continuityAliasSchema,
   expectedRecordVersion: z.number().int().positive(),
   task: projectTaskInputSchema,
   decisions: decisionsSchema,
@@ -67,7 +61,7 @@ export const projectCheckpointInputSchema = z.object({
 
 export const projectContextReadInputSchema = z.object({
   authorityLeaseId: authorityLeaseSchema,
-  alias: aliasSchema,
+  alias: continuityAliasSchema,
 }).strict();
 
 export interface ProjectContinuityToolRuntime {

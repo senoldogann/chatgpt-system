@@ -6,8 +6,11 @@ import { ContinuityDatabaseInvalidError, ContinuityNotFoundError } from "./conti
 import { ConflictError } from "./errors.js";
 import {
   continuityAliasKey,
+  continuityAliasSchema,
   continuityLocalStateSchema,
+  continuityProjectRootsSchema,
   continuityPublishedStateSchema,
+  continuitySemanticInputSchema,
   continuitySemanticRecordSchema,
   storedWorktreeIdentitySchema,
   type CheckpointProjectRecord,
@@ -19,8 +22,6 @@ import {
 } from "./continuity-types.js";
 
 export const CONTINUITY_SCHEMA_VERSION = 1;
-
-const rootsSchema = z.array(z.string().min(1));
 
 interface ContinuityStoreOptions {
   databasePath: string;
@@ -178,9 +179,15 @@ export class ContinuityStore {
   }
 
   register(input: RegisterProjectRecord): StoredProject {
+    const alias = continuityAliasSchema.parse(input.alias);
+    const roots = continuityProjectRootsSchema.parse(input.roots);
+    const worktree = storedWorktreeIdentitySchema.parse(input.worktree);
+    const localState = continuityLocalStateSchema.parse(input.localState);
+    const publishedState = continuityPublishedStateSchema.parse(input.publishedState);
+    const semantic = continuitySemanticInputSchema.parse(input.semantic);
     const timestamp = new Date(this.now()).toISOString();
     const recordVersion = 1;
-    const aliasKey = continuityAliasKey(input.alias);
+    const aliasKey = continuityAliasKey(alias);
 
     const transaction = this.db.transaction(() => {
       this.db.prepare(`
@@ -189,9 +196,9 @@ export class ContinuityStore {
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
         input.id,
-        input.alias,
+        alias,
         aliasKey,
-        JSON.stringify(input.roots),
+        JSON.stringify(roots),
         recordVersion,
         timestamp,
         timestamp,
@@ -204,15 +211,15 @@ export class ContinuityStore {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         input.id,
-        input.worktree.canonicalPath,
-        input.worktree.repositoryRoot,
-        input.worktree.commonGitDir,
-        input.worktree.gitDir,
-        input.worktree.repositoryIdentity,
-        input.worktree.worktreeIdentity,
-        JSON.stringify(input.localState),
-        JSON.stringify(input.publishedState),
-        input.localState.checkedAt,
+        worktree.canonicalPath,
+        worktree.repositoryRoot,
+        worktree.commonGitDir,
+        worktree.gitDir,
+        worktree.repositoryIdentity,
+        worktree.worktreeIdentity,
+        JSON.stringify(localState),
+        JSON.stringify(publishedState),
+        localState.checkedAt,
       );
 
       this.db.prepare(`
@@ -223,10 +230,10 @@ export class ContinuityStore {
       `).run(
         input.id,
         recordVersion,
-        JSON.stringify(input.semantic.task),
-        JSON.stringify(input.semantic.decisions),
-        JSON.stringify(input.semantic.uncertainties),
-        JSON.stringify(input.semantic.verificationSummary),
+        JSON.stringify(semantic.task),
+        JSON.stringify(semantic.decisions),
+        JSON.stringify(semantic.uncertainties),
+        JSON.stringify(semantic.verificationSummary),
         timestamp,
       );
     });
@@ -280,7 +287,7 @@ export class ContinuityStore {
       id: row.id,
       alias: row.alias,
       aliasKey: row.alias_key,
-      roots: parseJson(row.roots_json, rootsSchema),
+      roots: parseJson(row.roots_json, continuityProjectRootsSchema),
       worktree: storedWorktreeIdentitySchema.parse({
         canonicalPath: row.canonical_path,
         repositoryRoot: row.repository_root,
@@ -316,6 +323,9 @@ export class ContinuityStore {
   }
 
   checkpoint(input: CheckpointProjectRecord): ContinuitySemanticRecord {
+    const semantic = continuitySemanticInputSchema.parse(input.semantic);
+    const localState = continuityLocalStateSchema.parse(input.localState);
+    const publishedState = continuityPublishedStateSchema.parse(input.publishedState);
     const timestamp = new Date(this.now()).toISOString();
     const transaction = this.db.transaction(() => {
       const current = this.db.prepare(
@@ -339,10 +349,10 @@ export class ContinuityStore {
       `).run(
         input.projectId,
         nextVersion,
-        JSON.stringify(input.semantic.task),
-        JSON.stringify(input.semantic.decisions),
-        JSON.stringify(input.semantic.uncertainties),
-        JSON.stringify(input.semantic.verificationSummary),
+        JSON.stringify(semantic.task),
+        JSON.stringify(semantic.decisions),
+        JSON.stringify(semantic.uncertainties),
+        JSON.stringify(semantic.verificationSummary),
         timestamp,
       );
 
@@ -351,9 +361,9 @@ export class ContinuityStore {
         SET local_state_json = ?, published_state_json = ?, checked_at = ?
         WHERE project_id = ?
       `).run(
-        JSON.stringify(input.localState),
-        JSON.stringify(input.publishedState),
-        input.checkedAt,
+        JSON.stringify(localState),
+        JSON.stringify(publishedState),
+        localState.checkedAt,
         input.projectId,
       );
 
@@ -375,14 +385,16 @@ export class ContinuityStore {
     publishedState: ContinuityPublishedState,
     checkedAt: string,
   ): void {
+    const parsedLocalState = continuityLocalStateSchema.parse(localState);
+    const parsedPublishedState = continuityPublishedStateSchema.parse(publishedState);
     const result = this.db.prepare(`
       UPDATE worktrees
       SET local_state_json = ?, published_state_json = ?, checked_at = ?
       WHERE project_id = ?
     `).run(
-      JSON.stringify(localState),
-      JSON.stringify(publishedState),
-      checkedAt,
+      JSON.stringify(parsedLocalState),
+      JSON.stringify(parsedPublishedState),
+      parsedLocalState.checkedAt,
       projectId,
     );
     if (result.changes !== 1) throw new ContinuityNotFoundError();
