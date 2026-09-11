@@ -184,6 +184,18 @@ fail
 
 Store only inside a dedicated `~/.chatgpt-system/state/projects/<fingerprint>/...` subtree. Never recursively mutate the shared parent or continuity subtree. Bind state/evidence freshness to repository identity, HEAD, and working-tree digest. Redact secrets.
 
+- [x] Add RED MCP integration coverage for `start`, `checkpoint`, `status`, `complete`, and `fail`.
+- [x] Restrict durable task state to Project authority.
+- [x] Persist atomically under the dedicated `state/projects/<fingerprint>/tasks/` subtree only.
+- [x] Bind freshness to repository identity, HEAD, and tracked/untracked working-tree content digests.
+- [x] Preserve task state across runtime restart without touching the continuity subtree.
+- [x] Redact common secret/token/password forms before persistence and keep task IDs/payloads out of audit metadata.
+- [x] Use bounded checkpoint/state sizes and `0600` state files.
+- [x] Verify both dirty-worktree and HEAD-only staleness.
+- [x] Run focused GREEN tests, full `npm run check`, and `git diff --check`.
+
+**Task 3 verification evidence:** focused task-state/catalog suite 5/5 PASS; isolated Docker lifecycle regression 6/6 PASS after one unrelated parallel timing flake; final full suite 64 files / 404 tests PASS; `git diff --check` PASS.
+
 ---
 
 ### Task 4A: Transactional multi-file patches

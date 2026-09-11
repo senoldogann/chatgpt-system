@@ -232,6 +232,56 @@ export const codeQueryOutputSchema = z.object({
   bytesScanned: nonNegativeInt,
 }).strict();
 
+const taskStateCheckpointOutputSchema = z.object({
+  revision: z.number().int().positive(),
+  summary: z.string(),
+  findings: z.array(z.string()),
+  decisions: z.array(z.string()),
+  inspectedFiles: z.array(z.string()),
+  modifiedFiles: z.array(z.string()),
+  nextStep: z.string().optional(),
+  evidenceRefs: z.array(z.string()),
+  head: z.string(),
+  workingTreeDigest: sha256Schema,
+  createdAt: z.string(),
+}).strict();
+
+const taskStateOutcomeOutputSchema = z.object({
+  status: z.enum(["completed", "failed"]),
+  summary: z.string(),
+  evidenceRefs: z.array(z.string()),
+  head: z.string(),
+  workingTreeDigest: sha256Schema,
+  createdAt: z.string(),
+}).strict();
+
+export const taskStateOutputSchema = z.object({
+  taskId: z.string().uuid(),
+  status: z.enum(["active", "completed", "failed"]),
+  revision: z.number().int().positive(),
+  goal: z.string(),
+  repositoryRoot: z.string(),
+  projectFingerprint: sha256Schema,
+  baseHead: z.string(),
+  currentHead: z.string(),
+  workingTreeDigest: sha256Schema,
+  nextStep: z.string().optional(),
+  checkpoints: z.array(taskStateCheckpointOutputSchema),
+  outcome: taskStateOutcomeOutputSchema.optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  checkpointCount: nonNegativeInt,
+  observed: z.object({
+    head: z.string(),
+    workingTreeDigest: sha256Schema,
+  }).strict(),
+  freshness: z.object({
+    fresh: z.boolean(),
+    headMatches: z.boolean(),
+    workingTreeMatches: z.boolean(),
+  }).strict(),
+}).strict();
+
 export const projectExecResultOutputSchema = z.object({
   command: z.string(),
   args: z.array(z.string()),

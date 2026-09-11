@@ -55,6 +55,22 @@ export class LspUnavailableError extends AppError {
   }
 }
 
+export class TaskStateNotFoundError extends AppError {
+  constructor() {
+    super(
+      "The durable task state record was not found for this project.",
+      "TASK_STATE_NOT_FOUND",
+      { retryable: false },
+    );
+  }
+}
+
+export class RecoveryRequiredError extends AppError {
+  constructor(message = "Durable local state requires recovery before this operation can continue.") {
+    super(message, "RECOVERY_REQUIRED", { retryable: false });
+  }
+}
+
 export class ProjectExecDisabledError extends AppError {
   constructor() {
     super(

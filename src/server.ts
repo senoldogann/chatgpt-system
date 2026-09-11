@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { homedir } from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { AuthorityManager } from "./authority.js";
@@ -27,6 +28,7 @@ import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { ProcessSupervisor } from "./process-supervisor.js";
 import { registerProjectExecTool } from "./project-exec-tool-registration.js";
+import { registerTaskStateTool } from "./task-state-tool-registration.js";
 import type { ProjectExecBackend } from "./project-exec-types.js";
 import { createScopedRuntime } from "./scoped-runtime.js";
 import { describeSystemEnvironment } from "./system-environment.js";
@@ -63,6 +65,7 @@ export interface RuntimeServices {
   process: ProcessService;
   processSupervisor: ProcessSupervisor;
   projectExecBackend: ProjectExecBackend;
+  taskStateRoot: string;
   browser: BrowserService;
   computer: ComputerRuntime;
   computerJs: ComputerJsRuntime;
@@ -75,6 +78,7 @@ export interface RuntimeOptions extends BrowserFactoryOptions {
   computerRuntime?: ComputerRuntime;
   computerJsRuntime?: ComputerJsRuntime;
   projectExecBackend?: ProjectExecBackend;
+  taskStateRoot?: string;
 }
 
 export function createRuntimeServices(config: AppConfig, options: RuntimeOptions = {}): RuntimeServices {
@@ -120,6 +124,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     maxOutputBytes: config.limits.maxCommandOutputBytes,
     cleanupTimeoutMs: config.limits.processStopGraceMs,
   });
+  const taskStateRoot = path.resolve(options.taskStateRoot ?? path.join(homedir(), ".chatgpt-system", "state"));
   const browser = createBrowserService(config, options);
   const computer = options.computerRuntime ?? new ComputerRuntime(
     options.computerNative ?? new ComputerNativeSupervisor({
@@ -151,6 +156,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     process: new ProcessService(policy, audit, config),
     processSupervisor,
     projectExecBackend,
+    taskStateRoot,
     browser,
     computer,
     computerJs,
@@ -634,6 +640,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   );
 
   registerCodeQueryTool(server, runtime);
+  registerTaskStateTool(server, runtime);
   registerProjectExecTool(server, runtime);
   registerBrowserTools(server, runtime);
   registerComputerTools(server, runtime);
