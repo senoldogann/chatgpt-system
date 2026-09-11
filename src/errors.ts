@@ -45,6 +45,16 @@ export class ExecutableNotFoundError extends AppError {
   }
 }
 
+export class LspUnavailableError extends AppError {
+  constructor(reason: string) {
+    super(
+      "Semantic code intelligence is unavailable for this request. Use code_query search or symbols as an explicit fallback.",
+      "LSP_UNAVAILABLE",
+      { reason, retryable: false, recommendedOperations: ["search", "symbols"] },
+    );
+  }
+}
+
 export class ProjectExecDisabledError extends AppError {
   constructor() {
     super(

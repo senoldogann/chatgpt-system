@@ -200,10 +200,33 @@ const codeQuerySymbolResultSchema = z.object({
   sha256: sha256Schema,
 }).strict();
 
+const codeQueryLocationResultSchema = z.object({
+  path: z.string(),
+  line: z.number().int().positive(),
+  column: z.number().int().positive(),
+  sha256: sha256Schema,
+}).strict();
+
+const codeQueryReferenceResultSchema = codeQueryLocationResultSchema.extend({
+  isDefinition: z.boolean(),
+}).strict();
+
+const codeQueryDiagnosticResultSchema = codeQueryLocationResultSchema.extend({
+  severity: z.enum(["error", "warning", "suggestion", "message"]),
+  code: z.number().int(),
+  message: z.string(),
+}).strict();
+
 export const codeQueryOutputSchema = z.object({
-  operation: z.enum(["search", "symbols"]),
+  operation: z.enum(["search", "symbols", "definition", "references", "diagnostics"]),
   repositoryRoot: z.string(),
-  results: z.array(z.union([codeQuerySearchResultSchema, codeQuerySymbolResultSchema])),
+  results: z.array(z.union([
+    codeQuerySearchResultSchema,
+    codeQuerySymbolResultSchema,
+    codeQueryReferenceResultSchema,
+    codeQueryDiagnosticResultSchema,
+    codeQueryLocationResultSchema,
+  ])),
   truncated: z.boolean(),
   scannedFiles: nonNegativeInt,
   bytesScanned: nonNegativeInt,

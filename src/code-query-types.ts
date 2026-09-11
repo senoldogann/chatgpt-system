@@ -1,4 +1,4 @@
-export type CodeQueryOperation = "search" | "symbols";
+export type CodeQueryOperation = "search" | "symbols" | "definition" | "references" | "diagnostics";
 
 export interface CodeQuerySearchResult {
   path: string;
@@ -19,7 +19,33 @@ export interface CodeQuerySymbolResult {
   sha256: string;
 }
 
-export interface CodeQueryResponse<T extends CodeQuerySearchResult | CodeQuerySymbolResult> {
+export interface CodeQueryLocationResult {
+  path: string;
+  line: number;
+  column: number;
+  sha256: string;
+}
+
+export interface CodeQueryReferenceResult extends CodeQueryLocationResult {
+  isDefinition: boolean;
+}
+
+export type CodeDiagnosticSeverity = "error" | "warning" | "suggestion" | "message";
+
+export interface CodeQueryDiagnosticResult extends CodeQueryLocationResult {
+  severity: CodeDiagnosticSeverity;
+  code: number;
+  message: string;
+}
+
+export type CodeQueryResult =
+  | CodeQuerySearchResult
+  | CodeQuerySymbolResult
+  | CodeQueryLocationResult
+  | CodeQueryReferenceResult
+  | CodeQueryDiagnosticResult;
+
+export interface CodeQueryResponse<T extends CodeQueryResult> {
   operation: CodeQueryOperation;
   repositoryRoot: string;
   results: T[];

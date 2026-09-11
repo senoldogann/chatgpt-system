@@ -156,6 +156,18 @@ diagnostics
 
 Create a language-service adapter/lifecycle boundary. Support the current repository language first (TypeScript) with explicit `LSP_UNAVAILABLE` fallback to text/symbol search. Do not silently invent semantic results.
 
+- [x] Add RED MCP integration coverage for `definition`, `references`, and `diagnostics`.
+- [x] Add a TypeScript language-service adapter/lifecycle boundary behind `code_query`.
+- [x] Keep semantic reads repository-local; no project-external package/lib source reads.
+- [x] Refresh semantic results from current dirty working-tree content on each request.
+- [x] Return explicit `LSP_UNAVAILABLE` with `search`/`symbols` fallback for unsupported languages/configurations.
+- [x] Bound semantic scans/results and preserve SHA-256 content hashes.
+- [x] Keep semantic request/diagnostic payloads out of audit metadata.
+- [x] Move TypeScript to runtime dependencies and validate the lockfile.
+- [x] Run focused semantic GREEN tests, full `npm run check`, and `git diff --check`.
+
+**Task 2B verification evidence:** focused code-query suite 7/7 PASS; full suite 63 files / 402 tests PASS; `npm install --package-lock-only --ignore-scripts --no-audit --no-fund` PASS; `git diff --check` PASS.
+
 ---
 
 ### Task 3: Durable task/checkpoint state

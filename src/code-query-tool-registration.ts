@@ -33,6 +33,25 @@ const codeQueryInputSchema = z.discriminatedUnion("operation", [
     operation: z.literal("symbols"),
     query: z.string().max(4_096).optional(),
   }).strict(),
+  z.object({
+    ...baseFields,
+    operation: z.literal("definition"),
+    path: z.string().min(1).max(8_192),
+    line: z.number().int().positive(),
+    column: z.number().int().positive(),
+  }).strict(),
+  z.object({
+    ...baseFields,
+    operation: z.literal("references"),
+    path: z.string().min(1).max(8_192),
+    line: z.number().int().positive(),
+    column: z.number().int().positive(),
+  }).strict(),
+  z.object({
+    ...baseFields,
+    operation: z.literal("diagnostics"),
+    path: z.string().min(1).max(8_192),
+  }).strict(),
 ]);
 
 function textResult(value: unknown) {
@@ -63,7 +82,7 @@ export function registerCodeQueryTool(server: McpServer, runtime: CodeQueryToolR
   server.registerTool(
     "code_query",
     {
-      description: "Search current repository text or return lightweight current-file symbols. Honors Git ignore rules, excludes dependencies/build caches/binaries/obvious secrets, and returns current content hashes.",
+      description: "Query current repository code with bounded text search, lightweight symbols, or TypeScript semantic definition/reference/diagnostic operations. Semantic operations fail explicitly with LSP_UNAVAILABLE when unsupported.",
       inputSchema: codeQueryInputSchema,
       outputSchema: codeQueryOutputSchema,
       annotations: codeQueryAnnotations,
@@ -73,7 +92,16 @@ export function registerCodeQueryTool(server: McpServer, runtime: CodeQueryToolR
       if (input.operation === "search") {
         return service.search(input.query, input.cwd, input.maxResults);
       }
-      return service.symbols(input.query ?? "", input.cwd, input.maxResults);
+      if (input.operation === "symbols") {
+        return service.symbols(input.query ?? "", input.cwd, input.maxResults);
+      }
+      if (input.operation === "definition") {
+        return service.definition(input.path, input.line, input.column, input.cwd, input.maxResults);
+      }
+      if (input.operation === "references") {
+        return service.references(input.path, input.line, input.column, input.cwd, input.maxResults);
+      }
+      return service.diagnostics(input.path, input.cwd, input.maxResults);
     }),
   );
 }

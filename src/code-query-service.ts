@@ -4,14 +4,18 @@ import { lstat, open } from "node:fs/promises";
 import path from "node:path";
 import type { AuditLogger } from "./audit.js";
 import type { LimitsConfig } from "./config.js";
-import { LimitError, PolicyError } from "./errors.js";
+import { LimitError, LspUnavailableError, PolicyError } from "./errors.js";
 import type {
+  CodeQueryDiagnosticResult,
+  CodeQueryLocationResult,
+  CodeQueryReferenceResult,
   CodeQueryResponse,
   CodeQuerySearchResult,
   CodeQuerySymbolResult,
   CodeSymbolKind,
 } from "./code-query-types.js";
 import { PathPolicy } from "./policy.js";
+import { TypeScriptLanguageServiceAdapter, type TypeScriptLanguageSource } from "./typescript-language-service.js";
 
 const DEFAULT_MAX_RESULTS = 50;
 const MAX_RESULTS = 200;
@@ -281,6 +285,139 @@ export class CodeQueryService {
       files.push({ absolutePath, relativePath });
     }
     return { cwd, root, files };
+  }
+
+  private async semanticContext(cwdInput: string, pathInput: string) {
+    const repository = await this.repository(cwdInput);
+    const requestedPath = path.isAbsolute(pathInput) ? pathInput : path.join(repository.root, pathInput);
+    const targetPath = await this.policy.resolve(requestedPath);
+    const relative = path.relative(repository.root, targetPath);
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new PolicyError("Semantic code path must stay inside the selected repository.");
+    }
+    if (!SYMBOL_EXTENSIONS.has(path.extname(targetPath).toLowerCase())) {
+      throw new LspUnavailableError("unsupported_language");
+    }
+
+    const sources: TypeScriptLanguageSource[] = [];
+    let scannedFiles = 0;
+    let bytesScanned = 0;
+    let tsconfigText: string | undefined;
+    for (const file of repository.files) {
+      const extension = path.extname(file.relativePath).toLowerCase();
+      const isTsConfig = file.relativePath === "tsconfig.json";
+      if (!SYMBOL_EXTENSIONS.has(extension) && !isTsConfig) continue;
+      const read = await readBoundedText(file.absolutePath, this.limits.maxReadBytes);
+      if (!read) continue;
+      if (bytesScanned + read.bytes.byteLength > MAX_SCAN_BYTES) {
+        throw new LimitError("Semantic code intelligence exceeded its repository scan limit.");
+      }
+      scannedFiles += 1;
+      bytesScanned += read.bytes.byteLength;
+      if (isTsConfig) {
+        tsconfigText = read.text;
+        continue;
+      }
+      sources.push({
+        absolutePath: file.absolutePath,
+        relativePath: file.relativePath,
+        text: read.text,
+        sha256: read.sha256,
+      });
+    }
+
+    const target = sources.find((source) => source.absolutePath === targetPath);
+    if (!target) throw new LspUnavailableError("typescript_file_unavailable");
+    const adapter = await TypeScriptLanguageServiceAdapter.create(repository.root, sources, tsconfigText);
+    return {
+      repository,
+      target,
+      adapter,
+      scannedFiles,
+      bytesScanned,
+      scanTruncated: repository.files.length >= MAX_SCAN_FILES,
+    };
+  }
+
+  private async semanticQuery<T extends CodeQueryLocationResult | CodeQueryReferenceResult | CodeQueryDiagnosticResult>(
+    operation: "definition" | "references" | "diagnostics",
+    cwdInput: string,
+    pathInput: string,
+    maxResultsInput: number | undefined,
+    run: (
+      adapter: TypeScriptLanguageServiceAdapter,
+      targetPath: string,
+      maxResults: number,
+    ) => { results: T[]; truncated: boolean },
+  ): Promise<CodeQueryResponse<T>> {
+    const maxResults = validateMaxResults(maxResultsInput);
+    const context = await this.semanticContext(cwdInput, pathInput);
+    try {
+      return await this.audit.run(
+        "code.query",
+        this.policy.display(context.repository.root),
+        async () => {
+          const result = run(context.adapter, context.target.absolutePath, maxResults);
+          return {
+            operation,
+            repositoryRoot: this.policy.display(context.repository.root),
+            results: result.results,
+            truncated: result.truncated || context.scanTruncated,
+            scannedFiles: context.scannedFiles,
+            bytesScanned: context.bytesScanned,
+          };
+        },
+        { operation, maxResults },
+      );
+    } finally {
+      context.adapter.close();
+    }
+  }
+
+  async definition(
+    pathInput: string,
+    line: number,
+    column: number,
+    cwdInput = ".",
+    maxResultsInput?: number,
+  ): Promise<CodeQueryResponse<CodeQueryLocationResult>> {
+    return this.semanticQuery(
+      "definition",
+      cwdInput,
+      pathInput,
+      maxResultsInput,
+      (adapter, targetPath, maxResults) => adapter.definition(targetPath, line, column, maxResults),
+    );
+  }
+
+  async references(
+    pathInput: string,
+    line: number,
+    column: number,
+    cwdInput = ".",
+    maxResultsInput?: number,
+  ): Promise<CodeQueryResponse<CodeQueryReferenceResult>> {
+    return this.semanticQuery(
+      "references",
+      cwdInput,
+      pathInput,
+      maxResultsInput,
+      (adapter, targetPath, maxResults) => adapter.references(targetPath, line, column, maxResults),
+    );
+  }
+
+  async diagnostics(
+    pathInput: string,
+    cwdInput = ".",
+    maxResultsInput?: number,
+  ): Promise<CodeQueryResponse<CodeQueryDiagnosticResult>> {
+    return this.semanticQuery(
+      "diagnostics",
+      cwdInput,
+      pathInput,
+      maxResultsInput,
+      (adapter, targetPath, maxResults) => adapter.diagnostics(targetPath, maxResults),
+    );
   }
 
   async search(
