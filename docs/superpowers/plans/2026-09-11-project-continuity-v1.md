@@ -785,6 +785,8 @@ git commit -m "feat: resume projects with fresh authority"
 **Files:**
 - Create: `src/project-continuity-tool-registration.ts`
 - Create: `src/continuity-output-schemas.ts`
+- Create: `src/project-continuity-runtime.ts`
+- Test: `tests/project-continuity-runtime.test.ts`
 - Modify: `src/server.ts`
 - Modify: `src/runtime-shutdown.ts`
 - Test: `tests/project-continuity-mcp.test.ts`
@@ -879,27 +881,21 @@ Verify the continuation DB bytes/queries do not contain the raw lease ID.
 
 - [ ] **Step 4: Wire store/service once per runtime**
 
-`createRuntimeServices` uses the configured DB path:
+`createRuntimeServices` delegates continuity construction to the continuity-owned factory so shared `server.ts` wiring stays narrow:
 
 ```ts
-const continuityStore = options.continuityStore
-  ?? new ContinuityStore({ databasePath: config.continuity.databasePath });
-const continuityInspector = new ContinuityGitInspector({
-  maxTrackedPaths: config.continuity.maxTrackedPaths,
-  remoteVerificationTimeoutMs: config.continuity.remoteVerificationTimeoutMs,
-  maxCommandOutputBytes: config.limits.maxCommandOutputBytes,
-});
-const continuity = options.continuityService
-  ?? new ProjectContinuityService({
-    store: continuityStore,
-    inspector: continuityInspector,
-    authority,
+const { continuityStore, continuity } = createProjectContinuityRuntime(
+  config,
+  authority,
+  {
     homeDir: homedir(),
-    maxResumeChars: config.continuity.maxResumeChars,
-  });
+    ...(options.continuityStore ? { continuityStore: options.continuityStore } : {}),
+    ...(options.continuityService ? { continuityService: options.continuityService } : {}),
+  },
+);
 ```
 
-The store constructor is synchronous by Task 1 contract, so `createRuntimeServices(...)` remains synchronous. Do not add a second async runtime constructor.
+The factory owns `ContinuityStore`, `ContinuityGitInspector`, and `ProjectContinuityService` construction using the configured DB path and bounds. The store constructor is synchronous by Task 1 contract, so `createRuntimeServices(...)` remains synchronous. Do not add a second async runtime constructor.
 
 Register tools through `registerProjectContinuityTools(server, runtime)` near the other modular runtime registrations.
 
@@ -929,7 +925,7 @@ npm run build
 - [ ] **Step 7: Commit Task 5**
 
 ```bash
-git add src/project-continuity-tool-registration.ts src/continuity-output-schemas.ts src/server.ts src/runtime-shutdown.ts tests/project-continuity-mcp.test.ts tests/runtime-shutdown.test.ts tests/http-transport.test.ts
+git add src/project-continuity-tool-registration.ts src/continuity-output-schemas.ts src/project-continuity-runtime.ts src/server.ts src/runtime-shutdown.ts tests/project-continuity-runtime.test.ts tests/project-continuity-mcp.test.ts tests/runtime-shutdown.test.ts tests/http-transport.test.ts
 # include only explicitly required runtime fixture updates
 git diff --cached --check
 git commit -m "feat: expose project continuity MCP tools"
