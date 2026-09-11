@@ -42,6 +42,10 @@ describe("project authority root canonicalization", () => {
     await expect(canonicalizeProjectRoots(home, [home])).rejects.toBeInstanceOf(AuthorityDeniedError);
     await expect(canonicalizeProjectRoots(home, [homeAlias])).rejects.toBeInstanceOf(AuthorityDeniedError);
     await expect(canonicalizeProjectRoots(home, [path.parse(home).root])).rejects.toBeInstanceOf(AuthorityDeniedError);
+    await expect(canonicalizeProjectRoots(home, [path.join(home, "missing-project")])).rejects.toMatchObject({
+      code: "AUTHORITY_DENIED",
+      details: { causeCode: "ENOENT" },
+    });
 
     const authority = new AuthorityManager({
       homeDir: home,

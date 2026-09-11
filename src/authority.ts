@@ -90,10 +90,23 @@ export async function canonicalizeProjectRoots(
 
   const canonicalRoots: string[] = [];
   for (const requestedRoot of requestedRoots) {
-    const canonical = await realpath(path.resolve(requestedRoot));
-    const info = await stat(canonical);
-    if (!info.isDirectory()) {
-      throw new AuthorityDeniedError("Project authority roots must be directories.", { root: requestedRoot });
+    let canonical: string;
+    try {
+      canonical = await realpath(path.resolve(requestedRoot));
+      const info = await stat(canonical);
+      if (!info.isDirectory()) {
+        throw new AuthorityDeniedError("Project authority roots must be directories.", { root: requestedRoot });
+      }
+    } catch (error) {
+      if (error instanceof AuthorityDeniedError) throw error;
+      const causeCode = (error as NodeJS.ErrnoException).code;
+      throw new AuthorityDeniedError(
+        "Project authority root could not be resolved.",
+        {
+          root: requestedRoot,
+          ...(typeof causeCode === "string" ? { causeCode } : {}),
+        },
+      );
     }
     if (canonical === filesystemRoot || canonical === home) {
       throw new AuthorityDeniedError("Project authority may not target the filesystem root or the entire home directory.", {
