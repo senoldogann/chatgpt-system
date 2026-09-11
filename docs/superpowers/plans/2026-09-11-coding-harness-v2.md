@@ -339,6 +339,16 @@ Record task success, requirements met, tool calls, wrong reads/edits, retries, h
 
 Do not claim Codex parity from a single demo.
 
+- [x] Define 11 deterministic scenario fixtures covering discovery, single/cross-file fixes, refactor, diagnosis, browser/runtime debugging, continuity resume, concurrent modification, transaction failure, sandbox escape, and stale verification.
+- [x] Materialize each fixture with stable bytes, fixed Git identity/date, deterministic `TASK.md`, scenario metadata, scenario digest, fixture digest, and HEAD.
+- [x] Derive benchmark metrics from structured events and final unified diff instead of accepting a caller-provided aggregate score.
+- [x] Gate task success on all requirements, fresh evidence when required, zero false-completion claims, zero security/scope violations, and zero regressions.
+- [x] Provide deterministic `list`, `prepare`, and `evaluate` CLI operations without adding MCP surface area or touching shared runtime config.
+- [x] Explicitly avoid model-parity claims in the benchmark protocol/task text.
+- [x] Run focused benchmark protocol/CLI tests, full `npm run check`, and staged whitespace review.
+
+**Task 9 verification evidence:** benchmark protocol 5/5 PASS; scenario catalog contains 11 unique deterministic tasks; repeated fixture materialization produces identical scenario/fixture digests and Git HEAD; real CLI `list`, `prepare`, and `evaluate` paths PASS; full suite 70 files / 432 tests PASS after separately hardening the pre-existing `project-check-mcp` integration timeout (`545414e`); no production runtime/MCP code changed for the benchmark.
+
 ---
 
 ### Task 10: Documentation and operator runbook
