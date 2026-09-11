@@ -6,6 +6,9 @@ import { z } from "zod";
 export const COMPUTER_MAX_JS_SOURCE_BYTES = 262_144;
 export const COMPUTER_MAX_JS_RUNTIME_MS = 30_000;
 export const COMPUTER_MAX_JS_OUTPUT_BYTES = 1_048_576;
+export const CONTINUITY_MAX_RESUME_CHARS = 12_000;
+export const CONTINUITY_MAX_TRACKED_PATHS = 100;
+export const CONTINUITY_REMOTE_TIMEOUT_MS = 10_000;
 
 export interface LimitsConfig {
   maxReadBytes: number;
@@ -23,6 +26,13 @@ export interface BrowserConfig {
   headless: boolean;
   timeoutMs: number;
   userDataDir: string;
+}
+
+export interface ContinuityConfig {
+  databasePath: string;
+  maxResumeChars: number;
+  maxTrackedPaths: number;
+  remoteVerificationTimeoutMs: number;
 }
 
 export interface ComputerUseConfig {
@@ -54,6 +64,7 @@ export interface AppConfig {
     enabled: boolean;
   };
   computerUse: ComputerUseConfig;
+  continuity: ContinuityConfig;
   browser: BrowserConfig;
   control: {
     enabled: boolean;
@@ -75,6 +86,7 @@ export interface ConfigOverrides {
   personalAdminEnabled?: boolean;
   computerUseEnabled?: boolean;
   fullHostJsEnabled?: boolean;
+  continuityDatabasePath?: string;
   commands?: string[];
   browserEnabled?: boolean;
   browserHeadless?: boolean;
@@ -95,6 +107,7 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_PERSONAL_ADMIN: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ENABLE_COMPUTER_USE: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ENABLE_FULL_HOST_JS: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_CONTINUITY_DATABASE: z.string().optional(),
   CHATGPT_SYSTEM_COMPUTER_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_OBSERVATION_ELEMENTS: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_OBSERVATION_CHARS: z.coerce.number().int().positive().optional(),
@@ -177,6 +190,11 @@ export function resolveBrowserUserDataDir(value?: string, homeDir = homedir()): 
   return resolveHomePath(requested, homeDir, "Browser user-data directory");
 }
 
+export function resolveContinuityDatabasePath(value: string | undefined, homeDir: string): string {
+  const requested = value ?? path.join(homeDir, ".chatgpt-system", "continuity", "continuity.db");
+  return resolveHomePath(requested, homeDir, "Continuity database path");
+}
+
 export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppConfig> {
   const env = EnvSchema.parse(process.env);
   const requestedRoots = overrides.roots ?? splitRoots(env.CHATGPT_SYSTEM_ROOTS) ?? [process.cwd()];
@@ -198,6 +216,11 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
   );
   const browserUserDataDir = resolveBrowserUserDataDir(
     overrides.browserUserDataDir ?? env.CHATGPT_SYSTEM_BROWSER_USER_DATA_DIR,
+    homeDir,
+  );
+
+  const continuityDatabasePath = resolveContinuityDatabasePath(
+    overrides.continuityDatabasePath ?? env.CHATGPT_SYSTEM_CONTINUITY_DATABASE,
     homeDir,
   );
 
@@ -229,6 +252,12 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       maxJsSourceBytes: env.CHATGPT_SYSTEM_COMPUTER_MAX_JS_SOURCE_BYTES ?? COMPUTER_MAX_JS_SOURCE_BYTES,
       maxJsRuntimeMs: env.CHATGPT_SYSTEM_COMPUTER_MAX_JS_RUNTIME_MS ?? COMPUTER_MAX_JS_RUNTIME_MS,
       maxJsOutputBytes: env.CHATGPT_SYSTEM_COMPUTER_MAX_JS_OUTPUT_BYTES ?? COMPUTER_MAX_JS_OUTPUT_BYTES,
+    },
+    continuity: {
+      databasePath: continuityDatabasePath,
+      maxResumeChars: CONTINUITY_MAX_RESUME_CHARS,
+      maxTrackedPaths: CONTINUITY_MAX_TRACKED_PATHS,
+      remoteVerificationTimeoutMs: CONTINUITY_REMOTE_TIMEOUT_MS,
     },
     browser: {
       enabled: overrides.browserEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_BROWSER),
