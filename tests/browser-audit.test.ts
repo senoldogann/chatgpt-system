@@ -106,6 +106,13 @@ describe("browser audit redaction", () => {
       auditFile,
       terminal: { enabled: true, commands: ["node", "git"] },
       projectExec: { enabled: false },
+      continuity: {
+        databasePath: path.join(path.dirname(auditFile), "continuity.db"),
+        maxResumeChars: 12_000,
+        maxTrackedPaths: 100,
+        remoteVerificationTimeoutMs: 1_000,
+      },
+
       personalAdmin: { enabled: false },
       computerUse: {
         enabled: false,

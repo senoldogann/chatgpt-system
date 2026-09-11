@@ -38,6 +38,13 @@ async function fixture(options: { personalAdmin?: boolean; terminalEnabled?: boo
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: options.terminalEnabled ?? false, commands: ["node", "git"] },
     projectExec: { enabled: false },
+    continuity: {
+      databasePath: path.join(path.dirname(path.join(base, "audit.jsonl")), "continuity.db"),
+      maxResumeChars: 12_000,
+      maxTrackedPaths: 100,
+      remoteVerificationTimeoutMs: 1_000,
+    },
+
     personalAdmin: { enabled: options.personalAdmin ?? false },
     computerUse: {
       enabled: true,

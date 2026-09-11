@@ -119,6 +119,13 @@ async function fixture() {
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: false, commands: [] },
     projectExec: { enabled: false },
+    continuity: {
+      databasePath: path.join(path.dirname(path.join(base, "audit.jsonl")), "continuity.db"),
+      maxResumeChars: 12_000,
+      maxTrackedPaths: 100,
+      remoteVerificationTimeoutMs: 1_000,
+    },
+
     personalAdmin: { enabled: true },
     computerUse: {
       enabled: true,
