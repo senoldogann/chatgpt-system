@@ -345,9 +345,11 @@ Do not claim Codex parity from a single demo.
 - [x] Gate task success on all requirements, fresh evidence when required, zero false-completion claims, zero security/scope violations, and zero regressions.
 - [x] Provide deterministic `list`, `prepare`, and `evaluate` CLI operations without adding MCP surface area or touching shared runtime config.
 - [x] Explicitly avoid model-parity claims in the benchmark protocol/task text.
+- [x] Require HMAC-SHA256 collector provenance before `taskSuccess=true`; unsigned or tampered run records remain `collectorTrust=UNVERIFIED`.
+- [x] Keep the collector key outside materialized fixtures, Project sandbox environments, task state, and audit records; document the trusted-collector boundary.
 - [x] Run focused benchmark protocol/CLI tests, full `npm run check`, and staged whitespace review.
 
-**Task 9 verification evidence:** benchmark protocol 5/5 PASS; scenario catalog contains 11 unique deterministic tasks; repeated fixture materialization produces identical scenario/fixture digests and Git HEAD; real CLI `list`, `prepare`, and `evaluate` paths PASS; full suite 70 files / 432 tests PASS after separately hardening the pre-existing `project-check-mcp` integration timeout (`545414e`); no production runtime/MCP code changed for the benchmark.
+**Task 9 verification evidence:** benchmark protocol 5/5 PASS; scenario catalog contains 11 unique deterministic tasks; repeated fixture materialization produces identical scenario/fixture digests and Git HEAD; real CLI `list`, `prepare`, and signed/unsigned `evaluate` paths PASS; unsigned and post-signature-tampered records fail closed; full suite reached 71 files / 433 tests PASS after collector hardening; no production runtime/MCP code changed for the benchmark.
 
 ---
 
@@ -371,3 +373,20 @@ Document authority/execution boundaries, Docker sandbox setup/limitations, code 
 Run fresh repository checks appropriate to every touched subsystem, including build/tests, native checks when affected, security regression coverage, browser checks when affected, `git diff --check`, and the benchmark suite. Perform a whole-branch independent review. Report unverified behavior separately.
 
 No push, merge, publish, or release without explicit user approval.
+
+- [x] Run fresh exact-HEAD `npm run check` after benchmark collector hardening.
+- [x] Re-run benchmark/docs focused contracts after collector hardening; unsigned, correctly signed, and tampered record paths are covered.
+- [x] Run focused harness security/recovery regressions and browser-correlation regressions.
+- [x] Run real Docker + HTTP MCP acceptance against the current runtime implementation and fixed sandbox image.
+- [x] Verify Project execution exposes `/workspace`, hides unrelated host repository paths, denies external network access, and keeps `hostFallback=false`.
+- [x] Verify acceptance workspace writes remain inside the selected Project root and tested command/output sentinels do not appear in audit records.
+- [x] Cross-check Docker isolation flags against current official Docker documentation and the future native-backend direction against current Apple App Sandbox documentation.
+- [x] Run `npm audit --omit=dev --audit-level=high` against the final production dependency set.
+- [x] Run whole-branch `git diff --check origin/main...HEAD` and scan new execution paths for `shell:true`, privileged/host-network/Docker-socket escapes, and TODO/FIXME/HACK leftovers.
+- [x] Confirm no Swift/macOS native source changed; native build is therefore not a relevant gate for this branch.
+- [x] Compare the parallel continuity branch from the exact merge base and identify the controlled merge overlap.
+- [x] Keep push/merge/publish/release untouched pending explicit user approval.
+
+**Task 11 final evidence:** final code HEAD `6982fcb` passes full build/tests with 71 test files / 433 tests; benchmark/docs focused suite 6/6 PASS; harness security/recovery suite 9 files / 35 tests PASS; browser correlation suite 7 files / 60 tests PASS; real Docker/MCP sandbox acceptance PASS (`workspace=true`, unrelated host repo hidden, external network denied, `hostFallback=false`) and audit remains categorical; production dependency audit reports 0 known vulnerabilities across all severities; whole-branch diff check PASS; no Swift/native source changed. The continuity/harness merge base remains `3daf964`, with exactly three files changed by both branches: `package.json`, `package-lock.json`, and `src/config.ts`. All 11 benchmark fixtures were materialized successfully before the evaluator-only HMAC hardening; that hardening did not modify fixture/scenario materialization code, while the final benchmark protocol itself was re-run 5/5 PASS.
+
+**Explicitly unverified:** no trusted external collector has yet driven a real coding model through all benchmark scenarios in this branch, so no model success rate, Codex parity claim, or comparative quality claim is made. The protocol, fixture determinism, collector provenance gate, runtime safety boundaries, and repository regressions are verified; model-level benchmark results remain a separate future execution step.
