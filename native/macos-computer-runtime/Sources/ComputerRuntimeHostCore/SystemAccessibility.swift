@@ -3,6 +3,15 @@ import ComputerRuntimeCore
 import CoreGraphics
 import Foundation
 
+func isRecoverableAccessibilityAttributeError(_ error: AXError) -> Bool {
+    switch error {
+    case .failure, .attributeUnsupported, .noValue:
+        return true
+    default:
+        return false
+    }
+}
+
 public struct SystemAccessibilityReader: AccessibilityReading {
     private enum Attribute {
         static let role = "AXRole"
@@ -140,7 +149,7 @@ public struct SystemAccessibilityReader: AccessibilityReading {
         switch result {
         case .success:
             return value
-        case .attributeUnsupported, .noValue:
+        case let error where isRecoverableAccessibilityAttributeError(error):
             return nil
         case .apiDisabled:
             throw AccessibilityReadError.permissionRequired
