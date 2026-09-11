@@ -289,6 +289,102 @@ git commit -m "feat: configure existing Chrome browser mode"
 
 ---
 
+### Task 2A: Isolated Existing-Chrome CDP Connector
+
+**Files:**
+- Create: `src/existing-chrome-connector.ts`
+- Create: `tests/existing-chrome-connector.test.ts`
+
+**Interfaces:**
+
+```ts
+export interface ExistingChromePlaywrightFacade {
+  connectOverCDP(
+    endpoint: string,
+    options: { timeout: number; isLocal: true; noDefaults: true },
+  ): Promise<Pick<Browser, "contexts" | "close">>;
+}
+
+export interface ExistingChromeConnectorDependencies {
+  loadChromium: () => Promise<ExistingChromePlaywrightFacade>;
+}
+
+export interface ExistingChromeConnection {
+  context: BrowserContext;
+  disconnect: () => Promise<void>;
+}
+
+export async function connectExistingChrome(
+  input: { userDataDir: string; timeoutMs: number },
+  dependencies: ExistingChromeConnectorDependencies,
+): Promise<ExistingChromeConnection>;
+
+export async function loadProductionExistingChromeChromium(): Promise<ExistingChromePlaywrightFacade>;
+```
+
+This task exists specifically so CDP attachment can be completed without editing browser-core files currently changed by the parallel coding-harness branch. It uses the real `DevToolsActivePort` discovery implementation and injects only the external Playwright boundary.
+
+- [ ] **Step 1: Write RED connector integration tests**
+
+Use a real temporary Chrome user-data directory and real `DevToolsActivePort` file. Inject only `loadChromium`. Assert:
+
+```ts
+expect(connectOverCDP).toHaveBeenCalledWith(
+  "ws://127.0.0.1:9222/devtools/browser/test-browser-token",
+  { timeout: 12_000, isLocal: true, noDefaults: true },
+);
+```
+
+Also prove:
+
+- the returned connection exposes the exact default context from `browser.contexts()[0]`;
+- `disconnect()` calls connected `browser.close()` and never a context close method;
+- zero contexts closes the connected browser and returns stable `BROWSER_LAUNCH_FAILED`;
+- raw Playwright rejection text containing endpoint/token/path data is not present in the public error;
+- missing/malformed `DevToolsActivePort` remains the existing stable `BROWSER_UNAVAILABLE` discovery error and does not call Playwright;
+- disconnect failure is sanitized and does not include Playwright/endpoint details.
+
+- [ ] **Step 2: Run focused RED**
+
+```bash
+npm test -- tests/existing-chrome-connector.test.ts
+```
+
+Expected: RED because `src/existing-chrome-connector.ts` does not exist.
+
+- [ ] **Step 3: Implement the minimal connector**
+
+Use `discoverExistingChromeEndpoint()` directly. `loadChromium()` is the sole injected external boundary. Map `connectOverCDP` and disconnect failures to stable `BrowserError` values without a raw `cause`, endpoint, token, or profile path. If CDP connects but no default context exists, attempt `browser.close()` before returning the stable launch failure; if cleanup also fails, preserve only a safe categorical `cleanupFailed: true` detail.
+
+Production loading is a dynamic import:
+
+```ts
+export async function loadProductionExistingChromeChromium(): Promise<ExistingChromePlaywrightFacade> {
+  const { chromium } = await import("playwright");
+  return {
+    connectOverCDP: (endpoint, options) => chromium.connectOverCDP(endpoint, options),
+  };
+}
+```
+
+- [ ] **Step 4: Run focused GREEN plus strict TypeScript**
+
+```bash
+npm test -- tests/existing-chrome-connector.test.ts tests/existing-chrome-discovery.test.ts
+npx tsc -p tsconfig.json
+```
+
+- [ ] **Step 5: Run full regression and commit**
+
+```bash
+npm run check
+git diff --check
+git add src/existing-chrome-connector.ts tests/existing-chrome-connector.test.ts docs/superpowers/plans/2026-09-11-browser-existing-chrome-attach.md
+git commit -m "feat: connect to user-consented Chrome debugging"
+```
+
+---
+
 ### Task 3: Browser Backend Ownership and Eligible-Page Surface
 
 **Files:**
