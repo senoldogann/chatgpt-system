@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, relative, sep } from "node:path";
 import type { AuditLogger } from "./audit.js";
 import type { AuthorityProfile } from "./authority.js";
@@ -46,15 +46,19 @@ export class ProjectExecService {
     if (!this.enabled) throw new ProjectExecDisabledError();
     validateProjectCommand(this.commands, command, args);
 
-    const cwd = await this.policy.resolve(cwdInput);
-    const info = await stat(cwd);
+    const resolvedCwd = await this.policy.resolve(cwdInput);
+    const info = await stat(resolvedCwd);
     if (!info.isDirectory()) throw new PolicyError("Project execution cwd must be a directory.");
-    const projectRoot = projectRootForCwd(this.policy.roots, cwd);
+    const [cwd, ...canonicalRoots] = await Promise.all([
+      realpath(resolvedCwd),
+      ...this.policy.roots.map((root) => realpath(root)),
+    ]);
+    const projectRoot = projectRootForCwd(canonicalRoots, cwd);
     const boundedTimeoutMs = Math.min(timeoutMs, this.limits.commandTimeoutMs);
 
     return this.audit.run(
       "project.exec",
-      this.policy.display(cwd),
+      this.policy.display(resolvedCwd),
       () => this.backend.run({
         projectRoot,
         cwd,

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,6 +14,51 @@ afterEach(async () => {
 });
 
 describe("project execution audit", () => {
+  it("canonicalizes a symlink-alias cwd before selecting the Project root", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-project-exec-alias-"));
+    cleanups.push(base);
+    const root = path.join(base, "root");
+    const alias = path.join(base, "root-alias");
+    const auditFile = path.join(base, "audit.jsonl");
+    await mkdir(root);
+    await symlink(root, alias, "dir");
+    const canonicalRoot = await realpath(root);
+    let backendRequest: Parameters<ProjectExecBackend["run"]>[0] | undefined;
+    const backend: ProjectExecBackend = {
+      async run(request) {
+        backendRequest = request;
+        return {
+          command: request.command,
+          args: [...request.args],
+          cwd: request.cwd,
+          exitCode: 0,
+          signal: null,
+          stdout: "",
+          stderr: "",
+          timedOut: false,
+          sandbox: { backend: "docker", network: "none", hostFallback: false },
+        };
+      },
+    };
+
+    const service = new ProjectExecService(
+      new PathPolicy([canonicalRoot]),
+      new AuditLogger(auditFile),
+      backend,
+      true,
+      "project",
+      ["node"],
+      { commandTimeoutMs: 5_000 },
+    );
+
+    await service.run("node", ["--version"], alias, 1_000);
+
+    expect(backendRequest).toMatchObject({
+      projectRoot: canonicalRoot,
+      cwd: canonicalRoot,
+    });
+  });
+
   it("records categorical execution metadata without command arguments or output payloads", async () => {
     const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-project-exec-audit-"));
     cleanups.push(base);
