@@ -1,6 +1,7 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { AppError } from "./errors.js";
 
 export interface AuditEvent {
   action: string;
@@ -42,7 +43,7 @@ export class AuditLogger {
         durationMs: performance.now() - started,
         metadata: {
           ...(metadata ?? {}),
-          error: error instanceof Error ? error.message : String(error),
+          errorCode: error instanceof AppError ? error.code : "INTERNAL_ERROR",
         },
       });
       throw error;

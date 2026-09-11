@@ -303,6 +303,16 @@ Enhance existing browser diagnostics rather than creating a parallel browser age
 
 Normalize new stable errors and retryability. Ensure new project execution, code intelligence, task state, patch transaction, worktree, and verification operations produce redacted audit metadata. Test daemon/task/LSP/sandbox crash recovery and stale authority/evidence behavior.
 
+- [x] Redact generic audit failure metadata to stable `errorCode` only; never persist `Error.message` or `AppError.details`.
+- [x] Lock retryability for harness errors: unavailable sandbox/timeouts/verification are explicit; policy, dirty-state, recovery, and unsupported semantic errors do not encourage blind retry.
+- [x] Verify corrupt durable task state fails closed with `RECOVERY_REQUIRED`.
+- [x] Verify corrupt persisted project-check evidence fails closed with `RECOVERY_REQUIRED` and does not leak corrupt payload into audit.
+- [x] Verify revoked Project authority cannot be reused by durable harness tools.
+- [x] Re-run existing patch journal recovery, managed-worktree tamper recovery, LSP unavailable, and sandbox unavailable/timeout regressions in the focused harness suite.
+- [x] Run focused GREEN tests, full `npm run check`, and `git diff --check`.
+
+**Task 7 verification evidence:** focused harness security/recovery suite 9 files / 35 tests PASS; centralized audit error redaction 2/2 PASS; stable error/retryability contract 11/11 PASS; corrupt task/verification state and revoked authority covered; final full suite 69 files / 427 tests PASS; `git diff --check` PASS.
+
 ---
 
 ### Task 8: Tool-surface and backward-compatibility review

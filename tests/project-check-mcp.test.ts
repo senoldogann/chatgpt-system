@@ -370,4 +370,41 @@ describe("project_check MCP tool", () => {
       await disabled.client.close();
     }
   });
+  it("fails closed when persisted verification evidence is corrupt", async () => {
+    const connected = await fixture(true);
+    try {
+      const leaseId = await projectLease(connected.client, connected.root);
+      const run = await connected.client.callTool({
+        name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "run", cwd: connected.root },
+      });
+      expect(run.isError).not.toBe(true);
+      const projects = await readdir(path.join(connected.taskStateRoot, "projects"));
+      expect(projects).toHaveLength(1);
+      const storePath = path.join(
+        connected.taskStateRoot,
+        "projects",
+        projects[0]!,
+        "verification",
+        "latest.json",
+      );
+      await writeFile(storePath, "{verification-secret=must-not-leak", "utf8");
+
+      const report = await connected.client.callTool({
+        name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "report", cwd: connected.root },
+      });
+      expect(report.isError).toBe(true);
+      expect(resultText(report)).toContain("RECOVERY_REQUIRED");
+      expect(resultText(report)).not.toContain("must-not-leak");
+
+      const audit = await readFile(connected.config.auditFile, "utf8");
+      expect(audit).toContain('"errorCode":"RECOVERY_REQUIRED"');
+      expect(audit).not.toContain("must-not-leak");
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
 });

@@ -412,4 +412,49 @@ describe("task_state MCP tool", () => {
       await connected.client.close();
     }
   });
+  it("fails closed on corrupt durable state and rejects a revoked Project lease", async () => {
+    const { root, taskStateRoot, config } = await fixture();
+    const connected = await connectRuntime(config, taskStateRoot);
+    try {
+      const leaseId = await projectLease(connected.client, root);
+      const started = await connected.client.callTool({
+        name: "task_state",
+        arguments: { authorityLeaseId: leaseId, operation: "start", cwd: root, goal: "Recovery fixture" },
+      });
+      expect(started.isError).not.toBe(true);
+      const body = started.structuredContent as unknown as TaskStateView;
+      const persistedPath = path.join(
+        taskStateRoot,
+        "projects",
+        body.projectFingerprint,
+        "tasks",
+        `${body.taskId}.json`,
+      );
+      await writeFile(persistedPath, "{corrupt-state-secret=must-not-leak", "utf8");
+
+      const corrupt = await connected.client.callTool({
+        name: "task_state",
+        arguments: { authorityLeaseId: leaseId, operation: "status", cwd: root, taskId: body.taskId },
+      });
+      expect(corrupt.isError).toBe(true);
+      expect(resultText(corrupt)).toContain("RECOVERY_REQUIRED");
+      expect(resultText(corrupt)).not.toContain("must-not-leak");
+
+      const ended = await connected.client.callTool({
+        name: "session_authority_end",
+        arguments: { authorityLeaseId: leaseId },
+      });
+      expect(ended.isError).not.toBe(true);
+      const staleAuthority = await connected.client.callTool({
+        name: "task_state",
+        arguments: { authorityLeaseId: leaseId, operation: "status", cwd: root, taskId: body.taskId },
+      });
+      expect(staleAuthority.isError).toBe(true);
+      expect(resultText(staleAuthority)).toContain("AUTHORITY_REQUIRED");
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
 });
