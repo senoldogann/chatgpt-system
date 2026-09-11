@@ -45,7 +45,7 @@ const CREDENTIAL_KEYWORDS = [
   /\bcard\s+number\b/i,
 ];
 
-const EDITABLE_ARIA_VALUE = /^(\s*-\s+(?:textbox|searchbox|combobox|spinbutton)(?:\s+"[^"]*")?(?:\s+\[[^\]]+\])?):.*$/i;
+const EDITABLE_ARIA_VALUE = /^(\s*-\s+(?:textbox|searchbox|combobox|spinbutton)(?:\s+"[^"]*")?(?:\s+\[[^\]]+\])*):.*$/i;
 
 export class BrowserService {
   private readonly timeoutMs: number;
@@ -291,10 +291,22 @@ export class BrowserService {
   }
 
   private redactEditableSnapshotValues(snapshot: string): string {
-    return snapshot
-      .split("\n")
-      .map((line) => line.replace(EDITABLE_ARIA_VALUE, "$1"))
-      .join("\n");
+    const redacted: string[] = [];
+    let editableIndent: number | null = null;
+
+    for (const line of snapshot.split("\n")) {
+      const indent = line.length - line.trimStart().length;
+      if (editableIndent !== null && indent > editableIndent) continue;
+      editableIndent = null;
+
+      const sanitized = line.replace(EDITABLE_ARIA_VALUE, "$1");
+      redacted.push(sanitized);
+      if (sanitized !== line || /^\s*-\s+(?:textbox|searchbox|combobox|spinbutton)\b/i.test(line)) {
+        editableIndent = indent;
+      }
+    }
+
+    return redacted.join("\n");
   }
 
   private assertTabListWithinLimits(tabs: BrowserTabView[]): void {

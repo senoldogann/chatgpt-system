@@ -251,6 +251,21 @@ describe("BrowserService policy", () => {
     );
   });
 
+  it("redacts descendant content from editable ARIA roles before returning a snapshot", async () => {
+    const fake = new FakeBrowserBackend();
+    fake.snapshotValue = [
+      '- textbox "Chat with ChatGPT" [active] [ref=e270]:',
+      '  - paragraph [ref=e851]: UNSENT_REDACTION_PROBE_7F3A',
+      '- button "Attach files" [ref=e852]',
+    ].join("\n");
+    const { service } = makeService(fake);
+
+    expect((await service.snapshot(PAGE_ID)).snapshot).toBe([
+      '- textbox "Chat with ChatGPT" [active] [ref=e270]',
+      '- button "Attach files" [ref=e852]',
+    ].join("\n"));
+  });
+
   it("refuses key input when the focused element is credential-shaped", async () => {
     const { fake, service } = makeService();
     fake.focusedMetadataValue = {
