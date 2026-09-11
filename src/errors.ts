@@ -83,6 +83,16 @@ export class WorktreeDirtyError extends AppError {
   }
 }
 
+export class VerificationRequiredError extends AppError {
+  constructor(overallStatus: string) {
+    super(
+      `Fresh passing project verification is required before task completion. Current status: ${overallStatus}.`,
+      "VERIFICATION_REQUIRED",
+      { overallStatus, retryable: true },
+    );
+  }
+}
+
 export class ProjectExecDisabledError extends AppError {
   constructor() {
     super(

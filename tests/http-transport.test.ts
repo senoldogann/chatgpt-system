@@ -46,6 +46,7 @@ const expectedAnnotations = {
   code_query: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   task_state: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   project_exec: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  project_check: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   browser_health: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   browser_tabs: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   browser_new_tab: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },

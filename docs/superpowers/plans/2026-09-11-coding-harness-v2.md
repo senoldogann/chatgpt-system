@@ -265,6 +265,19 @@ UNAVAILABLE
 
 Tie `task_state.complete` to current verification policy without pretending unavailable checks passed.
 
+- [x] Add RED MCP integration coverage for `detect`, `run`, and `report`.
+- [x] Detect repository-defined package scripts instead of accepting caller-provided commands.
+- [x] Prefer an existing aggregate `check` script; otherwise detect existing typecheck/lint/test/build scripts only.
+- [x] Run detected checks through the existing Project Docker sandbox with no host fallback or network widening.
+- [x] Persist bounded `0600` verification evidence with HEAD, working-tree digest, timing, exit status, and stdout/stderr SHA-256 digests only.
+- [x] Mark evidence `STALE` after HEAD/working-tree changes or when a check mutates code state during execution.
+- [x] Distinguish `PASS`, `FAIL`, `NOT_RUN`, `STALE`, and `UNAVAILABLE` without treating unavailable execution as success.
+- [x] Gate `task_state.complete` only when detectable verification is required; require fresh `PASS` while preserving completion for repositories with no detected checks.
+- [x] Keep arbitrary command/argument injection out of the `project_check` MCP schema.
+- [x] Run focused GREEN tests, full `npm run check`, and `git diff --check`.
+
+**Task 5 verification evidence:** focused project-check/task-state/catalog suite 7/7 PASS; arbitrary-command schema rejection, digest-only persistence, PASS/FAIL/STALE/UNAVAILABLE behavior, code-state mutation staleness, and completion gating covered; final full suite 67 files / 411 tests PASS. One first full-suite run hit only parallel 5-second integration-test timeouts; narrowing tool construction removed unnecessary runtime overhead and the unchanged assertions passed on the fresh full rerun.
+
 ---
 
 ### Task 6: Browser/runtime/source correlation

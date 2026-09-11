@@ -29,6 +29,7 @@ import { registerPatchSetTool } from "./patch-set-tool-registration.js";
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { ProcessSupervisor } from "./process-supervisor.js";
+import { registerProjectCheckTool } from "./project-check-tool-registration.js";
 import { registerProjectExecTool } from "./project-exec-tool-registration.js";
 import { registerTaskStateTool } from "./task-state-tool-registration.js";
 import type { ProjectExecBackend } from "./project-exec-types.js";
@@ -648,6 +649,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   registerCodeQueryTool(server, runtime);
   registerGitWorktreeTool(server, runtime);
   registerPatchSetTool(server, runtime);
+  registerProjectCheckTool(server, runtime);
   registerTaskStateTool(server, runtime);
   registerProjectExecTool(server, runtime);
   registerBrowserTools(server, runtime);

@@ -257,7 +257,7 @@ export class TaskStateService {
     }
   }
 
-  private async observe(cwdInput: string): Promise<RepositoryStateObservation> {
+  async observeRepositoryState(cwdInput: string): Promise<RepositoryStateObservation> {
     const cwd = await this.policy.resolve(cwdInput);
     const rootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"], this.limits.commandTimeoutMs, 64 * 1024);
     if (rootResult.exitCode !== 0) throw new PolicyError("Task state requires a Git repository.");
@@ -395,7 +395,7 @@ export class TaskStateService {
 
   async start(goalInput: string, cwdInput = ".", nextStepInput?: string): Promise<TaskStateView> {
     this.assertProject();
-    const observation = await this.observe(cwdInput);
+    const observation = await this.observeRepositoryState(cwdInput);
     const now = new Date().toISOString();
     const record: StoredTaskState = {
       taskId: randomUUID(),
@@ -429,7 +429,7 @@ export class TaskStateService {
     cwdInput = ".",
   ): Promise<TaskStateView> {
     this.assertProject();
-    const observation = await this.observe(cwdInput);
+    const observation = await this.observeRepositoryState(cwdInput);
     return this.audit.run(
       "task.state",
       this.policy.display(observation.repositoryRoot),
@@ -470,7 +470,7 @@ export class TaskStateService {
 
   async status(taskId: string, cwdInput = "."): Promise<TaskStateView> {
     this.assertProject();
-    const observation = await this.observe(cwdInput);
+    const observation = await this.observeRepositoryState(cwdInput);
     return this.audit.run(
       "task.state",
       this.policy.display(observation.repositoryRoot),
@@ -487,7 +487,7 @@ export class TaskStateService {
     cwdInput: string,
   ): Promise<TaskStateView> {
     this.assertProject();
-    const observation = await this.observe(cwdInput);
+    const observation = await this.observeRepositoryState(cwdInput);
     return this.audit.run(
       "task.state",
       this.policy.display(observation.repositoryRoot),

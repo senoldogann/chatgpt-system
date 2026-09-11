@@ -192,6 +192,53 @@ export const gitWorktreeOutputSchema = z.object({
   removed: z.boolean(),
 }).strict();
 
+const projectCheckStatusSchema = z.enum(["PASS", "FAIL", "NOT_RUN", "STALE", "UNAVAILABLE"]);
+const projectCheckKindSchema = z.enum(["check", "typecheck", "lint", "test", "build"]);
+const projectCheckDetectedFields = {
+  checkId: z.string(),
+  kind: projectCheckKindSchema,
+  command: z.string(),
+  args: z.array(z.string()),
+  cwd: z.string(),
+  source: z.string(),
+};
+const projectCheckEvidenceSchema = z.object({
+  ...projectCheckDetectedFields,
+  baseStatus: z.enum(["PASS", "FAIL", "UNAVAILABLE"]),
+  startedAt: z.string(),
+  finishedAt: z.string(),
+  durationMs: nonNegativeInt,
+  exitCode: z.number().int().nullable(),
+  head: z.string().regex(/^[a-f0-9]{40,64}$/i),
+  workingTreeDigest: sha256Schema,
+  stdoutSha256: sha256Schema,
+  stderrSha256: sha256Schema,
+  stdoutBytes: nonNegativeInt,
+  stderrBytes: nonNegativeInt,
+  stateChangedDuringRun: z.boolean(),
+}).strict();
+const projectCheckItemSchema = z.object({
+  ...projectCheckDetectedFields,
+  status: projectCheckStatusSchema,
+  evidence: projectCheckEvidenceSchema.optional(),
+  freshness: z.object({
+    headMatches: z.boolean(),
+    workingTreeMatches: z.boolean(),
+  }).strict().optional(),
+}).strict();
+
+export const projectCheckOutputSchema = z.object({
+  operation: z.enum(["detect", "run", "report"]),
+  repositoryRoot: z.string(),
+  required: z.boolean(),
+  overallStatus: projectCheckStatusSchema,
+  observed: z.object({
+    head: z.string().regex(/^[a-f0-9]{40,64}$/i),
+    workingTreeDigest: sha256Schema,
+  }).strict(),
+  checks: z.array(projectCheckItemSchema),
+}).strict();
+
 export const terminalResultOutputSchema = z.object({
   command: z.string(),
   args: z.array(z.string()),

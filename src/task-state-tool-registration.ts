@@ -3,8 +3,11 @@ import { z } from "zod";
 import type { AuthorityManager } from "./authority.js";
 import type { AuditLogger } from "./audit.js";
 import type { AppConfig } from "./config.js";
-import { errorPayload } from "./errors.js";
+import { errorPayload, VerificationRequiredError } from "./errors.js";
 import { PathPolicy } from "./policy.js";
+import { ProjectCheckService } from "./project-check-service.js";
+import { ProjectExecService } from "./project-exec-service.js";
+import type { ProjectExecBackend } from "./project-exec-types.js";
 import { TaskStateService } from "./task-state-service.js";
 import { taskStateOutputSchema } from "./tool-output-schemas.js";
 
@@ -12,6 +15,7 @@ export interface TaskStateToolRuntime {
   authority: AuthorityManager;
   audit: AuditLogger;
   config: AppConfig;
+  projectExecBackend: ProjectExecBackend;
   taskStateRoot: string;
 }
 
@@ -86,15 +90,20 @@ async function safeCall<T extends object>(fn: () => Promise<T>) {
   }
 }
 
-function taskStateFor(runtime: TaskStateToolRuntime, authorityLeaseId: string): TaskStateService {
+function taskContextFor(runtime: TaskStateToolRuntime, authorityLeaseId: string) {
   const authority = runtime.authority.resolve(authorityLeaseId);
-  return new TaskStateService(
-    new PathPolicy([...authority.roots]),
-    runtime.audit,
-    runtime.taskStateRoot,
-    authority.profile,
-    runtime.config.limits,
-  );
+  const policy = new PathPolicy([...authority.roots]);
+  return {
+    authority,
+    policy,
+    taskState: new TaskStateService(
+      policy,
+      runtime.audit,
+      runtime.taskStateRoot,
+      authority.profile,
+      runtime.config.limits,
+    ),
+  };
 }
 
 export function registerTaskStateTool(server: McpServer, runtime: TaskStateToolRuntime): void {
@@ -107,12 +116,12 @@ export function registerTaskStateTool(server: McpServer, runtime: TaskStateToolR
       annotations: taskStateAnnotations,
     },
     async (input) => safeCall(async () => {
-      const service = taskStateFor(runtime, input.authorityLeaseId);
+      const { authority, policy, taskState } = taskContextFor(runtime, input.authorityLeaseId);
       if (input.operation === "start") {
-        return service.start(input.goal, input.cwd, input.nextStep);
+        return taskState.start(input.goal, input.cwd, input.nextStep);
       }
       if (input.operation === "checkpoint") {
-        return service.checkpoint(input.taskId, {
+        return taskState.checkpoint(input.taskId, {
           summary: input.summary,
           ...(input.findings !== undefined ? { findings: input.findings } : {}),
           ...(input.decisions !== undefined ? { decisions: input.decisions } : {}),
@@ -123,12 +132,32 @@ export function registerTaskStateTool(server: McpServer, runtime: TaskStateToolR
         }, input.cwd);
       }
       if (input.operation === "status") {
-        return service.status(input.taskId, input.cwd);
+        return taskState.status(input.taskId, input.cwd);
       }
       if (input.operation === "complete") {
-        return service.complete(input.taskId, input.summary, input.evidenceRefs, input.cwd);
+        const projectExec = new ProjectExecService(
+          policy,
+          runtime.audit,
+          runtime.projectExecBackend,
+          runtime.config.projectExec.enabled,
+          authority.profile,
+          [...runtime.config.terminal.commands],
+          runtime.config.limits,
+        );
+        const verification = await new ProjectCheckService(
+          policy,
+          runtime.audit,
+          runtime.taskStateRoot,
+          authority.profile,
+          runtime.config.limits,
+          projectExec,
+        ).report(input.cwd);
+        if (verification.required && verification.overallStatus !== "PASS") {
+          throw new VerificationRequiredError(verification.overallStatus);
+        }
+        return taskState.complete(input.taskId, input.summary, input.evidenceRefs, input.cwd);
       }
-      return service.fail(input.taskId, input.summary, input.evidenceRefs, input.cwd);
+      return taskState.fail(input.taskId, input.summary, input.evidenceRefs, input.cwd);
     }),
   );
 }
