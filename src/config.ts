@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
+import { defaultExistingChromeUserDataDir } from "./existing-chrome-discovery.js";
 
 export const COMPUTER_MAX_JS_SOURCE_BYTES = 262_144;
 export const COMPUTER_MAX_JS_RUNTIME_MS = 30_000;
@@ -18,11 +19,15 @@ export interface LimitsConfig {
   processStopGraceMs: number;
 }
 
+export type BrowserConnectionMode = "managed" | "existing-chrome";
+
 export interface BrowserConfig {
   enabled: boolean;
+  connectionMode: BrowserConnectionMode;
   headless: boolean;
   timeoutMs: number;
   userDataDir: string;
+  existingChromeUserDataDir: string | null;
 }
 
 export interface ComputerUseConfig {
@@ -76,6 +81,8 @@ export interface ConfigOverrides {
   browserHeadless?: boolean;
   browserTimeoutMs?: number;
   browserUserDataDir?: string;
+  browserExistingChrome?: boolean;
+  browserExistingChromeUserDataDir?: string;
   controlEnabled?: boolean;
   controlSocketPath?: string;
   host?: string;
@@ -104,6 +111,8 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_BROWSER_HEADLESS: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_BROWSER_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_BROWSER_USER_DATA_DIR: z.string().optional(),
+  CHATGPT_SYSTEM_BROWSER_EXISTING_CHROME: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_BROWSER_EXISTING_CHROME_USER_DATA_DIR: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_CONTROL: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_CONTROL_SOCKET: z.string().optional(),
   CHATGPT_SYSTEM_HTTP_HOST: z.string().optional(),
@@ -195,6 +204,31 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     overrides.browserUserDataDir ?? env.CHATGPT_SYSTEM_BROWSER_USER_DATA_DIR,
     homeDir,
   );
+  const browserEnabled = overrides.browserEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_BROWSER);
+  const browserHeadless = overrides.browserHeadless ?? enabled(env.CHATGPT_SYSTEM_BROWSER_HEADLESS);
+  const browserExistingChrome = overrides.browserExistingChrome ?? enabled(env.CHATGPT_SYSTEM_BROWSER_EXISTING_CHROME);
+  const browserExistingChromeUserDataDirInput =
+    overrides.browserExistingChromeUserDataDir ?? env.CHATGPT_SYSTEM_BROWSER_EXISTING_CHROME_USER_DATA_DIR;
+
+  if (browserExistingChrome && !browserEnabled) {
+    throw new Error("Existing Chrome mode requires --enable-browser.");
+  }
+  if (browserExistingChrome && browserHeadless) {
+    throw new Error("Existing Chrome mode cannot be combined with browser headless mode.");
+  }
+  if (browserExistingChromeUserDataDirInput !== undefined && !browserExistingChrome) {
+    throw new Error("Existing Chrome user-data directory requires --browser-existing-chrome.");
+  }
+
+  const browserConnectionMode: BrowserConnectionMode = browserExistingChrome ? "existing-chrome" : "managed";
+  const existingChromeUserDataDir = browserConnectionMode === "existing-chrome"
+    ? resolveHomePath(
+        browserExistingChromeUserDataDirInput
+          ?? defaultExistingChromeUserDataDir(process.platform, homeDir, process.env.LOCALAPPDATA),
+        homeDir,
+        "Existing Chrome user-data directory",
+      )
+    : null;
 
   const config: AppConfig = {
     roots,
@@ -223,10 +257,12 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       maxJsOutputBytes: env.CHATGPT_SYSTEM_COMPUTER_MAX_JS_OUTPUT_BYTES ?? COMPUTER_MAX_JS_OUTPUT_BYTES,
     },
     browser: {
-      enabled: overrides.browserEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_BROWSER),
-      headless: overrides.browserHeadless ?? enabled(env.CHATGPT_SYSTEM_BROWSER_HEADLESS),
+      enabled: browserEnabled,
+      connectionMode: browserConnectionMode,
+      headless: browserHeadless,
       timeoutMs: overrides.browserTimeoutMs ?? env.CHATGPT_SYSTEM_BROWSER_TIMEOUT_MS ?? 10_000,
       userDataDir: browserUserDataDir,
+      existingChromeUserDataDir,
     },
     control: {
       enabled: overrides.controlEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_CONTROL),

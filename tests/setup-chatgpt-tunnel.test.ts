@@ -53,6 +53,8 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.mcpCommand).not.toContain("--personal-admin");
     expect(setup.mcpCommand).not.toContain("--enable-browser");
     expect(setup.mcpCommand).not.toContain("--browser-headless");
+    expect(setup.mcpCommand).not.toContain("--browser-existing-chrome");
+    expect(setup.mcpCommand).not.toContain("--browser-existing-chrome-user-data-dir");
     expect(setup.mcpCommand).not.toContain("--enable-computer-use");
     expect(setup.mcpCommand).not.toContain("--enable-full-host-js");
     expect(setup.mcpCommand).toContain("stdio");
@@ -70,6 +72,47 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
 
     expect(setup.mcpCommand).toContain("--enable-browser");
     expect(setup.mcpCommand).not.toContain("--browser-headless");
+  });
+
+  it("adds existing Chrome attach only when explicitly requested with browser capability", () => {
+    expect(() => buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--browser-existing-chrome",
+    ], {}, context)).toThrow(/enable-browser/i);
+
+    expect(() => buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-browser",
+      "--browser-existing-chrome-user-data-dir", "~/Chrome",
+    ], {}, context)).toThrow(/existing-chrome/i);
+
+    expect(() => buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-browser",
+      "--browser-existing-chrome",
+      "--browser-headless",
+    ], {}, context)).toThrow(/headless/i);
+
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-browser",
+      "--browser-existing-chrome",
+      "--browser-existing-chrome-user-data-dir", "~/Library/Application Support/Google/Chrome",
+    ], {}, context);
+
+    expect(setup.mcpCommand).toContain("--enable-browser");
+    expect(setup.mcpCommand).toContain("--browser-existing-chrome");
+    expect(setup.mcpCommand).toContain("--browser-existing-chrome-user-data-dir");
+    expect(setup.mcpCommand).toContain("~/Library/Application Support/Google/Chrome");
+    expect(setup.mcpCommand).not.toContain("--browser-headless");
+    expect(setup.displayMcpCommand).toContain("--browser-existing-chrome-user-data-dir");
+    expect(setup.displayMcpCommand).toContain("<redacted-chrome-user-data-dir>");
+    expect(setup.displayMcpCommand).not.toContain("~/Library/Application Support/Google/Chrome");
+    expect(setup.displayInitArgs.join(" ")).not.toContain("~/Library/Application Support/Google/Chrome");
   });
 
   it("adds computer use only when explicitly requested", () => {
