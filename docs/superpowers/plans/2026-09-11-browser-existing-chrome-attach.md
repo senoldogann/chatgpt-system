@@ -388,8 +388,10 @@ git commit -m "feat: connect to user-consented Chrome debugging"
 ### Task 3: Browser Backend Ownership and Eligible-Page Surface
 
 **Files:**
-- Modify: `src/playwright-browser-backend.ts`
-- Modify: `tests/playwright-browser-backend.test.ts`
+- Create: `src/existing-chrome-page-policy.ts`
+- Create: `tests/existing-chrome-page-policy.test.ts`
+- Modify after coordination gate: `src/playwright-browser-backend.ts`
+- Modify after coordination gate: `tests/playwright-browser-backend.test.ts`
 
 **Interfaces:**
 
@@ -435,13 +437,13 @@ const backend = new PlaywrightBrowserBackend(context, {
 
 Assert `backend.close()` invokes `closeBackend` and does **not** call `context.close()`.
 
-Add pure exported predicate:
+Add the pure predicate in `src/existing-chrome-page-policy.ts` before touching the shared backend:
 
 ```ts
 export function isExistingChromePageEligible(url: string): boolean;
 ```
 
-Expected true for `https://example.com`, `http://localhost:3000`, `about:blank`; false for `chrome://settings`, `chrome-extension://id/page.html`, `devtools://...`, `file:///...`, `data:...`.
+Expected true for `https://example.com`, `http://localhost:3000`, `about:blank`; false for `chrome://settings`, `chrome-untrusted://...`, `chrome-extension://id/page.html`, `devtools://...`, `file:///...`, `data:...`, `blob:...`, malformed URLs, and non-exact `about:` variants. The later backend change imports this predicate rather than defining policy inline.
 
 Register both eligible and internal pages in the fake context. `tabs()` must return only eligible pages. Calling a page-targeting method for an internal-page ID that was never exposed or that became ineligible must return `BROWSER_PAGE_NOT_FOUND` rather than operate on it.
 
