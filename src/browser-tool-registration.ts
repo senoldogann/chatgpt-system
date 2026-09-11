@@ -282,7 +282,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_console_errors",
     {
-      description: "Read the bounded recent browser console error/warning tail. Console payload is never audited.",
+      description: "Read bounded recent console error/warning evidence with generation/sequence correlation and sanitized runtime source metadata when available. Source-map locations are never invented when deterministic mapping is unavailable. Console payload is never audited.",
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserConsoleOutputSchema,
       annotations: browserReadAnnotations,
@@ -293,7 +293,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_network_errors",
     {
-      description: "Read bounded recent request/HTTP errors with URL query strings and fragments removed.",
+      description: "Read bounded recent request/HTTP error evidence with generation/sequence, opaque request correlation, resource metadata, and sanitized initiator/URL fields. Query strings, fragments, headers, cookies, and bodies are not exposed.",
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserNetworkOutputSchema,
       annotations: browserReadAnnotations,

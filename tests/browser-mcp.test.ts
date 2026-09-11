@@ -59,12 +59,39 @@ class FakeBrowserBackend implements BrowserBackend {
     return { pageId: PAGE_ID, pngBase64: "iVBORw0KGgo=", width: 1, height: 1 };
   }
   async consoleErrors(): Promise<BrowserConsoleResult> {
-    return { pageId: PAGE_ID, entries: [{ level: "error", message: "boom" }], truncated: false };
+    return {
+      pageId: PAGE_ID,
+      generation: 2,
+      latestSequence: 7,
+      entries: [{
+        level: "error",
+        message: "boom",
+        evidence: { generation: 2, sequence: 7 },
+        runtimeSource: {
+          url: "https://example.com/assets/app.js?token=source-secret#fragment",
+          lineNumber: 4,
+          columnNumber: 9,
+          sourceMapStatus: "UNAVAILABLE",
+        },
+      }],
+      truncated: false,
+    };
   }
   async networkErrors(): Promise<BrowserNetworkResult> {
     return {
       pageId: PAGE_ID,
-      entries: [{ method: "GET", url: "https://example.com/api?token=secret#fragment", status: 500 }],
+      generation: 2,
+      latestSequence: 8,
+      entries: [{
+        method: "GET",
+        url: "https://example.com/api?token=secret#fragment",
+        status: 500,
+        evidence: { generation: 2, sequence: 8 },
+        requestId: "opaque_request_123456",
+        resourceType: "fetch",
+        navigationRequest: false,
+        initiator: { kind: "frame", url: "https://example.com/page?auth=secret#private" },
+      }],
       truncated: false,
     };
   }
@@ -231,6 +258,40 @@ describe("browser MCP tools", () => {
       expect(screenshot.content.some((item) => item.type === "image")).toBe(true);
       expect(screenshot.structuredContent).toEqual({ pageId: PAGE_ID, width: 1, height: 1 });
       expect(JSON.stringify(screenshot.structuredContent)).not.toContain("pngBase64");
+
+      const consoleErrors = await client.callTool({
+        name: "browser_console_errors",
+        arguments: { authorityLeaseId: admin.leaseId, pageId: PAGE_ID },
+      });
+      expect(consoleErrors.isError).not.toBe(true);
+      expect(consoleErrors.structuredContent).toMatchObject({
+        generation: 2,
+        latestSequence: 7,
+        entries: [{
+          evidence: { generation: 2, sequence: 7 },
+          runtimeSource: {
+            url: "https://example.com/assets/app.js",
+            sourceMapStatus: "UNAVAILABLE",
+          },
+        }],
+      });
+
+      const networkErrors = await client.callTool({
+        name: "browser_network_errors",
+        arguments: { authorityLeaseId: admin.leaseId, pageId: PAGE_ID },
+      });
+      expect(networkErrors.isError).not.toBe(true);
+      expect(networkErrors.structuredContent).toMatchObject({
+        generation: 2,
+        latestSequence: 8,
+        entries: [{
+          url: "https://example.com/api",
+          requestId: "opaque_request_123456",
+          resourceType: "fetch",
+          navigationRequest: false,
+          initiator: { kind: "frame", url: "https://example.com/page" },
+        }],
+      });
 
       const closed = await client.callTool({ name: "browser_close", arguments: { authorityLeaseId: admin.leaseId } });
       expect(closed.structuredContent).toEqual({ closed: true });

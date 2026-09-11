@@ -40,17 +40,36 @@ class FakeBrowserBackend implements BrowserBackend {
   };
   consoleValue: BrowserConsoleResult = {
     pageId: PAGE_ID,
-    entries: [{ level: "error", message: "boom" }],
+    generation: 3,
+    latestSequence: 7,
+    entries: [{
+      level: "error",
+      message: "boom",
+      evidence: { generation: 3, sequence: 7 },
+      runtimeSource: {
+        url: "https://example.com/assets/app.js?token=source-secret#source-fragment",
+        lineNumber: 12,
+        columnNumber: 34,
+        sourceMapStatus: "UNAVAILABLE",
+      },
+    }],
     truncated: false,
   };
   networkValue: BrowserNetworkResult = {
     pageId: PAGE_ID,
+    generation: 3,
+    latestSequence: 8,
     entries: [
       {
         method: "GET",
         url: "https://example.com/api?token=secret#private",
         status: 500,
         failure: "server error",
+        evidence: { generation: 3, sequence: 8 },
+        requestId: "req_opaque_123",
+        resourceType: "fetch",
+        navigationRequest: false,
+        initiator: { kind: "frame", url: "https://example.com/page?auth=secret#private" },
       },
     ],
     truncated: false,
@@ -278,12 +297,42 @@ describe("BrowserService policy", () => {
     expect(observedTimeout).toBe(2_500);
   });
 
-  it("strips query strings and fragments from returned network diagnostic URLs", async () => {
+  it("sanitizes correlation URLs while preserving opaque diagnostic evidence metadata", async () => {
     const { service } = makeService();
+
+    expect(await service.consoleErrors(PAGE_ID)).toEqual({
+      pageId: PAGE_ID,
+      generation: 3,
+      latestSequence: 7,
+      entries: [{
+        level: "error",
+        message: "boom",
+        evidence: { generation: 3, sequence: 7 },
+        runtimeSource: {
+          url: "https://example.com/assets/app.js",
+          lineNumber: 12,
+          columnNumber: 34,
+          sourceMapStatus: "UNAVAILABLE",
+        },
+      }],
+      truncated: false,
+    });
 
     expect(await service.networkErrors(PAGE_ID)).toEqual({
       pageId: PAGE_ID,
-      entries: [{ method: "GET", url: "https://example.com/api", status: 500, failure: "server error" }],
+      generation: 3,
+      latestSequence: 8,
+      entries: [{
+        method: "GET",
+        url: "https://example.com/api",
+        status: 500,
+        failure: "server error",
+        evidence: { generation: 3, sequence: 8 },
+        requestId: "req_opaque_123",
+        resourceType: "fetch",
+        navigationRequest: false,
+        initiator: { kind: "frame", url: "https://example.com/page" },
+      }],
       truncated: false,
     });
   });

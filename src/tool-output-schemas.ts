@@ -436,25 +436,49 @@ export const browserScreenshotMetadataOutputSchema = z.object({
   height: nonNegativeInt,
 });
 
+const browserDiagnosticEvidenceOutputSchema = z.object({
+  generation: nonNegativeInt,
+  sequence: z.number().int().positive(),
+}).strict();
+
 export const browserConsoleOutputSchema = z.object({
   pageId: browserPageIdSchema,
+  generation: nonNegativeInt,
+  latestSequence: nonNegativeInt,
   entries: z.array(z.object({
     level: z.enum(["error", "warning"]),
     message: z.string(),
-  })),
+    evidence: browserDiagnosticEvidenceOutputSchema,
+    runtimeSource: z.object({
+      url: z.string(),
+      lineNumber: nonNegativeInt.optional(),
+      columnNumber: nonNegativeInt.optional(),
+      sourceMapStatus: z.literal("UNAVAILABLE"),
+    }).strict().optional(),
+  }).strict()),
   truncated: z.boolean(),
-});
+}).strict();
 
 export const browserNetworkOutputSchema = z.object({
   pageId: browserPageIdSchema,
+  generation: nonNegativeInt,
+  latestSequence: nonNegativeInt,
   entries: z.array(z.object({
     method: z.string(),
     url: z.string(),
     status: z.number().int().optional(),
     failure: z.string().optional(),
-  })),
+    evidence: browserDiagnosticEvidenceOutputSchema,
+    requestId: z.string().min(16).max(128),
+    resourceType: z.string().min(1).max(128),
+    navigationRequest: z.boolean(),
+    initiator: z.object({
+      kind: z.literal("frame"),
+      url: z.string(),
+    }).strict().optional(),
+  }).strict()),
   truncated: z.boolean(),
-});
+}).strict();
 
 export const browserCloseOutputSchema = z.object({
   closed: z.literal(true),

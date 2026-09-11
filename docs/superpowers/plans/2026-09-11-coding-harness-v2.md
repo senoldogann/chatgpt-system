@@ -284,6 +284,19 @@ Tie `task_state.complete` to current verification policy without pretending unav
 
 Enhance existing browser diagnostics rather than creating a parallel browser agent. Add safe request/initiator/evidence metadata where available, preserve URL/query/credential redaction, and resolve source maps only when deterministic. Verify the loop: UI failure -> network/console -> source -> fix -> reload -> fresh browser evidence.
 
+- [x] Extend existing console/network diagnostic results instead of adding a parallel browser agent/tool family.
+- [x] Add per-page diagnostic generation plus monotonic cross-console/network sequence evidence.
+- [x] Advance diagnostic generation on explicit browser navigation so pre-fix and post-reload evidence are distinguishable.
+- [x] Add opaque request IDs, resource type, navigation-request state, and frame initiator metadata for failed requests/responses.
+- [x] Add console runtime source URL/line/column metadata when Playwright provides it.
+- [x] Sanitize query strings/fragments from network URLs, initiator URLs, and console runtime-source URLs before public output.
+- [x] Keep source-map status explicit as `UNAVAILABLE` rather than inventing a mapped source location.
+- [x] Preserve browser audit redaction: diagnostic payloads, source/initiator secrets, opaque request IDs, headers/cookies/bodies are not audited.
+- [x] Verify correlation contract through BrowserService, Playwright backend, public MCP, runtime, audit, and error-normalization coverage.
+- [x] Run focused browser GREEN tests, full `npm run check`, and `git diff --check`.
+
+**Task 6 verification evidence:** focused browser suite 7 files / 60 tests PASS; public MCP output verifies sanitized runtime-source/network/initiator fields and opaque request correlation; audit regression includes source/initiator/query sentinels; full suite 67 files / 412 tests PASS; `git diff --check` PASS.
+
 ---
 
 ### Task 7: Error taxonomy, audit, and recovery hardening

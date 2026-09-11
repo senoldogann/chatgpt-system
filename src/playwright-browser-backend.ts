@@ -27,6 +27,8 @@ export interface PlaywrightBrowserBackendOptions {
 }
 
 interface PageDiagnostics {
+  generation: number;
+  sequence: number;
   consoleEntries: BrowserConsoleEntry[];
   consoleTruncated: boolean;
   networkEntries: BrowserNetworkEntry[];
@@ -39,6 +41,7 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
   private readonly pagesById = new Map<string, Page>();
   private readonly idsByPage = new WeakMap<Page, string>();
   private readonly diagnosticsByPageId = new Map<string, PageDiagnostics>();
+  private readonly requestIds = new WeakMap<Request, string>();
   private activePageId: string | null = null;
   private closed = false;
 
@@ -88,6 +91,7 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
     const page = await this.context.newPage();
     const pageId = this.registerPage(page, true);
     if (url !== undefined) {
+      this.beginDiagnosticGeneration(pageId);
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: this.timeoutMs });
     }
     return this.tabView(pageId, page);
@@ -108,6 +112,7 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
 
   async navigate(pageId: string, url: string, timeoutMs: number): Promise<BrowserTabView> {
     const page = this.requirePage(pageId);
+    this.beginDiagnosticGeneration(pageId);
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
     this.activePageId = pageId;
     return this.tabView(pageId, page);
@@ -174,6 +179,8 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
     const diagnostics = this.requireDiagnostics(pageId);
     return {
       pageId,
+      generation: diagnostics.generation,
+      latestSequence: diagnostics.sequence,
       entries: [...diagnostics.consoleEntries],
       truncated: diagnostics.consoleTruncated,
     };
@@ -184,6 +191,8 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
     const diagnostics = this.requireDiagnostics(pageId);
     return {
       pageId,
+      generation: diagnostics.generation,
+      latestSequence: diagnostics.sequence,
       entries: [...diagnostics.networkEntries],
       truncated: diagnostics.networkTruncated,
     };
@@ -215,6 +224,8 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
     this.idsByPage.set(page, pageId);
     this.pagesById.set(pageId, page);
     this.diagnosticsByPageId.set(pageId, {
+      generation: 0,
+      sequence: 0,
       consoleEntries: [],
       consoleTruncated: false,
       networkEntries: [],
@@ -324,9 +335,15 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
     if (level !== "error" && level !== "warning") return;
     const diagnostics = this.diagnosticsByPageId.get(pageId);
     if (!diagnostics) return;
+    const runtimeSource = this.runtimeSource(message);
     this.appendBounded(
       diagnostics.consoleEntries,
-      { level, message: message.text() },
+      {
+        level,
+        message: message.text(),
+        evidence: this.nextEvidence(diagnostics),
+        ...(runtimeSource ? { runtimeSource } : {}),
+      },
       (truncated) => { diagnostics.consoleTruncated = truncated; },
     );
   }
@@ -341,6 +358,7 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
         method: request.method(),
         url: request.url(),
         ...(failure?.errorText ? { failure: failure.errorText } : {}),
+        ...this.requestCorrelation(request, diagnostics),
       },
       (truncated) => { diagnostics.networkTruncated = truncated; },
     );
@@ -351,15 +369,64 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
     if (status < 400) return;
     const diagnostics = this.diagnosticsByPageId.get(pageId);
     if (!diagnostics) return;
+    const request = response.request();
     this.appendBounded(
       diagnostics.networkEntries,
       {
-        method: response.request().method(),
+        method: request.method(),
         url: response.url(),
         status,
+        ...this.requestCorrelation(request, diagnostics),
       },
       (truncated) => { diagnostics.networkTruncated = truncated; },
     );
+  }
+
+  private beginDiagnosticGeneration(pageId: string): void {
+    const diagnostics = this.requireDiagnostics(pageId);
+    diagnostics.generation += 1;
+  }
+
+  private nextEvidence(diagnostics: PageDiagnostics): { generation: number; sequence: number } {
+    diagnostics.sequence += 1;
+    return { generation: diagnostics.generation, sequence: diagnostics.sequence };
+  }
+
+  private runtimeSource(message: ConsoleMessage) {
+    try {
+      const location = message.location();
+      if (!location?.url) return undefined;
+      return {
+        url: location.url,
+        ...(Number.isFinite(location.lineNumber) ? { lineNumber: location.lineNumber } : {}),
+        ...(Number.isFinite(location.columnNumber) ? { columnNumber: location.columnNumber } : {}),
+        sourceMapStatus: "UNAVAILABLE" as const,
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private requestCorrelation(request: Request, diagnostics: PageDiagnostics) {
+    let requestId = this.requestIds.get(request);
+    if (!requestId) {
+      requestId = randomBytes(16).toString("base64url");
+      this.requestIds.set(request, requestId);
+    }
+    let initiator: { kind: "frame"; url: string } | undefined;
+    try {
+      const frameUrl = request.frame().url();
+      if (frameUrl) initiator = { kind: "frame", url: frameUrl };
+    } catch {
+      initiator = undefined;
+    }
+    return {
+      evidence: this.nextEvidence(diagnostics),
+      requestId,
+      resourceType: request.resourceType(),
+      navigationRequest: request.isNavigationRequest(),
+      ...(initiator ? { initiator } : {}),
+    };
   }
 
   private appendBounded<T>(entries: T[], entry: T, markTruncated: (value: boolean) => void): void {
