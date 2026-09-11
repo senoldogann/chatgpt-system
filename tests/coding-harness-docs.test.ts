@@ -31,6 +31,8 @@ describe("Coding Harness v2 operator runbook", () => {
       "benchmark.mjs list",
       "benchmark.mjs prepare",
       "benchmark.mjs evaluate",
+      "CHATGPT_SYSTEM_BENCHMARK_COLLECTOR_KEY",
+      "collectorTrust",
       "No host fallback",
       "No automatic push",
     ]) {

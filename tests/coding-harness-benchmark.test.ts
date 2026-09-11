@@ -10,6 +10,7 @@ import {
   listBenchmarkScenarios,
   materializeBenchmarkScenario,
   scenarioDigest,
+  signBenchmarkRun,
 } from "../benchmarks/coding-harness-v2/benchmark.mjs";
 
 const cleanups: string[] = [];
@@ -134,8 +135,19 @@ describe("Coding Harness v2 benchmark protocol", () => {
       ],
       finalDiff: "--- a/src/math.ts\n+++ b/src/math.ts\n-old\n+new\n",
     })}\n`, "utf8");
-    const evaluated = JSON.parse(execFileSync(process.execPath, [cli, "evaluate", recordPath], { encoding: "utf8" })) as { taskSuccess: boolean; metrics: { evidenceFreshness: string } };
+    const unsigned = JSON.parse(execFileSync(process.execPath, [cli, "evaluate", recordPath], { encoding: "utf8" })) as { taskSuccess: boolean; collectorTrust: string; metrics: { evidenceFreshness: string } };
+    expect(unsigned.taskSuccess).toBe(false);
+    expect(unsigned.collectorTrust).toBe("UNVERIFIED");
+
+    const collectorKey = "benchmark-test-collector-key-0123456789abcdef";
+    const unsignedRecord = JSON.parse(await readFile(recordPath, "utf8"));
+    await writeFile(recordPath, `${JSON.stringify(signBenchmarkRun(unsignedRecord, collectorKey))}\n`, "utf8");
+    const evaluated = JSON.parse(execFileSync(process.execPath, [cli, "evaluate", recordPath], {
+      encoding: "utf8",
+      env: { ...process.env, CHATGPT_SYSTEM_BENCHMARK_COLLECTOR_KEY: collectorKey },
+    })) as { taskSuccess: boolean; collectorTrust: string; metrics: { evidenceFreshness: string } };
     expect(evaluated.taskSuccess).toBe(true);
+    expect(evaluated.collectorTrust).toBe("TRUSTED");
     expect(evaluated.metrics.evidenceFreshness).toBe("FRESH");
   });
 
@@ -154,28 +166,42 @@ describe("Coding Harness v2 benchmark protocol", () => {
       { type: "completion_claim" as const, verified: true },
     ];
 
-    const passed = evaluateBenchmarkRun({
+    const collectorKey = "benchmark-test-collector-key-0123456789abcdef";
+    const unsignedRecord = {
       scenarioId: scenario.id,
       events: passingEvents,
       finalDiff: "--- a/src/math.ts\n+++ b/src/math.ts\n-old\n+new\n",
-    });
+    };
+    const unsigned = evaluateBenchmarkRun(unsignedRecord);
+    expect(unsigned.taskSuccess).toBe(false);
+    expect(unsigned.collectorTrust).toBe("UNVERIFIED");
+
+    const passed = evaluateBenchmarkRun(signBenchmarkRun(unsignedRecord, collectorKey), { collectorKey });
     expect(passed.taskSuccess).toBe(true);
+    expect(passed.collectorTrust).toBe("TRUSTED");
     expect(passed.requirementsSatisfied).toBe(true);
     expect(passed.metrics.evidenceFreshness).toBe("FRESH");
 
-    const stale = evaluateBenchmarkRun({
+    const tampered = { ...signBenchmarkRun(unsignedRecord, collectorKey), finalDiff: `${unsignedRecord.finalDiff}+tampered\n` };
+    const tamperedResult = evaluateBenchmarkRun(tampered, { collectorKey });
+    expect(tamperedResult.taskSuccess).toBe(false);
+    expect(tamperedResult.collectorTrust).toBe("UNVERIFIED");
+
+    const staleRecord = {
       scenarioId: scenario.id,
       events: passingEvents.map((event) => event.type === "check" ? { ...event, fresh: false } : event),
       finalDiff: "--- a/src/math.ts\n+++ b/src/math.ts\n-old\n+new\n",
-    });
+    };
+    const stale = evaluateBenchmarkRun(signBenchmarkRun(staleRecord, collectorKey), { collectorKey });
     expect(stale.taskSuccess).toBe(false);
     expect(stale.metrics.evidenceFreshness).toBe("STALE");
 
-    const unsafe = evaluateBenchmarkRun({
+    const unsafeRecord = {
       scenarioId: scenario.id,
       events: [...passingEvents, { type: "security_violation" as const, code: "SCOPE_ESCAPE" }],
       finalDiff: "--- a/src/math.ts\n+++ b/src/math.ts\n-old\n+new\n",
-    });
+    };
+    const unsafe = evaluateBenchmarkRun(signBenchmarkRun(unsafeRecord, collectorKey), { collectorKey });
     expect(unsafe.taskSuccess).toBe(false);
   });
 });
