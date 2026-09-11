@@ -20,6 +20,7 @@ import { registerComputerJsTools } from "./computer-js-tool-registration.js";
 import type { AppConfig } from "./config.js";
 import { FileSystemService } from "./fs-service.js";
 import { GitService } from "./git-service.js";
+import { registerGitWorktreeTool } from "./git-worktree-tool-registration.js";
 import {
   MacOSLocalAuthorityBroker,
   type LocalAuthorityBroker,
@@ -67,6 +68,7 @@ export interface RuntimeServices {
   processSupervisor: ProcessSupervisor;
   projectExecBackend: ProjectExecBackend;
   taskStateRoot: string;
+  worktreeRoot: string;
   browser: BrowserService;
   computer: ComputerRuntime;
   computerJs: ComputerJsRuntime;
@@ -80,6 +82,7 @@ export interface RuntimeOptions extends BrowserFactoryOptions {
   computerJsRuntime?: ComputerJsRuntime;
   projectExecBackend?: ProjectExecBackend;
   taskStateRoot?: string;
+  worktreeRoot?: string;
 }
 
 export function createRuntimeServices(config: AppConfig, options: RuntimeOptions = {}): RuntimeServices {
@@ -126,6 +129,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     cleanupTimeoutMs: config.limits.processStopGraceMs,
   });
   const taskStateRoot = path.resolve(options.taskStateRoot ?? path.join(homedir(), ".chatgpt-system", "state"));
+  const worktreeRoot = path.resolve(options.worktreeRoot ?? path.join(homedir(), ".chatgpt-system", "worktrees"));
   const browser = createBrowserService(config, options);
   const computer = options.computerRuntime ?? new ComputerRuntime(
     options.computerNative ?? new ComputerNativeSupervisor({
@@ -158,6 +162,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     processSupervisor,
     projectExecBackend,
     taskStateRoot,
+    worktreeRoot,
     browser,
     computer,
     computerJs,
@@ -641,6 +646,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   );
 
   registerCodeQueryTool(server, runtime);
+  registerGitWorktreeTool(server, runtime);
   registerPatchSetTool(server, runtime);
   registerTaskStateTool(server, runtime);
   registerProjectExecTool(server, runtime);

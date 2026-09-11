@@ -181,6 +181,17 @@ export const gitResultOutputSchema = z.object({
   stderr: z.string(),
 });
 
+export const gitWorktreeOutputSchema = z.object({
+  operation: z.enum(["create", "status", "remove"]),
+  worktreeId: z.string().uuid(),
+  path: z.string(),
+  repositoryRoot: z.string(),
+  branch: z.string(),
+  head: z.string().regex(/^[a-f0-9]{40,64}$/i),
+  dirty: z.boolean(),
+  removed: z.boolean(),
+}).strict();
+
 export const terminalResultOutputSchema = z.object({
   command: z.string(),
   args: z.array(z.string()),

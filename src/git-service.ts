@@ -23,7 +23,7 @@ const GITHUB_HTTPS_REMOTE = /^https:\/\/github\.com\/[^/\s]+\/[^/\s]+(?:\.git)?$
 const GITHUB_SSH_REMOTE = /^git@github\.com:[^/\s]+\/[^/\s]+(?:\.git)?$/;
 const GITHUB_SSH_URL_REMOTE = /^ssh:\/\/git@github\.com\/[^/\s]+\/[^/\s]+(?:\.git)?$/;
 
-function validateBranchName(branch: string): string {
+export function validateBranchName(branch: string): string {
   if (branch.length < 1 || branch.length > 200 || branch !== branch.trim() || branch === "HEAD") {
     throw new PolicyError("Git branch name is not allowed.");
   }

@@ -227,6 +227,18 @@ remove
 
 Manage plugin-owned worktrees only. Never delete unmanaged/dirty worktrees. Branch names remain validated; no arbitrary Git arguments. Push/merge remain separate operations requiring existing policy/user approval.
 
+- [x] Add RED MCP integration coverage for `create`, `status`, and `remove`.
+- [x] Restrict managed worktree lifecycle to Project authority.
+- [x] Generate destinations only under the plugin-owned worktree root; callers cannot provide remove paths.
+- [x] Persist ownership registry entries as bounded `0600` JSON under `state/managed-worktrees/`.
+- [x] Reuse the existing validated Git branch-name policy and fixed `shell=false` Git argv.
+- [x] Refuse dirty source worktrees, dirty managed removal, unmanaged IDs, and tampered registry paths.
+- [x] Preserve the created branch on normal worktree removal; push/merge remain separate tools.
+- [x] Harden the existing Docker timeout lifecycle test against fixture-startup timing without changing production behavior.
+- [x] Run focused GREEN tests, full `npm run check`, and `git diff --check`.
+
+**Task 4B verification evidence:** focused managed-worktree/catalog suite 5/5 PASS; dirty source/removal, invalid branch, unmanaged path injection, registry tampering, and non-Project authority covered; Docker timeout/policy regression 9/9 PASS after deterministic test hardening; final full suite 66 files / 409 tests PASS; `git diff --check` PASS.
+
 ---
 
 ### Task 5: Structured project verification

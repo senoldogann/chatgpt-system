@@ -36,6 +36,7 @@ const expectedAnnotations = {
   git_commit: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   git_merge_branch: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   git_push: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  git_worktree: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   terminal_run: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   process_start: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   process_list: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },

@@ -71,6 +71,18 @@ export class RecoveryRequiredError extends AppError {
   }
 }
 
+export class WorktreeNotFoundError extends AppError {
+  constructor() {
+    super("The managed worktree was not found.", "WORKTREE_NOT_FOUND", { retryable: false });
+  }
+}
+
+export class WorktreeDirtyError extends AppError {
+  constructor(message = "The worktree has uncommitted or untracked changes.") {
+    super(message, "WORKTREE_DIRTY", { retryable: false });
+  }
+}
+
 export class ProjectExecDisabledError extends AppError {
   constructor() {
     super(
