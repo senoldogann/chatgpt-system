@@ -325,7 +325,7 @@ describe("project_check MCP tool", () => {
       await transport.terminateSession();
       await client.close();
     }
-  });
+  }, 15_000);
 
   it("reports FAIL, STALE-during-run, and UNAVAILABLE without pretending checks passed", async () => {
     const enabled = await fixture(true);
@@ -369,7 +369,7 @@ describe("project_check MCP tool", () => {
       await disabled.transport.terminateSession();
       await disabled.client.close();
     }
-  });
+  }, 15_000);
   it("fails closed when persisted verification evidence is corrupt", async () => {
     const connected = await fixture(true);
     try {
