@@ -182,6 +182,16 @@ The setup script has a fixed purpose: install Chromium through the repository-lo
 
 The browser runtime itself remains disabled until the tunnel/daemon startup configuration explicitly enables it.
 
+### 4a. Optional Existing Chrome attach
+
+The managed Playwright profile remains the default. When a trusted workflow specifically needs the Chrome session the user is already using, including existing authenticated state, Chrome 144+ can be attached only through the separate Existing-Chrome opt-in. The user first enables **Allow remote debugging for this browser instance** at `chrome://inspect/#remote-debugging`, keeps Chrome running, and then starts the runtime with:
+
+```text
+--enable-browser --browser-existing-chrome
+```
+
+Browser page/content operations remain Admin-only. Existing-Chrome mode reuses the same bounded semantic `browser_*` surface; it does not expose cookies, profile databases, raw CDP, `chrome:`, `chrome-extension:`, or `devtools:` pages. Runtime shutdown owns only the automation connection and must not intentionally close the normal Chrome process or pre-existing tabs. For non-default Chrome profile locations, use the explicit `--browser-existing-chrome-user-data-dir <path>` discovery input. See [docs/EXISTING_CHROME_ATTACH.md](EXISTING_CHROME_ATTACH.md) for the complete consent, privacy, lifecycle, and troubleshooting contract.
+
 ## 5. Configure the Secure MCP Tunnel profile
 
 Create a disposable bootstrap root:
@@ -247,6 +257,8 @@ The default browser profile is:
 ```
 
 Use a dedicated automation profile. Do not make the operator's everyday Chrome profile the normal acceptance target.
+
+If Existing-Chrome mode is intentionally selected, configure the same tunnel with `--enable-browser --browser-existing-chrome` instead of treating the everyday profile as the managed automation profile. This is a distinct consented mode and cannot be combined with `--browser-headless`.
 
 If the `chatgpt-system` tunnel profile already exists and its child command is stale, replacement is intentionally explicit:
 
@@ -535,6 +547,8 @@ Verify in order:
 16. `browser_close` closes the owned context; a later authorized browser operation may lazily create a fresh context against the same dedicated profile.
 
 Do not use personal email, banking, password-manager, payment, or other sensitive authenticated pages as acceptance fixtures.
+
+For Existing-Chrome acceptance, use the dedicated [docs/EXISTING_CHROME_ATTACH.md](EXISTING_CHROME_ATTACH.md) flow and a page the user explicitly permits. Verify eligible HTTP(S) tabs and a bounded snapshot, confirm internal Chrome/extension/DevTools pages are absent, avoid user-visible destructive actions, then close only the runtime connection and prove the normal Chrome process/pre-existing tabs survive and a later browser operation can establish a fresh connection.
 
 ## 14. Browser safety acceptance
 

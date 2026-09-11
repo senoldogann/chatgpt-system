@@ -1,12 +1,15 @@
 import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthorityManager } from "../src/authority.js";
 import { ContinuityGitInspector } from "../src/continuity-git-inspector.js";
 import { ContinuityStore } from "../src/continuity-store.js";
 import { ProjectContinuityService } from "../src/project-continuity-service.js";
 import { createProjectContinuityRuntime } from "../src/project-continuity-runtime.js";
+import { loadConfig } from "../src/config.js";
+import { closeRuntimeResources } from "../src/runtime-shutdown.js";
+import { createRuntimeServices } from "../src/server.js";
 
 const cleanups: string[] = [];
 
@@ -105,5 +108,36 @@ describe("createProjectContinuityRuntime", () => {
     expect(runtime.continuity).toBe(injectedService);
     await expect(stat(test.config.continuity.databasePath)).rejects.toMatchObject({ code: "ENOENT" });
     injectedStore.close();
+  });
+});
+
+describe("production continuity runtime wiring", () => {
+  it("owns one continuity store/service pair and closes that store during runtime shutdown", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "chatgpt-system-continuity-production-"));
+    cleanups.push(root);
+    const config = await loadConfig({
+      roots: [root],
+      auditFile: path.join(root, "audit.jsonl"),
+      continuityDatabasePath: path.join(root, "continuity", "continuity.db"),
+      terminalEnabled: false,
+      projectExecEnabled: false,
+      personalAdminEnabled: false,
+      computerUseEnabled: false,
+      fullHostJsEnabled: false,
+      browserEnabled: false,
+      controlEnabled: false,
+    });
+
+    const runtime = createRuntimeServices(config);
+    expect(runtime.continuityStore).toBeInstanceOf(ContinuityStore);
+    expect(runtime.continuity).toBeInstanceOf(ProjectContinuityService);
+    const close = vi.spyOn(runtime.continuityStore, "close");
+
+    await closeRuntimeResources({
+      runtime,
+      closeTransport: async () => {},
+    });
+
+    expect(close).toHaveBeenCalledTimes(1);
   });
 });

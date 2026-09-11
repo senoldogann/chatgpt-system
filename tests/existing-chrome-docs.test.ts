@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 describe("existing Chrome operator documentation", () => {
   it("documents explicit consent, safe attach flags, lifecycle ownership, and privacy boundaries", async () => {
     const doc = await readFile(new URL("../docs/EXISTING_CHROME_ATTACH.md", import.meta.url), "utf8");
+    const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+    const integration = await readFile(new URL("../docs/CHATGPT_INTEGRATION.md", import.meta.url), "utf8");
 
     expect(doc).toContain("chrome://inspect/#remote-debugging");
     expect(doc).toContain("--enable-browser --browser-existing-chrome");
@@ -22,5 +24,13 @@ describe("existing Chrome operator documentation", () => {
     expect(doc).not.toContain("--remote-debugging-port");
     expect(doc).not.toContain("--remote-debugging-pipe");
     expect(doc).not.toContain("ws://127.0.0.1:");
+
+    for (const sharedDoc of [readme, integration]) {
+      expect(sharedDoc).toContain("--browser-existing-chrome");
+      expect(sharedDoc).toContain("chrome://inspect/#remote-debugging");
+      expect(sharedDoc).toContain("docs/EXISTING_CHROME_ATTACH.md");
+      expect(sharedDoc).toMatch(/Admin/i);
+      expect(sharedDoc).toMatch(/existing authenticated|existing Chrome|existing session/i);
+    }
   });
 });

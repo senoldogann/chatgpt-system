@@ -48,6 +48,10 @@ const expectedAnnotations = {
   task_state: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   project_exec: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   project_check: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  project_register: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  project_resume: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  project_checkpoint: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  project_context_read: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   browser_health: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   browser_tabs: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   browser_new_tab: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -92,6 +96,12 @@ const codingHarnessV2ToolNames = [
   "project_exec",
   "task_state",
 ] as const;
+const continuityV1ToolNames = [
+  "project_checkpoint",
+  "project_context_read",
+  "project_register",
+  "project_resume",
+] as const;
 const baselineToolCatalogSha256 = "9cdc86efe227f7d92b2da227aa3ff508c11ceb165b2e5877a6727c9620620051";
 const baselineToolCount = 62;
 
@@ -123,6 +133,12 @@ async function fixture() {
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: false, commands: ["node"] },
     projectExec: { enabled: false },
+    continuity: {
+      databasePath: path.join(base, "continuity.db"),
+      maxResumeChars: 12_000,
+      maxTrackedPaths: 100,
+      remoteVerificationTimeoutMs: 1_000,
+    },
     computerUse: {
       enabled: false,
       hostBundlePath: path.join(base, "ChatGPTSystemComputerRuntime.app"),
@@ -208,9 +224,13 @@ describe("HTTP MCP transport", () => {
       expect(tools.map((tool) => tool.name).sort()).toEqual(Object.keys(expectedAnnotations).sort());
       const currentNames = tools.map((tool) => tool.name);
       const harnessNames = new Set<string>(codingHarnessV2ToolNames);
-      const legacyNames = currentNames.filter((name) => !harnessNames.has(name)).sort();
+      const continuityNames = new Set<string>(continuityV1ToolNames);
+      const featureNames = new Set<string>([...codingHarnessV2ToolNames, ...continuityV1ToolNames]);
+      const legacyNames = currentNames.filter((name) => !featureNames.has(name)).sort();
       const currentHarnessNames = currentNames.filter((name) => harnessNames.has(name)).sort();
+      const currentContinuityNames = currentNames.filter((name) => continuityNames.has(name)).sort();
       expect(currentHarnessNames).toEqual([...codingHarnessV2ToolNames].sort());
+      expect(currentContinuityNames).toEqual([...continuityV1ToolNames].sort());
       expect(legacyNames).toHaveLength(baselineToolCount);
       expect(createHash("sha256").update(legacyNames.join("\n")).digest("hex")).toBe(baselineToolCatalogSha256);
 

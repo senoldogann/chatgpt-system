@@ -171,6 +171,8 @@ CHATGPT_SYSTEM_BROWSER_USER_DATA_DIR=~/.chatgpt-system/browser-profile
 
 The default user-data directory is intentionally a dedicated automation profile. Do not point normal automation at your everyday Chrome/Chromium profile unless you deliberately accept the additional exposure.
 
+Existing Chrome attach is a separate explicit mode for trusted use of the Chrome session you are already using, including existing authenticated state. On Chrome 144+, enable remote debugging yourself at `chrome://inspect/#remote-debugging`, then start with `--enable-browser --browser-existing-chrome`. Page/content access remains Admin-only, internal Chrome/extension/DevTools pages are not exposed, and runtime shutdown disconnects automation without intentionally closing the Chrome process or pre-existing tabs. See [docs/EXISTING_CHROME_ATTACH.md](docs/EXISTING_CHROME_ATTACH.md) for the consent, privacy, lifecycle, and non-default user-data-directory rules.
+
 ### Browser authority boundary
 
 `browser_health` is lease-free and returns only categorical readiness.
@@ -270,6 +272,8 @@ npm run setup:chatgpt -- \
 ```
 
 `--browser-headless` without `--enable-browser` is rejected.
+
+To use the already-running Chrome session instead of the managed Playwright profile, keep Chrome running, enable consent at `chrome://inspect/#remote-debugging`, and configure the tunnel with `--enable-browser --browser-existing-chrome`. Do not combine Existing-Chrome mode with `--browser-headless`; use it only when Admin-authorized access to the existing signed-in session is intended.
 
 If the `chatgpt-system` tunnel profile already exists and its child command is stale, replacement is intentionally explicit. Re-run setup with `--force`:
 

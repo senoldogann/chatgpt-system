@@ -31,6 +31,8 @@ import { ProcessService } from "./process-service.js";
 import { ProcessSupervisor } from "./process-supervisor.js";
 import { registerProjectCheckTool } from "./project-check-tool-registration.js";
 import { registerProjectExecTool } from "./project-exec-tool-registration.js";
+import { createProjectContinuityRuntime, type ProjectContinuityRuntime } from "./project-continuity-runtime.js";
+import { registerProjectContinuityTools } from "./project-continuity-tool-registration.js";
 import { registerTaskStateTool } from "./task-state-tool-registration.js";
 import type { ProjectExecBackend } from "./project-exec-types.js";
 import { createScopedRuntime } from "./scoped-runtime.js";
@@ -56,7 +58,7 @@ import {
   terminalResultOutputSchema,
 } from "./tool-output-schemas.js";
 
-export interface RuntimeServices {
+export interface RuntimeServices extends ProjectContinuityRuntime {
   config: AppConfig;
   policy: PathPolicy;
   audit: AuditLogger;
@@ -150,7 +152,9 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
       processStopGraceMs: config.limits.processStopGraceMs,
     }),
   );
+  const continuityRuntime = createProjectContinuityRuntime(config, authority, { homeDir: homedir() });
   return {
+    ...continuityRuntime,
     config,
     policy,
     audit,
@@ -652,6 +656,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   registerProjectCheckTool(server, runtime);
   registerTaskStateTool(server, runtime);
   registerProjectExecTool(server, runtime);
+  registerProjectContinuityTools(server, runtime);
   registerBrowserTools(server, runtime);
   registerComputerTools(server, runtime);
   registerComputerJsTools(server, runtime);
