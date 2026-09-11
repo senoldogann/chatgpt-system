@@ -50,6 +50,30 @@ describe("CLI command routing", () => {
     });
   });
 
+  it("parses existing Chrome attach only as explicit browser server flags", () => {
+    expect(parseCliCommand([
+      "stdio",
+      "--enable-browser",
+      "--browser-existing-chrome",
+      "--browser-existing-chrome-user-data-dir", "~/Library/Application Support/Google/Chrome",
+    ])).toEqual({
+      kind: "server",
+      mode: "stdio",
+      help: false,
+      overrides: {
+        browserEnabled: true,
+        browserExistingChrome: true,
+        browserExistingChromeUserDataDir: "~/Library/Application Support/Google/Chrome",
+      },
+    });
+  });
+
+  it("documents existing Chrome attach flags in CLI help", async () => {
+    const source = await readFile(new URL("../src/cli.ts", import.meta.url), "utf8");
+    expect(source).toContain("--browser-existing-chrome");
+    expect(source).toContain("--browser-existing-chrome-user-data-dir");
+  });
+
   it("documents the full-host JavaScript server flag in CLI help", async () => {
     const source = await readFile(new URL("../src/cli.ts", import.meta.url), "utf8");
     expect(source).toContain("--enable-full-host-js");
@@ -88,5 +112,6 @@ describe("CLI command routing", () => {
     expect(() => parseCliCommand(["authorize", "admin", "--enable-computer-use"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--enable-project-exec"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--enable-full-host-js"])).toThrow();
+    expect(() => parseCliCommand(["authorize", "admin", "--browser-existing-chrome"])).toThrow();
   });
 });

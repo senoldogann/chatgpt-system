@@ -81,6 +81,15 @@ export function parseCliCommand(argv: string[]): CliCommand {
       overrides.browserHeadless = true;
       continue;
     }
+    if (arg === "--browser-existing-chrome") {
+      overrides.browserExistingChrome = true;
+      continue;
+    }
+    if (arg === "--browser-existing-chrome-user-data-dir") {
+      overrides.browserExistingChromeUserDataDir = takeValue(argv, index, arg);
+      index += 1;
+      continue;
+    }
     if (arg === "--browser-timeout-ms") {
       overrides.browserTimeoutMs = takePositiveInteger(argv, index, arg);
       index += 1;

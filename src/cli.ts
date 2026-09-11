@@ -27,6 +27,9 @@ Server options:
   --enable-computer-use            Enable the Admin-only native Computer Runtime. Disabled by default.
   --enable-full-host-js            Enable full-host Node.js for Computer Runtime; requires --enable-computer-use. Disabled by default.
   --browser-headless               Run the enabled browser headlessly. Headed is the default when browser is enabled.
+  --browser-existing-chrome        Attach to the user's already-running Chrome session; requires --enable-browser.
+  --browser-existing-chrome-user-data-dir <path>
+                                   Override the Chrome user-data directory used for local debugging discovery.
   --browser-timeout-ms <ms>        Browser operation timeout in milliseconds. Default: 10000.
   --browser-user-data-dir <path>   Dedicated persistent browser profile. Default: ~/.chatgpt-system/browser-profile.
   --enable-control                 Start the private local authority Unix socket.
