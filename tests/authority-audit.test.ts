@@ -65,6 +65,7 @@ describe("authority lifecycle audit", () => {
       roots: [project],
       auditFile,
       terminal: { enabled: false, commands: ["node"] },
+      projectExec: { enabled: false },
       computerUse: {
         enabled: false,
         hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",

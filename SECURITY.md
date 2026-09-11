@@ -5,7 +5,7 @@
 ## Security invariants
 
 1. **Explicit session authority**: privileged filesystem, Git, process, and browser content/action calls require an active opaque authority lease. Leases expire, can be revoked immediately, and are stored internally only by hash.
-2. **Fixed privilege ladder**: Project has project filesystem/Git access and no terminal/browser content access; User has home filesystem/Git access and no terminal/browser content access; Admin has host-wide scope under the current OS user and is the only terminal/process/browser-capable profile.
+2. **Fixed privilege ladder**: Project has project filesystem/Git access and no host-terminal/browser content access; User has home filesystem/Git access and no host-terminal/browser content access; Admin has host-wide scope under the current OS user and is the only host-terminal/process/browser-capable profile. Project-only sandboxed execution is a separate explicit startup capability and never upgrades the lease to Admin.
 3. **Local creation of broad authority by default**: ChatGPT's default MCP catalog can create Project authority only. User/Admin authority is created from the Mac through `chatgpt-system authorize user|admin`, a private Unix control socket, and native LocalAuthentication unless the operator explicitly starts the runtime with `--personal-admin`.
 4. **Shared authoritative runtime**: the CLI never creates a shadow `AuthorityManager`. The control socket talks to the same running process that serves MCP, so a locally created lease exists in exactly one authoritative in-memory lease store.
 5. **Private local control plane**: the default control socket is `~/.chatgpt-system/control.sock`; its parent is `0700`, the socket is `0600`, frames are bounded/versioned JSON, only one request is accepted per connection, stale/live socket ownership is checked, and only `ping` plus `authorize(user|admin)` exist.
@@ -19,21 +19,22 @@
 13. **Bounded I/O**: file reads/writes, directory listings, native helper output, control frames, command output, command duration, managed process count/log tails, browser diagnostics, snapshots, and screenshots have limits.
 14. **Audit redaction**: authority/approval/process/browser lifecycle records contain categorical metadata only. Raw lease IDs, managed-process IDs, browser page IDs, request IDs, credentials, biometric material, argument or typed values, environments, file contents, command/process output, snapshot text, screenshot bytes, console payloads, and URL query strings/fragments are not copied into audit metadata.
 15. **Structured terminal execution**: Admin `terminal_run` uses `shell=false`, an executable basename allowlist, cwd checks, sanitized environment variables, timeouts, and output limits.
-16. **Managed processes are authority-scoped**: `process_start`, `process_list`, `process_status`, `process_logs`, and `process_stop` require an active lease. Start requires terminal capability, which currently means Admin.
-17. **No raw PID surface**: MCP never accepts or returns an OS PID, process-group ID, arbitrary signal, shell flag, detached flag, or caller-supplied child environment for managed processes.
-18. **No process-registry oracle**: unknown and unauthorized managed-process IDs both return `PROCESS_NOT_FOUND`; lists filter records outside the current authority scope.
-19. **Bounded lifecycle management**: managed children use bounded in-memory stdout/stderr tails and an in-memory registry. Running records are never evicted to make room.
-20. **Graceful process-group cleanup**: on POSIX, managed children use their own process group. Stop/shutdown sends `SIGTERM`, waits the configured grace period, then escalates to `SIGKILL` internally if required.
-21. **HTTP authentication**: HTTP transport refuses to start without a bearer token and binds to loopback by default.
-22. **Loopback request validation**: the localhost HTTP listener applies Host and Origin validation before routing requests.
-23. **Personal Admin is explicit**: `--personal-admin` is disabled by default. When enabled, MCP may mint the existing fixed Admin profile directly, but leases remain bounded/in-memory and terminal/process/browser capability still depends on separate startup gates.
-24. **Daily-driver credential confinement**: the optional macOS LaunchAgent stores the Secure MCP Tunnel control-plane key in the login Keychain. The key is not placed in the plist, repository, audit log, runner logs, or spawned command argv.
-25. **Browser is independently gated**: browser automation is disabled by default and requires explicit `--enable-browser` / `CHATGPT_SYSTEM_ENABLE_BROWSER=true`. Admin authority cannot silently enable a disabled browser runtime.
-26. **Browser semantic surface only**: MCP browser tools accept fixed role/text/label/test-id targets and a fixed key vocabulary. They expose no CSS/XPath selectors, arbitrary JavaScript, Playwright code, CDP/WebSocket endpoints, executable paths, proxy settings, browser flags, cookies, storage APIs, or file-upload primitives.
-27. **Browser navigation is scheme-bounded**: caller navigation accepts only `http:` and `https:`. `file:`, `javascript:`, `data:`, browser-internal schemes, and custom application schemes are rejected before Playwright receives them.
-28. **Browser credential entry is refused**: `browser_fill` and focused key actions fail closed for deterministic password, OTP, verification-code, CVV/CVC, card-number, and sensitive autocomplete signals.
-29. **Browser content is redacted/bounded**: editable ARIA values are removed before snapshots leave the runtime; network diagnostic URLs have query strings/fragments stripped; console/network tails are bounded; screenshots remain in-memory for the MCP result and are never written by the runtime solely for tool delivery.
-30. **Dedicated browser profile**: the documented/default persistent user-data directory is `~/.chatgpt-system/browser-profile`. The operator's normal Chrome/Chromium profile is not the default automation target.
+16. **Sandboxed Project execution is independently gated**: `project_exec` is disabled by default and requires `--enable-project-exec` / `CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC=true`, an active Project lease, an allowlisted executable basename, and a cwd inside that lease. It uses only a local Unix-socket Docker context, `network=none`, a read-only container root, bounded `/tmp`/CPU/memory/PIDs/output/runtime, the selected Project root bind-mounted at `/workspace`, and no host-execution fallback.
+17. **Managed processes are authority-scoped**: `process_start`, `process_list`, `process_status`, `process_logs`, and `process_stop` require an active lease. Start requires terminal capability, which currently means Admin.
+18. **No raw PID surface**: MCP never accepts or returns an OS PID, process-group ID, arbitrary signal, shell flag, detached flag, or caller-supplied child environment for managed processes.
+19. **No process-registry oracle**: unknown and unauthorized managed-process IDs both return `PROCESS_NOT_FOUND`; lists filter records outside the current authority scope.
+20. **Bounded lifecycle management**: managed children use bounded in-memory stdout/stderr tails and an in-memory registry. Running records are never evicted to make room.
+21. **Graceful process-group cleanup**: on POSIX, managed children use their own process group. Stop/shutdown sends `SIGTERM`, waits the configured grace period, then escalates to `SIGKILL` internally if required.
+22. **HTTP authentication**: HTTP transport refuses to start without a bearer token and binds to loopback by default.
+23. **Loopback request validation**: the localhost HTTP listener applies Host and Origin validation before routing requests.
+24. **Personal Admin is explicit**: `--personal-admin` is disabled by default. When enabled, MCP may mint the existing fixed Admin profile directly, but leases remain bounded/in-memory and terminal/process/browser capability still depends on separate startup gates.
+25. **Daily-driver credential confinement**: the optional macOS LaunchAgent stores the Secure MCP Tunnel control-plane key in the login Keychain. The key is not placed in the plist, repository, audit log, runner logs, or spawned command argv.
+26. **Browser is independently gated**: browser automation is disabled by default and requires explicit `--enable-browser` / `CHATGPT_SYSTEM_ENABLE_BROWSER=true`. Admin authority cannot silently enable a disabled browser runtime.
+27. **Browser semantic surface only**: MCP browser tools accept fixed role/text/label/test-id targets and a fixed key vocabulary. They expose no CSS/XPath selectors, arbitrary JavaScript, Playwright code, CDP/WebSocket endpoints, executable paths, proxy settings, browser flags, cookies, storage APIs, or file-upload primitives.
+28. **Browser navigation is scheme-bounded**: caller navigation accepts only `http:` and `https:`. `file:`, `javascript:`, `data:`, browser-internal schemes, and custom application schemes are rejected before Playwright receives them.
+29. **Browser credential entry is refused**: `browser_fill` and focused key actions fail closed for deterministic password, OTP, verification-code, CVV/CVC, card-number, and sensitive autocomplete signals.
+30. **Browser content is redacted/bounded**: editable ARIA values are removed before snapshots leave the runtime; network diagnostic URLs have query strings/fragments stripped; console/network tails are bounded; screenshots remain in-memory for the MCP result and are never written by the runtime solely for tool delivery.
+31. **Dedicated browser profile**: the documented/default persistent user-data directory is `~/.chatgpt-system/browser-profile`. The operator's normal Chrome/Chromium profile is not the default automation target.
 
 ## Why User/Admin creation is local
 
@@ -77,15 +78,17 @@ At runtime the wrapper retrieves that fixed Keychain item and places the value o
 
 This key authenticates `tunnel-client` to the Secure MCP Tunnel control plane. It is not a model invocation credential used by `chatgpt-system`, and the bridge does not turn daily-driver startup into direct model API usage.
 
-## Why Project/User do not have terminal or browser content capability
+## Why Project/User do not have host terminal or browser content capability
 
 A child process is not confined merely because its working directory is inside a lease root. An allowlisted executable such as Node, Python, a package manager, compiler, or build tool can exercise the OS account's permissions and open files outside that cwd.
 
 Likewise, an authenticated browser page, accessibility snapshot, screenshot, console message, or network diagnostic may expose information unrelated to a Project/User filesystem root. Browser content cannot honestly inherit a filesystem-only scope.
 
-Therefore Project/User authority exposes neither terminal/process start nor browser page/content/action tools. Otherwise the narrower authority profiles would be cosmetic rather than meaningful boundaries.
+Therefore Project/User authority exposes neither host terminal/process start nor browser page/content/action tools. Otherwise the narrower authority profiles would be cosmetic rather than meaningful boundaries.
 
-Admin is the only profile allowed to reach those host/user-session capabilities. `browser_health` remains lease-free because it exposes only categorical readiness and does not start or inspect browsing content.
+Project leases may optionally use `project_exec`, but only when the operator explicitly enables that separate runtime gate. `project_exec` does not reuse the host `ProcessService`: it executes through the fixed Docker sandbox backend, accepts no User/Admin lease, requires the cwd to remain inside the Project roots, and fails closed when Docker is unavailable.
+
+Admin is the only profile allowed to reach the unsandboxed host/user-session capabilities. `browser_health` remains lease-free because it exposes only categorical readiness and does not start or inspect browsing content.
 
 ## Admin is not root
 
@@ -199,11 +202,17 @@ Path validation and SHA-256 precondition checks can be raced by another hostile 
 
 For adversarial multi-process isolation, use a container, VM, or dedicated OS account and expose only the intended workspace.
 
-## Terminal limitation
+## Host terminal limitation
 
 Admin process execution is **not an operating-system sandbox**. The command allowlist limits the requested top-level executable name, not what an interpreter/compiler/package manager may subsequently do with the Admin OS account's permissions.
 
-If stronger process isolation is required, run the bridge inside a container, VM, sandbox, or dedicated account with only the required resources exposed.
+If stronger host-process isolation is required, run the bridge inside a container, VM, sandbox, or dedicated account with only the required resources exposed.
+
+## Project Docker sandbox boundary
+
+`project_exec` is a distinct least-privilege path, not a claim that the host account is sandboxed. The runtime accepts only Project leases, checks the cwd through the same `PathPolicy`, rejects non-local Docker contexts, and launches the fixed image with no network, no added capabilities, `no-new-privileges`, a read-only container root, bounded resources, and only the selected Project root bind-mounted at `/workspace`. The Docker client process receives a narrow environment and does not inherit daemon secret variables or caller-controlled Docker host/context overrides.
+
+The Docker daemon is trusted infrastructure and the sandbox executes Linux tooling, so behavior can differ from the macOS host. Native Xcode/macOS tasks are intentionally not tunneled through this boundary. If the Docker executable/daemon, local Unix context, or fixed image is unavailable, the operation returns `SANDBOX_UNAVAILABLE`; it never retries through Admin host execution. A process with authority to control the local Docker daemon is itself highly privileged, so this boundary assumes the operator's local Docker installation/context is trusted.
 
 ## Git safety
 

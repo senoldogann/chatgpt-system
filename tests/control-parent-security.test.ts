@@ -19,6 +19,7 @@ async function runtimeFixture(base: string) {
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: false, commands: ["node"] },
+    projectExec: { enabled: false },
     computerUse: {
       enabled: false,
       hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",

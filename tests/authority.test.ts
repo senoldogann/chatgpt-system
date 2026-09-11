@@ -52,6 +52,7 @@ describe("AuthorityManager", () => {
       roots: [projectA],
       auditFile: path.join(fixtureRoot, "audit.jsonl"),
       terminal: { enabled: false, commands: ["node"] },
+      projectExec: { enabled: false },
       computerUse: {
         enabled: false,
         hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",

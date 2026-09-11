@@ -32,6 +32,15 @@ describe("CLI command routing", () => {
     });
   });
 
+  it("parses project execution only as an explicit server flag", () => {
+    expect(parseCliCommand(["stdio", "--enable-project-exec"])).toEqual({
+      kind: "server",
+      mode: "stdio",
+      help: false,
+      overrides: { projectExecEnabled: true },
+    });
+  });
+
   it("parses full-host JavaScript only as an explicit independent server flag", () => {
     expect(parseCliCommand(["stdio", "--enable-full-host-js"])).toEqual({
       kind: "server",
@@ -77,6 +86,7 @@ describe("CLI command routing", () => {
     expect(() => parseCliCommand(["authorize", "admin", "--enable-control"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--personal-admin"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--enable-computer-use"])).toThrow();
+    expect(() => parseCliCommand(["authorize", "admin", "--enable-project-exec"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--enable-full-host-js"])).toThrow();
   });
 });

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -23,6 +24,7 @@ const expectedAnnotations = {
   fs_read: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   fs_write: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   fs_apply_patch: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  fs_apply_patch_set: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   fs_mkdir: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   fs_move: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   fs_remove: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
@@ -35,12 +37,17 @@ const expectedAnnotations = {
   git_commit: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   git_merge_branch: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   git_push: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  git_worktree: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   terminal_run: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   process_start: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   process_list: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   process_status: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   process_logs: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   process_stop: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  code_query: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  task_state: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  project_exec: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  project_check: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   browser_health: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   browser_tabs: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   browser_new_tab: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -77,6 +84,17 @@ const expectedAnnotations = {
   computer_run_js: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
 } as const;
 
+const codingHarnessV2ToolNames = [
+  "code_query",
+  "fs_apply_patch_set",
+  "git_worktree",
+  "project_check",
+  "project_exec",
+  "task_state",
+] as const;
+const baselineToolCatalogSha256 = "9cdc86efe227f7d92b2da227aa3ff508c11ceb165b2e5877a6727c9620620051";
+const baselineToolCount = 62;
+
 async function closeServer(server: ReturnType<typeof startHttp>): Promise<void> {
   if (!server.listening) return;
   await new Promise<void>((resolve, reject) => {
@@ -104,6 +122,7 @@ async function fixture() {
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: false, commands: ["node"] },
+    projectExec: { enabled: false },
     computerUse: {
       enabled: false,
       hostBundlePath: path.join(base, "ChatGPTSystemComputerRuntime.app"),
@@ -187,6 +206,13 @@ describe("HTTP MCP transport", () => {
 
       const { tools } = await client.listTools();
       expect(tools.map((tool) => tool.name).sort()).toEqual(Object.keys(expectedAnnotations).sort());
+      const currentNames = tools.map((tool) => tool.name);
+      const harnessNames = new Set<string>(codingHarnessV2ToolNames);
+      const legacyNames = currentNames.filter((name) => !harnessNames.has(name)).sort();
+      const currentHarnessNames = currentNames.filter((name) => harnessNames.has(name)).sort();
+      expect(currentHarnessNames).toEqual([...codingHarnessV2ToolNames].sort());
+      expect(legacyNames).toHaveLength(baselineToolCount);
+      expect(createHash("sha256").update(legacyNames.join("\n")).digest("hex")).toBe(baselineToolCatalogSha256);
 
       for (const tool of tools) {
         const expected = expectedAnnotations[tool.name as keyof typeof expectedAnnotations];

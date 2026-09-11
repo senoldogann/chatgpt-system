@@ -20,6 +20,7 @@ Server options:
   --root <path>                    Allow a filesystem root (repeatable). Defaults to cwd.
   --audit-file <path>              JSONL audit log path.
   --enable-terminal                Enable bootstrap terminal_run. Disabled by default.
+  --enable-project-exec            Enable Docker-sandboxed Project execution. Disabled by default.
   --personal-admin                 Allow this MCP client to mint short-lived Admin leases directly. Disabled by default.
   --allow-command <name>           Terminal executable allowlist (repeatable).
   --enable-browser                 Enable the Admin-only Playwright browser runtime. Disabled by default.
@@ -42,7 +43,8 @@ Authorize options:
 Security:
   Filesystem tools are confined to active authority lease roots and reject symlink escapes.
   Existing file writes/removals require the SHA-256 returned by fs_read/fs_stat.
-  Project and User authority have no terminal capability. Admin alone can use the bounded terminal/process allowlist.
+  Project and User authority have no host terminal capability. Admin alone can use the bounded host terminal/process allowlist.
+  Project execution is a separate explicit opt-in Docker sandbox with network disabled and no host fallback.
   Browser automation is an explicit runtime opt-in and remains Admin-only. Raw CSS/XPath/JavaScript selectors are not exposed.
   Computer Runtime is a separate explicit opt-in; health is categorical and all screen/actuation tools remain Admin-only.
   Browser input into password, OTP, and payment-credential-shaped fields is refused.
@@ -112,14 +114,14 @@ async function main(): Promise<void> {
         reportError: reportShutdownError,
       }));
       console.error(
-        `[chatgpt-system] stdio ready; roots=${config.roots.join(",")}; terminal=${config.terminal.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`,
+        `[chatgpt-system] stdio ready; roots=${config.roots.join(",")}; terminal=${config.terminal.enabled ? "enabled" : "disabled"}; project-exec=${config.projectExec.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`,
       );
       return;
     }
 
     const server = startHttp(runtime);
     server.once("listening", () => {
-      console.error(`[chatgpt-system] HTTP MCP listening on http://${config.http.host}:${config.http.port}/mcp; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`);
+      console.error(`[chatgpt-system] HTTP MCP listening on http://${config.http.host}:${config.http.port}/mcp; project-exec=${config.projectExec.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`);
     });
     installShutdown(() => closeRuntimeResources({
       runtime,

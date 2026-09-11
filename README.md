@@ -20,7 +20,8 @@ Secure local MCP authority gateway for controlled filesystem, Git, process, and 
 | **Secure MCP Tunnel** | Outbound-only personal ChatGPT connectivity without exposing a raw public MCP port |
 | **Scoped authority** | Project, User, and Admin profiles with fixed local privilege boundaries |
 | **Filesystem + Git** | Confined file operations plus typed Git read/write primitives |
-| **Admin execution** | Allowlisted `shell=false` commands and managed development processes |
+| **Project execution** | Explicitly enabled, Project-only Docker sandbox with no network and no host fallback |
+| **Admin execution** | Allowlisted `shell=false` host commands and managed development processes |
 | **Browser Runtime** | Admin-only semantic Playwright automation, screenshots, and bounded browser diagnostics |
 | **Computer Runtime v2 Slice 4** | Slice 3 native control plus Admin-only bounded full-host Node.js execution behind a separate explicit gate, private computer RPC, process containment, takeover safety, and redacted audit |
 | **macOS trust** | LocalAuthentication for broad authority and Keychain-backed daily-driver credentials |
@@ -41,7 +42,9 @@ flowchart LR
 
     Runtime --> Files["Filesystem"]
     Runtime --> Git["Typed Git"]
-    Runtime --> Exec["Admin terminal + managed processes"]
+    Runtime --> ProjectExec["Project Docker sandbox\nnetwork=none"]
+    ProjectExec --> Docker["Local Unix-socket Docker daemon"]
+    Runtime --> Exec["Admin host terminal + managed processes"]
     Runtime --> Browser["Admin Browser Runtime"]
     Browser --> Playwright["Playwright 1.63.0"]
     Runtime --> Computer["Admin Computer Runtime"]
@@ -63,7 +66,8 @@ The shared runtime currently includes:
 - stdio and authenticated Streamable HTTP transports;
 - personal ChatGPT Plugin path through OpenAI Secure MCP Tunnel;
 - Project / User / Admin authority leases;
-- direct Project authority from MCP with no terminal/browser content capability;
+- direct Project authority from MCP with no host-terminal/browser-content capability;
+- optional `project_exec` behind the separate `--enable-project-exec` gate, restricted to Project leases and a local Unix-socket Docker context with `network=none`, read-only container root, bounded resources, and no host-execution fallback;
 - local User/Admin authorization through a private Unix socket and macOS LocalAuthentication;
 - optional explicit personal-admin mode for a private daily-driver workstation;
 - protected root-owned native approval helper with pinned SHA-256 metadata;
@@ -93,6 +97,7 @@ Computer Runtime v2 Slice 4 keeps the Slice 3 native physical-input layer determ
 - Node.js 22 or newer
 - npm
 - Git
+- Docker Desktop or another trusted local Docker daemon when `project_exec` is enabled; the active Docker context must resolve to a local Unix socket
 - macOS + Swift/Xcode command-line tools for native User/Admin approval; the standalone Computer Runtime v2 helper specifically requires macOS 14+
 - `tunnel-client` when using the personal ChatGPT Plugin route
 - Chromium installed through the repository-pinned Playwright CLI when Browser Runtime is enabled
@@ -111,6 +116,22 @@ For local stdio development:
 ```bash
 npm run dev -- stdio --root /absolute/path/to/project
 ```
+
+### Project execution sandbox
+
+Project execution is disabled by default. Build the fixed local sandbox image once while a trusted local Docker daemon is running:
+
+```bash
+npm run setup:project-exec
+```
+
+Then start the runtime with the independent gate:
+
+```bash
+npm run dev -- stdio --root /absolute/path/to/project --enable-project-exec
+```
+
+`project_exec` accepts only a Project lease. The project root is bind-mounted at `/workspace`; container networking is disabled, the container root filesystem is read-only, and Docker/image/backend failures return `SANDBOX_UNAVAILABLE` rather than falling back to host execution. The sandbox is Linux-based, so macOS-native/Xcode tasks still require the existing explicit Admin host-execution path.
 
 ## Browser Runtime
 
@@ -212,13 +233,20 @@ Slice 4 preserves the strict Computer Runtime authority boundary. `computer_heal
 
 For a personal ChatGPT Developer Mode plugin, use OpenAI Secure MCP Tunnel so the Mac does not expose a public inbound MCP port.
 
-Create the tunnel in OpenAI Platform, then configure the local profile. For the full daily-driver capability set including browser:
+Create the fixed Project execution image first if you want Project leases to run builds/tests without Admin host-terminal authority:
+
+```bash
+npm run setup:project-exec
+```
+
+Create the tunnel in OpenAI Platform, then configure the local profile. For the full daily-driver capability set including Project execution and browser:
 
 ```bash
 npm run setup:chatgpt -- \
   --root /absolute/path/to/disposable-test-project \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
   --enable-terminal \
+  --enable-project-exec \
   --personal-admin \
   --enable-browser \
   --enable-computer-use \
@@ -226,7 +254,7 @@ npm run setup:chatgpt -- \
   --doctor
 ```
 
-The generated tunnel child command always enables the private local authority control socket. `--enable-terminal`, `--personal-admin`, `--enable-browser`, `--enable-computer-use`, and `--enable-full-host-js` are separate explicit trust decisions. Full-host JavaScript cannot be enabled without Computer Runtime; omitting either gate preserves the secure default.
+The generated tunnel child command always enables the private local authority control socket. `--enable-terminal`, `--enable-project-exec`, `--personal-admin`, `--enable-browser`, `--enable-computer-use`, and `--enable-full-host-js` are separate explicit trust decisions. `--enable-project-exec` does not enable host terminal access; it only enables the Project-only Docker sandbox. Full-host JavaScript cannot be enabled without Computer Runtime; omitting either gate preserves the secure default.
 
 Headless browser mode is optional:
 
@@ -291,11 +319,11 @@ The LaunchAgent runs as the logged-in user. The tunnel credential is not written
 
 Every privileged filesystem/Git/process/browser-content call carries an opaque `authorityLeaseId`. The capability mapping is fixed by trusted local code and cannot be overridden by MCP input.
 
-| Profile | Scope | Maximum lease | Terminal/process | Browser content/actions | Authority creation |
-| --- | --- | ---: | --- | --- | --- |
-| `project` | Explicit project root(s) | 8 hours | No | No | MCP `session_authority_start` |
-| `user` | Canonical current-user home | 4 hours | No | No | Local CLI + macOS authentication |
-| `admin` | `/` host-wide scope under current OS user | 1 hour | Yes when runtime gate enabled | Yes when browser gate enabled | Local CLI by default; MCP direct in personal-admin mode |
+| Profile | Scope | Maximum lease | Host terminal/process | Project sandbox | Browser content/actions | Authority creation |
+| --- | --- | ---: | --- | --- | --- | --- |
+| `project` | Explicit project root(s) | 8 hours | No | Yes only when `--enable-project-exec` is enabled | No | MCP `session_authority_start` |
+| `user` | Canonical current-user home | 4 hours | No | No | No | Local CLI + macOS authentication |
+| `admin` | `/` host-wide scope under current OS user | 1 hour | Yes when runtime gate enabled | No; use a Project lease | Yes when browser gate enabled | Local CLI by default; MCP direct in personal-admin mode |
 
 ### Project authority
 
@@ -308,7 +336,7 @@ session_authority_start({
 })
 ```
 
-It supports filesystem and built-in Git tools inside selected roots. `/` and the entire user home directory are rejected as Project roots.
+It supports filesystem and built-in Git tools inside selected roots. When the independent Project execution gate is enabled, the same Project lease can also call `project_exec` inside those roots without gaining host-terminal authority. `/` and the entire user home directory are rejected as Project roots.
 
 ### User/Admin local authorization
 
@@ -409,7 +437,15 @@ git_push
 
 `git_push` is Admin-only and pushes only the validated current branch to the existing credential-free GitHub `origin`. Remote/refspec/force input is not exposed.
 
-### One-shot and managed processes
+### Sandboxed Project execution
+
+```text
+project_exec
+```
+
+`project_exec` requires a Project lease and the explicit Project-execution startup gate. It never falls back to `terminal_run`; Docker daemon/image/context failures fail closed.
+
+### One-shot and managed host processes
 
 ```text
 terminal_run
@@ -495,7 +531,9 @@ Creating a new file does not require `expectedSha256`.
 
 Managed processes additionally use opaque IDs and daemon-controlled stop semantics. On POSIX the daemon sends `SIGTERM`, waits the configured grace period, and escalates to `SIGKILL` only if required.
 
-Neither one-shot nor managed execution is an OS sandbox.
+Neither one-shot nor managed Admin host execution is an OS sandbox.
+
+`project_exec` is a separate Docker isolation boundary: it accepts only Project leases, requires explicit startup opt-in, rejects non-local Docker contexts, disables container networking, uses a read-only container root plus bounded `/tmp`, and bind-mounts only the selected project root at `/workspace`. Its Linux environment may differ from the macOS host, and the Docker daemon itself remains trusted infrastructure. A missing/unhealthy daemon, missing fixed image, or backend failure is reported as `SANDBOX_UNAVAILABLE`; there is no host fallback.
 
 ## Browser safety
 
