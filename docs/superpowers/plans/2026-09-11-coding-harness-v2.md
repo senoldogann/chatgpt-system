@@ -319,6 +319,16 @@ Normalize new stable errors and retryability. Ensure new project execution, code
 
 Review the complete MCP catalog for duplication and ambiguous selection. Keep existing stable APIs unless a breaking change is explicitly justified. Prefer operation enums within the six new compact capabilities rather than many new top-level tools.
 
+- [x] Compare the exact baseline MCP catalog from `3daf964` against current HEAD.
+- [x] Preserve all 62 baseline tools; no legacy tool name was removed or renamed.
+- [x] Confirm the only six added top-level tools are `code_query`, `fs_apply_patch_set`, `git_worktree`, `project_check`, `project_exec`, and `task_state`.
+- [x] Lock the baseline 62-tool catalog with a SHA-256 fingerprint in the real HTTP MCP handshake test.
+- [x] Keep multi-operation behavior inside the compact tools instead of adding definition/reference/checkpoint/worktree sub-tools.
+- [x] Re-run strict schema/integration coverage for all six harness tools under the repository worker policy.
+- [x] Run full `npm run check` and `git diff --check`.
+
+**Task 8 verification evidence:** baseline catalog 62 tools, current catalog 68 tools, removed legacy tools 0, added tools exactly the planned six; catalog fingerprint `9cdc86efe227f7d92b2da227aa3ff508c11ceb165b2e5877a6727c9620620051`; focused catalog/harness suite 8 files / 21 tests PASS with `--maxWorkers=50%`; final full suite 69 files / 427 tests PASS; `git diff --check` PASS. An initial unconstrained focused run hit only existing 5-second integration-test timeouts under excessive parallelism; the repository's real worker policy passed unchanged assertions.
+
 ---
 
 ### Task 9: Coding-harness benchmark suite

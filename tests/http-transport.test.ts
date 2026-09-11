@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -82,6 +83,17 @@ const expectedAnnotations = {
   computer_run: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   computer_run_js: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
 } as const;
+
+const codingHarnessV2ToolNames = [
+  "code_query",
+  "fs_apply_patch_set",
+  "git_worktree",
+  "project_check",
+  "project_exec",
+  "task_state",
+] as const;
+const baselineToolCatalogSha256 = "9cdc86efe227f7d92b2da227aa3ff508c11ceb165b2e5877a6727c9620620051";
+const baselineToolCount = 62;
 
 async function closeServer(server: ReturnType<typeof startHttp>): Promise<void> {
   if (!server.listening) return;
@@ -194,6 +206,13 @@ describe("HTTP MCP transport", () => {
 
       const { tools } = await client.listTools();
       expect(tools.map((tool) => tool.name).sort()).toEqual(Object.keys(expectedAnnotations).sort());
+      const currentNames = tools.map((tool) => tool.name);
+      const harnessNames = new Set<string>(codingHarnessV2ToolNames);
+      const legacyNames = currentNames.filter((name) => !harnessNames.has(name)).sort();
+      const currentHarnessNames = currentNames.filter((name) => harnessNames.has(name)).sort();
+      expect(currentHarnessNames).toEqual([...codingHarnessV2ToolNames].sort());
+      expect(legacyNames).toHaveLength(baselineToolCount);
+      expect(createHash("sha256").update(legacyNames.join("\n")).digest("hex")).toBe(baselineToolCatalogSha256);
 
       for (const tool of tools) {
         const expected = expectedAnnotations[tool.name as keyof typeof expectedAnnotations];
