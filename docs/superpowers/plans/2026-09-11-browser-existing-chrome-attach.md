@@ -143,7 +143,7 @@ const DEVTOOLS_ACTIVE_PORT_MAX_BYTES = 4096;
 const BROWSER_PATH_PATTERN = /^\/devtools\/browser\/[A-Za-z0-9._~-]+$/;
 ```
 
-Use `lstat()` before reading; require `isFile()` and reject symbolic links. Open/read at most `4097` bytes so oversize input is detected without unbounded allocation. Decode UTF-8, normalize only the final trailing newline, and reject unexpected additional non-empty lines. Parse port with a canonical decimal regex such as `/^[1-9][0-9]{0,4}$/` followed by numeric `1..65535` validation.
+Open the metadata through one file handle. Where the platform exposes `O_NOFOLLOW`, combine it with `O_RDONLY`; then call `FileHandle.stat()` on that same handle and require `isFile()`. On platforms without `O_NOFOLLOW`, perform an `lstat()` symlink refusal immediately before `open()` and still validate the opened handle with `stat()`. Read at most `4097` bytes from the handle so oversize input is detected without unbounded allocation. Decode UTF-8, normalize only the final trailing newline, and reject unexpected additional non-empty lines. Parse port with a canonical decimal regex such as `/^[1-9][0-9]{0,4}$/` followed by numeric `1..65535` validation.
 
 Map filesystem/parser failures to:
 
