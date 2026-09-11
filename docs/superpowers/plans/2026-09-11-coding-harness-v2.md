@@ -202,6 +202,17 @@ Store only inside a dedicated `~/.chatgpt-system/state/projects/<fingerprint>/..
 
 Add `fs_apply_patch_set` using existing `PathPolicy`, SHA-256 preconditions, and patch semantics. Validate all paths/hashes/patches before destination mutation. Add journaling/recovery if crash-atomicity cannot be guaranteed. Explicitly test concurrent change, invalid patch, duplicate path, symlink escape, and recovery.
 
+- [x] Add RED MCP integration coverage for multi-file success and prevalidation failures.
+- [x] Validate all canonical paths, hashes, unified-diff hunks, and size limits before destination mutation.
+- [x] Reject duplicate canonical targets and symlink escapes.
+- [x] Re-check every original hash after transaction artifacts are materialized and before commit.
+- [x] Persist bounded prepared/committing/committed journals under `state/patch-transactions/<scope-fingerprint>/`.
+- [x] Recover interrupted committing transactions by restoring verified original backups before the next request.
+- [x] Keep audit metadata categorical; patch/file contents are not copied into audit records.
+- [x] Run focused GREEN tests, full `npm run check`, and `git diff --check`.
+
+**Task 4A verification evidence:** focused patch-set/catalog suite 6/6 PASS; stale hash, malformed patch, duplicate canonical path, symlink escape, and interrupted-commit rollback covered; final full suite 65 files / 407 tests PASS; `git diff --check` PASS. A macOS `/var` → `/private/var` test-fixture alias was corrected to use the canonical Project-lease root; production recovery already keyed state by canonical authority roots.
+
 ---
 
 ### Task 4B: Managed worktree lifecycle

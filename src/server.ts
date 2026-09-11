@@ -24,6 +24,7 @@ import {
   MacOSLocalAuthorityBroker,
   type LocalAuthorityBroker,
 } from "./local-authority-broker.js";
+import { registerPatchSetTool } from "./patch-set-tool-registration.js";
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { ProcessSupervisor } from "./process-supervisor.js";
@@ -640,6 +641,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   );
 
   registerCodeQueryTool(server, runtime);
+  registerPatchSetTool(server, runtime);
   registerTaskStateTool(server, runtime);
   registerProjectExecTool(server, runtime);
   registerBrowserTools(server, runtime);

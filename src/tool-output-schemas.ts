@@ -150,6 +150,15 @@ export const fsPatchOutputSchema = z.object({
   sha256: sha256Schema,
 });
 
+export const fsPatchSetOutputSchema = z.object({
+  recoveredTransactions: nonNegativeInt,
+  applied: z.array(z.object({
+    path: z.string(),
+    bytes: nonNegativeInt,
+    sha256: sha256Schema,
+  }).strict()),
+}).strict();
+
 export const fsMkdirOutputSchema = z.object({
   path: z.string(),
   created: z.boolean(),

@@ -23,6 +23,7 @@ const expectedAnnotations = {
   fs_read: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   fs_write: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   fs_apply_patch: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  fs_apply_patch_set: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   fs_mkdir: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   fs_move: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   fs_remove: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
