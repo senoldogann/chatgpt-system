@@ -31,6 +31,10 @@ export function createProjectContinuityRuntime(
   authority: AuthorityManager,
   options: ProjectContinuityRuntimeOptions,
 ): ProjectContinuityRuntime {
+  if (options.continuityService !== undefined && options.continuityStore === undefined) {
+    throw new Error("continuityStore is required when continuityService is injected.");
+  }
+
   const continuityStore = options.continuityStore
     ?? new ContinuityStore({ databasePath: config.continuity.databasePath });
   const continuity = options.continuityService

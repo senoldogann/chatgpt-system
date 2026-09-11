@@ -53,6 +53,31 @@ describe("createProjectContinuityRuntime", () => {
     runtime.continuityStore.close();
   });
 
+  it("fails fast when a service is injected without its owning store", async () => {
+    const test = await fixture();
+    const injectedPath = path.join(test.root, "injected-only-service", "continuity.db");
+    const injectedStore = new ContinuityStore({ databasePath: injectedPath });
+    const inspector = new ContinuityGitInspector({
+      maxTrackedPaths: 10,
+      remoteVerificationTimeoutMs: 500,
+      maxCommandOutputBytes: 1024,
+    });
+    const injectedService = new ProjectContinuityService({
+      store: injectedStore,
+      inspector,
+      authority: test.authority,
+      homeDir: test.home,
+      maxResumeChars: 12_000,
+    });
+
+    expect(() => createProjectContinuityRuntime(test.config, test.authority, {
+      homeDir: test.home,
+      continuityService: injectedService,
+    })).toThrow(/continuityStore.*continuityService/i);
+    await expect(stat(test.config.continuity.databasePath)).rejects.toMatchObject({ code: "ENOENT" });
+    injectedStore.close();
+  });
+
   it("reuses injected store and service without creating a second configured database", async () => {
     const test = await fixture();
     const injectedPath = path.join(test.root, "injected", "continuity.db");

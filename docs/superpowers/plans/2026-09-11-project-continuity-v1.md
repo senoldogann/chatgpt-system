@@ -895,7 +895,7 @@ const { continuityStore, continuity } = createProjectContinuityRuntime(
 );
 ```
 
-The factory owns `ContinuityStore`, `ContinuityGitInspector`, and `ProjectContinuityService` construction using the configured DB path and bounds. The store constructor is synchronous by Task 1 contract, so `createRuntimeServices(...)` remains synchronous. Do not add a second async runtime constructor.
+The factory owns `ContinuityStore`, `ContinuityGitInspector`, and `ProjectContinuityService` construction using the configured DB path and bounds. If tests inject `continuityService`, they must inject its owning `continuityStore` in the same runtime options; service-only injection fails fast so shutdown cannot close a different unused store. Store-only injection remains valid and the factory builds the service around that store. The store constructor is synchronous by Task 1 contract, so `createRuntimeServices(...)` remains synchronous. Do not add a second async runtime constructor.
 
 Register tools through `registerProjectContinuityTools(server, runtime)` near the other modular runtime registrations.
 
