@@ -140,6 +140,21 @@ function initializeSchema(db: Database.Database): void {
   }
 }
 
+function verifyDatabaseIntegrity(db: Database.Database): void {
+  let result: unknown;
+  try {
+    result = db.pragma("quick_check", { simple: true });
+  } catch (error) {
+    if (error instanceof Database.SqliteError) {
+      throw new ContinuityDatabaseInvalidError("The project continuity database failed its SQLite integrity check.");
+    }
+    throw error;
+  }
+  if (result !== "ok") {
+    throw new ContinuityDatabaseInvalidError("The project continuity database failed its SQLite integrity check.");
+  }
+}
+
 function openDatabase(databasePath: string): Database.Database {
   mkdirSync(path.dirname(databasePath), { recursive: true, mode: 0o700 });
   let db: Database.Database;
@@ -157,6 +172,7 @@ function openDatabase(databasePath: string): Database.Database {
     db.pragma("foreign_keys = ON");
     db.pragma("busy_timeout = 5000");
     initializeSchema(db);
+    verifyDatabaseIntegrity(db);
     return db;
   } catch (error) {
     if (db.open) db.close();

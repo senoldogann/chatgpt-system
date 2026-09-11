@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ContinuityStore } from "../src/continuity-store.js";
@@ -220,6 +220,67 @@ describe("ContinuityStore", () => {
     ).get();
     after.close();
     expect(projectTable).toBeUndefined();
+  });
+
+  it("rejects an openable database whose continuity B-tree fails SQLite integrity checking", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "chatgpt-system-continuity-store-"));
+    cleanups.push(root);
+    const databasePath = path.join(root, "continuity.db");
+    const store = new ContinuityStore({ databasePath });
+
+    for (let index = 0; index < 30; index += 1) {
+      const fixture = registrationFixture();
+      store.register({
+        ...fixture,
+        id: `project-${index}`,
+        alias: `Project-${index}`,
+        worktree: {
+          ...fixture.worktree,
+          canonicalPath: `/tmp/project-${index}`,
+          repositoryRoot: `/tmp/project-${index}`,
+          commonGitDir: `/tmp/project-${index}/.git`,
+          gitDir: `/tmp/project-${index}/.git`,
+        },
+        semantic: {
+          ...fixture.semantic,
+          task: {
+            ...fixture.semantic.task,
+            goal: "g".repeat(8_000),
+            nextStep: "n".repeat(4_000),
+          },
+        },
+      });
+    }
+    store.close();
+
+    const raw = new Database(databasePath);
+    const pageSize = raw.pragma("page_size", { simple: true }) as number;
+    const leaf = raw.prepare(
+      "SELECT pageno FROM dbstat WHERE name = 'continuity_records' AND pagetype = 'leaf' ORDER BY pageno DESC LIMIT 1",
+    ).get() as { pageno: number };
+    raw.close();
+
+    const bytes = await readFile(databasePath);
+    const pageOffset = (leaf.pageno - 1) * pageSize;
+    bytes[pageOffset + 3] = 0x7f;
+    bytes[pageOffset + 4] = 0xff;
+    await writeFile(databasePath, bytes);
+
+    const probe = new Database(databasePath);
+    expect(probe.prepare("SELECT schema_version FROM continuity_meta").pluck().get()).toBe(1);
+    let integrityFailed = false;
+    try {
+      integrityFailed = probe.pragma("quick_check", { simple: true }) !== "ok";
+    } catch {
+      integrityFailed = true;
+    } finally {
+      probe.close();
+    }
+    expect(integrityFailed).toBe(true);
+
+    expect(() => new ContinuityStore({ databasePath })).toThrowError(
+      expect.objectContaining({ code: "CONTINUITY_DATABASE_INVALID" }),
+    );
   });
 
   it("maps malformed persisted JSON to a stable database error", async () => {
