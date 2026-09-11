@@ -355,6 +355,15 @@ Do not claim Codex parity from a single demo.
 
 Document authority/execution boundaries, Docker sandbox setup/limitations, code intelligence, task state, worktrees, verification, browser correlation, audit, stable errors, and the recommended agent workflow. Explicitly distinguish Project sandbox execution from Admin host execution.
 
+- [x] Add a dedicated `docs/CODING_HARNESS_V2.md` operator runbook to minimize overlap with the parallel continuity branch.
+- [x] Document Project sandbox execution separately from Admin host execution, including Docker trust, Linux-only behavior, and no host fallback.
+- [x] Document all six new compact MCP capabilities, state/worktree ownership, verification freshness, browser correlation, and stable recovery errors.
+- [x] Document the recommended `UNDERSTAND → SEARCH → PLAN → ISOLATE → EDIT → TEST → DIAGNOSE → VERIFY → CHECKPOINT → REPORT` workflow.
+- [x] Document benchmark `list`, `prepare`, and `evaluate` operations and explicitly reject single-run model-parity claims.
+- [x] Lock the required runbook contracts with repository tests.
+
+**Task 10 verification evidence:** documentation contract test 1/1 PASS; runbook is self-contained and does not require edits to shared README/integration files owned by the parallel continuity effort.
+
 ---
 
 ### Task 11: Final verification and review
