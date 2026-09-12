@@ -75,6 +75,7 @@ describe("default authority MCP catalog", () => {
       const { tools } = await client.listTools();
       const names = tools.map((tool) => tool.name);
       expect(names).toContain("session_authority_start");
+      expect(names).toContain("shell_run");
       expect(names).not.toContain("session_authority_request");
       expect(names).not.toContain("session_authority_request_status");
 

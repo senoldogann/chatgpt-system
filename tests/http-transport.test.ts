@@ -38,6 +38,7 @@ const expectedAnnotations = {
   git_merge_branch: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   git_push: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   git_worktree: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  shell_run: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   terminal_run: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   process_start: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   process_list: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -96,6 +97,7 @@ const codingHarnessV2ToolNames = [
   "project_exec",
   "task_state",
 ] as const;
+const ownerRuntimeToolNames = ["shell_run"] as const;
 const continuityV1ToolNames = [
   "project_checkpoint",
   "project_context_read",
@@ -225,7 +227,7 @@ describe("HTTP MCP transport", () => {
       const currentNames = tools.map((tool) => tool.name);
       const harnessNames = new Set<string>(codingHarnessV2ToolNames);
       const continuityNames = new Set<string>(continuityV1ToolNames);
-      const featureNames = new Set<string>([...codingHarnessV2ToolNames, ...continuityV1ToolNames]);
+      const featureNames = new Set<string>([...codingHarnessV2ToolNames, ...continuityV1ToolNames, ...ownerRuntimeToolNames]);
       const legacyNames = currentNames.filter((name) => !featureNames.has(name)).sort();
       const currentHarnessNames = currentNames.filter((name) => harnessNames.has(name)).sort();
       const currentContinuityNames = currentNames.filter((name) => continuityNames.has(name)).sort();
@@ -245,6 +247,7 @@ describe("HTTP MCP transport", () => {
       expect(capabilities.isError).not.toBe(true);
       expect(capabilities.structuredContent).toMatchObject({
         terminal: { enabled: false },
+        ownerRuntime: { enabled: false },
         limits: {
           maxManagedProcesses: 32,
           maxProcessLogBytesPerStream: 131_072,

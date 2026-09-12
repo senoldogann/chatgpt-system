@@ -47,7 +47,7 @@ export async function describeSystemEnvironment(config: AppConfig): Promise<Syst
       enabled: config.terminal.enabled,
     },
     ownerRuntime: {
-      enabled: config.ownerRuntime.enabled,
+      enabled: config.ownerRuntime?.enabled === true,
     },
     computerUse: {
       enabled: config.computerUse.enabled,

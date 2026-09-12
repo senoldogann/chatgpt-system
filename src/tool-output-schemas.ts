@@ -245,6 +245,19 @@ export const projectCheckOutputSchema = z.object({
   checks: z.array(projectCheckItemSchema),
 }).strict();
 
+export const shellRunOutputSchema = z.object({
+  cwd: z.string(),
+  exitCode: z.number().int().nullable(),
+  signal: z.string().nullable(),
+  stdout: z.string(),
+  stderr: z.string(),
+  stdoutBytesSeen: nonNegativeInt,
+  stderrBytesSeen: nonNegativeInt,
+  stdoutTruncated: z.boolean(),
+  stderrTruncated: z.boolean(),
+  timedOut: z.boolean(),
+}).strict();
+
 export const terminalResultOutputSchema = z.object({
   command: z.string(),
   args: z.array(z.string()),

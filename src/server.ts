@@ -30,6 +30,7 @@ import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { ProcessSupervisor } from "./process-supervisor.js";
 import { OwnerShellSupervisor } from "./owner-shell-supervisor.js";
+import { registerOwnerShellTool } from "./owner-shell-tool-registration.js";
 import { registerProjectCheckTool } from "./project-check-tool-registration.js";
 import { registerProjectExecTool } from "./project-exec-tool-registration.js";
 import { createProjectContinuityRuntime, type ProjectContinuityRuntime } from "./project-continuity-runtime.js";
@@ -254,7 +255,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
         adminLeaseMaxTtlSeconds: 3600 as const,
       },
       ownerRuntime: {
-        enabled: runtime.config.ownerRuntime.enabled,
+        enabled: runtime.config.ownerRuntime?.enabled === true,
       },
       computerUse: {
         enabled: runtime.config.computerUse?.enabled === true,
@@ -583,6 +584,8 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     },
     async ({ authorityLeaseId, cwd }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.push(cwd)),
   );
+
+  registerOwnerShellTool(server, runtime);
 
   server.registerTool(
     "terminal_run",
