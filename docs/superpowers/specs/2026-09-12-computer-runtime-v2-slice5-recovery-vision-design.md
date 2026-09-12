@@ -362,11 +362,25 @@ Common action verification examples:
 
 Verification failures enter the same bounded recovery budget; they do not cause infinite local loops.
 
+Observation is adaptive rather than screenshot-per-action:
+
+```text
+compatible cached AX
+  -> fresh AX when compatibility/state requires it
+  -> region digest/crop when visual verification is enough
+  -> full screenshot/OCR only when structured evidence is insufficient
+  -> model-visible screenshot only at a real replan boundary
+```
+
+The runtime must prefer the cheapest reliable state signal and avoid full-frame capture when a cached/fresh semantic state or bounded region check is sufficient.
+
 ## 11. Multi-step execution model
 
 The primary performance strategy is to reduce model/tool yields, not merely make each mouse event faster.
 
-One `computer_run` or `computer_run_js` call may execute many steps while holding the physical-action lane.
+`computer_run_js` is the preferred fast path for long, branching, or stateful workflows because one model decision can compile into many bounded local actions and checks. Typed `computer_run` remains the simpler structured path for short or externally generated action programs. Both use the same resolver, safety, takeover, and verification boundaries.
+
+One `computer_run` or `computer_run_js` call may execute many steps while holding the physical-action lane. A successful multi-step local program should not yield back to the model between ordinary deterministic actions.
 
 Example shape:
 
@@ -404,6 +418,12 @@ await computer.waitUntilChanged(options)
 ### 11.2 Typed `computer_run`
 
 Typed action programs should gain semantic-target support and the same native recovery engine. Typed callers do not need to recreate recovery logic action-by-action in TypeScript.
+
+### 11.3 Persistent execution-session state
+
+The full-host JavaScript session should keep reusable process-local objects alive across calls when their owning runtime is still valid. This includes browser page/context objects, native app/window handles represented through safe opaque identities, the current capability profile, current display topology, and the last compatible observation generation.
+
+Persistence is an optimization, never permission to trust stale state. Before mutation, target/window/topology compatibility is revalidated. Browser and native connections should be reused rather than disconnected/recreated between ordinary calls; lifecycle shutdown remains explicit and bounded. Persistent state must not serialize screenshots, OCR text, AX document text, typed content, credentials, or raw native pointers to disk.
 
 ## 12. Browser routing
 
@@ -506,6 +526,22 @@ local 5-step simple action sequence          no model round trips between steps
 These are optimization targets, not flaky CI deadlines. CI verifies correctness and bounds; real-Mac acceptance records latency distributions.
 
 Instrumentation contains timing/count metadata only.
+
+In addition to latency distributions, acceptance records workflow-efficiency counters because fewer decision/tool boundaries are the primary speed objective:
+
+```text
+model turns per workflow
+native IPC calls per workflow
+screenshots per workflow
+OCR invocations per workflow
+local actions per computer_run_js invocation
+cold session start latency
+warm semantic resolve latency
+recovery latency
+end-to-end workflow latency
+```
+
+A key acceptance target is at least five deterministic semantic actions in one `computer_run_js` invocation with zero intermediate model turns.
 
 ## 17. Implementation boundaries
 
@@ -617,7 +653,9 @@ Slice 5 is complete when:
 - screenshot pixels remain the universal replan path;
 - semantic/index targets cannot silently act on stale geometry;
 - one observation can support multiple local actions;
+- `computer_run_js` is the preferred fast path for long/stateful workflows and can execute at least five deterministic semantic actions without intermediate model turns;
 - `computer_run` and `computer_run_js` can resolve and act locally with bounded recovery;
+- compatible browser/native connections and safe session objects are reused across ordinary calls instead of being recreated unnecessarily;
 - deterministic recovery stops rather than guessing;
 - verification uses the cheapest reliable signal;
 - Browser Runtime stays preferred for ordinary semantic browser work;
@@ -632,6 +670,8 @@ The design was cross-checked against public OpenAI computer-use behavior and cur
   https://openai.com/index/computer-using-agent/
 - OpenAI, GPT-5.4 computer use and vision — public evidence for combining semantic/DOM and screenshot-driven interaction.
   https://openai.com/index/introducing-gpt-5-4/
+- OpenAI Computer Use guide — screenshot/custom-harness loops, code-execution harnesses, persistent browser objects, and multi-action execution guidance.
+  https://developers.openai.com/api/docs/guides/tools-computer-use
 - OpenAI Responses API reference — computer action vocabulary, screenshots, batched computer action list, safety-check output contract.
   https://developers.openai.com/api/reference/cli/resources/beta/subresources/responses
 - Apple Vision `VNRecognizeTextRequest` — macOS 14-compatible native text recognition over `CGImage`, with fast/accurate recognition levels.

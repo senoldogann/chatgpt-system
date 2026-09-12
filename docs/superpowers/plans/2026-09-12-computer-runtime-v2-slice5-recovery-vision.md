@@ -22,6 +22,9 @@
 - `COMPUTER_USER_TAKEOVER`, cancellation, permission loss, unsafe topology, and exhausted budget stop recovery immediately.
 - Screenshots, OCR text, AX document text, typed text, JS source/output, lease IDs, and secrets must not enter audit metadata.
 - Existing Browser Runtime remains preferred for ordinary semantic browser work.
+- `computer_run_js` is the preferred fast path for long/branching/stateful workflows; ordinary deterministic steps should execute locally without yielding to the model.
+- Observation is adaptive: cached/fresh AX first, bounded region visual checks next, full screenshot/OCR only when structured evidence is insufficient.
+- Reuse compatible browser/native connections and process-local session objects across calls; persistence never bypasses stale-target revalidation.
 - No push and no `main` merge without explicit user authorization.
 
 ---
@@ -599,6 +602,8 @@ await computer.refreshObservation()
 ```
 
 - All calls stay parent-mediated; user JS never receives raw AX pointers or a retry-unbounded primitive.
+- Treat `computer_run_js` as the primary fast path for long/stateful workflows. Keep the JS worker/session alive across calls and reuse compatible browser page/context objects plus safe native app/window/session metadata. Revalidate window generation/topology/target identity before every mutation.
+- Do not persist screen/OCR/AX/typed content in the session cache; cache only handles/opaque identities and content-free capability/topology metadata.
 
 - [ ] **Step 1: Write RED JS protocol tests**
 
@@ -616,7 +621,7 @@ it("exposes resolveMany through the fixed computer proxy", async () => {
 });
 ```
 
-Also test `exists` returns false only for not-found and does not swallow ambiguous/permission/takeover.
+Also test `exists` returns false only for not-found and does not swallow ambiguous/permission/takeover. Add a persistent-session test proving two sequential JS calls reuse the same session object/connection identity without replaying setup, while a stale generation still forces re-resolution. Add a 5+ action test proving one runner invocation completes the sequence with zero intermediate model/tool yields.
 
 - [ ] **Step 2: Run RED**
 
@@ -715,6 +720,7 @@ git commit -m "test: cover slice 5 recovery fixture"
 **Interfaces:**
 - Audit may record content-free fields only: `sourceClass`, `recoveryCount`, `ocrInvoked`, candidate count, action count, duration, stable error.
 - Real-Mac acceptance records timing distributions outside user-content logs.
+- Record workflow-efficiency counters outside user-content logs: model turns, native IPC calls, screenshot count, OCR count, local action count per JS invocation, cold/warm startup, warm resolve, recovery, and end-to-end workflow duration.
 
 - [ ] **Step 1: Add/adjust RED audit tests before any audit code change**
 
@@ -771,7 +777,7 @@ Record only categorical results and timing/count metadata.
 
 - [ ] **Step 6: Run harmless real-app smoke**
 
-Use Calculator/TextEdit/Finder/System Settings/Chromium with no destructive settings/account/purchase actions. Measure warm AX resolve, screenshot, OCR crop, multi-step throughput. If a deterministic failure appears, return to TDD in the smallest owning task; do not patch directly in acceptance code.
+Use Calculator/TextEdit/Finder/System Settings/Chromium with no destructive settings/account/purchase actions. Measure cold session start, warm AX resolve, screenshot, OCR crop, recovery latency, native IPC count, screenshot/OCR counts, model turns, local actions per JS invocation, multi-step throughput, and end-to-end workflow latency. Prove connection/session reuse across ordinary calls. If a deterministic failure appears, return to TDD in the smallest owning task; do not patch directly in acceptance code.
 
 - [ ] **Step 7: Update integration documentation and commit**
 
