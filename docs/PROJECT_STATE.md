@@ -1,13 +1,13 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-12T18:47+03:00
-Status: Owner Runtime design approved; Phase 1 full-host shell implementation planned.
+Last updated: 2026-09-12T19:24+03:00
+Status: Owner Runtime Phase 1 implemented and locally verified; remote PR/CI publication gate remains.
 
 This file is a handoff cache, not the sole source of truth. A resumed agent must reconcile it against Git/worktree reality and the latest Project Continuity checkpoint before editing.
 
 ## Current goal
 
-Add an explicitly enabled Admin-only **Owner Runtime** so ChatGPT Web can perform Codex-class local development on the Mac while `Project` and `User` authority remain narrow. The first implementation phase is unrestricted one-shot `shell_run`; interactive PTY, Computer Runtime ceiling removal, and full integration acceptance remain separate later phases.
+Deliver Owner Runtime / Full-Host Development in reviewable phases so a locally approved Admin ChatGPT session can perform Codex-class local development while `Project` and `User` authority remain narrow. Phase 1 is the unrestricted one-shot `shell_run` surface; PTY, Computer Runtime productivity-ceiling removal, and final end-to-end acceptance remain separate later phases.
 
 ## Active workspace
 
@@ -15,71 +15,83 @@ Add an explicitly enabled Admin-only **Owner Runtime** so ChatGPT Web can perfor
 - Stable merged baseline: `main@a5923a5bbae8743abc1cd5ca39cdb73926787270`.
 - Active isolated managed worktree: `/Users/dogan/.chatgpt-system/worktrees/d0a0a546782faa2c9a9906345e9290c84508aad64b304746b50965bb2ff58ef1/d9a07fdd-6900-4143-9dda-d4ce640a571f`.
 - Active branch: `design/owner-runtime-full-host`.
-- Approved design: `docs/superpowers/specs/2026-09-12-owner-runtime-full-host-development-design.md` at commit `cb20690`.
+- Approved design: `docs/superpowers/specs/2026-09-12-owner-runtime-full-host-development-design.md`.
 - Phase 1 plan: `docs/superpowers/plans/2026-09-12-owner-runtime-phase1-shell.md`.
-- Project Continuity exact alias: `chatgpt-system`, still anchored to the stable root worktree rather than the feature worktree.
+- Latest implementation head before this state refresh: `12ba094cb5f1a0a56c6c325bd5f56bd49f8dbdaa`.
+- Project Continuity exact alias: `chatgpt-system`, intentionally anchored to the stable root worktree rather than this feature worktree.
 
 ## Completed
 
-- Computer Runtime v2 Slice 5 remains completed and merged; its accepted safety/cleanup invariants remain baseline requirements.
-- The user explicitly approved the Owner Runtime direction: full-host capability belongs to locally approved Admin/Owner sessions; `Project` and `User` keep their current limits.
-- Repository architecture was inspected before design. Existing Admin already has `/` filesystem scope; existing `terminal_run` is deliberately `shell=false` + allowlisted; existing process/computer runtimes already provide useful lifecycle/cancellation patterns.
-- Owner Runtime design was written, self-reviewed, and committed as `cb20690` (`docs: design owner runtime full-host development`).
-- The design keeps the existing `admin` authority profile and adds a separate startup capability instead of creating a fourth authority profile.
-- The design keeps `terminal_run` backward-compatible and adds distinct unrestricted `shell_run` plus later persistent PTY tools.
-- A Phase 1 implementation plan was decomposed from the larger design so unrestricted shell can land and be reviewed independently from PTY and Computer Runtime ceiling changes.
-- Phase 1 planning explicitly uses one shared `OwnerShellSupervisor` so timeout, MCP cancellation, and daemon shutdown can terminate every owned process group; the scoped service handles authority/path/audit policy.
+- `cb20690` — Owner Runtime full-host development design.
+- `3bc3c3a` — detailed Phase 1 shell plan and planning handoff.
+- `5a1b203` — explicit Owner Runtime startup gate/config/CLI/categorical capability reporting.
+- `3a2eda9` — shared `OwnerShellSupervisor`, authority-scoped `OwnerShellService`, bounded output tails, timeout/abort/shutdown process-group cleanup, stable errors, and runtime shutdown ownership.
+- `ccdc1c1` — strict `shell_run` MCP surface, output schema, AbortSignal propagation, Project/User denial, Owner gate enforcement, and content-free shell audit contract.
+- `6d0b66c` — ChatGPT tunnel setup propagation plus README/security/architecture/integration documentation.
+- `12ba094` — acceptance regression proving Admin can execute outside the bootstrap root while an omitted shell timeout remains independent of the legacy structured-terminal timeout.
+
+Phase 1 behavior now implemented:
+
+```text
+Admin + Personal Admin + explicit Owner Runtime gate
+  -> shell_run
+  -> trusted configured login shell
+  -> arbitrary shell syntax / executable paths / installed toolchains / host network
+  -> authority-scoped cwd as the current OS user
+  -> bounded retained stdout/stderr tails
+  -> optional finite timeout or no default wall-clock deadline
+  -> MCP abort / daemon-shutdown process-group cleanup
+```
+
+`terminal_run` remains a separate structured `shell=false` + executable-allowlist surface. `Project` and `User` still cannot use host shell execution. No persistent PTY was added in Phase 1.
 
 ## Current state
 
-No Owner Runtime production code has been implemented yet. The active branch contains the approved design and the Phase 1 implementation plan/handoff only.
-
-Phase 1 is intentionally limited to:
-
-```text
-Admin + explicit Owner Runtime gate
-  -> shell_run
-  -> trusted configured login shell
-  -> arbitrary shell syntax / installed local toolchain
-  -> bounded retained output
-  -> process-group timeout/cancel/shutdown cleanup
-```
-
-Interactive PTY is Phase 2. Removal of arbitrary Owner Computer Runtime action/wall-clock ceilings is Phase 3. Codex-class end-to-end development acceptance and final Computer Runtime acceptance/freeze are later gates.
-
-## Next exact step
-
-1. Choose the Phase 1 execution workflow (subagent-driven is preferred; inline execution is also valid).
-2. Execute `docs/superpowers/plans/2026-09-12-owner-runtime-phase1-shell.md` task-by-task with RED → GREEN TDD and frequent commits.
-3. Keep the implementation isolated from `main`; do not widen `Project`/`User`, weaken `terminal_run`, or mix PTY work into the Phase 1 PR.
-4. Run exact-head local verification, publish a reviewable feature PR, wait Node 22/24 and macOS-native CI, then stop at the explicit main-merge authorization gate.
-5. After a verified Phase 1 merge, write the separate Phase 2 interactive-PTY plan from the approved design.
-
-## Invariants
-
-- Full-host shell/PTY capability is Admin-only and requires explicit Owner Runtime startup enablement.
-- `Project` and `User` retain current host-execution restrictions.
-- Existing `terminal_run` remains structured, allowlisted, and `shell=false`; unrestricted shell is a distinct tool.
-- Owner Runtime executes as the current macOS user; it does not bypass TCC, sudo, Keychain, SIP, or OS authentication.
-- Daemon/tunnel/authority secrets are not automatically forwarded to full-host child environments.
-- Raw shell script, stdout/stderr, PTY content, typed computer text, screenshot/OCR/AX content, credentials, secrets, lease IDs, or raw OS PIDs must not enter persistent audit/continuity metadata.
-- Long Owner Runtime work may be unbounded in wall-clock/action count, but retained memory/protocol payloads remain bounded and every owned execution must remain cancellable/stoppable.
-- Computer user takeover, the fixed emergency chord, held-input cleanup, bounded automatic recovery, and fail-closed semantic targeting remain authoritative.
-- Local worktree/files are active implementation truth; Git is durable code/history; Project Continuity is semantic handoff memory.
-- Preserve unrelated agents/worktrees. No direct `main` mutation, main merge, history rewrite, or deployment without explicit user authorization.
+Phase 1 implementation is complete in the isolated feature worktree and has no known local code/test/audit blocker. It is not yet published remotely. The remaining local handoff work is to commit this state refresh and rerun exact-head verification; after that, the next gate is explicit user authorization for branch push/PR creation.
 
 ## Verification
 
-Planning baseline/evidence:
+Fresh Phase 1 evidence before this state-file commit:
 
-- Stable root `main`: clean and synchronized at `a5923a5bbae8743abc1cd5ca39cdb73926787270` before the Owner Runtime branch was created.
-- Isolated Owner Runtime worktree baseline `npm run check`: `560/560` tests passed with `1` environment-gated skip.
-- Design spec placeholder/scope/consistency review: PASS.
-- Design commit: `cb20690`; worktree was clean immediately after that commit.
-- Phase 1 plan self-review covers spec scope, exact file responsibilities, TDD steps, process-group shutdown ownership, cancellation, output retention, audit redaction, setup/docs, exact-head verification, PR/CI, and continuity handoff.
+- Task 1 focused config/CLI/environment suite: `29/29` PASS; TypeScript build PASS.
+- Task 2 shell lifecycle/process compatibility suite: `25/25` PASS; TypeScript build PASS.
+- Task 3 MCP/audit/catalog suite: `10/10` PASS; TypeScript build PASS.
+- Task 4 setup/docs compatibility suite: `56/56` PASS.
+- Focused Phase 1 acceptance suite: `64/64` PASS.
+- Acceptance covers Project/User denial, disabled-Admin `OWNER_RUNTIME_DISABLED`, arbitrary shell syntax and non-allowlisted executable paths, unchanged `terminal_run` allowlist behavior, Admin cwd outside the bootstrap root, daemon-secret canary isolation, bounded output without output-volume termination, no inherited legacy command timeout, explicit timeout, MCP abort, daemon shutdown, process-group cleanup, and content-free audit metadata.
+- Pre-state-commit `npm run check`: `97` test files PASS + `1` skipped; `587/587` tests PASS + `1` environment-gated skip.
+- Pre-state-commit `npm audit --omit=dev`: `0` vulnerabilities.
+- Pre-state-commit `git diff --check origin/main...HEAD`: PASS.
+- Pre-state-commit worktree: clean.
+
+Because this state-file commit changes HEAD, exact-head completion evidence must be rerun after committing this file; do not reuse the pre-state-commit full gate as final exact-head proof.
+
+## Next exact step
+
+1. Commit this `docs/PROJECT_STATE.md` handoff refresh.
+2. Rerun exact-head `npm run check`, `npm audit --omit=dev`, `git diff --check origin/main...HEAD`, and clean-status verification.
+3. Review `origin/main...HEAD` diff/stat/log for accidental scope widening, audit-content leakage, PID exposure, output-volume kill behavior, missing cancellation cleanup, dependency/lockfile drift, and docs/flag mismatches.
+4. Update Project Continuity with exact-head local evidence.
+5. Stop before remote mutation unless the user explicitly authorizes branch push/PR creation. After remote-write authorization: push the feature branch, open the Phase 1 PR, wait exact-head Node 22/24 and macOS-native CI, and verify server-side diff scope/mergeability.
+6. Stop again before merging to `main` unless the user explicitly authorizes that merge.
+7. After a verified Phase 1 merge, write the separate Phase 2 interactive-PTY implementation plan from the approved design.
+
+## Invariants
+
+- Full-host Owner Runtime is Admin-only and separately opt-in; `Project` and `User` retain current host-execution restrictions.
+- Existing `terminal_run` stays structured, allowlisted, timeout/output bounded, and `shell=false`; unrestricted shell is the distinct `shell_run` tool.
+- The MCP caller cannot choose the trusted shell executable, child environment, raw OS PID, process-group ID, arbitrary signal, or detached mode.
+- Owner Runtime executes as the current macOS user; it does not bypass TCC, sudo, Keychain, SIP, or OS authentication.
+- Daemon/tunnel/authority secrets are not automatically forwarded to Owner shell children.
+- Raw shell script, stdout/stderr, environment values, typed computer text, screenshot/OCR/AX content, credentials, secrets, lease IDs, and raw native/OS identifiers must not enter persistent audit/continuity metadata.
+- Long Owner Runtime work may omit a product wall-clock deadline, but retained memory/protocol/output payloads remain bounded and every owned execution remains stoppable through cancellation/shutdown.
+- Computer Runtime user takeover, emergency stop, held-input cleanup, bounded automatic recovery, and fail-closed semantic targeting remain authoritative and unchanged by Phase 1.
+- Local worktree/files are active implementation truth; Git is durable code/history; Project Continuity is semantic handoff memory.
+- Preserve unrelated agents/worktrees. No branch push, direct `main` mutation, main merge, history rewrite, or deployment without explicit user authorization for that remote/destructive action.
 
 ## Blockers / uncertainties
 
-- No Phase 1 design blocker is known.
-- PTY dependency choice is intentionally deferred to the separate Phase 2 plan; `node-pty` remains the leading candidate but is not part of Phase 1.
-- Final Screen Recording/Accessibility readiness must be rechecked during later real-Mac acceptance; Slice 5 last verified the stable signed helper with all required permissions ready.
+- No known Phase 1 code, test, audit, or local-verification blocker remains before the exact-head rerun.
+- Hosted Node 22/24 and macOS-native CI have not run for this unpublished feature head yet.
+- Persistent interactive PTY is intentionally deferred to Phase 2; dependency choice remains to be validated there.
+- Screen Recording/Accessibility readiness is outside Phase 1 shell scope and will be rechecked during later Owner Runtime/Computer Runtime real-Mac acceptance.
