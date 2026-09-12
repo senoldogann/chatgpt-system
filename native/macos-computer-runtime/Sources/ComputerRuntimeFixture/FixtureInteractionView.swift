@@ -6,6 +6,9 @@ final class FixtureInteractionView: NSView, NSTextFieldDelegate {
     private let focusLabel = NSTextField(labelWithString: "focus:none")
     private let textField = NSTextField(string: "fixture")
     private let checkbox = NSButton(checkboxWithTitle: "Fixture Checkbox", target: nil, action: nil)
+    private let reorderContainer = NSView(frame: NSRect(x: 30, y: 282, width: 350, height: 36))
+    private let visualSubmit = FixtureVisualSubmitView(frame: NSRect(x: 400, y: 236, width: 340, height: 52))
+    private var reorderGeneration = 0
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -23,6 +26,20 @@ final class FixtureInteractionView: NSView, NSTextFieldDelegate {
 
     @objc private func buttonPressed(_ sender: NSButton) {
         setStatus("button-clicked")
+    }
+
+    @objc private func duplicateActionPressed(_ sender: NSButton) {
+        setStatus("duplicate-clicked")
+    }
+
+    @objc private func reorderTargetsPressed(_ sender: NSButton) {
+        reorderGeneration += 1
+        rebuildReorderTargets()
+        setStatus("reordered-generation:\(reorderGeneration)")
+    }
+
+    @objc private func reorderTargetPressed(_ sender: NSButton) {
+        setStatus("reorder-target:\(sender.title)")
     }
 
     @objc private func checkboxChanged(_ sender: NSButton) {
@@ -95,7 +112,40 @@ final class FixtureInteractionView: NSView, NSTextFieldDelegate {
         dragView.setAccessibilityTitle("Fixture Drag Target")
         addSubview(dragView)
 
-        let scrollView = NSScrollView(frame: NSRect(x: 30, y: 30, width: 710, height: 270))
+        let firstDuplicate = NSButton(
+            title: "Duplicate Action 1",
+            target: self,
+            action: #selector(duplicateActionPressed(_:))
+        )
+        firstDuplicate.frame = NSRect(x: 30, y: 330, width: 160, height: 32)
+        firstDuplicate.bezelStyle = .rounded
+        firstDuplicate.setAccessibilityLabel("Duplicate Action")
+        addSubview(firstDuplicate)
+
+        let secondDuplicate = NSButton(
+            title: "Duplicate Action 2",
+            target: self,
+            action: #selector(duplicateActionPressed(_:))
+        )
+        secondDuplicate.frame = NSRect(x: 200, y: 330, width: 160, height: 32)
+        secondDuplicate.bezelStyle = .rounded
+        secondDuplicate.setAccessibilityLabel("Duplicate Action")
+        addSubview(secondDuplicate)
+
+        let reorder = NSButton(title: "Reorder Targets", target: self, action: #selector(reorderTargetsPressed(_:)))
+        reorder.frame = NSRect(x: 400, y: 330, width: 170, height: 32)
+        reorder.bezelStyle = .rounded
+        reorder.setAccessibilityLabel("Reorder Targets")
+        reorder.setAccessibilityTitle("Reorder Targets")
+        addSubview(reorder)
+
+        addSubview(reorderContainer)
+        rebuildReorderTargets()
+
+        visualSubmit.onSubmit = { [weak self] in self?.setStatus("visual-submit-clicked") }
+        addSubview(visualSubmit)
+
+        let scrollView = NSScrollView(frame: NSRect(x: 30, y: 30, width: 710, height: 195))
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = false
@@ -109,6 +159,21 @@ final class FixtureInteractionView: NSView, NSTextFieldDelegate {
         }
         scrollView.documentView = document
         addSubview(scrollView)
+    }
+
+    private func rebuildReorderTargets() {
+        for subview in reorderContainer.subviews { subview.removeFromSuperview() }
+        let ordered = reorderGeneration.isMultiple(of: 2)
+            ? ["Reorder Alpha", "Reorder Beta"]
+            : ["Reorder Beta", "Reorder Alpha"]
+        for (index, title) in ordered.enumerated() {
+            let button = NSButton(title: title, target: self, action: #selector(reorderTargetPressed(_:)))
+            button.frame = NSRect(x: CGFloat(index) * 175, y: 0, width: 165, height: 32)
+            button.bezelStyle = .rounded
+            button.setAccessibilityLabel(title)
+            button.setAccessibilityTitle(title)
+            reorderContainer.addSubview(button)
+        }
     }
 
     private func setStatus(_ value: String) {
@@ -174,5 +239,46 @@ private final class FixtureDragView: NSView {
         if destinationRect.contains(point) {
             onComplete?()
         }
+    }
+}
+
+@MainActor
+private final class FixtureVisualSubmitView: NSView {
+    var onSubmit: (() -> Void)?
+    private var submitted = false
+
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // OCR-only target: deliberately carries no accessibility identity.
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSColor.white.setFill()
+        bounds.fill()
+        NSColor.black.setStroke()
+        NSBezierPath(rect: bounds.insetBy(dx: 1, dy: 1)).stroke()
+        "Fixture Visual Submit".draw(
+            at: NSPoint(x: 14, y: 16),
+            withAttributes: [
+                .font: NSFont.boldSystemFont(ofSize: 18),
+                .foregroundColor: NSColor.black,
+            ]
+        )
+        (submitted ? NSColor.systemGreen : NSColor.systemRed).setFill()
+        NSRect(x: bounds.width - 48, y: 12, width: 34, height: 28).fill()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        submitted = true
+        needsDisplay = true
+        onSubmit?()
     }
 }

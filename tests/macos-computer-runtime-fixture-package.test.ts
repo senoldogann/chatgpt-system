@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   buildComputerRuntimeFixtureBundlePlan,
@@ -52,6 +53,56 @@ describe("computer runtime fixture app bundle plan", () => {
       );
     } finally {
       await rm(repoDir, { recursive: true, force: true });
+    }
+  });
+});
+
+const fixtureViewPath = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../native/macos-computer-runtime/Sources/ComputerRuntimeFixture/FixtureInteractionView.swift",
+);
+
+describe("computer runtime fixture recovery surface", () => {
+  it("draws an OCR-only submit target that exposes no accessibility identity", async () => {
+    const source = await readFile(fixtureViewPath, "utf8");
+    const ocrView = source.slice(source.indexOf("final class FixtureVisualSubmitView"));
+
+    expect(source).toContain("Fixture Visual Submit");
+    expect(source).toContain("visual-submit-clicked");
+    expect(ocrView).not.toContain("setAccessibilityLabel");
+    expect(ocrView).not.toContain("setAccessibilityTitle");
+    expect(ocrView).not.toContain("setAccessibilityRole");
+    expect(ocrView).toContain("setAccessibilityElement(false)");
+  });
+
+  it("exposes a duplicate semantic label pair for ambiguity", async () => {
+    const source = await readFile(fixtureViewPath, "utf8");
+    const duplicates = source.match(/setAccessibilityLabel\("Duplicate Action"\)/g) ?? [];
+
+    expect(duplicates).toHaveLength(2);
+  });
+
+  it("exposes a deterministic reorder trigger with a generation marker", async () => {
+    const source = await readFile(fixtureViewPath, "utf8");
+
+    expect(source).toContain("Reorder Targets");
+    expect(source).toContain("reordered-generation:");
+    expect(source).toContain("Reorder Alpha");
+    expect(source).toContain("Reorder Beta");
+  });
+
+  it("keeps the existing standard accessibility controls", async () => {
+    const source = await readFile(fixtureViewPath, "utf8");
+
+    for (const label of [
+      "Fixture Button",
+      "Fixture Checkbox",
+      "Fixture Text Field",
+      "Fixture Drag Target",
+      "Fixture Double Click Target",
+      "Fixture Scroll View",
+    ]) {
+      expect(source).toContain(label);
     }
   });
 });
