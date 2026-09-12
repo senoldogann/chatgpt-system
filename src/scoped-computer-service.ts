@@ -81,19 +81,35 @@ export class ScopedComputerService {
   }
 
   moveMouse(input: Parameters<ComputerRuntime["moveMouse"]>[0]) {
-    return this.runAudit("computer.move_mouse", () => this.service.moveMouse(input));
+    return this.runAudit(
+      "computer.move_mouse",
+      () => this.service.moveMouse(input),
+      this.physicalTargetMetadata(input),
+    );
   }
 
   click(input: Parameters<ComputerRuntime["click"]>[0]) {
-    return this.runAudit("computer.click", () => this.service.click(input));
+    return this.runAudit(
+      "computer.click",
+      () => this.service.click(input),
+      this.physicalTargetMetadata(input),
+    );
   }
 
   drag(input: Parameters<ComputerRuntime["drag"]>[0]) {
-    return this.runAudit("computer.drag", () => this.service.drag(input));
+    return this.runAudit(
+      "computer.drag",
+      () => this.service.drag(input),
+      this.physicalTargetMetadata(input),
+    );
   }
 
   scroll(input: Parameters<ComputerRuntime["scroll"]>[0]) {
-    return this.runAudit("computer.scroll", () => this.service.scroll(input));
+    return this.runAudit(
+      "computer.scroll",
+      () => this.service.scroll(input),
+      this.physicalTargetMetadata(input),
+    );
   }
 
   typeText(input: Parameters<ComputerRuntime["typeText"]>[0]) {
@@ -193,6 +209,64 @@ export class ScopedComputerService {
       safe.failedActionType = details.failedActionType;
     }
     return safe;
+  }
+
+  private physicalTargetMetadata(input: unknown): Record<string, unknown> | undefined {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined;
+    const record = input as Record<string, unknown>;
+    const locations: unknown[] = [];
+
+    if ("target" in record) locations.push(record.target);
+    else if (typeof record.x === "number" && typeof record.y === "number") locations.push({ by: "point" });
+    if ("from" in record) locations.push(record.from);
+    if ("to" in record) locations.push(record.to);
+    if (locations.length === 0) return undefined;
+
+    const classes: Array<"ax" | "ocr" | "point"> = [];
+    let unknownSource = false;
+    let ocrInvoked = false;
+
+    for (const location of locations) {
+      if (typeof location !== "object" || location === null || Array.isArray(location)) {
+        unknownSource = true;
+        continue;
+      }
+      const target = location as Record<string, unknown>;
+      if (typeof target.by === "string") {
+        switch (target.by) {
+          case "role":
+          case "label":
+          case "index":
+            classes.push("ax");
+            break;
+          case "ocrText":
+            classes.push("ocr");
+            ocrInvoked = true;
+            break;
+          case "point":
+            classes.push("point");
+            break;
+          case "text":
+          default:
+            unknownSource = true;
+            break;
+        }
+        continue;
+      }
+      if (typeof target.x === "number" && typeof target.y === "number") {
+        classes.push("point");
+      } else {
+        unknownSource = true;
+      }
+    }
+
+    const metadata: Record<string, unknown> = {};
+    if (!unknownSource && classes.length > 0 && classes.every((value) => value === classes[0])) {
+      metadata.sourceClass = classes[0];
+    }
+    if (ocrInvoked) metadata.ocrInvoked = true;
+    else if (!unknownSource && classes.length > 0) metadata.ocrInvoked = false;
+    return Object.keys(metadata).length > 0 ? metadata : undefined;
   }
 
   private applicationMetadata(input: { bundleIdentifier?: string | undefined }): Record<string, unknown> | undefined {

@@ -191,6 +191,37 @@ describe("ScopedComputerService policy and audit", () => {
     expect(log).not.toContain("SECRET_TYPED_CANARY");
   });
 
+  it("records only deterministic content-free target source metadata", async () => {
+    const { auditFile, audit } = await fixture();
+    const backend = new FakeComputerBackend();
+    const service = new ScopedComputerService(backend, audit, true);
+
+    await service.click({
+      target: { by: "label", label: "AX_TARGET_SECRET_CANARY" },
+      retryBudget: 2,
+    });
+    await service.click({
+      target: { by: "ocrText", text: "OCR_TARGET_SECRET_CANARY" },
+      retryBudget: 2,
+    });
+    await service.click({ x: 91827, y: 73645 });
+
+    const log = await readFile(auditFile, "utf8");
+    expect(log).toContain('"sourceClass":"ax"');
+    expect(log).toContain('"sourceClass":"ocr"');
+    expect(log).toContain('"sourceClass":"point"');
+    expect(log).toContain('"ocrInvoked":true');
+    expect(log).toContain('"ocrInvoked":false');
+    for (const forbidden of [
+      "AX_TARGET_SECRET_CANARY",
+      "OCR_TARGET_SECRET_CANARY",
+      "91827",
+      "73645",
+    ]) {
+      expect(log).not.toContain(forbidden);
+    }
+  });
+
   it("records computer.run_js without source cwd output result or runner diagnostics", async () => {
     const { auditFile, audit } = await fixture();
     const source = "SOURCE_SECRET_CANARY";
