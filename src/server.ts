@@ -30,6 +30,9 @@ import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { ProcessSupervisor } from "./process-supervisor.js";
 import { OwnerShellSupervisor } from "./owner-shell-supervisor.js";
+import { NodePtyBackend } from "./terminal-pty-backend.js";
+import { TerminalSessionSupervisor } from "./terminal-session-supervisor.js";
+import { registerTerminalSessionTools } from "./terminal-session-tool-registration.js";
 import { registerOwnerShellTool } from "./owner-shell-tool-registration.js";
 import { registerProjectCheckTool } from "./project-check-tool-registration.js";
 import { registerProjectExecTool } from "./project-exec-tool-registration.js";
@@ -72,6 +75,7 @@ export interface RuntimeServices extends ProjectContinuityRuntime {
   process: ProcessService;
   processSupervisor: ProcessSupervisor;
   ownerShellSupervisor: OwnerShellSupervisor;
+  terminalSessionSupervisor: TerminalSessionSupervisor;
   projectExecBackend: ProjectExecBackend;
   taskStateRoot: string;
   worktreeRoot: string;
@@ -134,6 +138,13 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     maxRetainedBytesPerStream: config.limits.maxCommandOutputBytes,
     processStopGraceMs: config.limits.processStopGraceMs,
   });
+  const terminalSessionSupervisor = new TerminalSessionSupervisor({
+    backend: new NodePtyBackend(),
+    maxSessions: config.ownerRuntime?.maxTerminalSessions ?? 32,
+    maxOutputBytes: config.ownerRuntime?.maxTerminalOutputBytes ?? 262_144,
+    maxInputBytes: config.ownerRuntime?.maxTerminalInputBytes ?? 65_536,
+    processStopGraceMs: config.limits.processStopGraceMs,
+  });
   const projectExecBackend = options.projectExecBackend ?? new DockerProjectExecBackend({
     maxOutputBytes: config.limits.maxCommandOutputBytes,
     cleanupTimeoutMs: config.limits.processStopGraceMs,
@@ -173,6 +184,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     process: new ProcessService(policy, audit, config),
     processSupervisor,
     ownerShellSupervisor,
+    terminalSessionSupervisor,
     projectExecBackend,
     taskStateRoot,
     worktreeRoot,
@@ -586,6 +598,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   );
 
   registerOwnerShellTool(server, runtime);
+  registerTerminalSessionTools(server, runtime);
 
   server.registerTool(
     "terminal_run",

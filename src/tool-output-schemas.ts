@@ -269,6 +269,34 @@ export const terminalResultOutputSchema = z.object({
   timedOut: z.boolean(),
 });
 
+const terminalSessionStateSchema = z.enum(["running", "exited", "stopped"]);
+
+export const terminalSessionSummaryOutputSchema = z.object({
+  sessionId: z.string().min(40).max(128),
+  cwd: z.string(),
+  state: terminalSessionStateSchema,
+  cols: z.number().int().min(1).max(1000),
+  rows: z.number().int().min(1).max(1000),
+  startedAt: z.string(),
+  exitedAt: z.string().optional(),
+  exitCode: z.number().int().nullable().optional(),
+  signal: z.number().int().nullable().optional(),
+  outputSequence: nonNegativeInt,
+}).strict();
+
+export const terminalSessionReadOutputSchema = z.object({
+  sessionId: z.string().min(40).max(128),
+  state: terminalSessionStateSchema,
+  data: z.string(),
+  bytes: nonNegativeInt,
+  nextSequence: nonNegativeInt,
+  truncatedBefore: z.boolean(),
+}).strict();
+
+export const terminalSessionListOutputSchema = z.object({
+  sessions: z.array(terminalSessionSummaryOutputSchema),
+}).strict();
+
 const codeQuerySearchResultSchema = z.object({
   path: z.string(),
   line: z.number().int().positive(),
