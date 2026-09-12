@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-12T20:29+03:00
-Status: Owner Runtime Phase 2 persistent interactive PTY is implemented locally and has passed pre-handoff acceptance; final exact-head verification/publication is in progress.
+Last updated: 2026-09-12T20:37+03:00
+Status: Owner Runtime Phase 2 persistent interactive PTY is published as PR #40; exact published implementation head passed local and hosted acceptance, and only the final docs-only handoff head refresh remains before the merge gate.
 
 This file is a handoff cache, not the sole source of truth. A resumed agent must reconcile it against Git/worktree reality and the latest Project Continuity checkpoint before editing.
 
@@ -16,7 +16,8 @@ Finish **Owner Runtime Phase 2 — persistent interactive PTY** as a reviewable 
 - Phase 1 PR: `#39`, merged by squash after explicit authorization.
 - Active Phase 2 managed worktree: `/Users/dogan/.chatgpt-system/worktrees/d0a0a546782faa2c9a9906345e9290c84508aad64b304746b50965bb2ff58ef1/1f372958-250d-456a-be9f-9ce8ddafc944`.
 - Active Phase 2 branch: `feat/owner-runtime-phase2-pty`.
-- Current implementation head before the final docs/state commit: `cf8a1624383c94a5ae206f7a674539febf4ec20c`.
+- Phase 2 PR: `#40` — `https://github.com/senoldogann/chatgpt-system/pull/40`.
+- Published implementation/handoff head before this CI-record docs commit: `e24901b213c87f7948a7ef2894083b1e476e1f27`.
 - Approved design: `docs/superpowers/specs/2026-09-12-owner-runtime-full-host-development-design.md`.
 - Phase 2 plan: `docs/superpowers/plans/2026-09-12-owner-runtime-phase2-pty.md`.
 - Project Continuity exact alias: `chatgpt-system`; continuity remains anchored to the stable root worktree.
@@ -87,9 +88,26 @@ lazy NodePtyBackend
 - `swift test --package-path native/macos-computer-runtime`: `164/164` PASS.
 - `git diff --check origin/main...HEAD`: PASS at implementation head; docs/state are being committed next, so exact-head gates must be rerun after that commit.
 
+### Phase 2 publication / hosted acceptance
+
+- Exact local/published head `e24901b213c87f7948a7ef2894083b1e476e1f27` passed fresh local acceptance after the first final handoff commit:
+  - `npm run check`: `614/614` PASS + `1` environment-gated skip;
+  - real PTY exact-head acceptance: `3/3` PASS;
+  - `npm audit --omit=dev`: `0` vulnerabilities;
+  - Swift Computer Runtime: `164/164` PASS;
+  - `git diff --check origin/main...HEAD`: PASS;
+  - worktree clean.
+- Branch `feat/owner-runtime-phase2-pty` was pushed at exact head `e24901b...` and PR #40 was opened against `main`.
+- GitHub server-side PR diff contains the expected `31` files only.
+- Hosted CI on exact head `e24901b...` passed in both push and pull-request runs:
+  - Node 22: SUCCESS;
+  - Node 24: SUCCESS;
+  - macOS-native: SUCCESS.
+- GitHub reported `mergeStateStatus=CLEAN` for PR #40 at exact head `e24901b...`.
+
 ## Current state
 
-Phase 2 production implementation is complete locally. The only current working-tree changes are the planned operator/security/architecture/integration documentation updates plus this handoff refresh. No Phase 3 Computer Runtime ceiling change is present.
+Phase 2 production implementation and hosted acceptance are complete. PR #40 is review-ready and clean. This state update records the hosted CI milestone; because it creates one docs-only successor head, that exact final PR head still needs the standard fresh local/hosted verification refresh before merge authorization is requested. No Phase 3 Computer Runtime ceiling change is present.
 
 Key behavior now implemented:
 
@@ -105,11 +123,11 @@ Key behavior now implemented:
 
 ## Next exact step
 
-1. Commit the four operator docs plus this `PROJECT_STATE.md` handoff as the final local Phase 2 candidate.
-2. Because HEAD changes, rerun fresh exact-head verification from zero: `npm run check`, `npm audit --omit=dev`, real PTY integration, Swift `164/164`, `git diff --check origin/main...HEAD`, and clean status.
-3. Perform final branch-scope/security review: authority widening, raw PID/signal/shell/env exposure, PTY content/session-ID audit leakage, unbounded memory/session growth, cleanup failure paths, dependency/lockfile scope, and Phase 3 leakage.
-4. Write a Project Continuity checkpoint containing only content-free Phase 2 evidence.
-5. With the user's current continuation authorization, publish this verified branch and open a Phase 2 PR; verify the exact remote head and hosted Node 22/24 + macOS-native CI.
+1. Commit this CI-record `PROJECT_STATE.md` update as a docs-only PR successor head.
+2. Because HEAD changes, rerun fresh exact-head local verification: `npm run check`, `npm audit --omit=dev`, real PTY integration, Swift `164/164`, `git diff --check origin/main...HEAD`, and clean status.
+3. Push that exact docs-only successor head to PR #40 and wait for hosted Node 22/24 + macOS-native CI on the same SHA.
+4. Verify server-side PR diff scope and `mergeStateStatus=CLEAN` once more.
+5. Checkpoint Project Continuity with the final exact published SHA and hosted evidence.
 6. Stop before any `main` merge unless merge authorization is separately explicit.
 
 ## Invariants
@@ -137,10 +155,12 @@ Key behavior now implemented:
 - Unchanged Swift Computer Runtime: `164/164` PASS.
 - Docs contract tests: `3/3` PASS before final state commit.
 - Phase 2 plan placeholder scan: PASS.
+- Exact published head `e24901b213c87f7948a7ef2894083b1e476e1f27`: local `614/614` + `1` skip, PTY `3/3`, audit `0`, Swift `164/164`, diff check PASS, clean status.
+- PR #40 at exact head `e24901b...`: hosted Node 22 SUCCESS, Node 24 SUCCESS, macOS-native SUCCESS, server-side diff `31` expected files, `mergeStateStatus=CLEAN`.
 
 ## Blockers / uncertainties
 
 - No local Phase 2 design or implementation blocker is known.
-- `node-pty@1.2.0-beta.15` is intentionally an exact prerelease pin because stable `1.1.0` has the macOS packaging defect. Repository-level local macOS evidence is green; hosted Node 22/24 Linux and hosted macOS exact-head CI remain mandatory before merge.
+- `node-pty@1.2.0-beta.15` is intentionally an exact prerelease pin because stable `1.1.0` has the macOS packaging defect. Local macOS plus hosted Node 22/24 Linux and hosted macOS evidence are now green on `e24901b...`; the final docs-only successor head still must rerun hosted CI before merge.
 - The `project_check` Docker sandbox previously reported the repository npm check as `UNAVAILABLE`; host verification is authoritative for this local native PTY work and is green.
 - Screen Recording/Accessibility readiness is outside Phase 2 PTY scope and remains for later integrated Owner Runtime/Computer Runtime acceptance.
