@@ -602,7 +602,7 @@ await computer.refreshObservation()
 ```
 
 - All calls stay parent-mediated; user JS never receives raw AX pointers or a retry-unbounded primitive.
-- Treat `computer_run_js` as the primary fast path for long/stateful workflows. Keep the JS worker/session alive across calls and reuse compatible browser page/context objects plus safe native app/window/session metadata. Revalidate window generation/topology/target identity before every mutation.
+- Treat `computer_run_js` as the primary fast path for long/stateful workflows. Keep every invocation in a fresh child and Worker so `process.exit`, crashes, module state, and descendants remain contained. Reuse the parent-owned `ComputerRuntime`/native connection and native content-free capability/topology metadata across calls. Workflows that need local JavaScript state keep their steps inside one bounded invocation. Revalidate window generation/topology/target identity before every mutation.
 - Do not persist screen/OCR/AX/typed content in the session cache; cache only handles/opaque identities and content-free capability/topology metadata.
 
 - [ ] **Step 1: Write RED JS protocol tests**
@@ -621,7 +621,7 @@ it("exposes resolveMany through the fixed computer proxy", async () => {
 });
 ```
 
-Also test `exists` returns false only for not-found and does not swallow ambiguous/permission/takeover. Add a persistent-session test proving two sequential JS calls reuse the same session object/connection identity without replaying setup, while a stale generation still forces re-resolution. Add a 5+ action test proving one runner invocation completes the sequence with zero intermediate model/tool yields.
+Also test `exists` returns false only for not-found and does not swallow ambiguous/permission/takeover. Add a cross-invocation test proving two sequential JS calls reuse the same parent/native connection without replaying native setup, while each call receives fresh runner isolation and a stale generation still forces re-resolution. Add a 5+ action test proving one runner invocation completes the sequence with zero intermediate model/tool yields.
 
 - [ ] **Step 2: Run RED**
 

@@ -3,6 +3,10 @@ import { z } from "zod";
 export const COMPUTER_JS_RPC_METHODS = [
   "observe",
   "screenshot",
+  "resolve",
+  "resolve_many",
+  "exists",
+  "refresh_observation",
   "pointer_position",
   "list_apps",
   "active_window",

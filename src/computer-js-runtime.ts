@@ -61,6 +61,7 @@ export class ComputerJsRuntime {
         cwd,
         timeoutMs,
         ...(input.signal ? { signal: input.signal } : {}),
+        onTerminate: () => session.cancel(),
         onRpc: (method, params) => dispatchComputerJsRpc(session, method, params),
       });
     });

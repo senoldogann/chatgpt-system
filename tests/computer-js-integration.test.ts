@@ -29,6 +29,7 @@ const computerConfig: ComputerUseConfig = {
   maxScreenshotBytes: 8_388_608,
   maxActionProgramActions: 100,
   maxActionProgramRuntimeMs: 30_000,
+  maxAutomaticRetriesPerAction: 2,
   maxJsSourceBytes: 262_144,
   maxJsRuntimeMs: 30_000,
   maxJsOutputBytes: 1_048_576,
@@ -40,6 +41,25 @@ class FakeNative implements ComputerNativeRequesting {
   healthState() { return "running" as const; }
   async request(method: ComputerNativeMethod, params: Record<string, unknown>): Promise<unknown> {
     this.calls.push({ method, params });
+    if (method === "resolve_target") {
+      return {
+        source: "ax",
+        bounds: { x: 10, y: 20, width: 80, height: 30 },
+        actionPoint: { x: 50, y: 35 },
+        observationId: "obs-current",
+        confidence: "deterministic",
+      };
+    }
+    if (method === "resolve_targets") {
+      const targets = params.targets as unknown[];
+      return targets.map((_, index) => ({
+        source: "ax",
+        bounds: { x: 10 + index, y: 20, width: 80, height: 30 },
+        actionPoint: { x: 50 + index, y: 35 },
+        observationId: "obs-current",
+        confidence: "deterministic",
+      }));
+    }
     return { state: "completed" };
   }
   async close(): Promise<void> {}
@@ -135,6 +155,39 @@ describe("full-host computer JavaScript real-runner integration", () => {
     expect(native.calls.some((call) => call.method === "release_inputs")).toBe(true);
   });
 
+  it("executes five semantic actions in one runner invocation without intermediate model yields", async () => {
+    const root = await tempDir();
+    let spawnCount = 0;
+    const native = new FakeNative();
+    const computer = new ComputerRuntime(native, computerConfig);
+    const supervisor = createSupervisor({
+      spawnProcess: (command, args, options): ChildProcess => {
+        spawnCount += 1;
+        return spawn(command, [...args], options);
+      },
+    });
+    const runtime = new ComputerJsRuntime(computer, { roots: [root], computerUse: computerConfig }, supervisor);
+    closeables.push(runtime, computer);
+
+    const result = await runtime.run({
+      timeoutMs: 4_000,
+      source: `
+        const targets = ["One", "Two", "Three", "Four", "Five"].map((text) => ({ by: "text", text, exact: true }));
+        const resolved = await computer.resolveMany(targets);
+        for (const target of targets) {
+          await computer.click({ target });
+        }
+        return { resolved: resolved.length, actions: targets.length };
+      `,
+    });
+
+    expect(result.result).toEqual({ resolved: 5, actions: 5 });
+    expect(spawnCount).toBe(1);
+    expect(native.calls.filter((call) => call.method === "resolve_targets")).toHaveLength(1);
+    expect(native.calls.filter((call) => call.method === "click")).toHaveLength(5);
+    expect(native.calls.filter((call) => call.method === "click").every((call) => "target" in call.params)).toBe(true);
+  });
+
   it.skipIf(process.platform === "win32")("terminates an ordinary descendant when a successful program finalizes", async () => {
     const cwd = await tempDir();
     const marker = path.join(cwd, "descendant-survived.txt");
@@ -194,6 +247,25 @@ describe("full-host computer JavaScript real-runner integration", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 700));
     expect(await exists(marker)).toBe(false);
+  });
+
+  it("cancels queued physical actions when the JS runtime times out", async () => {
+    const root = await tempDir();
+    const { native, runtime } = await createRuntime(root);
+
+    await expect(runtime.run({
+      timeoutMs: 500,
+      source: `
+        await Promise.all([
+          computer.wait(1_500),
+          computer.click({ x: 10, y: 10 }),
+        ]);
+      `,
+    })).rejects.toMatchObject({ code: "COMPUTER_JS_TIMEOUT" });
+
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(native.calls.some((call) => call.method === "click")).toBe(false);
+    expect(native.calls.some((call) => call.method === "release_inputs")).toBe(true);
   });
 
   it("sanitizes daemon secrets while preserving basic user environment and never places source in argv or env", async () => {

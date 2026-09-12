@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ComputerUseConfig } from "../src/config.js";
 import { ComputerError } from "../src/computer-errors.js";
 import { ComputerRuntime, type ComputerNativeRequesting } from "../src/computer-runtime.js";
@@ -519,6 +519,24 @@ describe("ComputerRuntime exclusive program session", () => {
     await expect(program).resolves.toBe("done");
     await outside;
     expect(native.calls.map((call) => call.method)).toEqual(["move_mouse", "release_inputs", "click"]);
+  });
+
+  it("clears a pending program wait timer when the session is cancelled", async () => {
+    vi.useFakeTimers();
+    try {
+      const { runtime: subject } = runtime();
+      await subject.withExclusiveProgram(async (session) => {
+        const waiting = session.execute({ type: "wait", durationMs: 30_000 });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(vi.getTimerCount()).toBe(1);
+
+        session.cancel();
+        await expect(waiting).rejects.toMatchObject({ code: "COMPUTER_JS_FAILED" });
+        expect(vi.getTimerCount()).toBe(0);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("releases inputs after both successful and failed program bodies", async () => {

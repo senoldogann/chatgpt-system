@@ -137,6 +137,10 @@ if (typeof process.send !== "function") {
     const computer = Object.freeze({
       observe: (options = {}) => rpc("observe", options),
       screenshot: (options = {}) => rpc("screenshot", options),
+      resolve: (target, options) => rpc("resolve", { target, ...(options ?? {}) }),
+      resolveMany: (targets, options) => rpc("resolve_many", { targets, ...(options ?? {}) }),
+      exists: (target, options) => rpc("exists", { target, ...(options ?? {}) }),
+      refreshObservation: () => rpc("refresh_observation", {}),
       pointerPosition: () => rpc("pointer_position", {}),
       listApps: () => rpc("list_apps", {}),
       activeWindow: () => rpc("active_window", {}),

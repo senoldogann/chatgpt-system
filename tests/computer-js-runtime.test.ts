@@ -15,7 +15,7 @@ import {
   type ComputerNativeRequesting,
   type ComputerProgramSession,
 } from "../src/computer-runtime.js";
-import type { ComputerNativeMethod } from "../src/computer-types.js";
+import type { ComputerNativeMethod, ComputerResolvedTargetView } from "../src/computer-types.js";
 import { closeRuntimeResources } from "../src/runtime-shutdown.js";
 
 const cleanups: string[] = [];
@@ -30,6 +30,7 @@ const computerConfig: ComputerUseConfig = {
   maxScreenshotBytes: 8_388_608,
   maxActionProgramActions: 100,
   maxActionProgramRuntimeMs: 30_000,
+  maxAutomaticRetriesPerAction: 2,
   maxJsSourceBytes: 262_144,
   maxJsRuntimeMs: 30_000,
   maxJsOutputBytes: 1_048_576,
@@ -152,13 +153,64 @@ describe("ComputerJsRuntime", () => {
     expect(native.calls.map((call) => call.method)).toContain("click");
   });
 
+  it("reuses the native connection across fresh JS calls while re-resolving semantic targets", async () => {
+    const { runtime, supervisor, native } = await fixture();
+    native.responder = (method) => {
+      if (method === "resolve_target") {
+        return {
+          source: "ax",
+          bounds: { x: 10, y: 20, width: 80, height: 30 },
+          actionPoint: { x: 50, y: 35 },
+          observationId: "obs-current",
+          confidence: "deterministic",
+        };
+      }
+      return { state: "completed" };
+    };
+    supervisor.responder = async (request) => ({
+      stdout: "",
+      stderr: "",
+      result: await request.onRpc("resolve", {
+        target: { by: "text", text: "Run", exact: true },
+      }),
+    });
+
+    const first = await runtime.run({ source: "return 1;" });
+    const second = await runtime.run({ source: "return 2;" });
+
+    expect(first.result).toMatchObject({ actionPoint: { x: 50, y: 35 } });
+    expect(second.result).toMatchObject({ actionPoint: { x: 50, y: 35 } });
+    expect(supervisor.calls).toHaveLength(2);
+    expect(supervisor.calls[0]).not.toBe(supervisor.calls[1]);
+    expect(native.calls.filter((call) => call.method === "resolve_target")).toHaveLength(2);
+    expect(native.calls.some((call) => call.method === "health")).toBe(false);
+  });
+
   it("dispatches strict runner RPC to the existing program session vocabulary", async () => {
     const actions: unknown[] = [];
+    const resolvedTarget: ComputerResolvedTargetView = {
+      source: "ax",
+      bounds: { x: 10, y: 20, width: 80, height: 30 },
+      actionPoint: { x: 50, y: 35 },
+      observationId: "obs-current",
+      confidence: "deterministic",
+    };
     const session: ComputerProgramSession = {
+      cancel: () => undefined,
       execute: async (action) => { actions.push(action); return { state: "completed" }; },
       listApps: async () => [{ name: "Fixture" }],
       activeWindow: async () => ({ title: "Fixture" }),
       screenshot: async () => ({ pngBase64: "AA==", width: 1, height: 1 }),
+      resolve: async () => resolvedTarget,
+      resolveMany: async (targets) => targets.map(() => resolvedTarget),
+      exists: async (target) => {
+        const text = target.by === "text" ? target.text : "";
+        if (text === "Ambiguous") throw new ComputerError("COMPUTER_TARGET_AMBIGUOUS");
+        if (text === "Denied") throw new ComputerError("COMPUTER_PERMISSION_REQUIRED");
+        if (text === "Takeover") throw new ComputerError("COMPUTER_USER_TAKEOVER");
+        return false;
+      },
+      refreshObservation: async () => ({ snapshotId: "fresh" }),
     };
 
     await expect(dispatchComputerJsRpc(session, "click", { x: 4, y: 5, button: "left" })).resolves.toEqual({ state: "completed" });
@@ -167,6 +219,37 @@ describe("ComputerJsRuntime", () => {
     await expect(dispatchComputerJsRpc(session, "active_window", {})).resolves.toEqual({ title: "Fixture" });
     await expect(dispatchComputerJsRpc(session, "wait", { durationMs: 25 })).resolves.toEqual({ state: "completed" });
     expect(actions.at(-1)).toEqual({ type: "wait", durationMs: 25 });
+
+    await expect(dispatchComputerJsRpc(session, "resolve_many", {
+      targets: [
+        { by: "text", text: "Name", exact: true },
+        { by: "role", role: "AXButton", name: "Submit" },
+      ],
+      retryBudget: 2,
+    })).resolves.toHaveLength(2);
+    await expect(dispatchComputerJsRpc(session, "exists", {
+      target: { by: "text", text: "Missing" },
+    })).resolves.toBe(false);
+    for (const [text, code] of [
+      ["Ambiguous", "COMPUTER_TARGET_AMBIGUOUS"],
+      ["Denied", "COMPUTER_PERMISSION_REQUIRED"],
+      ["Takeover", "COMPUTER_USER_TAKEOVER"],
+    ] as const) {
+      await expect(dispatchComputerJsRpc(session, "exists", {
+        target: { by: "text", text },
+      })).rejects.toMatchObject({ code });
+    }
+    await expect(dispatchComputerJsRpc(session, "refresh_observation", {})).resolves.toEqual({ snapshotId: "fresh" });
+    await expect(dispatchComputerJsRpc(session, "resolve", {
+      target: { by: "text", text: "Run" },
+      retryBudget: 3,
+    })).rejects.toMatchObject({ code: "COMPUTER_PROTOCOL_INVALID" });
+    await expect(dispatchComputerJsRpc(session, "resolve", {
+      target: { by: "text", text: "Run", unexpected: true },
+    })).rejects.toMatchObject({ code: "COMPUTER_PROTOCOL_INVALID" });
+    await expect(dispatchComputerJsRpc(session, "resolve_many", {
+      targets: Array.from({ length: 101 }, () => ({ by: "text", text: "Run" })),
+    })).rejects.toMatchObject({ code: "COMPUTER_PROTOCOL_INVALID" });
   });
 
   it("shutdown closes JavaScript first so program input cleanup finishes before native computer close", async () => {
