@@ -129,6 +129,31 @@ final class HostServiceTests: XCTestCase {
         XCTAssertEqual(NDJSONHostServer.maxResponseBytes, 12_582_912)
     }
 
+    func testObserveRefreshesRecoveryStateWhenRecoveryIsAvailable() async throws {
+        let recovery = HostFakeRecovery(
+            resolved: resolvedTarget(source: .ax, x: 40, y: 50),
+            error: nil
+        )
+        let service = ComputerHostService(
+            permissions: HostFakePermissions(accessibilityTrusted: true, screenCaptureAuthorized: true),
+            workspace: HostFakeWorkspace(),
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "observe-refresh",
+            method: "observe",
+            params: .object([:])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let observation = try decodeHostResult(ComputerObservation.self, response: response)
+        XCTAssertEqual(observation.snapshotId, "fake")
+        let refreshObservationCallCount = await recovery.refreshObservationCallCount
+        XCTAssertEqual(refreshObservationCallCount, 1)
+    }
+
     func testResolveTargetUsesRecoveryAndReturnsBoundedView() async throws {
         let recovery = HostFakeRecovery(
             resolved: resolvedTarget(source: .ax, x: 40, y: 50),
@@ -417,6 +442,7 @@ private actor HostFakeRecovery: ComputerRecoveryHandling {
     private(set) var lastResolveCall: ResolveCall?
     private(set) var lastResolveManyCall: ResolveManyCall?
     private(set) var resolveCallCount = 0
+    private(set) var refreshObservationCallCount = 0
 
     init(resolved: ResolvedComputerTarget?, error: ComputerRecoveryError?) {
         self.resolved = resolved
@@ -438,7 +464,8 @@ private actor HostFakeRecovery: ComputerRecoveryHandling {
     }
 
     func refreshObservation() async throws -> ComputerObservation {
-        ComputerObservation(
+        refreshObservationCallCount += 1
+        return ComputerObservation(
             snapshotId: "fake",
             application: ApplicationView(name: "Fixture", bundleIdentifier: "com.example.fixture", frontmost: true),
             windowTitle: nil,
