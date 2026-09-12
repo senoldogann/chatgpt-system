@@ -2,7 +2,7 @@ import ComputerRuntimeCore
 import Foundation
 
 final class ComputerObservationCache: ComputerObservationCaching, @unchecked Sendable {
-    private struct Key: Hashable {
+    private struct ContextKey: Hashable {
         let appIdentity: String
         let windowIdentity: String
         let windowGeneration: String
@@ -11,23 +11,26 @@ final class ComputerObservationCache: ComputerObservationCaching, @unchecked Sen
 
     private let capacity: Int
     private let lock = NSLock()
-    private var entries: [Key: CachedComputerObservation] = [:]
-    private var order: [Key] = []
+    private var entriesByObservationId: [String: CachedComputerObservation] = [:]
+    private var currentObservationIdByContext: [ContextKey: String] = [:]
+    private var order: [String] = []
 
     init(capacity: Int) {
         self.capacity = max(1, capacity)
     }
 
     func store(_ observation: CachedComputerObservation) {
-        let key = Self.key(for: observation)
+        let context = Self.contextKey(for: observation)
+        let observationId = observation.observationId
         lock.lock()
         defer { lock.unlock() }
 
-        if entries[key] != nil {
-            order.removeAll { $0 == key }
+        if entriesByObservationId[observationId] != nil {
+            order.removeAll { $0 == observationId }
         }
-        entries[key] = observation
-        order.append(key)
+        entriesByObservationId[observationId] = observation
+        currentObservationIdByContext[context] = observationId
+        order.append(observationId)
         trimToCapacity()
     }
 
@@ -37,7 +40,7 @@ final class ComputerObservationCache: ComputerObservationCaching, @unchecked Sen
         windowGeneration: String,
         displayTopologyDigest: String
     ) -> CachedComputerObservation? {
-        let key = Key(
+        let context = ContextKey(
             appIdentity: appIdentity,
             windowIdentity: windowIdentity,
             windowGeneration: windowGeneration,
@@ -45,13 +48,21 @@ final class ComputerObservationCache: ComputerObservationCaching, @unchecked Sen
         )
         lock.lock()
         defer { lock.unlock() }
-        return entries[key]
+        guard let observationId = currentObservationIdByContext[context] else { return nil }
+        return entriesByObservationId[observationId]
+    }
+
+    func observation(snapshotId: String) -> CachedComputerObservation? {
+        lock.lock()
+        defer { lock.unlock() }
+        return entriesByObservationId[snapshotId]
     }
 
     func invalidate() {
         lock.lock()
         defer { lock.unlock() }
-        entries.removeAll(keepingCapacity: true)
+        entriesByObservationId.removeAll(keepingCapacity: true)
+        currentObservationIdByContext.removeAll(keepingCapacity: true)
         order.removeAll(keepingCapacity: true)
     }
 
@@ -64,18 +75,20 @@ final class ComputerObservationCache: ComputerObservationCaching, @unchecked Sen
         lock.lock()
         defer { lock.unlock() }
 
-        for key in order where
-            key.appIdentity == appIdentity &&
-            key.windowIdentity == windowIdentity &&
-            key.windowGeneration == windowGeneration
-        {
-            guard let existing = entries[key] else { continue }
-            entries[key] = existing.replacingCapability(capability)
+        for observationId in order {
+            guard let existing = entriesByObservationId[observationId],
+                  existing.appIdentity == appIdentity,
+                  existing.windowIdentity == windowIdentity,
+                  existing.windowGeneration == windowGeneration
+            else {
+                continue
+            }
+            entriesByObservationId[observationId] = existing.replacingCapability(capability)
         }
     }
 
-    private static func key(for observation: CachedComputerObservation) -> Key {
-        Key(
+    private static func contextKey(for observation: CachedComputerObservation) -> ContextKey {
+        ContextKey(
             appIdentity: observation.appIdentity,
             windowIdentity: observation.windowIdentity,
             windowGeneration: observation.windowGeneration,
@@ -85,8 +98,14 @@ final class ComputerObservationCache: ComputerObservationCaching, @unchecked Sen
 
     private func trimToCapacity() {
         while order.count > capacity {
-            let oldest = order.removeFirst()
-            entries.removeValue(forKey: oldest)
+            let oldestObservationId = order.removeFirst()
+            guard let removed = entriesByObservationId.removeValue(forKey: oldestObservationId) else {
+                continue
+            }
+            let context = Self.contextKey(for: removed)
+            if currentObservationIdByContext[context] == oldestObservationId {
+                currentObservationIdByContext.removeValue(forKey: context)
+            }
         }
     }
 }

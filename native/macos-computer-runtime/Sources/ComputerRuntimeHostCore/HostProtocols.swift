@@ -83,6 +83,7 @@ protocol ComputerObservationCaching: Sendable {
         windowGeneration: String,
         displayTopologyDigest: String
     ) -> CachedComputerObservation?
+    func observation(snapshotId: String) -> CachedComputerObservation?
     func invalidate()
     func updateCapability(
         appIdentity: String,
@@ -96,12 +97,23 @@ public protocol ScreenshotCapturing: Sendable {
     func captureMainDisplay(maxBytes: Int) async throws -> ComputerScreenshot
 }
 
+struct ScreenImageCapture: @unchecked Sendable {
+    let image: CGImage
+    let screenBounds: ComputerBounds
+}
+
 protocol ScreenImageCapturing: Sendable {
-    func captureMainDisplayImage() async throws -> CGImage
+    func captureMainDisplayImage() async throws -> ScreenImageCapture
 }
 
 protocol VisionTextRecognizing: Sendable {
     func recognizeText(in image: CGImage, mode: VisionRecognitionMode) async throws -> [OcrTextCandidate]
+}
+
+protocol ComputerRecoveryHandling: Sendable {
+    func resolve(_ target: ComputerTarget, retryBudget: Int) async throws -> ResolvedComputerTarget
+    func resolveMany(_ targets: [ComputerTarget], retryBudget: Int) async throws -> [ResolvedComputerTarget]
+    func refreshObservation() async throws -> ComputerObservation
 }
 
 public protocol ComputerActionHandling: Sendable {

@@ -12,8 +12,8 @@ public struct SystemScreenshotCapturer: ScreenshotCapturing, ScreenImageCapturin
             throw ScreenshotCaptureError.outputLimit
         }
 
-        let image = try await captureMainDisplayImage()
-        let representation = NSBitmapImageRep(cgImage: image)
+        let capture = try await captureMainDisplayImage()
+        let representation = NSBitmapImageRep(cgImage: capture.image)
         guard let png = representation.representation(using: .png, properties: [:]),
               !png.isEmpty
         else {
@@ -25,18 +25,29 @@ public struct SystemScreenshotCapturer: ScreenshotCapturing, ScreenImageCapturin
 
         return ComputerScreenshot(
             pngBase64: png.base64EncodedString(),
-            width: image.width,
-            height: image.height
+            width: capture.image.width,
+            height: capture.image.height
         )
     }
 
-    func captureMainDisplayImage() async throws -> CGImage {
+    func captureMainDisplayImage() async throws -> ScreenImageCapture {
         let content = try await SCShareableContent.excludingDesktopWindows(
             false,
             onScreenWindowsOnly: true
         )
         guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() })
             ?? content.displays.first
+        else {
+            throw ScreenshotCaptureError.unavailable
+        }
+
+        let displayBounds = CGDisplayBounds(display.displayID)
+        guard displayBounds.origin.x.isFinite,
+              displayBounds.origin.y.isFinite,
+              displayBounds.width.isFinite,
+              displayBounds.height.isFinite,
+              displayBounds.width > 0,
+              displayBounds.height > 0
         else {
             throw ScreenshotCaptureError.unavailable
         }
@@ -51,9 +62,18 @@ public struct SystemScreenshotCapturer: ScreenshotCapturing, ScreenImageCapturin
         configuration.height = display.height
         configuration.showsCursor = true
 
-        return try await SCScreenshotManager.captureImage(
+        let image = try await SCScreenshotManager.captureImage(
             contentFilter: filter,
             configuration: configuration
+        )
+        return ScreenImageCapture(
+            image: image,
+            screenBounds: ComputerBounds(
+                x: displayBounds.origin.x,
+                y: displayBounds.origin.y,
+                width: displayBounds.width,
+                height: displayBounds.height
+            )
         )
     }
 }
