@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
@@ -28,7 +28,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-async function fixture(ownerRuntimeEnabled: boolean) {
+async function fixture(ownerRuntimeEnabled: boolean, legacyCommandTimeoutMs?: number) {
   const root = await mkdtemp(path.join(tmpdir(), "chatgpt-system-owner-shell-mcp-"));
   cleanups.push(root);
   const token = "owner-shell-mcp-token-0123456789";
@@ -43,6 +43,7 @@ async function fixture(ownerRuntimeEnabled: boolean) {
     port: 0,
     token,
   });
+  if (legacyCommandTimeoutMs !== undefined) config.limits.commandTimeoutMs = legacyCommandTimeoutMs;
   const runtime = createRuntimeServices(config);
   runtimes.push(runtime);
   const server = startHttp(runtime);
@@ -141,6 +142,33 @@ describe("shell_run MCP tool", () => {
     } finally {
       await disabled.transport.terminateSession();
       await disabled.client.close();
+    }
+  });
+
+  it("lets Admin use cwd outside the bootstrap root and ignores the legacy terminal timeout when no shell timeout is supplied", async () => {
+    const enabled = await fixture(true, 10);
+    const outsideRoot = await mkdtemp(path.join(tmpdir(), "chatgpt-system-owner-shell-outside-"));
+    cleanups.push(outsideRoot);
+    try {
+      const admin = await enabled.runtime.authority.start({ profile: "admin" });
+      const result = await enabled.client.callTool({
+        name: "shell_run",
+        arguments: {
+          authorityLeaseId: admin.leaseId,
+          cwd: outsideRoot,
+          script: "sleep 0.08; pwd",
+        },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        cwd: outsideRoot,
+        exitCode: 0,
+        timedOut: false,
+      });
+      expect((result.structuredContent as { stdout: string }).stdout.trim()).toBe(await realpath(outsideRoot));
+    } finally {
+      await enabled.transport.terminateSession();
+      await enabled.client.close();
     }
   });
 
