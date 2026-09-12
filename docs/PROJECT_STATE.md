@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
 Last updated: 2026-09-12T19:37+03:00
-Status: Owner Runtime Phase 1 implemented and locally verified; remote PR/CI publication gate remains.
+Status: Owner Runtime Phase 1 published as PR #39; exact-head CI and separate main-merge authorization remain the release gates.
 
 This file is a handoff cache, not the sole source of truth. A resumed agent must reconcile it against Git/worktree reality and the latest Project Continuity checkpoint before editing.
 
@@ -15,6 +15,7 @@ Deliver Owner Runtime / Full-Host Development in reviewable phases so a locally 
 - Stable merged baseline: `main@a5923a5bbae8743abc1cd5ca39cdb73926787270`.
 - Active isolated managed worktree: `/Users/dogan/.chatgpt-system/worktrees/d0a0a546782faa2c9a9906345e9290c84508aad64b304746b50965bb2ff58ef1/d9a07fdd-6900-4143-9dda-d4ce640a571f`.
 - Active branch: `design/owner-runtime-full-host`.
+- Open pull request: `#39` — `https://github.com/senoldogann/chatgpt-system/pull/39`, base `main`.
 - Approved design: `docs/superpowers/specs/2026-09-12-owner-runtime-full-host-development-design.md`.
 - Phase 1 plan: `docs/superpowers/plans/2026-09-12-owner-runtime-phase1-shell.md`.
 - Latest implementation head before this state refresh: `452d147` (`fix: surface owner shell signaling failures`).
@@ -48,7 +49,7 @@ Admin + Personal Admin + explicit Owner Runtime gate
 
 ## Current state
 
-Phase 1 implementation is complete in the isolated feature worktree and has no known production code/audit blocker. The final branch-scope review found one lifecycle-management defect in the timeout/abort signaling error path; it was reproduced with a RED regression, fixed in `452d147`, and reverified. A subsequent full-suite run exposed a separate test-only scheduler race in the SIGKILL escalation test; single-test repetition proved production behavior stable, and the test was converted to the supervisor's injected child/signal path for deterministic escalation evidence. The user has explicitly authorized branch push, Phase 1 PR creation, and hosted CI verification. `main` merge remains a separate authorization gate.
+Phase 1 implementation is complete in the isolated feature worktree and has no known production code/audit blocker. The final branch-scope review found one lifecycle-management defect in the timeout/abort signaling error path; it was reproduced with a RED regression, fixed in `452d147`, and reverified. A subsequent full-suite run exposed a separate test-only scheduler race in the SIGKILL escalation test; single-test repetition proved production behavior stable, and the test was converted to the supervisor's injected child/signal path for deterministic escalation evidence. The branch is published and PR #39 is open. GitHub CI status must always be evaluated against the exact current PR head because any later docs/code commit invalidates earlier hosted evidence. `main` merge remains a separate explicit authorization gate.
 
 ## Verification
 
@@ -70,16 +71,17 @@ Fresh Phase 1 evidence before this state-file commit:
 - Static scope review: no `package.json`/lockfile change, no Project/User shell widening, no `terminal_run` semantic widening, no caller-controlled shell executable/environment/PID/signal surface, and audit metadata remains content-free.
 - First final full-suite attempt after `5d5554f` had exactly one failure: the real-shell SIGKILL escalation test observed `SIGTERM` under suite load. The same test passed `10/10` in isolation, showing a setup race where a 30 ms timeout could fire before the shell installed its `trap`.
 - Escalation verification was made deterministic using the existing injected `spawnProcess`/`signalProcess` seams: fake owned PID `4242` ignores SIGTERM and emits close only on SIGKILL; the test asserts exact `-pid` SIGTERM→SIGKILL ordering. The deterministic escalation case passed `10/10` repeated runs.
+- PR #39 was opened from `design/owner-runtime-full-host`; its first published head `735a15f` passed hosted Node 22, Node 24, and `macos-native`, and GitHub reported `mergeStateStatus=CLEAN`. Any newer PR head must independently satisfy the same three hosted checks before merge.
 
 Because this state-file commit changes HEAD, exact-head completion evidence must be rerun after committing this file; do not reuse the pre-state-commit full gate as final exact-head proof.
 
 ## Next exact step
 
-1. Commit the deterministic escalation-test stabilization together with this state refresh.
-2. Rerun exact-head `npm run check`, `npm audit --omit=dev`, `git diff --check origin/main...HEAD`, and clean-status verification on the resulting head.
-3. Update Project Continuity with the final local exact-head evidence.
-4. Push `design/owner-runtime-full-host`, open the Phase 1 PR, wait for exact-head Node 22/24 and macOS-native CI, then verify server-side diff scope, head SHA, and mergeability.
-5. Stop before merging to `main`; merge remains a separate explicit authorization gate.
+1. Commit this PR/handoff state refresh.
+2. Rerun exact-head local `npm run check`, `npm audit --omit=dev`, `git diff --check origin/main...HEAD`, and clean-status verification.
+3. Push the updated feature head to PR #39 and wait for exact-head Node 22, Node 24, and macOS-native CI.
+4. Verify GitHub reports the expected head SHA, server-side diff scope, all required checks successful, and `mergeStateStatus=CLEAN`.
+5. Update Project Continuity with the published exact-head evidence and stop before merging to `main`; merge remains a separate explicit authorization gate.
 6. After a verified Phase 1 merge, write the separate Phase 2 interactive-PTY implementation plan from the approved design.
 
 ## Invariants
@@ -98,6 +100,7 @@ Because this state-file commit changes HEAD, exact-head completion evidence must
 ## Blockers / uncertainties
 
 - No known Phase 1 code, test, audit, or local-verification blocker remains before the final exact-head rerun.
-- Hosted Node 22/24 and macOS-native CI have not run for this unpublished feature head yet.
+- Hosted CI passed on the first PR head `735a15f`; any later head, including this state refresh, must rerun Node 22/24 and macOS-native before merge.
+- Main merge is intentionally blocked on separate explicit user authorization even after exact-head CI is green.
 - Persistent interactive PTY is intentionally deferred to Phase 2; dependency choice remains to be validated there.
 - Screen Recording/Accessibility readiness is outside Phase 1 shell scope and will be rechecked during later Owner Runtime/Computer Runtime real-Mac acceptance.
