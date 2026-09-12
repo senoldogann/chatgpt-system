@@ -311,7 +311,7 @@ function compact<T extends Record<string, unknown>>(value: T): T {
 }
 
 export function registerComputerTools(server: McpServer, runtime: ComputerToolRuntime): void {
-  const healthService = new ScopedComputerService(runtime.computer, runtime.audit, false);
+  const healthService = new ScopedComputerService(runtime.computer, runtime.audit, false, false);
 
   server.registerTool(
     "computer_health",
@@ -594,11 +594,14 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerRunOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, actions, finalObservation, timeoutMs }) => safeCall(() =>
-      computerFor(runtime, authorityLeaseId).run(compact({
-        actions: actions as ComputerAction[],
-        finalObservation,
-        timeoutMs,
-      })) as Promise<object>),
+    async ({ authorityLeaseId, actions, finalObservation, timeoutMs }, ctx) => safeCall(() =>
+      computerFor(runtime, authorityLeaseId).run(
+        compact({
+          actions: actions as ComputerAction[],
+          finalObservation,
+          timeoutMs,
+        }),
+        ctx.mcpReq.signal,
+      ) as Promise<object>),
   );
 }

@@ -1,6 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import type { ComputerUseConfig } from "./config.js";
+import { COMPUTER_MAX_EXPLICIT_RUNTIME_MS, type ComputerUseConfig } from "./config.js";
 import { ComputerError } from "./computer-errors.js";
 import { dispatchComputerJsRpc } from "./computer-js-rpc.js";
 import type { ComputerRuntime } from "./computer-runtime.js";
@@ -23,6 +23,7 @@ export interface ComputerJsRunnerLike {
 
 export interface ComputerJsRuntimeConfig {
   roots: string[];
+  ownerRuntime?: { enabled: boolean };
   computerUse: ComputerUseConfig;
 }
 
@@ -46,12 +47,18 @@ export class ComputerJsRuntime {
     const cwd = await this.resolveCwd(input.cwd);
     if (this.closing) throw new ComputerError("COMPUTER_JS_FAILED");
 
-    let timeoutMs = this.config.computerUse.maxJsRuntimeMs;
+    const ownerMode = this.config.ownerRuntime?.enabled === true;
+    let timeoutMs: number | undefined;
     if (input.timeoutMs !== undefined) {
-      if (!Number.isInteger(input.timeoutMs) || input.timeoutMs <= 0) {
+      if (!Number.isInteger(input.timeoutMs) || input.timeoutMs <= 0 ||
+          input.timeoutMs > COMPUTER_MAX_EXPLICIT_RUNTIME_MS) {
         throw new ComputerError("COMPUTER_PROTOCOL_INVALID");
       }
-      timeoutMs = Math.min(input.timeoutMs, this.config.computerUse.maxJsRuntimeMs);
+      timeoutMs = ownerMode
+        ? input.timeoutMs
+        : Math.min(input.timeoutMs, this.config.computerUse.maxJsRuntimeMs);
+    } else if (!ownerMode) {
+      timeoutMs = this.config.computerUse.maxJsRuntimeMs;
     }
 
     return this.computer.withExclusiveProgram((session) => {
@@ -59,12 +66,12 @@ export class ComputerJsRuntime {
       return this.supervisor.run({
         source: input.source,
         cwd,
-        timeoutMs,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
         ...(input.signal ? { signal: input.signal } : {}),
         onTerminate: () => session.cancel(),
         onRpc: (method, params) => dispatchComputerJsRpc(session, method, params),
       });
-    });
+    }, { ownerMode });
   }
 
   async close(): Promise<void> {

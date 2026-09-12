@@ -33,7 +33,7 @@ export interface ComputerJsRunnerResult {
 export interface ComputerJsRunnerRequest {
   source: string;
   cwd: string;
-  timeoutMs: number;
+  timeoutMs?: number;
   signal?: AbortSignal;
   onTerminate?: () => void;
   onRpc: (method: ComputerJsRpcMethod, params: unknown) => Promise<unknown>;
@@ -253,8 +253,10 @@ export class ComputerJsRunnerSupervisor {
         void this.handleRpc(child, message, request).catch((error) => finishError(error));
       });
 
-      timer = setTimeout(() => finishError(new ComputerError("COMPUTER_JS_TIMEOUT")), Math.max(0, request.timeoutMs));
-      timer.unref();
+      if (request.timeoutMs !== undefined) {
+        timer = setTimeout(() => finishError(new ComputerError("COMPUTER_JS_TIMEOUT")), request.timeoutMs);
+        timer.unref();
+      }
       if (request.signal?.aborted) {
         finishError(new ComputerError("COMPUTER_JS_FAILED"));
         return;

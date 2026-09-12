@@ -43,6 +43,10 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build TypeScript for Owner Runtime acceptance
+        run: npm run build
+      - name: Test Owner Runtime long computer acceptance
+        run: CHATGPT_SYSTEM_LONG_OWNER_ACCEPTANCE=1 npx vitest run tests/owner-computer-runtime-phase3-integration.test.ts
       - name: Test Owner Runtime PTY native binding
         run: npx vitest run tests/terminal-pty-real.test.ts
       - name: Build macOS native helpers
