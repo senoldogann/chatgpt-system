@@ -17,6 +17,7 @@ describe("computer use configuration", () => {
       maxScreenshotBytes: 8_388_608,
       maxActionProgramActions: 100,
       maxActionProgramRuntimeMs: 30_000,
+      maxAutomaticRetriesPerAction: 2,
       maxJsSourceBytes: 262_144,
       maxJsRuntimeMs: 30_000,
       maxJsOutputBytes: 1_048_576,

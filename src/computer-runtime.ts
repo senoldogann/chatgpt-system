@@ -2,9 +2,13 @@ import type { ComputerUseConfig } from "./config.js";
 import { ComputerError, isComputerErrorCode } from "./computer-errors.js";
 import type {
   ComputerAction,
+  ComputerActionEndpoint,
+  ComputerActionLocation,
   ComputerFinalObservation,
   ComputerNativeMethod,
+  ComputerResolvedTargetView,
   ComputerRunResult,
+  ComputerTarget,
 } from "./computer-types.js";
 
 export type ComputerHostState = "disabled" | "stopped" | "running" | "unavailable";
@@ -151,6 +155,113 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  const allowedSet = new Set(allowed);
+  return Object.keys(value).every((key) => allowedSet.has(key));
+}
+
+function boundedTargetString(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > MAX_SELECTOR_CHARS) invalid();
+  return value;
+}
+
+function optionalExact(value: unknown): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") invalid();
+  return value;
+}
+
+function canonicalTarget(value: unknown): ComputerTarget {
+  if (!isRecord(value) || typeof value.by !== "string") invalid();
+  switch (value.by) {
+    case "index": {
+      if (!hasOnlyKeys(value, ["by", "snapshotId", "index"])) invalid();
+      const snapshotId = boundedTargetString(value.snapshotId);
+      if (!Number.isSafeInteger(value.index) || (value.index as number) < 0) invalid();
+      return { by: "index", snapshotId, index: value.index as number };
+    }
+    case "role": {
+      if (!hasOnlyKeys(value, ["by", "role", "name", "exact"])) invalid();
+      const role = boundedTargetString(value.role);
+      const name = value.name === undefined ? undefined : boundedTargetString(value.name);
+      const exact = optionalExact(value.exact);
+      return { by: "role", role, ...(name !== undefined ? { name } : {}), ...(exact !== undefined ? { exact } : {}) };
+    }
+    case "text":
+    case "ocrText": {
+      if (!hasOnlyKeys(value, ["by", "text", "exact"])) invalid();
+      const text = boundedTargetString(value.text);
+      const exact = optionalExact(value.exact);
+      return { by: value.by, text, ...(exact !== undefined ? { exact } : {}) };
+    }
+    case "label": {
+      if (!hasOnlyKeys(value, ["by", "label", "exact"])) invalid();
+      const label = boundedTargetString(value.label);
+      const exact = optionalExact(value.exact);
+      return { by: "label", label, ...(exact !== undefined ? { exact } : {}) };
+    }
+    case "point": {
+      if (!hasOnlyKeys(value, ["by", "x", "y"]) || typeof value.x !== "number" || typeof value.y !== "number") invalid();
+      return { by: "point", x: finite(value.x), y: finite(value.y) };
+    }
+    default:
+      return invalid();
+  }
+}
+
+function semanticRetryBudget(value: unknown, max: number): number {
+  if (!Number.isInteger(max) || max < 0 || max > 2) invalid();
+  if (value === undefined) return max;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > max) invalid();
+  return value;
+}
+
+function locationParams(
+  input: { x?: unknown; y?: unknown; target?: unknown; retryBudget?: unknown },
+  maxRetries: number,
+): Record<string, unknown> {
+  const hasX = input.x !== undefined;
+  const hasY = input.y !== undefined;
+  const hasTarget = input.target !== undefined;
+  if (hasX !== hasY || hasTarget === hasX) invalid();
+  if (hasTarget) {
+    return {
+      target: canonicalTarget(input.target),
+      retryBudget: semanticRetryBudget(input.retryBudget, maxRetries),
+    };
+  }
+  if (input.retryBudget !== undefined || typeof input.x !== "number" || typeof input.y !== "number") invalid();
+  return { x: finite(input.x), y: finite(input.y) };
+}
+
+function endpointParams(value: unknown): { value: Record<string, unknown>; semantic: boolean } {
+  if (!isRecord(value)) invalid();
+  if (typeof value.by === "string") return { value: canonicalTarget(value) as unknown as Record<string, unknown>, semantic: true };
+  if (!hasOnlyKeys(value, ["x", "y"]) || typeof value.x !== "number" || typeof value.y !== "number") invalid();
+  return { value: { x: finite(value.x), y: finite(value.y) }, semantic: false };
+}
+
+function validateResolvedTargetView(value: unknown): ComputerResolvedTargetView {
+  if (!isRecord(value)) invalid();
+  if (value.source !== "ax" && value.source !== "ocr" && value.source !== "point") invalid();
+  if (value.confidence !== "deterministic" && value.confidence !== "high" && value.confidence !== "explicit") invalid();
+  if (!isRecord(value.bounds) || !isRecord(value.actionPoint)) invalid();
+  const bounds = value.bounds;
+  const point = value.actionPoint;
+  if (typeof bounds.x !== "number" || typeof bounds.y !== "number" || typeof bounds.width !== "number" || typeof bounds.height !== "number") invalid();
+  if (typeof point.x !== "number" || typeof point.y !== "number") invalid();
+  finite(bounds.x); finite(bounds.y); finite(bounds.width); finite(bounds.height); finite(point.x); finite(point.y);
+  if (bounds.width <= 0 || bounds.height <= 0) invalid();
+  if (value.observationId !== undefined && value.observationId !== null && typeof value.observationId !== "string") invalid();
+  return {
+    source: value.source,
+    bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+    actionPoint: { x: point.x, y: point.y },
+    ...(value.observationId !== undefined ? { observationId: value.observationId as string | null } : {}),
+    confidence: value.confidence,
+  };
+}
+
 interface PreparedComputerAction {
   type: ComputerAction["type"];
   method?: ComputerNativeMethod;
@@ -159,7 +270,7 @@ interface PreparedComputerAction {
   localWaitMs?: number;
 }
 
-function preparedAction(action: ComputerAction): PreparedComputerAction {
+function preparedAction(action: ComputerAction, maxRetries: number): PreparedComputerAction {
   switch (action.type) {
     case "observe":
       return { type: action.type, method: "observe", params: {}, physical: false };
@@ -172,7 +283,7 @@ function preparedAction(action: ComputerAction): PreparedComputerAction {
       return { type: action.type, method: action.type, params, physical: true };
     }
     case "move_mouse": {
-      const params: Record<string, unknown> = { x: finite(action.x), y: finite(action.y) };
+      const params = locationParams(action, maxRetries);
       const mode = motionMode(action.motionMode);
       const verify = verification(action.verify);
       if (mode !== undefined) params.motionMode = mode;
@@ -181,7 +292,7 @@ function preparedAction(action: ComputerAction): PreparedComputerAction {
     }
     case "click":
     case "double_click": {
-      const params: Record<string, unknown> = { x: finite(action.x), y: finite(action.y) };
+      const params = locationParams(action, maxRetries);
       const button = mouseButton(action.button);
       const mode = motionMode(action.motionMode);
       const verify = verification(action.verify);
@@ -200,10 +311,14 @@ function preparedAction(action: ComputerAction): PreparedComputerAction {
       return { type: action.type, method: action.type, params, physical: true };
     }
     case "drag": {
-      const params: Record<string, unknown> = {
-        from: { x: finite(action.from.x), y: finite(action.from.y) },
-        to: { x: finite(action.to.x), y: finite(action.to.y) },
-      };
+      const from = endpointParams(action.from);
+      const to = endpointParams(action.to);
+      const params: Record<string, unknown> = { from: from.value, to: to.value };
+      if (from.semantic || to.semantic) {
+        params.retryBudget = semanticRetryBudget(action.retryBudget, maxRetries);
+      } else if (action.retryBudget !== undefined) {
+        invalid();
+      }
       const button = mouseButton(action.button);
       const mode = motionMode(action.motionMode);
       const verify = verification(action.verify);
@@ -215,11 +330,12 @@ function preparedAction(action: ComputerAction): PreparedComputerAction {
     case "scroll": {
       integerInRange(action.vertical, -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA);
       integerInRange(action.horizontal, -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA);
-      if ((action.x === undefined) !== (action.y === undefined)) invalid();
       const params: Record<string, unknown> = { vertical: action.vertical, horizontal: action.horizontal };
-      if (action.x !== undefined && action.y !== undefined) {
-        params.x = finite(action.x);
-        params.y = finite(action.y);
+      const positional = action as ComputerAction & { x?: unknown; y?: unknown; target?: unknown; retryBudget?: unknown };
+      if (positional.x !== undefined || positional.y !== undefined || positional.target !== undefined) {
+        Object.assign(params, locationParams(positional, maxRetries));
+      } else if (positional.retryBudget !== undefined) {
+        invalid();
       }
       const mode = motionMode(action.motionMode);
       const verify = verification(action.verify);
@@ -357,6 +473,44 @@ export class ComputerRuntime {
     return validateObservationOutput(await this.read("observe", {}), this.config);
   }
 
+  async resolve(
+    target: ComputerTarget,
+    options: { retryBudget?: number | undefined } = {},
+  ): Promise<ComputerResolvedTargetView> {
+    const retryBudget = semanticRetryBudget(options.retryBudget, this.config.maxAutomaticRetriesPerAction);
+    const result = await this.read("resolve_target", { target: canonicalTarget(target), retryBudget });
+    return validateResolvedTargetView(result);
+  }
+
+  async resolveMany(
+    targets: ComputerTarget[],
+    options: { retryBudget?: number | undefined } = {},
+  ): Promise<ComputerResolvedTargetView[]> {
+    if (!Array.isArray(targets) || targets.length === 0 || targets.length > 100) invalid();
+    const retryBudget = semanticRetryBudget(options.retryBudget, this.config.maxAutomaticRetriesPerAction);
+    const canonical = targets.map((target) => canonicalTarget(target));
+    const result = await this.read("resolve_targets", { targets: canonical, retryBudget });
+    if (!Array.isArray(result) || result.length !== canonical.length) invalid();
+    return result.map(validateResolvedTargetView);
+  }
+
+  async exists(
+    target: ComputerTarget,
+    options: { retryBudget?: number | undefined } = {},
+  ): Promise<boolean> {
+    try {
+      await this.resolve(target, options);
+      return true;
+    } catch (error) {
+      if (error instanceof ComputerError && error.code === "COMPUTER_TARGET_NOT_FOUND") return false;
+      throw error;
+    }
+  }
+
+  refreshObservation(): Promise<unknown> {
+    return this.observe();
+  }
+
   async screenshot(): Promise<{ pngBase64: string; width: number; height: number }> {
     const result = await this.read("screenshot", {});
     if (!isRecord(result) || typeof result.pngBase64 !== "string" ||
@@ -392,8 +546,11 @@ export class ComputerRuntime {
     return this.physical("focus_app", params);
   }
 
-  async moveMouse(input: ComputerPoint & { motionMode?: PointerMotionMode | undefined; verify?: ComputerVerification | undefined }): Promise<unknown> {
-    const params: Record<string, unknown> = { x: finite(input.x), y: finite(input.y) };
+  async moveMouse(input: ComputerActionLocation & {
+    motionMode?: PointerMotionMode | undefined;
+    verify?: ComputerVerification | undefined;
+  }): Promise<unknown> {
+    const params = locationParams(input, this.config.maxAutomaticRetriesPerAction);
     const mode = motionMode(input.motionMode);
     const verify = verification(input.verify);
     if (mode !== undefined) params.motionMode = mode;
@@ -401,7 +558,7 @@ export class ComputerRuntime {
     return this.physical("move_mouse", params);
   }
 
-  async click(input: ComputerPoint & {
+  async click(input: ComputerActionLocation & {
     count?: 1 | 2 | undefined;
     button?: ComputerMouseButton | undefined;
     motionMode?: PointerMotionMode | undefined;
@@ -409,7 +566,7 @@ export class ComputerRuntime {
   }): Promise<unknown> {
     const count = input.count ?? 1;
     if (count !== 1 && count !== 2) invalid();
-    const params: Record<string, unknown> = { x: finite(input.x), y: finite(input.y) };
+    const params = locationParams(input, this.config.maxAutomaticRetriesPerAction);
     const button = mouseButton(input.button);
     const mode = motionMode(input.motionMode);
     const verify = verification(input.verify);
@@ -420,16 +577,21 @@ export class ComputerRuntime {
   }
 
   async drag(input: {
-    from: ComputerPoint;
-    to: ComputerPoint;
+    from: ComputerActionEndpoint;
+    to: ComputerActionEndpoint;
+    retryBudget?: number | undefined;
     button?: ComputerMouseButton | undefined;
     motionMode?: PointerMotionMode | undefined;
     verify?: ComputerVerification | undefined;
   }): Promise<unknown> {
-    const params: Record<string, unknown> = {
-      from: { x: finite(input.from.x), y: finite(input.from.y) },
-      to: { x: finite(input.to.x), y: finite(input.to.y) },
-    };
+    const from = endpointParams(input.from);
+    const to = endpointParams(input.to);
+    const params: Record<string, unknown> = { from: from.value, to: to.value };
+    if (from.semantic || to.semantic) {
+      params.retryBudget = semanticRetryBudget(input.retryBudget, this.config.maxAutomaticRetriesPerAction);
+    } else if (input.retryBudget !== undefined) {
+      invalid();
+    }
     const button = mouseButton(input.button);
     const mode = motionMode(input.motionMode);
     const verify = verification(input.verify);
@@ -444,16 +606,18 @@ export class ComputerRuntime {
     horizontal: number;
     x?: number | undefined;
     y?: number | undefined;
+    target?: ComputerTarget | undefined;
+    retryBudget?: number | undefined;
     motionMode?: PointerMotionMode | undefined;
     verify?: ComputerVerification | undefined;
   }): Promise<unknown> {
     integerInRange(input.vertical, -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA);
     integerInRange(input.horizontal, -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA);
-    if ((input.x === undefined) !== (input.y === undefined)) invalid();
     const params: Record<string, unknown> = { vertical: input.vertical, horizontal: input.horizontal };
-    if (input.x !== undefined && input.y !== undefined) {
-      params.x = finite(input.x);
-      params.y = finite(input.y);
+    if (input.x !== undefined || input.y !== undefined || input.target !== undefined) {
+      Object.assign(params, locationParams(input, this.config.maxAutomaticRetriesPerAction));
+    } else if (input.retryBudget !== undefined) {
+      invalid();
     }
     const mode = motionMode(input.motionMode);
     const verify = verification(input.verify);
@@ -560,7 +724,7 @@ export class ComputerRuntime {
     }
 
     // Validate and canonicalize the entire program before entering the physical lane.
-    const prepared = input.actions.map((action) => preparedAction(action));
+    const prepared = input.actions.map((action) => preparedAction(action, this.config.maxAutomaticRetriesPerAction));
     const actionCount = prepared.length;
     const holdCapablePresent = prepared.some((action) => action.type === "mouse_down" || action.type === "mouse_up");
 
@@ -679,7 +843,7 @@ export class ComputerRuntime {
 
   private async executeProgramAction(action: ComputerAction): Promise<unknown> {
     this.requireEnabled();
-    const prepared = preparedAction(action);
+    const prepared = preparedAction(action, this.config.maxAutomaticRetriesPerAction);
     if (prepared.localWaitMs !== undefined) {
       if (prepared.localWaitMs > this.config.maxActionProgramRuntimeMs) {
         throw new ComputerError("COMPUTER_TIMEOUT");

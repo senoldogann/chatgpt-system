@@ -50,6 +50,7 @@ export interface ComputerUseConfig {
   maxScreenshotBytes: number;
   maxActionProgramActions: number;
   maxActionProgramRuntimeMs: number;
+  maxAutomaticRetriesPerAction: number;
   maxJsSourceBytes: number;
   maxJsRuntimeMs: number;
   maxJsOutputBytes: number;
@@ -121,6 +122,7 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_COMPUTER_MAX_SCREENSHOT_BYTES: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_ACTION_PROGRAM_ACTIONS: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_ACTION_PROGRAM_RUNTIME_MS: z.coerce.number().int().positive().optional(),
+  CHATGPT_SYSTEM_COMPUTER_MAX_AUTOMATIC_RETRIES_PER_ACTION: z.coerce.number().int().min(0).max(2).optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_JS_SOURCE_BYTES: z.coerce.number().int().positive().max(COMPUTER_MAX_JS_SOURCE_BYTES).optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_JS_RUNTIME_MS: z.coerce.number().int().positive().max(COMPUTER_MAX_JS_RUNTIME_MS).optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_JS_OUTPUT_BYTES: z.coerce.number().int().positive().max(COMPUTER_MAX_JS_OUTPUT_BYTES).optional(),
@@ -283,6 +285,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       maxScreenshotBytes: env.CHATGPT_SYSTEM_COMPUTER_MAX_SCREENSHOT_BYTES ?? 8_388_608,
       maxActionProgramActions: env.CHATGPT_SYSTEM_COMPUTER_MAX_ACTION_PROGRAM_ACTIONS ?? 100,
       maxActionProgramRuntimeMs: env.CHATGPT_SYSTEM_COMPUTER_MAX_ACTION_PROGRAM_RUNTIME_MS ?? 30_000,
+      maxAutomaticRetriesPerAction: env.CHATGPT_SYSTEM_COMPUTER_MAX_AUTOMATIC_RETRIES_PER_ACTION ?? 2,
       maxJsSourceBytes: env.CHATGPT_SYSTEM_COMPUTER_MAX_JS_SOURCE_BYTES ?? COMPUTER_MAX_JS_SOURCE_BYTES,
       maxJsRuntimeMs: env.CHATGPT_SYSTEM_COMPUTER_MAX_JS_RUNTIME_MS ?? COMPUTER_MAX_JS_RUNTIME_MS,
       maxJsOutputBytes: env.CHATGPT_SYSTEM_COMPUTER_MAX_JS_OUTPUT_BYTES ?? COMPUTER_MAX_JS_OUTPUT_BYTES,
