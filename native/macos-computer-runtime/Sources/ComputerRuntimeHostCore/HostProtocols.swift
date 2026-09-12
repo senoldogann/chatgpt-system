@@ -1,4 +1,5 @@
 import ComputerRuntimeCore
+import CoreGraphics
 import Darwin
 
 public struct WorkspaceApplication: Equatable, Sendable {
@@ -74,8 +75,45 @@ public protocol AccessibilityReading: Sendable {
     func observe(for application: WorkspaceApplication, limits: ObservationLimits) throws -> ComputerObservation
 }
 
+protocol ComputerObservationCaching: Sendable {
+    func store(_ observation: CachedComputerObservation)
+    func current(
+        appIdentity: String,
+        windowIdentity: String,
+        windowGeneration: String,
+        displayTopologyDigest: String
+    ) -> CachedComputerObservation?
+    func observation(snapshotId: String) -> CachedComputerObservation?
+    func invalidate()
+    func updateCapability(
+        appIdentity: String,
+        windowIdentity: String,
+        windowGeneration: String,
+        capability: PerceptionCapabilityProfile
+    )
+}
+
 public protocol ScreenshotCapturing: Sendable {
     func captureMainDisplay(maxBytes: Int) async throws -> ComputerScreenshot
+}
+
+struct ScreenImageCapture: @unchecked Sendable {
+    let image: CGImage
+    let screenBounds: ComputerBounds
+}
+
+protocol ScreenImageCapturing: Sendable {
+    func captureMainDisplayImage() async throws -> ScreenImageCapture
+}
+
+protocol VisionTextRecognizing: Sendable {
+    func recognizeText(in image: CGImage, mode: VisionRecognitionMode) async throws -> [OcrTextCandidate]
+}
+
+protocol ComputerRecoveryHandling: Sendable {
+    func resolve(_ target: ComputerTarget, retryBudget: Int) async throws -> ResolvedComputerTarget
+    func resolveMany(_ targets: [ComputerTarget], retryBudget: Int) async throws -> [ResolvedComputerTarget]
+    func refreshObservation() async throws -> ComputerObservation
 }
 
 public protocol ComputerActionHandling: Sendable {

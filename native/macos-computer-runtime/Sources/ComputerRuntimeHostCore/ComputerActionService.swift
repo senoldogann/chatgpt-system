@@ -12,6 +12,16 @@ private enum ActionVerificationSpec: Sendable {
     case screenRegionChanged(bounds: ComputerBounds, timeoutMs: Int)
 }
 
+private enum ActionPointSpec: Sendable {
+    case point(ComputerPoint)
+    case target(ComputerTarget, retryBudget: Int)
+
+    var isSemantic: Bool {
+        if case .target = self { return true }
+        return false
+    }
+}
+
 private struct ApplicationInputFocusGuard: InputFocusGuard {
     let applicationController: any ApplicationControlling
     let target: WorkspaceApplication
@@ -44,19 +54,22 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
     private let appSleeper: any InputSleeping
     private let takeoverMonitor: (any TakeoverMonitoring)?
     private let verification: (any ComputerVerificationHandling)?
+    private let recovery: (any ComputerRecoveryHandling)?
 
     init(
         controller: ComputerInputController,
         applicationController: (any ApplicationControlling)? = nil,
         appSleeper: any InputSleeping = SystemInputSleeper(),
         takeoverMonitor: (any TakeoverMonitoring)? = nil,
-        verification: (any ComputerVerificationHandling)? = nil
+        verification: (any ComputerVerificationHandling)? = nil,
+        recovery: (any ComputerRecoveryHandling)? = nil
     ) {
         self.controller = controller
         self.applicationController = applicationController
         self.appSleeper = appSleeper
         self.takeoverMonitor = takeoverMonitor
         self.verification = verification
+        self.recovery = recovery
     }
 
     func handleAction(_ request: ComputerProtocolRequest) async -> ComputerProtocolResponse? {
@@ -79,7 +92,8 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 verificationSpec: parsed.verification,
                 requestId: request.requestId
             ) {
-                try await controller.moveMouse(to: parsed.point, mode: parsed.mode)
+                let point = try await resolveActionPoint(parsed.point)
+                return try await controller.moveMouse(to: point, mode: parsed.mode)
             }
 
         case "click", "double_click":
@@ -87,9 +101,10 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 return protocolInvalid(requestId: request.requestId)
             }
             return await executeVerifiedAction(verificationSpec: parsed.verification, requestId: request.requestId) {
-                request.method == "click"
-                    ? try await controller.click(at: parsed.point, button: parsed.button, mode: parsed.mode)
-                    : try await controller.doubleClick(at: parsed.point, button: parsed.button, mode: parsed.mode)
+                let point = try await resolveActionPoint(parsed.point)
+                return request.method == "click"
+                    ? try await controller.click(at: point, button: parsed.button, mode: parsed.mode)
+                    : try await controller.doubleClick(at: point, button: parsed.button, mode: parsed.mode)
             }
 
         case "mouse_down", "mouse_up":
@@ -107,9 +122,10 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 return protocolInvalid(requestId: request.requestId)
             }
             return await executeVerifiedAction(verificationSpec: parsed.verification, requestId: request.requestId) {
-                try await controller.drag(
-                    from: parsed.from,
-                    to: parsed.to,
+                let endpoints = try await resolveDragEndpoints(from: parsed.from, to: parsed.to)
+                return try await controller.drag(
+                    from: endpoints.from,
+                    to: endpoints.to,
                     button: parsed.button,
                     mode: parsed.mode
                 )
@@ -120,10 +136,11 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 return protocolInvalid(requestId: request.requestId)
             }
             return await executeVerifiedAction(verificationSpec: parsed.verification, requestId: request.requestId) {
-                try await controller.scroll(
+                let point = try await resolveOptionalActionPoint(parsed.point)
+                return try await controller.scroll(
                     vertical: parsed.vertical,
                     horizontal: parsed.horizontal,
-                    at: parsed.point,
+                    at: point,
                     mode: parsed.mode
                 )
             }
@@ -235,6 +252,38 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
         takeoverMonitor?.stop()
     }
 
+    private func resolveActionPoint(_ spec: ActionPointSpec) async throws -> ComputerPoint {
+        switch spec {
+        case let .point(point):
+            return point
+        case let .target(target, retryBudget):
+            guard let recovery else { throw ComputerRecoveryError.unavailable }
+            let resolved = try await recovery.resolve(target, retryBudget: retryBudget)
+            return resolved.actionPoint
+        }
+    }
+
+    private func resolveOptionalActionPoint(_ spec: ActionPointSpec?) async throws -> ComputerPoint? {
+        guard let spec else { return nil }
+        return try await resolveActionPoint(spec)
+    }
+
+    private func resolveDragEndpoints(
+        from: ActionPointSpec,
+        to: ActionPointSpec
+    ) async throws -> (from: ComputerPoint, to: ComputerPoint) {
+        if case let .target(fromTarget, fromBudget) = from,
+           case let .target(toTarget, toBudget) = to,
+           fromBudget == toBudget
+        {
+            guard let recovery else { throw ComputerRecoveryError.unavailable }
+            let resolved = try await recovery.resolveMany([fromTarget, toTarget], retryBudget: fromBudget)
+            guard resolved.count == 2 else { throw ComputerRecoveryError.unavailable }
+            return (resolved[0].actionPoint, resolved[1].actionPoint)
+        }
+        return (try await resolveActionPoint(from), try await resolveActionPoint(to))
+    }
+
     private func executeVerifiedAction(
         verificationSpec: ActionVerificationSpec?,
         requestId: String,
@@ -245,6 +294,9 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             let result = try await action()
             try await waitForVerification(verificationSpec, baseline: baseline)
             return encodeResult(result, requestId: requestId)
+        } catch let error as ComputerRecoveryError {
+            await releaseInputsAfterFailedAction()
+            return recoveryFailed(error, requestId: requestId)
         } catch ComputerVerificationError.timeout {
             await releaseInputsAfterFailedAction()
             return timeout(requestId: requestId)
@@ -471,16 +523,14 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
 
     private func parseClickParams(
         _ params: JSONValue
-    ) -> (point: ComputerPoint, button: ComputerMouseButton, mode: PointerMotionMode, verification: ActionVerificationSpec?)? {
+    ) -> (point: ActionPointSpec, button: ComputerMouseButton, mode: PointerMotionMode, verification: ActionVerificationSpec?)? {
         guard case let .object(object) = params,
-              object.keys.allSatisfy({ ["x", "y", "button", "motionMode", "verify"].contains($0) }),
-              let point = parsePointObject(object),
+              object.keys.allSatisfy({ ["x", "y", "target", "retryBudget", "button", "motionMode", "verify"].contains($0) }),
+              let point = parseActionPointSpec(object),
               let button = parseMouseButton(object["button"]),
               let mode = parseMotionMode(object["motionMode"]),
               let verification = parseOptionalVerification(object["verify"])
-        else {
-            return nil
-        }
+        else { return nil }
         return (point, button, mode, verification)
     }
 
@@ -499,55 +549,46 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
 
     private func parseDragParams(
         _ params: JSONValue
-    ) -> (from: ComputerPoint, to: ComputerPoint, button: ComputerMouseButton, mode: PointerMotionMode, verification: ActionVerificationSpec?)? {
+    ) -> (from: ActionPointSpec, to: ActionPointSpec, button: ComputerMouseButton, mode: PointerMotionMode, verification: ActionVerificationSpec?)? {
         guard case let .object(object) = params,
-              object.keys.allSatisfy({ ["from", "to", "button", "motionMode", "verify"].contains($0) }),
+              object.keys.allSatisfy({ ["from", "to", "retryBudget", "button", "motionMode", "verify"].contains($0) }),
               let rawFrom = object["from"],
               let rawTo = object["to"],
-              let from = parseNestedPoint(rawFrom),
-              let to = parseNestedPoint(rawTo),
+              let retryBudget = parseRetryBudget(object["retryBudget"]),
+              let from = parseDragEndpoint(rawFrom, retryBudget: retryBudget),
+              let to = parseDragEndpoint(rawTo, retryBudget: retryBudget),
               let button = parseMouseButton(object["button"]),
               let mode = parseMotionMode(object["motionMode"]),
               let verification = parseOptionalVerification(object["verify"])
-        else {
-            return nil
-        }
+        else { return nil }
+        if !from.isSemantic && !to.isSemantic && object["retryBudget"] != nil { return nil }
         return (from, to, button, mode, verification)
     }
 
     private func parseScrollParams(
         _ params: JSONValue
-    ) -> (vertical: Int32, horizontal: Int32, point: ComputerPoint?, mode: PointerMotionMode, verification: ActionVerificationSpec?)? {
+    ) -> (vertical: Int32, horizontal: Int32, point: ActionPointSpec?, mode: PointerMotionMode, verification: ActionVerificationSpec?)? {
         guard case let .object(object) = params,
-              object.keys.allSatisfy({ ["vertical", "horizontal", "x", "y", "motionMode", "verify"].contains($0) }),
+              object.keys.allSatisfy({ ["vertical", "horizontal", "x", "y", "target", "retryBudget", "motionMode", "verify"].contains($0) }),
               let vertical = parseScrollDelta(object["vertical"]),
               let horizontal = parseScrollDelta(object["horizontal"]),
               let mode = parseMotionMode(object["motionMode"]),
               let verification = parseOptionalVerification(object["verify"])
-        else {
-            return nil
-        }
+        else { return nil }
 
-        let hasX = object["x"] != nil
-        let hasY = object["y"] != nil
-        guard hasX == hasY else { return nil }
-        let point: ComputerPoint?
-        if hasX {
-            guard let parsed = parsePointObject(object) else { return nil }
+        let hasCoordinates = object["x"] != nil || object["y"] != nil
+        let hasTarget = object["target"] != nil
+        guard !(hasCoordinates && hasTarget) else { return nil }
+
+        let point: ActionPointSpec?
+        if hasCoordinates || hasTarget {
+            guard let parsed = parseActionPointSpec(object) else { return nil }
             point = parsed
         } else {
+            guard object["retryBudget"] == nil else { return nil }
             point = nil
         }
         return (vertical, horizontal, point, mode, verification)
-    }
-
-    private func parseNestedPoint(_ value: JSONValue) -> ComputerPoint? {
-        guard case let .object(object) = value,
-              Set(object.keys) == Set(["x", "y"])
-        else {
-            return nil
-        }
-        return parsePointObject(object)
     }
 
     private func parsePointObject(_ object: [String: JSONValue]) -> ComputerPoint? {
@@ -559,6 +600,104 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             return nil
         }
         return ComputerPoint(x: x, y: y)
+    }
+
+    private func parseActionPointSpec(_ object: [String: JSONValue]) -> ActionPointSpec? {
+        let hasX = object["x"] != nil
+        let hasY = object["y"] != nil
+        let hasTarget = object["target"] != nil
+        guard hasX == hasY, !(hasX && hasTarget) else { return nil }
+
+        if hasX {
+            guard object["retryBudget"] == nil, let point = parsePointObject(object) else { return nil }
+            return .point(point)
+        }
+        guard hasTarget,
+              let rawTarget = object["target"],
+              let target = parseTarget(rawTarget),
+              let retryBudget = parseRetryBudget(object["retryBudget"])
+        else { return nil }
+        return .target(target, retryBudget: retryBudget)
+    }
+
+    private func parseDragEndpoint(_ value: JSONValue, retryBudget: Int) -> ActionPointSpec? {
+        guard case let .object(object) = value else { return nil }
+        if Set(object.keys) == Set(["x", "y"]), let point = parsePointObject(object) {
+            return .point(point)
+        }
+        guard let target = parseTarget(value) else { return nil }
+        return .target(target, retryBudget: retryBudget)
+    }
+
+    private func parseRetryBudget(_ value: JSONValue?) -> Int? {
+        guard let value else { return 2 }
+        guard case let .number(raw) = value,
+              raw.isFinite,
+              raw.rounded(.towardZero) == raw,
+              raw >= 0, raw <= 2
+        else { return nil }
+        return Int(raw)
+    }
+
+    private func parseTarget(_ value: JSONValue) -> ComputerTarget? {
+        guard case let .object(object) = value,
+              case let .string(kind)? = object["by"]
+        else { return nil }
+
+        switch kind {
+        case "index":
+            guard Set(object.keys).isSubset(of: ["by", "snapshotId", "index"]),
+                  case let .string(snapshotId)? = object["snapshotId"],
+                  isValidSelectorString(snapshotId),
+                  case let .number(rawIndex)? = object["index"],
+                  rawIndex.isFinite, rawIndex.rounded(.towardZero) == rawIndex,
+                  rawIndex >= 0, rawIndex <= Double(Int.max)
+            else { return nil }
+            return .index(snapshotId: snapshotId, index: Int(rawIndex))
+
+        case "role":
+            guard Set(object.keys).isSubset(of: ["by", "role", "name", "exact"]),
+                  case let .string(role)? = object["role"],
+                  isValidSelectorString(role),
+                  let exact = parseExact(object["exact"])
+            else { return nil }
+            let name: String?
+            if let rawName = object["name"] {
+                guard case let .string(value) = rawName, isValidSelectorString(value) else { return nil }
+                name = value
+            } else {
+                name = nil
+            }
+            return .role(role: role, name: name, exact: exact)
+
+        case "text", "ocrText", "label":
+            let key = kind == "label" ? "label" : "text"
+            guard Set(object.keys).isSubset(of: ["by", key, "exact"]),
+                  case let .string(text)? = object[key],
+                  isValidSelectorString(text),
+                  let exact = parseExact(object["exact"])
+            else { return nil }
+            if kind == "text" { return .text(text: text, exact: exact) }
+            if kind == "ocrText" { return .ocrText(text: text, exact: exact) }
+            return .label(label: text, exact: exact)
+
+        case "point":
+            guard Set(object.keys) == Set(["by", "x", "y"]),
+                  case let .number(x)? = object["x"],
+                  case let .number(y)? = object["y"],
+                  x.isFinite, y.isFinite
+            else { return nil }
+            return .point(x: x, y: y)
+
+        default:
+            return nil
+        }
+    }
+
+    private func parseExact(_ value: JSONValue?) -> Bool? {
+        guard let value else { return false }
+        guard case let .bool(exact) = value else { return nil }
+        return exact
     }
 
     private func parseMouseButton(_ value: JSONValue?) -> ComputerMouseButton? {
@@ -811,31 +950,14 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
 
     private func parseMoveMouseParams(
         _ params: JSONValue
-    ) -> (point: ComputerPoint, mode: PointerMotionMode, verification: ActionVerificationSpec?)? {
+    ) -> (point: ActionPointSpec, mode: PointerMotionMode, verification: ActionVerificationSpec?)? {
         guard case let .object(object) = params,
-              object.keys.allSatisfy({ ["x", "y", "motionMode", "verify"].contains($0) }),
-              case let .number(x)? = object["x"],
-              case let .number(y)? = object["y"],
-              x.isFinite,
-              y.isFinite
-        else {
-            return nil
-        }
-
-        let mode: PointerMotionMode
-        if let rawMode = object["motionMode"] {
-            guard case let .string(value) = rawMode,
-                  let parsed = PointerMotionMode(rawValue: value)
-            else {
-                return nil
-            }
-            mode = parsed
-        } else {
-            mode = .fast
-        }
-
-        guard let verification = parseOptionalVerification(object["verify"]) else { return nil }
-        return (ComputerPoint(x: x, y: y), mode, verification)
+              object.keys.allSatisfy({ ["x", "y", "target", "retryBudget", "motionMode", "verify"].contains($0) }),
+              let point = parseActionPointSpec(object),
+              let mode = parseMotionMode(object["motionMode"]),
+              let verification = parseOptionalVerification(object["verify"])
+        else { return nil }
+        return (point, mode, verification)
     }
 
     private func safeApplicationView(_ application: WorkspaceApplication) -> ApplicationView {
@@ -856,6 +978,39 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 requestId: requestId,
                 code: "COMPUTER_OUTPUT_LIMIT",
                 message: "Computer runtime output exceeded the limit."
+            )
+        }
+    }
+
+    private func recoveryFailed(_ error: ComputerRecoveryError, requestId: String) -> ComputerProtocolResponse {
+        switch error {
+        case .invalidRetryBudget:
+            return protocolInvalid(requestId: requestId)
+        case .targetNotFound:
+            return targetNotFound(requestId: requestId)
+        case .targetAmbiguous:
+            return targetAmbiguous(requestId: requestId)
+        case .staleSnapshot:
+            return .failure(
+                requestId: requestId,
+                code: "COMPUTER_STALE_SNAPSHOT",
+                message: "Computer target snapshot is stale."
+            )
+        case .unsafeGeometry, .unavailable:
+            return actionFailed(requestId: requestId)
+        case .focusFailed:
+            return focusFailed(requestId: requestId)
+        case .permissionRequired:
+            return .failure(
+                requestId: requestId,
+                code: "COMPUTER_PERMISSION_REQUIRED",
+                message: "Computer permission is required."
+            )
+        case .needsReplan:
+            return .failure(
+                requestId: requestId,
+                code: "COMPUTER_NEEDS_REPLAN",
+                message: "Computer state requires replanning."
             )
         }
     }

@@ -137,6 +137,7 @@ async function fixture() {
       maxScreenshotBytes: 8_388_608,
       maxActionProgramActions: 100,
       maxActionProgramRuntimeMs: 30_000,
+      maxAutomaticRetriesPerAction: 2,
       maxJsSourceBytes: 262_144,
       maxJsRuntimeMs: 30_000,
       maxJsOutputBytes: 1_048_576,
@@ -306,6 +307,57 @@ describe("computer MCP tools", () => {
       expect(run.isError).not.toBe(true);
       expect(run.structuredContent).toMatchObject({ state: "completed", completedCount: 2, actionCount: 2 });
       expect(fake.calls.map((call) => call.method)).toEqual(["run"]);
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("accepts semantic targets in computer_run without guessing coordinates", async () => {
+    const { runtime, fake, client, transport } = await fixture();
+    try {
+      const admin = await runtime.authority.start({ profile: "admin" });
+      const run = await client.callTool({
+        name: "computer_run",
+        arguments: {
+          authorityLeaseId: admin.leaseId,
+          finalObservation: "none",
+          actions: [
+            { type: "click", target: { by: "text", text: "Run", exact: true } },
+          ],
+        },
+      });
+
+      expect(run.isError).not.toBe(true);
+      expect(fake.calls).toContainEqual({
+        method: "run",
+        input: expect.objectContaining({
+          actions: [{ type: "click", target: { by: "text", text: "Run", exact: true } }],
+        }),
+      });
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("accepts a semantic target in direct computer_click without guessed coordinates", async () => {
+    const { runtime, fake, client, transport } = await fixture();
+    try {
+      const admin = await runtime.authority.start({ profile: "admin" });
+      const click = await client.callTool({
+        name: "computer_click",
+        arguments: {
+          authorityLeaseId: admin.leaseId,
+          target: { by: "role", role: "AXButton", name: "Submit", exact: true },
+        },
+      });
+
+      expect(click.isError).not.toBe(true);
+      expect(fake.calls).toContainEqual({
+        method: "click",
+        input: { target: { by: "role", role: "AXButton", name: "Submit", exact: true }, count: 1 },
+      });
     } finally {
       await transport.terminateSession();
       await client.close();
