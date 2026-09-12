@@ -23,6 +23,38 @@ describe("CLI command routing", () => {
     });
   });
 
+  it("parses Owner Runtime only as an explicit Personal Admin server capability", () => {
+    expect(parseCliCommand([
+      "stdio",
+      "--personal-admin",
+      "--enable-owner-runtime",
+      "--owner-shell-path", "/bin/sh",
+    ])).toEqual({
+      kind: "server",
+      mode: "stdio",
+      help: false,
+      overrides: {
+        personalAdminEnabled: true,
+        ownerRuntimeEnabled: true,
+        ownerShellPath: "/bin/sh",
+      },
+    });
+  });
+
+  it("rejects an Owner shell path unless Owner Runtime is enabled", () => {
+    expect(() => parseCliCommand([
+      "stdio",
+      "--personal-admin",
+      "--owner-shell-path", "/bin/sh",
+    ])).toThrow(/enable-owner-runtime/i);
+  });
+
+  it("documents Owner Runtime server flags in CLI help", async () => {
+    const source = await readFile(new URL("../src/cli.ts", import.meta.url), "utf8");
+    expect(source).toContain("--enable-owner-runtime");
+    expect(source).toContain("--owner-shell-path");
+  });
+
   it("parses computer use only as an explicit server flag", () => {
     expect(parseCliCommand(["stdio", "--enable-computer-use"])).toEqual({
       kind: "server",
@@ -112,6 +144,7 @@ describe("CLI command routing", () => {
     expect(() => parseCliCommand(["authorize", "admin", "--enable-computer-use"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--enable-project-exec"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--enable-full-host-js"])).toThrow();
+    expect(() => parseCliCommand(["authorize", "admin", "--enable-owner-runtime"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--browser-existing-chrome"])).toThrow();
   });
 });

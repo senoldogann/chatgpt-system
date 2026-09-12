@@ -10,6 +10,7 @@ export const COMPUTER_MAX_JS_OUTPUT_BYTES = 1_048_576;
 export const CONTINUITY_MAX_RESUME_CHARS = 12_000;
 export const CONTINUITY_MAX_TRACKED_PATHS = 100;
 export const CONTINUITY_REMOTE_TIMEOUT_MS = 10_000;
+export const OWNER_SHELL_MAX_SCRIPT_BYTES = 262_144;
 
 export interface LimitsConfig {
   maxReadBytes: number;
@@ -38,6 +39,12 @@ export interface ContinuityConfig {
   maxResumeChars: number;
   maxTrackedPaths: number;
   remoteVerificationTimeoutMs: number;
+}
+
+export interface OwnerRuntimeConfig {
+  enabled: boolean;
+  shellPath: string;
+  maxScriptBytes: number;
 }
 
 export interface ComputerUseConfig {
@@ -69,6 +76,7 @@ export interface AppConfig {
   personalAdmin: {
     enabled: boolean;
   };
+  ownerRuntime: OwnerRuntimeConfig;
   computerUse: ComputerUseConfig;
   continuity: ContinuityConfig;
   browser: BrowserConfig;
@@ -90,6 +98,8 @@ export interface ConfigOverrides {
   terminalEnabled?: boolean;
   projectExecEnabled?: boolean;
   personalAdminEnabled?: boolean;
+  ownerRuntimeEnabled?: boolean;
+  ownerShellPath?: string;
   computerUseEnabled?: boolean;
   fullHostJsEnabled?: boolean;
   continuityDatabasePath?: string;
@@ -113,6 +123,8 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_ENABLE_TERMINAL: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_PERSONAL_ADMIN: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_ENABLE_OWNER_RUNTIME: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_OWNER_SHELL_PATH: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_COMPUTER_USE: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ENABLE_FULL_HOST_JS: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_CONTINUITY_DATABASE: z.string().optional(),
@@ -201,6 +213,10 @@ export function resolveBrowserUserDataDir(value?: string, homeDir = homedir()): 
   return resolveHomePath(requested, homeDir, "Browser user-data directory");
 }
 
+export function defaultOwnerShellPath(current: NodeJS.Platform = process.platform): string {
+  return current === "darwin" ? "/bin/zsh" : "/bin/sh";
+}
+
 export function resolveContinuityDatabasePath(value: string | undefined, homeDir: string): string {
   const requested = value ?? path.join(homeDir, ".chatgpt-system", "continuity", "continuity.db");
   return resolveHomePath(requested, homeDir, "Continuity database path");
@@ -259,6 +275,18 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     overrides.continuityDatabasePath ?? env.CHATGPT_SYSTEM_CONTINUITY_DATABASE,
     homeDir,
   );
+  const personalAdminEnabled = overrides.personalAdminEnabled ?? enabled(env.CHATGPT_SYSTEM_PERSONAL_ADMIN);
+  const ownerRuntimeEnabled = overrides.ownerRuntimeEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_OWNER_RUNTIME);
+  const ownerShellPathInput = overrides.ownerShellPath
+    ?? env.CHATGPT_SYSTEM_OWNER_SHELL_PATH
+    ?? defaultOwnerShellPath();
+  let ownerShellPath = ownerShellPathInput;
+  if (ownerRuntimeEnabled) {
+    if (!path.isAbsolute(ownerShellPathInput)) {
+      throw new Error("Owner shell path must be absolute.");
+    }
+    ownerShellPath = await realpath(ownerShellPathInput);
+  }
 
   const config: AppConfig = {
     roots,
@@ -273,7 +301,12 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       enabled: overrides.projectExecEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC),
     },
     personalAdmin: {
-      enabled: overrides.personalAdminEnabled ?? enabled(env.CHATGPT_SYSTEM_PERSONAL_ADMIN),
+      enabled: personalAdminEnabled,
+    },
+    ownerRuntime: {
+      enabled: ownerRuntimeEnabled,
+      shellPath: ownerShellPath,
+      maxScriptBytes: OWNER_SHELL_MAX_SCRIPT_BYTES,
     },
     computerUse: {
       enabled: overrides.computerUseEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_COMPUTER_USE),
@@ -320,6 +353,10 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       processStopGraceMs: env.CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS ?? 3_000,
     },
   };
+
+  if (config.ownerRuntime.enabled && !config.personalAdmin.enabled) {
+    throw new Error("Owner Runtime requires Personal Admin to be explicitly enabled.");
+  }
 
   if (config.computerUse.fullHostJsEnabled && !config.computerUse.enabled) {
     throw new Error("Full-host JavaScript requires Computer Runtime to be explicitly enabled.");

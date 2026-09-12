@@ -46,6 +46,7 @@ function serviceConfig(root: string, base: string, commands: string[], commandTi
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: true, commands },
     projectExec: { enabled: false },
+    ownerRuntime: { enabled: true, shellPath: "/bin/sh", maxScriptBytes: 262_144 },
     computerUse: {
       enabled: true,
       fullHostJsEnabled: true,
@@ -170,6 +171,7 @@ describe("describeSystemEnvironment", () => {
     expect(environment.os).toBe(prettyOperatingSystemName(platform()));
     expect(environment.roots).toEqual([root]);
     expect(environment.terminal).toEqual({ enabled: true });
+    expect(environment.ownerRuntime).toEqual({ enabled: true });
     expect(environment.computerUse).toEqual({ enabled: true, fullHostJsEnabled: true });
     expect(environment.pathEntries).toEqual(resolutionSearchDirs(process.env.PATH, homedir()));
     expect(environment.executables).toHaveLength(2);
@@ -182,7 +184,7 @@ describe("describeSystemEnvironment", () => {
     });
     expect(JSON.stringify(environment)).not.toContain("canary-secret-value-12345");
     expect(Object.keys(environment).sort()).toEqual(
-      ["arch", "computerUse", "executables", "os", "pathEntries", "platform", "roots", "terminal"],
+      ["arch", "computerUse", "executables", "os", "ownerRuntime", "pathEntries", "platform", "roots", "terminal"],
     );
   });
 });
@@ -271,6 +273,7 @@ describe("system_environment MCP tool", () => {
       auditFile: path.join(base, "audit.jsonl"),
       terminal: { enabled: false, commands: ["node", "chatgpt-system-missing-binary-xyz"] },
       projectExec: { enabled: false },
+      ownerRuntime: { enabled: true, shellPath: "/bin/sh", maxScriptBytes: 262_144 },
       continuity: {
         databasePath: path.join(path.dirname(path.join(base, "audit.jsonl")), "continuity.db"),
         maxResumeChars: 12_000,
@@ -328,6 +331,7 @@ describe("system_environment MCP tool", () => {
         arch: arch(),
         roots: [root],
         terminal: { enabled: false },
+        ownerRuntime: { enabled: true },
         computerUse: { enabled: true, fullHostJsEnabled: true },
       });
       const executables = (result.structuredContent as { executables: unknown }).executables as Array<{

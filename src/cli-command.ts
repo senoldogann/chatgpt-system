@@ -39,6 +39,8 @@ export function parseCliCommand(argv: string[]): CliCommand {
   let help = false;
   let controlEnabled = false;
   let controlSocketPath: string | undefined;
+  let ownerRuntimeEnabled = false;
+  let ownerShellPath: string | undefined;
   const roots: string[] = [];
   const commands: string[] = [];
   const overrides: ConfigOverrides = {};
@@ -63,6 +65,16 @@ export function parseCliCommand(argv: string[]): CliCommand {
     }
     if (arg === "--personal-admin") {
       overrides.personalAdminEnabled = true;
+      continue;
+    }
+    if (arg === "--enable-owner-runtime") {
+      ownerRuntimeEnabled = true;
+      overrides.ownerRuntimeEnabled = true;
+      continue;
+    }
+    if (arg === "--owner-shell-path") {
+      ownerShellPath = takeValue(argv, index, arg);
+      index += 1;
       continue;
     }
     if (arg === "--enable-computer-use") {
@@ -128,6 +140,10 @@ export function parseCliCommand(argv: string[]): CliCommand {
     throw new Error(`Unknown argument: ${arg}`);
   }
 
+  if (ownerShellPath !== undefined) {
+    if (!ownerRuntimeEnabled) throw new Error("--owner-shell-path requires --enable-owner-runtime.");
+    overrides.ownerShellPath = ownerShellPath;
+  }
   if (controlSocketPath !== undefined) {
     if (!controlEnabled) throw new Error("--control-socket requires --enable-control.");
     overrides.controlSocketPath = controlSocketPath;
