@@ -23,7 +23,7 @@ async function nearestExistingAncestor(candidate: string): Promise<string> {
   }
 }
 
-async function canonicalizePath(candidate: string): Promise<string> {
+export async function canonicalizePath(candidate: string): Promise<string> {
   const ancestor = await nearestExistingAncestor(candidate);
   const realAncestor = await realpath(ancestor);
   const suffix = path.relative(ancestor, candidate);
