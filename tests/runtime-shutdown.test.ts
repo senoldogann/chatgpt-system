@@ -10,11 +10,12 @@ describe("closeRuntimeResources", () => {
         computer: { close: async () => { calls.push("computer"); } },
         processSupervisor: { close: async () => { calls.push("processes"); } },
         browser: { close: async () => { calls.push("browser"); return { closed: true as const }; } },
+        continuityStore: { close: () => { calls.push("continuity"); } },
       } as never,
       control: { close: async () => { calls.push("control"); } } as never,
       closeTransport: async () => { calls.push("transport"); },
     });
-    expect(calls).toEqual(["computer-js", "computer", "processes", "browser", "control", "transport"]);
+    expect(calls).toEqual(["computer-js", "computer", "processes", "browser", "continuity", "control", "transport"]);
   });
 
   it("continues later cleanup phases after computer JavaScript, computer, process and browser failures", async () => {
@@ -46,12 +47,18 @@ describe("closeRuntimeResources", () => {
             throw new Error("browser stop failed");
           },
         },
+        continuityStore: {
+          close: () => {
+            calls.push("continuity");
+            throw new Error("continuity close failed");
+          },
+        },
       } as never,
       control: { close: async () => { calls.push("control"); } } as never,
       closeTransport: async () => { calls.push("transport"); },
       reportError: (phase) => { errors.push(phase); },
     });
-    expect(calls).toEqual(["computer-js", "computer", "processes", "browser", "control", "transport"]);
-    expect(errors).toEqual(["computer-js", "computer", "processes", "browser"]);
+    expect(calls).toEqual(["computer-js", "computer", "processes", "browser", "continuity", "control", "transport"]);
+    expect(errors).toEqual(["computer-js", "computer", "processes", "browser", "continuity"]);
   });
 });

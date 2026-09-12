@@ -4,7 +4,7 @@ import CoreGraphics
 import Foundation
 import ScreenCaptureKit
 
-public struct SystemScreenshotCapturer: ScreenshotCapturing {
+public struct SystemScreenshotCapturer: ScreenshotCapturing, ScreenImageCapturing {
     public init() {}
 
     public func captureMainDisplay(maxBytes: Int) async throws -> ComputerScreenshot {
@@ -12,12 +12,42 @@ public struct SystemScreenshotCapturer: ScreenshotCapturing {
             throw ScreenshotCaptureError.outputLimit
         }
 
+        let capture = try await captureMainDisplayImage()
+        let representation = NSBitmapImageRep(cgImage: capture.image)
+        guard let png = representation.representation(using: .png, properties: [:]),
+              !png.isEmpty
+        else {
+            throw ScreenshotCaptureError.unavailable
+        }
+        guard png.count <= maxBytes else {
+            throw ScreenshotCaptureError.outputLimit
+        }
+
+        return ComputerScreenshot(
+            pngBase64: png.base64EncodedString(),
+            width: capture.image.width,
+            height: capture.image.height
+        )
+    }
+
+    func captureMainDisplayImage() async throws -> ScreenImageCapture {
         let content = try await SCShareableContent.excludingDesktopWindows(
             false,
             onScreenWindowsOnly: true
         )
         guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() })
             ?? content.displays.first
+        else {
+            throw ScreenshotCaptureError.unavailable
+        }
+
+        let displayBounds = CGDisplayBounds(display.displayID)
+        guard displayBounds.origin.x.isFinite,
+              displayBounds.origin.y.isFinite,
+              displayBounds.width.isFinite,
+              displayBounds.height.isFinite,
+              displayBounds.width > 0,
+              displayBounds.height > 0
         else {
             throw ScreenshotCaptureError.unavailable
         }
@@ -36,20 +66,14 @@ public struct SystemScreenshotCapturer: ScreenshotCapturing {
             contentFilter: filter,
             configuration: configuration
         )
-        let representation = NSBitmapImageRep(cgImage: image)
-        guard let png = representation.representation(using: .png, properties: [:]),
-              !png.isEmpty
-        else {
-            throw ScreenshotCaptureError.unavailable
-        }
-        guard png.count <= maxBytes else {
-            throw ScreenshotCaptureError.outputLimit
-        }
-
-        return ComputerScreenshot(
-            pngBase64: png.base64EncodedString(),
-            width: image.width,
-            height: image.height
+        return ScreenImageCapture(
+            image: image,
+            screenBounds: ComputerBounds(
+                x: displayBounds.origin.x,
+                y: displayBounds.origin.y,
+                width: displayBounds.width,
+                height: displayBounds.height
+            )
         )
     }
 }

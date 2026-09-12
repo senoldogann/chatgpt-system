@@ -45,7 +45,7 @@ const CREDENTIAL_KEYWORDS = [
   /\bcard\s+number\b/i,
 ];
 
-const EDITABLE_ARIA_VALUE = /^(\s*-\s+(?:textbox|searchbox|combobox|spinbutton)(?:\s+"[^"]*")?(?:\s+\[[^\]]+\])?):.*$/i;
+const EDITABLE_ARIA_VALUE = /^(\s*-\s+(?:textbox|searchbox|combobox|spinbutton)(?:\s+"[^"]*")?(?:\s+\[[^\]]+\])*):.*$/i;
 
 export class BrowserService {
   private readonly timeoutMs: number;
@@ -181,10 +181,15 @@ export class BrowserService {
       const bounded = result.entries.map((entry) => ({
         ...entry,
         message: this.boundText(entry.message),
+        ...(entry.runtimeSource !== undefined
+          ? { runtimeSource: { ...entry.runtimeSource, url: this.sanitizeUrl(entry.runtimeSource.url) } }
+          : {}),
       }));
       const overflow = bounded.length > this.maxDiagnosticEntries;
       return {
         pageId: result.pageId,
+        generation: result.generation,
+        latestSequence: result.latestSequence,
         entries: bounded.slice(-this.maxDiagnosticEntries),
         truncated: result.truncated || overflow,
       };
@@ -198,6 +203,8 @@ export class BrowserService {
       const overflow = sanitized.length > this.maxDiagnosticEntries;
       return {
         pageId: result.pageId,
+        generation: result.generation,
+        latestSequence: result.latestSequence,
         entries: sanitized.slice(-this.maxDiagnosticEntries),
         truncated: result.truncated || overflow,
       };
@@ -291,10 +298,22 @@ export class BrowserService {
   }
 
   private redactEditableSnapshotValues(snapshot: string): string {
-    return snapshot
-      .split("\n")
-      .map((line) => line.replace(EDITABLE_ARIA_VALUE, "$1"))
-      .join("\n");
+    const redacted: string[] = [];
+    let editableIndent: number | null = null;
+
+    for (const line of snapshot.split("\n")) {
+      const indent = line.length - line.trimStart().length;
+      if (editableIndent !== null && indent > editableIndent) continue;
+      editableIndent = null;
+
+      const sanitized = line.replace(EDITABLE_ARIA_VALUE, "$1");
+      redacted.push(sanitized);
+      if (sanitized !== line || /^\s*-\s+(?:textbox|searchbox|combobox|spinbutton)\b/i.test(line)) {
+        editableIndent = indent;
+      }
+    }
+
+    return redacted.join("\n");
   }
 
   private assertTabListWithinLimits(tabs: BrowserTabView[]): void {
@@ -323,12 +342,16 @@ export class BrowserService {
       ...entry,
       url: this.sanitizeUrl(entry.url),
       ...(entry.failure !== undefined ? { failure: this.boundText(entry.failure) } : {}),
+      ...(entry.initiator !== undefined
+        ? { initiator: { ...entry.initiator, url: this.sanitizeUrl(entry.initiator.url) } }
+        : {}),
     };
   }
 
   private sanitizeUrl(value: string): string {
     try {
       const parsed = new URL(value);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "[unsupported-url]";
       parsed.search = "";
       parsed.hash = "";
       const sanitized = parsed.toString();

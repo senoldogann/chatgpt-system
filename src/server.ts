@@ -1,29 +1,40 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { homedir } from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { AuthorityManager } from "./authority.js";
 import { AuthorityRequestManager } from "./authority-request-manager.js";
 import { AuditLogger } from "./audit.js";
 import { createBrowserService, type BrowserFactoryOptions } from "./browser-factory.js";
+import { DockerProjectExecBackend, PROJECT_EXEC_IMAGE } from "./docker-project-exec-backend.js";
 import type { BrowserService } from "./browser-service.js";
 import { ComputerJsRuntime } from "./computer-js-runtime.js";
 import { ComputerJsRunnerSupervisor } from "./computer-js-runner-supervisor.js";
 import { ComputerNativeSupervisor } from "./computer-native-supervisor.js";
 import { ComputerRuntime, type ComputerNativeRequesting } from "./computer-runtime.js";
 import { registerBrowserTools } from "./browser-tool-registration.js";
+import { registerCodeQueryTool } from "./code-query-tool-registration.js";
 import { registerComputerTools } from "./computer-tool-registration.js";
 import { registerComputerJsTools } from "./computer-js-tool-registration.js";
 import type { AppConfig } from "./config.js";
 import { FileSystemService } from "./fs-service.js";
 import { GitService } from "./git-service.js";
+import { registerGitWorktreeTool } from "./git-worktree-tool-registration.js";
 import {
   MacOSLocalAuthorityBroker,
   type LocalAuthorityBroker,
 } from "./local-authority-broker.js";
+import { registerPatchSetTool } from "./patch-set-tool-registration.js";
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { ProcessSupervisor } from "./process-supervisor.js";
+import { registerProjectCheckTool } from "./project-check-tool-registration.js";
+import { registerProjectExecTool } from "./project-exec-tool-registration.js";
+import { createProjectContinuityRuntime, type ProjectContinuityRuntime } from "./project-continuity-runtime.js";
+import { registerProjectContinuityTools } from "./project-continuity-tool-registration.js";
+import { registerTaskStateTool } from "./task-state-tool-registration.js";
+import type { ProjectExecBackend } from "./project-exec-types.js";
 import { createScopedRuntime } from "./scoped-runtime.js";
 import { describeSystemEnvironment } from "./system-environment.js";
 import { errorPayload, PolicyError } from "./errors.js";
@@ -47,7 +58,7 @@ import {
   terminalResultOutputSchema,
 } from "./tool-output-schemas.js";
 
-export interface RuntimeServices {
+export interface RuntimeServices extends ProjectContinuityRuntime {
   config: AppConfig;
   policy: PathPolicy;
   audit: AuditLogger;
@@ -58,6 +69,9 @@ export interface RuntimeServices {
   git: GitService;
   process: ProcessService;
   processSupervisor: ProcessSupervisor;
+  projectExecBackend: ProjectExecBackend;
+  taskStateRoot: string;
+  worktreeRoot: string;
   browser: BrowserService;
   computer: ComputerRuntime;
   computerJs: ComputerJsRuntime;
@@ -69,6 +83,9 @@ export interface RuntimeOptions extends BrowserFactoryOptions {
   computerNative?: ComputerNativeRequesting;
   computerRuntime?: ComputerRuntime;
   computerJsRuntime?: ComputerJsRuntime;
+  projectExecBackend?: ProjectExecBackend;
+  taskStateRoot?: string;
+  worktreeRoot?: string;
 }
 
 export function createRuntimeServices(config: AppConfig, options: RuntimeOptions = {}): RuntimeServices {
@@ -110,6 +127,12 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     },
   });
   const processSupervisor = new ProcessSupervisor({ limits: config.limits, audit });
+  const projectExecBackend = options.projectExecBackend ?? new DockerProjectExecBackend({
+    maxOutputBytes: config.limits.maxCommandOutputBytes,
+    cleanupTimeoutMs: config.limits.processStopGraceMs,
+  });
+  const taskStateRoot = path.resolve(options.taskStateRoot ?? path.join(homedir(), ".chatgpt-system", "state"));
+  const worktreeRoot = path.resolve(options.worktreeRoot ?? path.join(homedir(), ".chatgpt-system", "worktrees"));
   const browser = createBrowserService(config, options);
   const computer = options.computerRuntime ?? new ComputerRuntime(
     options.computerNative ?? new ComputerNativeSupervisor({
@@ -129,7 +152,9 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
       processStopGraceMs: config.limits.processStopGraceMs,
     }),
   );
+  const continuityRuntime = createProjectContinuityRuntime(config, authority, { homeDir: homedir() });
   return {
+    ...continuityRuntime,
     config,
     policy,
     audit,
@@ -140,6 +165,9 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     git: new GitService(policy, audit, config),
     process: new ProcessService(policy, audit, config),
     processSupervisor,
+    projectExecBackend,
+    taskStateRoot,
+    worktreeRoot,
     browser,
     computer,
     computerJs,
@@ -221,6 +249,14 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       computerUse: {
         enabled: runtime.config.computerUse?.enabled === true,
         fullHostJsEnabled: runtime.config.computerUse?.fullHostJsEnabled === true,
+      },
+      projectExecution: {
+        enabled: runtime.config.projectExec.enabled,
+        sandboxed: true as const,
+        backend: "docker" as const,
+        network: "none" as const,
+        hostFallback: false as const,
+        image: PROJECT_EXEC_IMAGE,
       },
       limits: runtime.config.limits,
       safety: {
@@ -614,6 +650,13 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     async ({ authorityLeaseId, processId }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.stop(processId)),
   );
 
+  registerCodeQueryTool(server, runtime);
+  registerGitWorktreeTool(server, runtime);
+  registerPatchSetTool(server, runtime);
+  registerProjectCheckTool(server, runtime);
+  registerTaskStateTool(server, runtime);
+  registerProjectExecTool(server, runtime);
+  registerProjectContinuityTools(server, runtime);
   registerBrowserTools(server, runtime);
   registerComputerTools(server, runtime);
   registerComputerJsTools(server, runtime);

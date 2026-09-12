@@ -12,6 +12,7 @@ public struct ComputerHostService: Sendable {
     private let accessibility: (any AccessibilityReading)?
     private let screenshot: (any ScreenshotCapturing)?
     private let actions: (any ComputerActionHandling)?
+    private let recovery: (any ComputerRecoveryHandling)?
 
     public init(
         permissions: any PermissionReading,
@@ -25,12 +26,42 @@ public struct ComputerHostService: Sendable {
         self.accessibility = accessibility
         self.screenshot = screenshot
         self.actions = actions
+        self.recovery = nil
+    }
+
+    init(
+        permissions: any PermissionReading,
+        workspace: any WorkspaceReading,
+        accessibility: (any AccessibilityReading)? = nil,
+        screenshot: (any ScreenshotCapturing)? = nil,
+        actions: (any ComputerActionHandling)? = nil,
+        recovery: any ComputerRecoveryHandling
+    ) {
+        self.permissions = permissions
+        self.workspace = workspace
+        self.accessibility = accessibility
+        self.screenshot = screenshot
+        self.actions = actions
+        self.recovery = recovery
     }
 
     public static func system() -> ComputerHostService {
         let topology = SystemDisplayTopology()
+        let permissions = SystemPermissionReader()
         let workspaceReader = SystemWorkspaceReader()
+        let applicationController = SystemWorkspaceController()
         let accessibilityReader = SystemAccessibilityReader()
+        let screenshotCapturer = SystemScreenshotCapturer()
+        let recovery = ComputerRecoveryEngine(
+            permissions: permissions,
+            applicationController: applicationController,
+            accessibility: accessibilityReader,
+            cache: ComputerObservationCache(capacity: 4),
+            resolver: ComputerTargetResolver(),
+            screenCapture: screenshotCapturer,
+            ocr: SystemVisionOCR(),
+            displayTopology: topology
+        )
         let verification = ComputerVerificationEngine(
             workspace: workspaceReader,
             accessibility: accessibilityReader,
@@ -52,17 +83,19 @@ public struct ComputerHostService: Sendable {
             safetyCoordinator: safetyCoordinator
         )
         return .init(
-            permissions: SystemPermissionReader(),
+            permissions: permissions,
             workspace: workspaceReader,
             accessibility: accessibilityReader,
-            screenshot: SystemScreenshotCapturer(),
+            screenshot: screenshotCapturer,
             actions: ComputerActionService(
                 controller: controller,
-                applicationController: SystemWorkspaceController(),
+                applicationController: applicationController,
                 appSleeper: SystemInputSleeper(),
                 takeoverMonitor: takeoverMonitor,
-                verification: verification
-            )
+                verification: verification,
+                recovery: recovery
+            ),
+            recovery: recovery
         )
     }
 
@@ -113,6 +146,26 @@ public struct ComputerHostService: Sendable {
                 return protocolInvalid(requestId: request.requestId)
             }
             return await handleScreenshot(requestId: request.requestId)
+
+        case "resolve_target":
+            guard let parsed = parseResolveTargetParams(request.params) else {
+                return protocolInvalid(requestId: request.requestId)
+            }
+            return await handleResolveTarget(
+                parsed.target,
+                retryBudget: parsed.retryBudget,
+                requestId: request.requestId
+            )
+
+        case "resolve_targets":
+            guard let parsed = parseResolveTargetsParams(request.params) else {
+                return protocolInvalid(requestId: request.requestId)
+            }
+            return await handleResolveTargets(
+                parsed.targets,
+                retryBudget: parsed.retryBudget,
+                requestId: request.requestId
+            )
 
         default:
             if let actions, let response = await actions.handleAction(request) {
@@ -167,6 +220,50 @@ public struct ComputerHostService: Sendable {
             return encodeBoundedObservation(digestedObservation, requestId: requestId)
         } catch AccessibilityReadError.permissionRequired {
             return accessibilityPermissionRequired(requestId: requestId)
+        } catch {
+            return unavailable(requestId: requestId)
+        }
+    }
+
+    private func handleResolveTarget(
+        _ target: ComputerTarget,
+        retryBudget: Int,
+        requestId: String
+    ) async -> ComputerProtocolResponse {
+        guard let recovery else { return unavailable(requestId: requestId) }
+        do {
+            let resolved = try await recovery.resolve(target, retryBudget: retryBudget)
+            return encodeResult(resolvedTargetView(resolved), requestId: requestId)
+        } catch let error as ComputerRecoveryError {
+            return recoveryFailure(error, requestId: requestId)
+        } catch is CancellationError {
+            return .failure(
+                requestId: requestId,
+                code: "COMPUTER_ACTION_FAILED",
+                message: "Computer action was cancelled."
+            )
+        } catch {
+            return unavailable(requestId: requestId)
+        }
+    }
+
+    private func handleResolveTargets(
+        _ targets: [ComputerTarget],
+        retryBudget: Int,
+        requestId: String
+    ) async -> ComputerProtocolResponse {
+        guard let recovery else { return unavailable(requestId: requestId) }
+        do {
+            let resolved = try await recovery.resolveMany(targets, retryBudget: retryBudget)
+            return encodeResult(resolved.map(resolvedTargetView), requestId: requestId)
+        } catch let error as ComputerRecoveryError {
+            return recoveryFailure(error, requestId: requestId)
+        } catch is CancellationError {
+            return .failure(
+                requestId: requestId,
+                code: "COMPUTER_ACTION_FAILED",
+                message: "Computer action was cancelled."
+            )
         } catch {
             return unavailable(requestId: requestId)
         }
@@ -246,6 +343,126 @@ public struct ComputerHostService: Sendable {
         }
     }
 
+    private func parseResolveTargetParams(
+        _ params: JSONValue
+    ) -> (target: ComputerTarget, retryBudget: Int)? {
+        guard case let .object(object) = params,
+              object.keys.allSatisfy({ ["target", "retryBudget"].contains($0) }),
+              let rawTarget = object["target"],
+              let target = parseTarget(rawTarget),
+              let retryBudget = parseRetryBudget(object["retryBudget"])
+        else { return nil }
+        return (target, retryBudget)
+    }
+
+    private func parseResolveTargetsParams(
+        _ params: JSONValue
+    ) -> (targets: [ComputerTarget], retryBudget: Int)? {
+        guard case let .object(object) = params,
+              object.keys.allSatisfy({ ["targets", "retryBudget"].contains($0) }),
+              case let .array(rawTargets)? = object["targets"],
+              !rawTargets.isEmpty,
+              rawTargets.count <= 100,
+              let retryBudget = parseRetryBudget(object["retryBudget"])
+        else { return nil }
+
+        var targets: [ComputerTarget] = []
+        targets.reserveCapacity(rawTargets.count)
+        for rawTarget in rawTargets {
+            guard let target = parseTarget(rawTarget) else { return nil }
+            targets.append(target)
+        }
+        return (targets, retryBudget)
+    }
+
+    private func parseRetryBudget(_ value: JSONValue?) -> Int? {
+        guard let value else { return 2 }
+        guard case let .number(raw) = value,
+              raw.isFinite,
+              raw.rounded(.towardZero) == raw,
+              raw >= 0,
+              raw <= 2
+        else { return nil }
+        return Int(raw)
+    }
+
+    private func parseTarget(_ value: JSONValue) -> ComputerTarget? {
+        guard case let .object(object) = value,
+              case let .string(kind)? = object["by"]
+        else { return nil }
+
+        switch kind {
+        case "index":
+            guard Set(object.keys).isSubset(of: ["by", "snapshotId", "index"]),
+                  case let .string(snapshotId)? = object["snapshotId"],
+                  isValidTargetString(snapshotId),
+                  case let .number(rawIndex)? = object["index"],
+                  rawIndex.isFinite, rawIndex.rounded(.towardZero) == rawIndex, rawIndex >= 0,
+                  rawIndex <= Double(Int.max)
+            else { return nil }
+            return .index(snapshotId: snapshotId, index: Int(rawIndex))
+
+        case "role":
+            guard Set(object.keys).isSubset(of: ["by", "role", "name", "exact"]),
+                  case let .string(role)? = object["role"],
+                  isValidTargetString(role),
+                  let exact = parseOptionalExact(object["exact"])
+            else { return nil }
+            let name: String?
+            if let rawName = object["name"] {
+                guard case let .string(value) = rawName, isValidTargetString(value) else { return nil }
+                name = value
+            } else {
+                name = nil
+            }
+            return .role(role: role, name: name, exact: exact)
+
+        case "text", "ocrText", "label":
+            let textKey = kind == "label" ? "label" : "text"
+            guard Set(object.keys).isSubset(of: ["by", textKey, "exact"]),
+                  case let .string(text)? = object[textKey],
+                  isValidTargetString(text),
+                  let exact = parseOptionalExact(object["exact"])
+            else { return nil }
+            switch kind {
+            case "text": return .text(text: text, exact: exact)
+            case "ocrText": return .ocrText(text: text, exact: exact)
+            default: return .label(label: text, exact: exact)
+            }
+
+        case "point":
+            guard Set(object.keys) == Set(["by", "x", "y"]),
+                  case let .number(x)? = object["x"],
+                  case let .number(y)? = object["y"],
+                  x.isFinite, y.isFinite
+            else { return nil }
+            return .point(x: x, y: y)
+
+        default:
+            return nil
+        }
+    }
+
+    private func parseOptionalExact(_ value: JSONValue?) -> Bool? {
+        guard let value else { return false }
+        guard case let .bool(exact) = value else { return nil }
+        return exact
+    }
+
+    private func isValidTargetString(_ value: String) -> Bool {
+        !value.isEmpty && value.count <= Self.maxStructuredTextCharacters
+    }
+
+    private func resolvedTargetView(_ resolved: ResolvedComputerTarget) -> ComputerResolvedTargetView {
+        ComputerResolvedTargetView(
+            source: resolved.source,
+            bounds: resolved.bounds,
+            actionPoint: resolved.actionPoint,
+            observationId: resolved.observationId,
+            confidence: resolved.confidence
+        )
+    }
+
     private func safeActiveWindowView(_ view: ActiveWindowView) -> ActiveWindowView {
         ActiveWindowView(
             application: safeApplicationView(view.application),
@@ -296,6 +513,32 @@ public struct ComputerHostService: Sendable {
             code: "COMPUTER_PERMISSION_REQUIRED",
             message: "Screen Recording permission is required."
         )
+    }
+
+    private func recoveryFailure(
+        _ error: ComputerRecoveryError,
+        requestId: String
+    ) -> ComputerProtocolResponse {
+        switch error {
+        case .invalidRetryBudget:
+            return protocolInvalid(requestId: requestId)
+        case .targetNotFound:
+            return .failure(requestId: requestId, code: "COMPUTER_TARGET_NOT_FOUND", message: "Computer target was not found.")
+        case .targetAmbiguous:
+            return .failure(requestId: requestId, code: "COMPUTER_TARGET_AMBIGUOUS", message: "Computer target is ambiguous.")
+        case .staleSnapshot:
+            return .failure(requestId: requestId, code: "COMPUTER_STALE_SNAPSHOT", message: "Computer target snapshot is stale.")
+        case .unsafeGeometry:
+            return .failure(requestId: requestId, code: "COMPUTER_ACTION_FAILED", message: "Computer target geometry is unsafe.")
+        case .focusFailed:
+            return .failure(requestId: requestId, code: "COMPUTER_FOCUS_FAILED", message: "Computer focus verification failed.")
+        case .permissionRequired:
+            return .failure(requestId: requestId, code: "COMPUTER_PERMISSION_REQUIRED", message: "Computer permission is required.")
+        case .unavailable:
+            return unavailable(requestId: requestId)
+        case .needsReplan:
+            return .failure(requestId: requestId, code: "COMPUTER_NEEDS_REPLAN", message: "Computer state requires replanning.")
+        }
     }
 
     private func unavailable(requestId: String) -> ComputerProtocolResponse {

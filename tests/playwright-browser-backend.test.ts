@@ -263,6 +263,67 @@ describe("PlaywrightBrowserBackend", () => {
     expect(page.screenshotOptions).toEqual([{ type: "png", timeout: 4_000 }]);
   });
 
+  it("correlates diagnostics with opaque evidence metadata and advances generation on explicit navigation", async () => {
+    const { page, backend } = makeBackend();
+    const pageId = (await backend.tabs())[0]!.pageId;
+
+    page.emit("console", {
+      type: () => "error",
+      text: () => "before reload",
+      location: () => ({
+        url: "https://example.com/assets/app.js?token=source-secret#fragment",
+        lineNumber: 12,
+        columnNumber: 34,
+      }),
+    });
+    const before = await backend.consoleErrors(pageId);
+    expect(before).toMatchObject({ generation: 0, latestSequence: 1 });
+    expect(before.entries[0]).toMatchObject({
+      evidence: { generation: 0, sequence: 1 },
+      runtimeSource: {
+        url: "https://example.com/assets/app.js?token=source-secret#fragment",
+        lineNumber: 12,
+        columnNumber: 34,
+        sourceMapStatus: "UNAVAILABLE",
+      },
+    });
+
+    const request = {
+      method: () => "POST",
+      url: () => "https://example.com/api?token=network-secret",
+      resourceType: () => "fetch",
+      isNavigationRequest: () => false,
+      frame: () => ({ url: () => "https://example.com/page?auth=secret#private" }),
+    };
+    page.emit("response", {
+      status: () => 503,
+      url: () => request.url(),
+      request: () => request,
+    });
+    const network = await backend.networkErrors(pageId);
+    expect(network).toMatchObject({ generation: 0, latestSequence: 2 });
+    expect(network.entries[0]).toMatchObject({
+      evidence: { generation: 0, sequence: 2 },
+      requestId: expect.stringMatching(/^[A-Za-z0-9_-]{16,}$/),
+      resourceType: "fetch",
+      navigationRequest: false,
+      initiator: { kind: "frame", url: "https://example.com/page?auth=secret#private" },
+    });
+
+    await backend.navigate(pageId, "https://example.com/reloaded", 1_500);
+    page.emit("console", {
+      type: () => "warning",
+      text: () => "after reload",
+      location: () => ({ url: "https://example.com/assets/app.js", lineNumber: 20, columnNumber: 2 }),
+    });
+    const after = await backend.consoleErrors(pageId);
+    expect(after).toMatchObject({ generation: 1, latestSequence: 3 });
+    expect(after.entries.at(-1)).toMatchObject({
+      evidence: { generation: 1, sequence: 3 },
+      message: "after reload",
+    });
+  });
+
   it("keeps bounded console and network error tails per page", async () => {
     const { page, backend } = makeBackend();
     const pageId = (await backend.tabs())[0]!.pageId;
@@ -274,23 +335,36 @@ describe("PlaywrightBrowserBackend", () => {
       method: () => "GET",
       url: () => "https://example.com/a?secret=1",
       failure: () => ({ errorText: "failed-one" }),
+      resourceType: () => "fetch",
+      isNavigationRequest: () => false,
+      frame: () => ({ url: () => "https://example.com/page" }),
     });
     page.emit("response", {
       status: () => 503,
       url: () => "https://example.com/b?token=2",
-      request: () => ({ method: () => "POST" }),
+      request: () => ({
+        method: () => "POST",
+        resourceType: () => "fetch",
+        isNavigationRequest: () => false,
+        frame: () => ({ url: () => "https://example.com/page" }),
+      }),
     });
     page.emit("requestfailed", {
       method: () => "DELETE",
       url: () => "https://example.com/c?token=3",
       failure: () => ({ errorText: "failed-three" }),
+      resourceType: () => "xhr",
+      isNavigationRequest: () => false,
+      frame: () => ({ url: () => "https://example.com/page" }),
     });
 
     expect(await backend.consoleErrors(pageId)).toEqual({
       pageId,
+      generation: 0,
+      latestSequence: 6,
       entries: [
-        { level: "warning", message: "two" },
-        { level: "error", message: "three" },
+        { level: "warning", message: "two", evidence: { generation: 0, sequence: 2 } },
+        { level: "error", message: "three", evidence: { generation: 0, sequence: 3 } },
       ],
       truncated: true,
     });

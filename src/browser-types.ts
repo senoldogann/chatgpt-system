@@ -59,15 +59,36 @@ export interface BrowserScreenshot {
   height: number;
 }
 
+export interface BrowserDiagnosticEvidence {
+  generation: number;
+  sequence: number;
+}
+
+export interface BrowserRuntimeSource {
+  url: string;
+  lineNumber?: number;
+  columnNumber?: number;
+  sourceMapStatus: "UNAVAILABLE";
+}
+
 export interface BrowserConsoleEntry {
   level: "error" | "warning";
   message: string;
+  evidence: BrowserDiagnosticEvidence;
+  runtimeSource?: BrowserRuntimeSource;
 }
 
 export interface BrowserConsoleResult {
   pageId: string;
+  generation: number;
+  latestSequence: number;
   entries: BrowserConsoleEntry[];
   truncated: boolean;
+}
+
+export interface BrowserNetworkInitiator {
+  kind: "frame";
+  url: string;
 }
 
 export interface BrowserNetworkEntry {
@@ -75,10 +96,17 @@ export interface BrowserNetworkEntry {
   url: string;
   status?: number;
   failure?: string;
+  evidence: BrowserDiagnosticEvidence;
+  requestId: string;
+  resourceType: string;
+  navigationRequest: boolean;
+  initiator?: BrowserNetworkInitiator;
 }
 
 export interface BrowserNetworkResult {
   pageId: string;
+  generation: number;
+  latestSequence: number;
   entries: BrowserNetworkEntry[];
   truncated: boolean;
 }

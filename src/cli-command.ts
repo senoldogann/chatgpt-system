@@ -57,6 +57,10 @@ export function parseCliCommand(argv: string[]): CliCommand {
       overrides.terminalEnabled = true;
       continue;
     }
+    if (arg === "--enable-project-exec") {
+      overrides.projectExecEnabled = true;
+      continue;
+    }
     if (arg === "--personal-admin") {
       overrides.personalAdminEnabled = true;
       continue;
@@ -75,6 +79,15 @@ export function parseCliCommand(argv: string[]): CliCommand {
     }
     if (arg === "--browser-headless") {
       overrides.browserHeadless = true;
+      continue;
+    }
+    if (arg === "--browser-existing-chrome") {
+      overrides.browserExistingChrome = true;
+      continue;
+    }
+    if (arg === "--browser-existing-chrome-user-data-dir") {
+      overrides.browserExistingChromeUserDataDir = takeValue(argv, index, arg);
+      index += 1;
       continue;
     }
     if (arg === "--browser-timeout-ms") {

@@ -31,6 +31,14 @@ export const systemCapabilitiesOutputSchema = z.object({
     enabled: z.boolean(),
     fullHostJsEnabled: z.boolean(),
   }),
+  projectExecution: z.object({
+    enabled: z.boolean(),
+    sandboxed: z.literal(true),
+    backend: z.literal("docker"),
+    network: z.literal("none"),
+    hostFallback: z.literal(false),
+    image: z.string(),
+  }),
   limits: z.object({
     maxReadBytes: z.number().int().positive(),
     maxWriteBytes: z.number().int().positive(),
@@ -142,6 +150,15 @@ export const fsPatchOutputSchema = z.object({
   sha256: sha256Schema,
 });
 
+export const fsPatchSetOutputSchema = z.object({
+  recoveredTransactions: nonNegativeInt,
+  applied: z.array(z.object({
+    path: z.string(),
+    bytes: nonNegativeInt,
+    sha256: sha256Schema,
+  }).strict()),
+}).strict();
+
 export const fsMkdirOutputSchema = z.object({
   path: z.string(),
   created: z.boolean(),
@@ -164,6 +181,64 @@ export const gitResultOutputSchema = z.object({
   stderr: z.string(),
 });
 
+export const gitWorktreeOutputSchema = z.object({
+  operation: z.enum(["create", "status", "remove"]),
+  worktreeId: z.string().uuid(),
+  path: z.string(),
+  repositoryRoot: z.string(),
+  branch: z.string(),
+  head: z.string().regex(/^[a-f0-9]{40,64}$/i),
+  dirty: z.boolean(),
+  removed: z.boolean(),
+}).strict();
+
+const projectCheckStatusSchema = z.enum(["PASS", "FAIL", "NOT_RUN", "STALE", "UNAVAILABLE"]);
+const projectCheckKindSchema = z.enum(["check", "typecheck", "lint", "test", "build"]);
+const projectCheckDetectedFields = {
+  checkId: z.string(),
+  kind: projectCheckKindSchema,
+  command: z.string(),
+  args: z.array(z.string()),
+  cwd: z.string(),
+  source: z.string(),
+};
+const projectCheckEvidenceSchema = z.object({
+  ...projectCheckDetectedFields,
+  baseStatus: z.enum(["PASS", "FAIL", "UNAVAILABLE"]),
+  startedAt: z.string(),
+  finishedAt: z.string(),
+  durationMs: nonNegativeInt,
+  exitCode: z.number().int().nullable(),
+  head: z.string().regex(/^[a-f0-9]{40,64}$/i),
+  workingTreeDigest: sha256Schema,
+  stdoutSha256: sha256Schema,
+  stderrSha256: sha256Schema,
+  stdoutBytes: nonNegativeInt,
+  stderrBytes: nonNegativeInt,
+  stateChangedDuringRun: z.boolean(),
+}).strict();
+const projectCheckItemSchema = z.object({
+  ...projectCheckDetectedFields,
+  status: projectCheckStatusSchema,
+  evidence: projectCheckEvidenceSchema.optional(),
+  freshness: z.object({
+    headMatches: z.boolean(),
+    workingTreeMatches: z.boolean(),
+  }).strict().optional(),
+}).strict();
+
+export const projectCheckOutputSchema = z.object({
+  operation: z.enum(["detect", "run", "report"]),
+  repositoryRoot: z.string(),
+  required: z.boolean(),
+  overallStatus: projectCheckStatusSchema,
+  observed: z.object({
+    head: z.string().regex(/^[a-f0-9]{40,64}$/i),
+    workingTreeDigest: sha256Schema,
+  }).strict(),
+  checks: z.array(projectCheckItemSchema),
+}).strict();
+
 export const terminalResultOutputSchema = z.object({
   command: z.string(),
   args: z.array(z.string()),
@@ -174,6 +249,121 @@ export const terminalResultOutputSchema = z.object({
   stderr: z.string(),
   timedOut: z.boolean(),
 });
+
+const codeQuerySearchResultSchema = z.object({
+  path: z.string(),
+  line: z.number().int().positive(),
+  column: z.number().int().positive(),
+  preview: z.string(),
+  sha256: sha256Schema,
+}).strict();
+
+const codeQuerySymbolResultSchema = z.object({
+  path: z.string(),
+  name: z.string(),
+  kind: z.enum(["variable", "function", "class", "interface", "type", "enum"]),
+  line: z.number().int().positive(),
+  column: z.number().int().positive(),
+  sha256: sha256Schema,
+}).strict();
+
+const codeQueryLocationResultSchema = z.object({
+  path: z.string(),
+  line: z.number().int().positive(),
+  column: z.number().int().positive(),
+  sha256: sha256Schema,
+}).strict();
+
+const codeQueryReferenceResultSchema = codeQueryLocationResultSchema.extend({
+  isDefinition: z.boolean(),
+}).strict();
+
+const codeQueryDiagnosticResultSchema = codeQueryLocationResultSchema.extend({
+  severity: z.enum(["error", "warning", "suggestion", "message"]),
+  code: z.number().int(),
+  message: z.string(),
+}).strict();
+
+export const codeQueryOutputSchema = z.object({
+  operation: z.enum(["search", "symbols", "definition", "references", "diagnostics"]),
+  repositoryRoot: z.string(),
+  results: z.array(z.union([
+    codeQuerySearchResultSchema,
+    codeQuerySymbolResultSchema,
+    codeQueryReferenceResultSchema,
+    codeQueryDiagnosticResultSchema,
+    codeQueryLocationResultSchema,
+  ])),
+  truncated: z.boolean(),
+  scannedFiles: nonNegativeInt,
+  bytesScanned: nonNegativeInt,
+}).strict();
+
+const taskStateCheckpointOutputSchema = z.object({
+  revision: z.number().int().positive(),
+  summary: z.string(),
+  findings: z.array(z.string()),
+  decisions: z.array(z.string()),
+  inspectedFiles: z.array(z.string()),
+  modifiedFiles: z.array(z.string()),
+  nextStep: z.string().optional(),
+  evidenceRefs: z.array(z.string()),
+  head: z.string(),
+  workingTreeDigest: sha256Schema,
+  createdAt: z.string(),
+}).strict();
+
+const taskStateOutcomeOutputSchema = z.object({
+  status: z.enum(["completed", "failed"]),
+  summary: z.string(),
+  evidenceRefs: z.array(z.string()),
+  head: z.string(),
+  workingTreeDigest: sha256Schema,
+  createdAt: z.string(),
+}).strict();
+
+export const taskStateOutputSchema = z.object({
+  taskId: z.string().uuid(),
+  status: z.enum(["active", "completed", "failed"]),
+  revision: z.number().int().positive(),
+  goal: z.string(),
+  repositoryRoot: z.string(),
+  projectFingerprint: sha256Schema,
+  baseHead: z.string(),
+  currentHead: z.string(),
+  workingTreeDigest: sha256Schema,
+  nextStep: z.string().optional(),
+  checkpoints: z.array(taskStateCheckpointOutputSchema),
+  outcome: taskStateOutcomeOutputSchema.optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  checkpointCount: nonNegativeInt,
+  observed: z.object({
+    head: z.string(),
+    workingTreeDigest: sha256Schema,
+  }).strict(),
+  freshness: z.object({
+    fresh: z.boolean(),
+    headMatches: z.boolean(),
+    workingTreeMatches: z.boolean(),
+  }).strict(),
+}).strict();
+
+export const projectExecResultOutputSchema = z.object({
+  command: z.string(),
+  args: z.array(z.string()),
+  cwd: z.string(),
+  exitCode: z.number().int().nullable(),
+  signal: z.string().nullable(),
+  stdout: z.string(),
+  stderr: z.string(),
+  timedOut: z.boolean(),
+  sandbox: z.object({
+    backend: z.literal("docker"),
+    network: z.literal("none"),
+    hostFallback: z.literal(false),
+  }),
+}).strict();
 
 export const processSummaryOutputSchema = z.object({
   processId: z.string(),
@@ -246,25 +436,49 @@ export const browserScreenshotMetadataOutputSchema = z.object({
   height: nonNegativeInt,
 });
 
+const browserDiagnosticEvidenceOutputSchema = z.object({
+  generation: nonNegativeInt,
+  sequence: z.number().int().positive(),
+}).strict();
+
 export const browserConsoleOutputSchema = z.object({
   pageId: browserPageIdSchema,
+  generation: nonNegativeInt,
+  latestSequence: nonNegativeInt,
   entries: z.array(z.object({
     level: z.enum(["error", "warning"]),
     message: z.string(),
-  })),
+    evidence: browserDiagnosticEvidenceOutputSchema,
+    runtimeSource: z.object({
+      url: z.string(),
+      lineNumber: nonNegativeInt.optional(),
+      columnNumber: nonNegativeInt.optional(),
+      sourceMapStatus: z.literal("UNAVAILABLE"),
+    }).strict().optional(),
+  }).strict()),
   truncated: z.boolean(),
-});
+}).strict();
 
 export const browserNetworkOutputSchema = z.object({
   pageId: browserPageIdSchema,
+  generation: nonNegativeInt,
+  latestSequence: nonNegativeInt,
   entries: z.array(z.object({
     method: z.string(),
     url: z.string(),
     status: z.number().int().optional(),
     failure: z.string().optional(),
-  })),
+    evidence: browserDiagnosticEvidenceOutputSchema,
+    requestId: z.string().min(16).max(128),
+    resourceType: z.string().min(1).max(128),
+    navigationRequest: z.boolean(),
+    initiator: z.object({
+      kind: z.literal("frame"),
+      url: z.string(),
+    }).strict().optional(),
+  }).strict()),
   truncated: z.boolean(),
-});
+}).strict();
 
 export const browserCloseOutputSchema = z.object({
   closed: z.literal(true),

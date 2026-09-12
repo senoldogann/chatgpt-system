@@ -45,6 +45,7 @@ function serviceConfig(root: string, base: string, commands: string[], commandTi
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: true, commands },
+    projectExec: { enabled: false },
     computerUse: {
       enabled: true,
       fullHostJsEnabled: true,
@@ -269,6 +270,14 @@ describe("system_environment MCP tool", () => {
       roots: [root],
       auditFile: path.join(base, "audit.jsonl"),
       terminal: { enabled: false, commands: ["node", "chatgpt-system-missing-binary-xyz"] },
+      projectExec: { enabled: false },
+      continuity: {
+        databasePath: path.join(path.dirname(path.join(base, "audit.jsonl")), "continuity.db"),
+        maxResumeChars: 12_000,
+        maxTrackedPaths: 100,
+        remoteVerificationTimeoutMs: 1_000,
+      },
+
       computerUse: {
         enabled: true,
         fullHostJsEnabled: true,

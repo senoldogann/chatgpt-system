@@ -45,6 +45,94 @@ export class ExecutableNotFoundError extends AppError {
   }
 }
 
+export class LspUnavailableError extends AppError {
+  constructor(reason: string) {
+    super(
+      "Semantic code intelligence is unavailable for this request. Use code_query search or symbols as an explicit fallback.",
+      "LSP_UNAVAILABLE",
+      { reason, retryable: false, recommendedOperations: ["search", "symbols"] },
+    );
+  }
+}
+
+export class TaskStateNotFoundError extends AppError {
+  constructor() {
+    super(
+      "The durable task state record was not found for this project.",
+      "TASK_STATE_NOT_FOUND",
+      { retryable: false },
+    );
+  }
+}
+
+export class RecoveryRequiredError extends AppError {
+  constructor(message = "Durable local state requires recovery before this operation can continue.") {
+    super(message, "RECOVERY_REQUIRED", { retryable: false });
+  }
+}
+
+export class WorktreeNotFoundError extends AppError {
+  constructor() {
+    super("The managed worktree was not found.", "WORKTREE_NOT_FOUND", { retryable: false });
+  }
+}
+
+export class WorktreeDirtyError extends AppError {
+  constructor(message = "The worktree has uncommitted or untracked changes.") {
+    super(message, "WORKTREE_DIRTY", { retryable: false });
+  }
+}
+
+export class VerificationRequiredError extends AppError {
+  constructor(overallStatus: string) {
+    super(
+      `Fresh passing project verification is required before task completion. Current status: ${overallStatus}.`,
+      "VERIFICATION_REQUIRED",
+      { overallStatus, retryable: true },
+    );
+  }
+}
+
+export class ProjectExecDisabledError extends AppError {
+  constructor() {
+    super(
+      "Sandboxed project execution is disabled. Restart with --enable-project-exec or CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC=true.",
+      "PROJECT_EXEC_DISABLED",
+      { retryable: false },
+    );
+  }
+}
+
+export class CommandNotAllowedError extends AppError {
+  constructor(command: string, allowed: string[]) {
+    super(
+      `Command "${command}" is not allowed for sandboxed project execution.`,
+      "COMMAND_NOT_ALLOWED",
+      { command, allowed, retryable: false },
+    );
+  }
+}
+
+export class SandboxUnavailableError extends AppError {
+  constructor(reason: "docker_unavailable" | "image_unavailable" | "backend_failure" | "nonlocal_docker_context") {
+    super(
+      "Sandboxed project execution is unavailable on this host.",
+      "SANDBOX_UNAVAILABLE",
+      { backend: "docker", reason, retryable: true },
+    );
+  }
+}
+
+export class ProjectExecTimeoutError extends AppError {
+  constructor(timedOutAfterMs: number) {
+    super(
+      `Sandboxed project command timed out after ${timedOutAfterMs}ms.`,
+      "COMMAND_TIMEOUT",
+      { timedOutAfterMs, retryable: true },
+    );
+  }
+}
+
 export class CommandTimeoutError extends AppError {
   constructor(timedOutAfterMs: number, details?: Record<string, unknown>) {
     super(

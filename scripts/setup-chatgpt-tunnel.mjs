@@ -21,12 +21,17 @@ Options:
   --tunnel-id <id>        OpenAI Secure MCP Tunnel ID. Required.
   --profile <name>        tunnel-client profile name (default: chatgpt-system).
   --enable-terminal       Opt in to bootstrap terminal configuration. Disabled by default.
+  --enable-project-exec   Opt in to Docker-sandboxed Project execution. Disabled by default.
   --personal-admin        Allow ChatGPT to mint short-lived Admin leases directly. Disabled by default.
   --allow-command <name>  Allowlisted executable basename. Repeatable.
   --enable-browser        Opt in to the Admin-only Playwright browser capability. Disabled by default.
   --enable-computer-use   Opt in to the Admin-only native Computer Runtime. Disabled by default.
   --enable-full-host-js   Opt in to full-host Node.js for Computer Runtime; requires --enable-computer-use. Disabled by default.
   --browser-headless      Run the opted-in browser headlessly; requires --enable-browser.
+  --browser-existing-chrome
+                          Attach browser tools to the user's already-running Chrome; requires --enable-browser.
+  --browser-existing-chrome-user-data-dir <path>
+                          Override the Chrome user-data directory used for local debugging discovery.
   --force                 Replace an existing tunnel-client profile. Never implied.
   --doctor                Create the profile, then run tunnel-client doctor.
   --run                   Create the profile, run doctor, then run the tunnel.
@@ -52,9 +57,9 @@ Build and install it separately:
   sudo npm run install:broker:macos
 
 Project authority remains available when the protected broker is absent and has
-no terminal capability. User authority requires local approval and has no
-terminal capability. Admin authority requires local approval and is the only
-Phase-1 terminal-capable profile.
+no host terminal capability. Sandboxed Project execution is a separate explicit
+opt-in. User authority requires local approval and has no terminal capability.
+Admin authority requires local approval and is the only host terminal-capable profile.
 
 Credentials are not accepted as command-line arguments. tunnel-client reads
 CONTROL_PLANE_API_KEY (or its currently supported credential mechanism) from
@@ -67,11 +72,14 @@ function parseArgs(argv) {
     tunnelId: undefined,
     profile: "chatgpt-system",
     terminal: false,
+    projectExec: false,
     personalAdmin: false,
     browser: false,
     computerUse: false,
     fullHostJs: false,
     browserHeadless: false,
+    browserExistingChrome: false,
+    browserExistingChromeUserDataDir: undefined,
     commands: [],
     force: false,
     doctor: false,
@@ -87,6 +95,10 @@ function parseArgs(argv) {
     }
     if (arg === "--enable-terminal") {
       options.terminal = true;
+      continue;
+    }
+    if (arg === "--enable-project-exec") {
+      options.projectExec = true;
       continue;
     }
     if (arg === "--personal-admin") {
@@ -109,6 +121,10 @@ function parseArgs(argv) {
       options.browserHeadless = true;
       continue;
     }
+    if (arg === "--browser-existing-chrome") {
+      options.browserExistingChrome = true;
+      continue;
+    }
     if (arg === "--force") {
       options.force = true;
       continue;
@@ -122,7 +138,7 @@ function parseArgs(argv) {
       continue;
     }
 
-    if (["--root", "--tunnel-id", "--profile", "--allow-command"].includes(arg)) {
+    if (["--root", "--tunnel-id", "--profile", "--allow-command", "--browser-existing-chrome-user-data-dir"].includes(arg)) {
       const value = argv[index + 1];
       if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);
       index += 1;
@@ -133,6 +149,7 @@ function parseArgs(argv) {
       if (arg === "--tunnel-id") options.tunnelId = value;
       if (arg === "--profile") options.profile = value;
       if (arg === "--allow-command") options.commands.push(value);
+      if (arg === "--browser-existing-chrome-user-data-dir") options.browserExistingChromeUserDataDir = value;
       continue;
     }
 
@@ -145,6 +162,15 @@ function parseArgs(argv) {
 function quoteCommandArg(value) {
   if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value)) return value;
   return JSON.stringify(value);
+}
+
+function redactExistingChromeUserDataDir(commandParts) {
+  const redacted = [...commandParts];
+  const flagIndex = redacted.indexOf("--browser-existing-chrome-user-data-dir");
+  if (flagIndex >= 0 && redacted[flagIndex + 1] !== undefined) {
+    redacted[flagIndex + 1] = "<redacted-chrome-user-data-dir>";
+  }
+  return redacted;
 }
 
 function normalizeRoot(requestedRoot, homeDir) {
@@ -197,6 +223,15 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   if (options.browserHeadless && !options.browser) {
     throw new Error("--browser-headless requires --enable-browser.");
   }
+  if (options.browserExistingChrome && !options.browser) {
+    throw new Error("--browser-existing-chrome requires --enable-browser.");
+  }
+  if (options.browserExistingChrome && options.browserHeadless) {
+    throw new Error("--browser-existing-chrome cannot be combined with --browser-headless.");
+  }
+  if (options.browserExistingChromeUserDataDir !== undefined && !options.browserExistingChrome) {
+    throw new Error("--browser-existing-chrome-user-data-dir requires --browser-existing-chrome.");
+  }
   if (options.fullHostJs && !options.computerUse) {
     throw new Error("--enable-full-host-js requires --enable-computer-use.");
   }
@@ -228,13 +263,30 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     "--control-socket", controlSocketPath,
   ];
   if (options.terminal) commandParts.push("--enable-terminal");
+  if (options.projectExec) commandParts.push("--enable-project-exec");
   if (options.personalAdmin) commandParts.push("--personal-admin");
   if (options.browser) commandParts.push("--enable-browser");
   if (options.computerUse) commandParts.push("--enable-computer-use");
   if (options.fullHostJs) commandParts.push("--enable-full-host-js");
   if (options.browserHeadless) commandParts.push("--browser-headless");
+  if (options.browserExistingChrome) commandParts.push("--browser-existing-chrome");
+  if (options.browserExistingChromeUserDataDir !== undefined) {
+    commandParts.push("--browser-existing-chrome-user-data-dir", options.browserExistingChromeUserDataDir);
+  }
   for (const command of options.commands) commandParts.push("--allow-command", command);
   const mcpCommand = commandParts.map(quoteCommandArg).join(" ");
+  const displayMcpCommand = redactExistingChromeUserDataDir(commandParts).map(quoteCommandArg).join(" ");
+  const initArgs = [
+    "init",
+    "--sample", "sample_mcp_stdio_local",
+    "--profile", options.profile,
+    "--tunnel-id", options.tunnelId,
+    "--mcp-command", mcpCommand,
+    ...(options.force ? ["--force"] : []),
+  ];
+  const displayInitArgs = initArgs.map((value, index) => (
+    index > 0 && initArgs[index - 1] === "--mcp-command" ? displayMcpCommand : value
+  ));
 
   return {
     profile: options.profile,
@@ -242,6 +294,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     tunnelId: options.tunnelId,
     serverPath,
     controlSocketPath,
+    projectExecEnabled: options.projectExec,
     computerUseEnabled: options.computerUse,
     fullHostJsEnabled: options.fullHostJs,
     computerRuntimeBundlePath,
@@ -250,14 +303,9 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     brokerHelperPath: protectedBrokerHelperPath,
     brokerMetadataPath: protectedBrokerMetadataPath,
     mcpCommand,
-    initArgs: [
-      "init",
-      "--sample", "sample_mcp_stdio_local",
-      "--profile", options.profile,
-      "--tunnel-id", options.tunnelId,
-      "--mcp-command", mcpCommand,
-      ...(options.force ? ["--force"] : []),
-    ],
+    displayMcpCommand,
+    initArgs,
+    displayInitArgs,
     doctorArgs: ["doctor", "--profile", options.profile, "--explain"],
     runArgs: ["run", "--profile", options.profile],
     executeDoctor: options.doctor || options.run,
@@ -352,15 +400,16 @@ async function main() {
   console.log("Secure MCP Tunnel profile plan:");
   console.log(`  Root: ${setup.root}`);
   console.log(`  Profile: ${setup.profile}`);
-  console.log(`  MCP command: ${setup.mcpCommand}`);
+  console.log(`  MCP command: ${setup.displayMcpCommand}`);
   console.log(`  Local authority control socket: ${setup.controlSocketPath}`);
   console.log(`  Native broker build: ${setup.brokerBuildPath}`);
   console.log(`  Protected native broker: ${setup.brokerHelperPath}`);
   console.log(`  Protected broker metadata: ${setup.brokerMetadataPath}`);
-  console.log(`  Init: ${printableCommand("tunnel-client", setup.initArgs)}`);
+  console.log(`  Init: ${printableCommand("tunnel-client", setup.displayInitArgs)}`);
   console.log(`  Doctor: ${printableCommand("tunnel-client", setup.doctorArgs)}`);
   console.log(`  Run: ${printableCommand("tunnel-client", setup.runArgs)}`);
   console.log("  Bootstrap terminal: " + (setup.mcpCommand.includes("--enable-terminal") ? "EXPLICITLY ENABLED" : "disabled"));
+  console.log("  Project execution: " + (setup.projectExecEnabled ? "EXPLICITLY ENABLED (Docker sandbox)" : "disabled"));
   console.log("  Personal Admin: " + (setup.mcpCommand.includes("--personal-admin") ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Browser: " + (setup.mcpCommand.includes("--enable-browser") ? (setup.mcpCommand.includes("--browser-headless") ? "EXPLICITLY ENABLED (headless)" : "EXPLICITLY ENABLED (headed)") : "disabled"));
   console.log("  Computer Runtime: " + (setup.mcpCommand.includes("--enable-computer-use") ? "EXPLICITLY ENABLED" : "disabled"));

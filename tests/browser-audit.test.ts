@@ -55,12 +55,39 @@ class AuditFakeBrowserBackend implements BrowserBackend {
     return { pageId: PAGE_ID, pngBase64: Buffer.from(SCREENSHOT_SENTINEL).toString("base64"), width: 10, height: 10 };
   }
   async consoleErrors(): Promise<BrowserConsoleResult> {
-    return { pageId: PAGE_ID, entries: [{ level: "error", message: CONSOLE_SENTINEL }], truncated: false };
+    return {
+      pageId: PAGE_ID,
+      generation: 4,
+      latestSequence: 9,
+      entries: [{
+        level: "error",
+        message: CONSOLE_SENTINEL,
+        evidence: { generation: 4, sequence: 9 },
+        runtimeSource: {
+          url: "https://example.com/app.js?token=SOURCE_SECRET#source-fragment",
+          lineNumber: 2,
+          columnNumber: 3,
+          sourceMapStatus: "UNAVAILABLE",
+        },
+      }],
+      truncated: false,
+    };
   }
   async networkErrors(): Promise<BrowserNetworkResult> {
     return {
       pageId: PAGE_ID,
-      entries: [{ method: "GET", url: "https://example.com/api?token=NETWORK_SECRET#network-fragment", status: 500 }],
+      generation: 4,
+      latestSequence: 10,
+      entries: [{
+        method: "GET",
+        url: "https://example.com/api?token=NETWORK_SECRET#network-fragment",
+        status: 500,
+        evidence: { generation: 4, sequence: 10 },
+        requestId: "opaque_audit_request",
+        resourceType: "fetch",
+        navigationRequest: false,
+        initiator: { kind: "frame", url: "https://example.com/page?auth=INITIATOR_SECRET#initiator-fragment" },
+      }],
       truncated: false,
     };
   }
@@ -78,17 +105,25 @@ describe("browser audit redaction", () => {
       roots: [root],
       auditFile,
       terminal: { enabled: true, commands: ["node", "git"] },
+      projectExec: { enabled: false },
+      continuity: {
+        databasePath: path.join(path.dirname(auditFile), "continuity.db"),
+        maxResumeChars: 12_000,
+        maxTrackedPaths: 100,
+        remoteVerificationTimeoutMs: 1_000,
+      },
+
       personalAdmin: { enabled: false },
-    computerUse: {
-      enabled: false,
-      hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",
-      requestTimeoutMs: 10_000,
-      maxObservationElements: 500,
-      maxObservationChars: 262_144,
-      maxScreenshotBytes: 8_388_608,
-      maxActionProgramActions: 100,
-      maxActionProgramRuntimeMs: 30_000,
-    },
+      computerUse: {
+        enabled: false,
+        hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",
+        requestTimeoutMs: 10_000,
+        maxObservationElements: 500,
+        maxObservationChars: 262_144,
+        maxScreenshotBytes: 8_388_608,
+        maxActionProgramActions: 100,
+        maxActionProgramRuntimeMs: 30_000,
+      },
       browser: { enabled: true, headless: true, timeoutMs: 2_000, userDataDir: path.join(base, "browser-profile") },
       control: { enabled: false, socketPath: path.join(base, "control.sock") },
       http: { host: "127.0.0.1", port: 4312 },
@@ -149,6 +184,11 @@ describe("browser audit redaction", () => {
         CONSOLE_SENTINEL,
         "NAV_SECRET",
         "NETWORK_SECRET",
+        "SOURCE_SECRET",
+        "INITIATOR_SECRET",
+        "source-fragment",
+        "initiator-fragment",
+        "opaque_audit_request",
         "TAB_SECRET",
         "nav-fragment",
         "network-fragment",

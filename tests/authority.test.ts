@@ -52,6 +52,13 @@ describe("AuthorityManager", () => {
       roots: [projectA],
       auditFile: path.join(fixtureRoot, "audit.jsonl"),
       terminal: { enabled: false, commands: ["node"] },
+      projectExec: { enabled: false },
+      continuity: {
+        databasePath: path.join(fixtureRoot, "continuity.db"),
+        maxResumeChars: 12_000,
+        maxTrackedPaths: 100,
+        remoteVerificationTimeoutMs: 1_000,
+      },
       computerUse: {
         enabled: false,
         hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",

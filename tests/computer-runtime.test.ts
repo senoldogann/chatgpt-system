@@ -16,6 +16,7 @@ const config: ComputerUseConfig = {
   maxScreenshotBytes: 8_388_608,
   maxActionProgramActions: 100,
   maxActionProgramRuntimeMs: 30_000,
+  maxAutomaticRetriesPerAction: 2,
   maxJsSourceBytes: 262_144,
   maxJsRuntimeMs: 30_000,
   maxJsOutputBytes: 1_048_576,
@@ -558,6 +559,65 @@ describe("ComputerRuntime exclusive program session", () => {
     expect(native.calls.map((call) => call.method)).toEqual([
       "list_apps", "active_window", "screenshot", "observe", "release_inputs",
     ]);
+  });
+});
+
+describe("ComputerRuntime semantic targets", () => {
+  it("caps semantic recovery budget at two before native work", async () => {
+    const { native, runtime: subject } = runtime();
+
+    await expect(subject.resolve({ by: "text", text: "Run" }, { retryBudget: 3 }))
+      .rejects.toMatchObject({ code: "COMPUTER_PROTOCOL_INVALID" });
+    expect(native.calls).toHaveLength(0);
+  });
+
+  it("resolves targets through native semantic methods and preserves the canonical selector", async () => {
+    const { native, runtime: subject } = runtime();
+    native.responder = (call) => {
+      if (call.method === "resolve_target") {
+        return {
+          source: "ax",
+          bounds: { x: 10, y: 20, width: 80, height: 30 },
+          actionPoint: { x: 50, y: 35 },
+          observationId: "obs-1",
+          confidence: "deterministic",
+        };
+      }
+      return { state: "completed" };
+    };
+
+    await expect(subject.resolve({ by: "role", role: "AXButton", name: "Run", exact: true }))
+      .resolves.toMatchObject({ source: "ax", actionPoint: { x: 50, y: 35 } });
+    expect(native.calls[0]).toMatchObject({
+      method: "resolve_target",
+      params: { target: { by: "role", role: "AXButton", name: "Run", exact: true }, retryBudget: 2 },
+    });
+  });
+
+  it("exists returns false only for target-not-found and propagates ambiguity", async () => {
+    const native = new FakeNative();
+    const subject = new ComputerRuntime(native, config);
+    native.responder = () => { throw new ComputerError("COMPUTER_TARGET_NOT_FOUND"); };
+    await expect(subject.exists({ by: "text", text: "Missing" })).resolves.toBe(false);
+
+    native.responder = () => { throw new ComputerError("COMPUTER_TARGET_AMBIGUOUS"); };
+    await expect(subject.exists({ by: "text", text: "Save" })).rejects.toMatchObject({ code: "COMPUTER_TARGET_AMBIGUOUS" });
+  });
+
+  it("sends semantic click target without converting it to guessed coordinates", async () => {
+    const { native, runtime: subject } = runtime();
+
+    await subject.run({
+      actions: [{ type: "click", target: { by: "text", text: "Run", exact: true } }],
+      finalObservation: "none",
+    });
+
+    expect(native.calls[0]).toMatchObject({
+      method: "click",
+      params: { target: { by: "text", text: "Run", exact: true }, retryBudget: 2 },
+    });
+    expect(native.calls[0]?.params).not.toHaveProperty("x");
+    expect(native.calls[0]?.params).not.toHaveProperty("y");
   });
 });
 

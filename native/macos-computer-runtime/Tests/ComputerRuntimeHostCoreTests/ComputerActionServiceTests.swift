@@ -67,6 +67,156 @@ final class ComputerActionServiceTests: XCTestCase {
         XCTAssertGreaterThan(sink.events.count, 1, "Default mode should be smooth fast motion, not instant teleport")
     }
 
+    func testSemanticClickResolvesImmediatelyBeforePhysicalMutation() async throws {
+        let sink = ActionRecordingSink()
+        let recovery = ActionFakeRecovery(
+            resolved: actionResolvedTarget(x: 120, y: 80),
+            error: nil
+        )
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 0, y: 0),
+            sink: sink,
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "semantic-click",
+            method: "click",
+            params: .object([
+                "target": .object([
+                    "by": .string("role"),
+                    "role": .string("AXButton"),
+                    "name": .string("Submit"),
+                    "exact": .bool(true),
+                ]),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let resolveCalls = await recovery.resolveCallCount
+        XCTAssertEqual(resolveCalls, 1)
+        XCTAssertEqual(sink.events, [
+            .mouseMove(point: ComputerPoint(x: 120, y: 80), dragButton: nil),
+            .mouseButton(button: .left, down: true, point: ComputerPoint(x: 120, y: 80), clickCount: 1),
+            .mouseButton(button: .left, down: false, point: ComputerPoint(x: 120, y: 80), clickCount: 1),
+        ])
+    }
+
+    func testSemanticMoveUsesResolvedPointWithoutGuessedCoordinates() async {
+        let sink = ActionRecordingSink()
+        let recovery = ActionFakeRecovery(resolved: actionResolvedTarget(x: 75, y: 45), error: nil)
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 0, y: 0),
+            sink: sink,
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "semantic-move",
+            method: "move_mouse",
+            params: .object([
+                "target": .object(["by": .string("text"), "text": .string("Move Here")]),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(sink.events, [.mouseMove(point: ComputerPoint(x: 75, y: 45), dragButton: nil)])
+    }
+
+    func testSemanticDragResolvesBothEndpointsBeforeMutation() async {
+        let sink = ActionRecordingSink()
+        let recovery = ActionFakeRecovery(
+            resolved: nil,
+            manyResolved: [
+                actionResolvedTarget(x: 20, y: 30),
+                actionResolvedTarget(x: 140, y: 160),
+            ],
+            error: nil
+        )
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 0, y: 0),
+            sink: sink,
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "semantic-drag",
+            method: "drag",
+            params: .object([
+                "from": .object(["by": .string("text"), "text": .string("Source")]),
+                "to": .object(["by": .string("text"), "text": .string("Destination")]),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let resolveManyCalls = await recovery.resolveManyCallCount
+        XCTAssertEqual(resolveManyCalls, 1)
+        XCTAssertEqual(sink.events, [
+            .mouseMove(point: ComputerPoint(x: 20, y: 30), dragButton: nil),
+            .mouseButton(button: .left, down: true, point: ComputerPoint(x: 20, y: 30), clickCount: 1),
+            .mouseMove(point: ComputerPoint(x: 140, y: 160), dragButton: .left),
+            .mouseButton(button: .left, down: false, point: ComputerPoint(x: 140, y: 160), clickCount: 1),
+        ])
+    }
+
+    func testSemanticPositionedScrollResolvesTargetBeforeScroll() async {
+        let sink = ActionRecordingSink()
+        let recovery = ActionFakeRecovery(resolved: actionResolvedTarget(x: 200, y: 100), error: nil)
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 0, y: 0),
+            sink: sink,
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "semantic-scroll",
+            method: "scroll",
+            params: .object([
+                "vertical": .number(-3),
+                "horizontal": .number(2),
+                "target": .object(["by": .string("text"), "text": .string("Scroll Area")]),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(sink.events, [
+            .mouseMove(point: ComputerPoint(x: 200, y: 100), dragButton: nil),
+            .scroll(vertical: -3, horizontal: 2),
+        ])
+    }
+
+    func testSemanticClickNeedsReplanDoesNotEmitPhysicalInput() async {
+        let sink = ActionRecordingSink()
+        let recovery = ActionFakeRecovery(resolved: nil, error: .needsReplan)
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 0, y: 0),
+            sink: sink,
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "semantic-click-replan",
+            method: "click",
+            params: .object([
+                "target": .object(["by": .string("text"), "text": .string("Submit")]),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_NEEDS_REPLAN")
+        XCTAssertTrue(sink.events.isEmpty)
+    }
+
     func testHeldInputStateStartsEmptyAndTracksExplicitDownState() {
         var state = HeldInputState()
         XCTAssertTrue(state.isEmpty)
@@ -135,7 +285,8 @@ private struct ActionImmediateSleeper: InputSleeping {
 
 private func makeActionHostService(
     pointer: ComputerPoint,
-    sink: ActionRecordingSink = ActionRecordingSink()
+    sink: ActionRecordingSink = ActionRecordingSink(),
+    recovery: (any ComputerRecoveryHandling)? = nil
 ) -> ComputerHostService {
     sink.configurePointer(pointer)
     let controller = ComputerInputController(
@@ -144,10 +295,68 @@ private func makeActionHostService(
         displayTopology: ActionDisplayTopology(),
         sleeper: ActionImmediateSleeper()
     )
+    let actions = ComputerActionService(controller: controller, recovery: recovery)
     return ComputerHostService(
         permissions: ActionPermissions(),
         workspace: ActionWorkspace(),
-        actions: ComputerActionService(controller: controller)
+        actions: actions
+    )
+}
+
+private actor ActionFakeRecovery: ComputerRecoveryHandling {
+    let resolved: ResolvedComputerTarget?
+    let manyResolved: [ResolvedComputerTarget]?
+    let error: ComputerRecoveryError?
+    private(set) var resolveCallCount = 0
+    private(set) var resolveManyCallCount = 0
+
+    init(
+        resolved: ResolvedComputerTarget?,
+        manyResolved: [ResolvedComputerTarget]? = nil,
+        error: ComputerRecoveryError?
+    ) {
+        self.resolved = resolved
+        self.manyResolved = manyResolved
+        self.error = error
+    }
+
+    func resolve(_ target: ComputerTarget, retryBudget: Int) async throws -> ResolvedComputerTarget {
+        resolveCallCount += 1
+        if let error { throw error }
+        return resolved!
+    }
+
+    func resolveMany(_ targets: [ComputerTarget], retryBudget: Int) async throws -> [ResolvedComputerTarget] {
+        resolveManyCallCount += 1
+        if let error { throw error }
+        if let manyResolved { return manyResolved }
+        guard let resolved else { return [] }
+        return targets.map { _ in resolved }
+    }
+
+    func refreshObservation() async throws -> ComputerObservation {
+        ComputerObservation(
+            snapshotId: "action-fake",
+            application: ApplicationView(name: "Fixture", bundleIdentifier: "com.example.fixture", frontmost: true),
+            windowTitle: nil,
+            elements: [],
+            truncated: false
+        )
+    }
+}
+
+private func actionResolvedTarget(x: Double, y: Double) -> ResolvedComputerTarget {
+    ResolvedComputerTarget(
+        source: .ax,
+        bounds: ComputerBounds(x: x - 10, y: y - 10, width: 20, height: 20),
+        actionPoint: ComputerPoint(x: x, y: y),
+        observationId: "obs-action",
+        appIdentity: "com.example.fixture",
+        windowIdentity: "window",
+        windowGeneration: "generation",
+        displayTopologyDigest: "topology",
+        confidence: .deterministic,
+        semanticFingerprint: "fingerprint"
     )
 }
 

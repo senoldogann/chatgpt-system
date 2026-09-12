@@ -27,6 +27,17 @@ const selectorFields = {
   name: z.string().min(1).max(4_096).optional(),
 };
 const pointFields = { x: z.number(), y: z.number() };
+const retryBudgetSchema = z.number().int().min(0).max(2);
+const computerTargetSchema = z.discriminatedUnion("by", [
+  z.object({ by: z.literal("index"), snapshotId: z.string().min(1).max(4_096), index: z.number().int().nonnegative() }).strict(),
+  z.object({ by: z.literal("role"), role: z.string().min(1).max(4_096), name: z.string().min(1).max(4_096).optional(), exact: z.boolean().optional() }).strict(),
+  z.object({ by: z.literal("text"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
+  z.object({ by: z.literal("label"), label: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
+  z.object({ by: z.literal("ocrText"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
+  z.object({ by: z.literal("point"), x: z.number(), y: z.number() }).strict(),
+]);
+const targetLocationFields = { target: computerTargetSchema, retryBudget: retryBudgetSchema.optional() };
+const endpointSchema = z.union([z.object(pointFields).strict(), computerTargetSchema]);
 const motionModeSchema = z.enum(["instant", "fast", "natural"]);
 const mouseButtonSchema = z.enum(["left", "right", "middle"]);
 const modifierSchema = z.enum(["control", "option", "shift", "command"]);
@@ -69,26 +80,52 @@ const focusActionSchema = z.object({
   ...selectorFields,
   timeoutMs: focusTimeoutSchema.optional(),
 }).strict();
-const moveActionSchema = z.object({
-  type: z.literal("move_mouse"),
-  ...pointFields,
-  motionMode: motionModeSchema.optional(),
-  verify: verificationSchema.optional(),
-}).strict();
-const clickActionSchema = z.object({
-  type: z.literal("click"),
-  ...pointFields,
-  button: mouseButtonSchema.optional(),
-  motionMode: motionModeSchema.optional(),
-  verify: verificationSchema.optional(),
-}).strict();
-const doubleClickActionSchema = z.object({
-  type: z.literal("double_click"),
-  ...pointFields,
-  button: mouseButtonSchema.optional(),
-  motionMode: motionModeSchema.optional(),
-  verify: verificationSchema.optional(),
-}).strict();
+const moveActionSchema = z.union([
+  z.object({
+    type: z.literal("move_mouse"),
+    ...pointFields,
+    motionMode: motionModeSchema.optional(),
+    verify: verificationSchema.optional(),
+  }).strict(),
+  z.object({
+    type: z.literal("move_mouse"),
+    ...targetLocationFields,
+    motionMode: motionModeSchema.optional(),
+    verify: verificationSchema.optional(),
+  }).strict(),
+]);
+const clickActionSchema = z.union([
+  z.object({
+    type: z.literal("click"),
+    ...pointFields,
+    button: mouseButtonSchema.optional(),
+    motionMode: motionModeSchema.optional(),
+    verify: verificationSchema.optional(),
+  }).strict(),
+  z.object({
+    type: z.literal("click"),
+    ...targetLocationFields,
+    button: mouseButtonSchema.optional(),
+    motionMode: motionModeSchema.optional(),
+    verify: verificationSchema.optional(),
+  }).strict(),
+]);
+const doubleClickActionSchema = z.union([
+  z.object({
+    type: z.literal("double_click"),
+    ...pointFields,
+    button: mouseButtonSchema.optional(),
+    motionMode: motionModeSchema.optional(),
+    verify: verificationSchema.optional(),
+  }).strict(),
+  z.object({
+    type: z.literal("double_click"),
+    ...targetLocationFields,
+    button: mouseButtonSchema.optional(),
+    motionMode: motionModeSchema.optional(),
+    verify: verificationSchema.optional(),
+  }).strict(),
+]);
 const mouseDownActionSchema = z.object({
   type: z.literal("mouse_down"),
   button: mouseButtonSchema.optional(),
@@ -99,7 +136,7 @@ const mouseUpActionSchema = z.object({
   button: mouseButtonSchema.optional(),
   verify: verificationSchema.optional(),
 }).strict();
-const dragActionSchema = z.object({
+const dragCoordinateActionSchema = z.object({
   type: z.literal("drag"),
   from: z.object(pointFields).strict(),
   to: z.object(pointFields).strict(),
@@ -107,15 +144,41 @@ const dragActionSchema = z.object({
   motionMode: motionModeSchema.optional(),
   verify: verificationSchema.optional(),
 }).strict();
-const scrollActionSchema = z.object({
-  type: z.literal("scroll"),
-  vertical: z.number().int().min(-10_000).max(10_000),
-  horizontal: z.number().int().min(-10_000).max(10_000),
-  x: z.number().optional(),
-  y: z.number().optional(),
+const dragSemanticActionSchema = z.object({
+  type: z.literal("drag"),
+  from: endpointSchema,
+  to: endpointSchema,
+  retryBudget: retryBudgetSchema.optional(),
+  button: mouseButtonSchema.optional(),
   motionMode: motionModeSchema.optional(),
   verify: verificationSchema.optional(),
-}).strict();
+}).strict().refine((value) => "by" in value.from || "by" in value.to, { message: "Semantic drag requires at least one semantic endpoint." });
+const dragActionSchema = z.union([dragCoordinateActionSchema, dragSemanticActionSchema]);
+const scrollActionSchema = z.union([
+  z.object({
+    type: z.literal("scroll"),
+    vertical: z.number().int().min(-10_000).max(10_000),
+    horizontal: z.number().int().min(-10_000).max(10_000),
+    motionMode: motionModeSchema.optional(),
+    verify: verificationSchema.optional(),
+  }).strict(),
+  z.object({
+    type: z.literal("scroll"),
+    vertical: z.number().int().min(-10_000).max(10_000),
+    horizontal: z.number().int().min(-10_000).max(10_000),
+    ...pointFields,
+    motionMode: motionModeSchema.optional(),
+    verify: verificationSchema.optional(),
+  }).strict(),
+  z.object({
+    type: z.literal("scroll"),
+    vertical: z.number().int().min(-10_000).max(10_000),
+    horizontal: z.number().int().min(-10_000).max(10_000),
+    ...targetLocationFields,
+    motionMode: motionModeSchema.optional(),
+    verify: verificationSchema.optional(),
+  }).strict(),
+]);
 const typeTextActionSchema = z.object({
   type: z.literal("type_text"),
   text: z.string().max(16_384),
@@ -151,7 +214,7 @@ const waitUntilChangedActionSchema = z.object({
 }).strict();
 const releaseInputsActionSchema = z.object({ type: z.literal("release_inputs") }).strict();
 
-const computerActionSchema = z.discriminatedUnion("type", [
+const computerActionSchema = z.union([
   observeActionSchema,
   pointerActionSchema,
   openActionSchema,
@@ -325,72 +388,107 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_move_mouse",
     {
-      description: "Move the physical pointer to exact display coordinates using deterministic motion. Requires Admin authority.",
+      description: "Move the physical pointer to exact coordinates or a semantic target using deterministic motion. Requires Admin authority.",
       inputSchema: z.object({
         ...authorityLeaseField,
-        ...pointFields,
+        x: z.number().optional(),
+        y: z.number().optional(),
+        target: computerTargetSchema.optional(),
+        retryBudget: retryBudgetSchema.optional(),
         motionMode: motionModeSchema.optional(),
         verify: verificationSchema.optional(),
-      }).strict(),
+      }).strict().superRefine((value, ctx) => {
+        const hasX = value.x !== undefined;
+        const hasY = value.y !== undefined;
+        const hasTarget = value.target !== undefined;
+        if (hasX !== hasY || hasTarget === hasX || (!hasTarget && value.retryBudget !== undefined)) {
+          ctx.addIssue({ code: "custom", message: "Provide either x/y or target; retryBudget is semantic-only." });
+        }
+      }),
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).moveMouse(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).moveMouse(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(
     "computer_click",
     {
-      description: "Click or double-click exact display coordinates. Requires Admin authority.",
+      description: "Click or double-click exact coordinates or a semantic target. Requires Admin authority.",
       inputSchema: z.object({
         ...authorityLeaseField,
-        ...pointFields,
+        x: z.number().optional(),
+        y: z.number().optional(),
+        target: computerTargetSchema.optional(),
+        retryBudget: retryBudgetSchema.optional(),
         count: z.union([z.literal(1), z.literal(2)]).default(1),
         button: mouseButtonSchema.optional(),
         motionMode: motionModeSchema.optional(),
         verify: verificationSchema.optional(),
-      }).strict(),
+      }).strict().superRefine((value, ctx) => {
+        const hasX = value.x !== undefined;
+        const hasY = value.y !== undefined;
+        const hasTarget = value.target !== undefined;
+        if (hasX !== hasY || hasTarget === hasX || (!hasTarget && value.retryBudget !== undefined)) {
+          ctx.addIssue({ code: "custom", message: "Provide either x/y or target; retryBudget is semantic-only." });
+        }
+      }),
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).click(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).click(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(
     "computer_drag",
     {
-      description: "Drag between exact display coordinates with deterministic motion. Requires Admin authority.",
+      description: "Drag between coordinate and/or semantic endpoints with deterministic motion. Requires Admin authority.",
       inputSchema: z.object({
         ...authorityLeaseField,
-        from: z.object(pointFields).strict(),
-        to: z.object(pointFields).strict(),
+        from: endpointSchema,
+        to: endpointSchema,
+        retryBudget: retryBudgetSchema.optional(),
         button: mouseButtonSchema.optional(),
         motionMode: motionModeSchema.optional(),
         verify: verificationSchema.optional(),
-      }).strict(),
+      }).strict().superRefine((value, ctx) => {
+        const semantic = "by" in value.from || "by" in value.to;
+        if (!semantic && value.retryBudget !== undefined) {
+          ctx.addIssue({ code: "custom", message: "retryBudget is semantic-only." });
+        }
+      }),
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).drag(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).drag(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(
     "computer_scroll",
     {
-      description: "Scroll vertically and/or horizontally, optionally at exact coordinates. Requires Admin authority.",
+      description: "Scroll vertically and/or horizontally, optionally at coordinates or a semantic target. Requires Admin authority.",
       inputSchema: z.object({
         ...authorityLeaseField,
         vertical: z.number().int().min(-10_000).max(10_000),
         horizontal: z.number().int().min(-10_000).max(10_000),
         x: z.number().optional(),
         y: z.number().optional(),
+        target: computerTargetSchema.optional(),
+        retryBudget: retryBudgetSchema.optional(),
         motionMode: motionModeSchema.optional(),
         verify: verificationSchema.optional(),
-      }).strict(),
+      }).strict().superRefine((value, ctx) => {
+        const hasX = value.x !== undefined;
+        const hasY = value.y !== undefined;
+        const hasTarget = value.target !== undefined;
+        if (hasX !== hasY || (hasTarget && hasX) || (!hasTarget && value.retryBudget !== undefined)) {
+          ctx.addIssue({ code: "custom", message: "Scroll position must be x/y, target, or omitted; retryBudget is semantic-only." });
+        }
+      }),
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).scroll(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).scroll(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(

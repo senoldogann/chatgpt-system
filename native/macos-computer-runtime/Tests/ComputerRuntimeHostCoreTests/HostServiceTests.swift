@@ -129,6 +129,137 @@ final class HostServiceTests: XCTestCase {
         XCTAssertEqual(NDJSONHostServer.maxResponseBytes, 12_582_912)
     }
 
+    func testResolveTargetUsesRecoveryAndReturnsBoundedView() async throws {
+        let recovery = HostFakeRecovery(
+            resolved: resolvedTarget(source: .ax, x: 40, y: 50),
+            error: nil
+        )
+        let service = ComputerHostService(
+            permissions: HostFakePermissions(accessibilityTrusted: true, screenCaptureAuthorized: true),
+            workspace: HostFakeWorkspace(),
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "resolve-one",
+            method: "resolve_target",
+            params: .object([
+                "target": .object([
+                    "by": .string("text"),
+                    "text": .string("Run"),
+                    "exact": .bool(true),
+                ]),
+                "retryBudget": .number(2),
+            ])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let view = try decodeHostResult(ComputerResolvedTargetView.self, response: response)
+        XCTAssertEqual(view.source, .ax)
+        XCTAssertEqual(view.actionPoint, ComputerPoint(x: 40, y: 50))
+        let call = await recovery.lastResolveCall
+        XCTAssertEqual(call?.target, .text(text: "Run", exact: true))
+        XCTAssertEqual(call?.retryBudget, 2)
+    }
+
+    func testResolveTargetsUsesOneStrictArrayRequest() async throws {
+        let recovery = HostFakeRecovery(
+            resolved: resolvedTarget(source: .ax, x: 10, y: 20),
+            error: nil
+        )
+        let service = ComputerHostService(
+            permissions: HostFakePermissions(accessibilityTrusted: true, screenCaptureAuthorized: true),
+            workspace: HostFakeWorkspace(),
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "resolve-many",
+            method: "resolve_targets",
+            params: .object([
+                "targets": .array([
+                    .object(["by": .string("text"), "text": .string("Name"), "exact": .bool(true)]),
+                    .object(["by": .string("role"), "role": .string("AXButton"), "name": .string("Submit"), "exact": .bool(true)]),
+                ]),
+                "retryBudget": .number(1),
+            ])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let calls = await recovery.lastResolveManyCall
+        XCTAssertEqual(calls?.targets.count, 2)
+        XCTAssertEqual(calls?.retryBudget, 1)
+    }
+
+    func testResolveTargetRejectsUnknownFieldsAndRetryBudgetAboveTwoBeforeRecovery() async {
+        let recovery = HostFakeRecovery(resolved: resolvedTarget(source: .ax, x: 1, y: 1), error: nil)
+        let service = ComputerHostService(
+            permissions: HostFakePermissions(accessibilityTrusted: true, screenCaptureAuthorized: true),
+            workspace: HostFakeWorkspace(),
+            recovery: recovery
+        )
+
+        let unknown = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "resolve-unknown",
+            method: "resolve_target",
+            params: .object([
+                "target": .object(["by": .string("text"), "text": .string("Run")]),
+                "unexpected": .bool(true),
+            ])
+        ))
+        assertProtocolInvalid(unknown)
+
+        let oversizedBudget = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "resolve-budget",
+            method: "resolve_target",
+            params: .object([
+                "target": .object(["by": .string("text"), "text": .string("Run")]),
+                "retryBudget": .number(3),
+            ])
+        ))
+        assertProtocolInvalid(oversizedBudget)
+        let resolveCallCount = await recovery.resolveCallCount
+        XCTAssertEqual(resolveCallCount, 0)
+    }
+
+    func testRecoveryErrorsMapToStableProtocolCodesWithoutNativeDetails() async {
+        let cases: [(ComputerRecoveryError, String)] = [
+            (.targetNotFound, "COMPUTER_TARGET_NOT_FOUND"),
+            (.targetAmbiguous, "COMPUTER_TARGET_AMBIGUOUS"),
+            (.staleSnapshot, "COMPUTER_STALE_SNAPSHOT"),
+            (.focusFailed, "COMPUTER_FOCUS_FAILED"),
+            (.needsReplan, "COMPUTER_NEEDS_REPLAN"),
+            (.permissionRequired, "COMPUTER_PERMISSION_REQUIRED"),
+        ]
+
+        for (error, code) in cases {
+            let recovery = HostFakeRecovery(resolved: nil, error: error)
+            let service = ComputerHostService(
+                permissions: HostFakePermissions(accessibilityTrusted: true, screenCaptureAuthorized: true),
+                workspace: HostFakeWorkspace(),
+                recovery: recovery
+            )
+            let response = await service.handle(.init(
+                protocolVersion: 1,
+                requestId: "error-\(code)",
+                method: "resolve_target",
+                params: .object([
+                    "target": .object(["by": .string("text"), "text": .string("Run")]),
+                ])
+            ))
+
+            XCTAssertFalse(response.ok)
+            XCTAssertEqual(response.error?.code, code)
+            XCTAssertNil(response.error?.details)
+            XCTAssertFalse(response.error?.message.localizedCaseInsensitiveContains("vision") ?? true)
+            XCTAssertFalse(response.error?.message.localizedCaseInsensitiveContains("ax") ?? true)
+        }
+    }
+
     func testExecutableRespondsToMultipleFramesBeforePersistentStdinCloses() throws {
         let packageRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -267,6 +398,74 @@ private struct HostFakeWorkspace: WorkspaceReading {
 
 private func makeHostService() -> ComputerHostService {
     ComputerHostService(permissions: HostFakePermissions(), workspace: HostFakeWorkspace())
+}
+
+
+private actor HostFakeRecovery: ComputerRecoveryHandling {
+    struct ResolveCall: Sendable {
+        let target: ComputerTarget
+        let retryBudget: Int
+    }
+
+    struct ResolveManyCall: Sendable {
+        let targets: [ComputerTarget]
+        let retryBudget: Int
+    }
+
+    let resolved: ResolvedComputerTarget?
+    let error: ComputerRecoveryError?
+    private(set) var lastResolveCall: ResolveCall?
+    private(set) var lastResolveManyCall: ResolveManyCall?
+    private(set) var resolveCallCount = 0
+
+    init(resolved: ResolvedComputerTarget?, error: ComputerRecoveryError?) {
+        self.resolved = resolved
+        self.error = error
+    }
+
+    func resolve(_ target: ComputerTarget, retryBudget: Int) async throws -> ResolvedComputerTarget {
+        resolveCallCount += 1
+        lastResolveCall = ResolveCall(target: target, retryBudget: retryBudget)
+        if let error { throw error }
+        return resolved!
+    }
+
+    func resolveMany(_ targets: [ComputerTarget], retryBudget: Int) async throws -> [ResolvedComputerTarget] {
+        lastResolveManyCall = ResolveManyCall(targets: targets, retryBudget: retryBudget)
+        if let error { throw error }
+        guard let resolved else { return [] }
+        return targets.map { _ in resolved }
+    }
+
+    func refreshObservation() async throws -> ComputerObservation {
+        ComputerObservation(
+            snapshotId: "fake",
+            application: ApplicationView(name: "Fixture", bundleIdentifier: "com.example.fixture", frontmost: true),
+            windowTitle: nil,
+            elements: [],
+            truncated: false
+        )
+    }
+}
+
+private func resolvedTarget(source: ComputerTargetSource, x: Double, y: Double) -> ResolvedComputerTarget {
+    ResolvedComputerTarget(
+        source: source,
+        bounds: ComputerBounds(x: x - 5, y: y - 5, width: 10, height: 10),
+        actionPoint: ComputerPoint(x: x, y: y),
+        observationId: "obs",
+        appIdentity: "com.example.fixture",
+        windowIdentity: "window",
+        windowGeneration: "generation",
+        displayTopologyDigest: "topology",
+        confidence: source == .point ? .explicit : .deterministic,
+        semanticFingerprint: "fingerprint"
+    )
+}
+
+private func decodeHostResult<T: Decodable>(_ type: T.Type, response: ComputerProtocolResponse) throws -> T {
+    let result = try XCTUnwrap(response.result)
+    return try JSONDecoder().decode(T.self, from: JSONEncoder().encode(result))
 }
 
 private func assertProtocolInvalid(

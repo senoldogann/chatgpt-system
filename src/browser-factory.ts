@@ -5,21 +5,34 @@ import type { BrowserBackend } from "./browser-backend.js";
 import { BrowserRuntime } from "./browser-runtime.js";
 import { BrowserService } from "./browser-service.js";
 import type { AppConfig } from "./config.js";
+import { createExistingChromeContextAdapter } from "./existing-chrome-context-adapter.js";
+import {
+  connectExistingChrome,
+  loadProductionExistingChromeChromium,
+  type ExistingChromePlaywrightFacade,
+} from "./existing-chrome-connector.js";
 import { PlaywrightBrowserBackend } from "./playwright-browser-backend.js";
 
 export interface BrowserFactoryOptions {
   browserBackendFactory?: () => Promise<BrowserBackend>;
   browserInstalled?: () => Promise<boolean>;
+  loadExistingChromeChromium?: () => Promise<ExistingChromePlaywrightFacade>;
 }
 
 type BrowserConfig = AppConfig["browser"];
 
 export function createBrowserService(config: AppConfig, options: BrowserFactoryOptions = {}): BrowserService {
   const browserConfig = resolveBrowserConfig(config);
+  const existingChromeLoader = options.loadExistingChromeChromium ?? loadProductionExistingChromeChromium;
   const runtime = new BrowserRuntime({
     enabled: browserConfig.enabled,
-    browserInstalled: options.browserInstalled ?? probeBundledChromium,
-    createBackend: options.browserBackendFactory ?? createProductionBackendFactory(browserConfig),
+    browserInstalled: options.browserInstalled ?? (
+      browserConfig.connectionMode === "existing-chrome"
+        ? () => probeExistingChromeSupport(existingChromeLoader)
+        : probeBundledChromium
+    ),
+    createBackend: options.browserBackendFactory
+      ?? createProductionBackendFactory(browserConfig, existingChromeLoader),
   });
 
   return new BrowserService(runtime, {
@@ -32,13 +45,38 @@ export function createBrowserService(config: AppConfig, options: BrowserFactoryO
 function resolveBrowserConfig(config: AppConfig): BrowserConfig {
   return config.browser ?? {
     enabled: false,
+    connectionMode: "managed",
     headless: true,
     timeoutMs: 15_000,
     userDataDir: path.join(homedir(), ".chatgpt-system", "browser-profile"),
+    existingChromeUserDataDir: null,
   };
 }
 
-function createProductionBackendFactory(config: BrowserConfig): () => Promise<BrowserBackend> {
+function createProductionBackendFactory(
+  config: BrowserConfig,
+  loadExistingChromeChromium: () => Promise<ExistingChromePlaywrightFacade>,
+): () => Promise<BrowserBackend> {
+  if (config.connectionMode === "existing-chrome") {
+    return async () => {
+      if (config.existingChromeUserDataDir === null) {
+        throw new Error("Existing Chrome attach configuration is invalid.");
+      }
+      const connection = await connectExistingChrome(
+        {
+          userDataDir: config.existingChromeUserDataDir,
+          timeoutMs: config.timeoutMs,
+        },
+        { loadChromium: loadExistingChromeChromium },
+      );
+      const context = createExistingChromeContextAdapter(connection.context, connection.disconnect);
+      return new PlaywrightBrowserBackend(context, {
+        timeoutMs: config.timeoutMs,
+        maxDiagnosticEntries: 100,
+      });
+    };
+  }
+
   return async () => {
     const { chromium } = await import("playwright");
     const context = await chromium.launchPersistentContext(config.userDataDir, {
@@ -49,6 +87,17 @@ function createProductionBackendFactory(config: BrowserConfig): () => Promise<Br
       maxDiagnosticEntries: 100,
     });
   };
+}
+
+async function probeExistingChromeSupport(
+  loader: () => Promise<ExistingChromePlaywrightFacade>,
+): Promise<boolean> {
+  try {
+    await loader();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function probeBundledChromium(): Promise<boolean> {
