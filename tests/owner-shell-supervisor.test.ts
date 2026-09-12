@@ -78,6 +78,22 @@ describe("OwnerShellSupervisor", () => {
     });
   });
 
+  it("surfaces process-group signaling failures as SHELL_FAILED instead of an unhandled rejection", async () => {
+    const supervisor = new OwnerShellSupervisor({
+      maxRetainedBytesPerStream: 1024,
+      processStopGraceMs: 20,
+      signalProcess: () => {
+        throw Object.assign(new Error("signal denied"), { code: "EPERM" });
+      },
+    });
+
+    await expect(supervisor.run(runInput("sleep 0.08", { timeoutMs: 10 }))).rejects.toMatchObject({
+      code: "SHELL_FAILED",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  });
+
   it("escalates to SIGKILL when the owned process group ignores SIGTERM", async () => {
     const supervisor = new OwnerShellSupervisor({
       maxRetainedBytesPerStream: 1024,

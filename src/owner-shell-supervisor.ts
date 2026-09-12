@@ -117,6 +117,10 @@ export class OwnerShellSupervisor implements OwnerShellBackend {
       timedOut: false,
     };
     this.active.add(active);
+    child.once("close", () => {
+      active.resolveClosed();
+      this.active.delete(active);
+    });
 
     child.stdout?.on("data", (chunk: Buffer | string) => {
       stdout.append(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -125,35 +129,52 @@ export class OwnerShellSupervisor implements OwnerShellBackend {
       stderr.append(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     });
 
+    let rejectTerminationFailure!: (error: unknown) => void;
+    let terminationFailureReported = false;
+    const terminationFailure = new Promise<never>((_, reject) => {
+      rejectTerminationFailure = reject;
+    });
+    const requestTermination = () => {
+      void this.terminate(active).catch((error) => {
+        if (terminationFailureReported) return;
+        terminationFailureReported = true;
+        rejectTerminationFailure(error instanceof OwnerShellFailedError ? error : new OwnerShellFailedError());
+      });
+    };
+
     let timer: NodeJS.Timeout | undefined;
     const abort = () => {
       if (active.cancellationReason === undefined) active.cancellationReason = "abort";
-      void this.terminate(active);
+      requestTermination();
     };
     if (input.signal) input.signal.addEventListener("abort", abort, { once: true });
     if (input.timeoutMs !== undefined && input.timeoutMs !== null) {
       timer = setTimeout(() => {
         active.timedOut = true;
-        void this.terminate(active);
+        requestTermination();
       }, input.timeoutMs);
       timer.unref();
     }
 
     try {
-      const outcome = await new Promise<{ exitCode: number | null; signal: string | null }>((resolve, reject) => {
+      const closeOutcome = new Promise<{ exitCode: number | null; signal: string | null }>((resolve, reject) => {
         let settled = false;
         child.once("error", () => {
+          if (child.pid === undefined) {
+            active.resolveClosed();
+            this.active.delete(active);
+          }
           if (settled) return;
           settled = true;
           reject(new OwnerShellFailedError());
         });
         child.once("close", (exitCode, signal) => {
-          active.resolveClosed();
           if (settled) return;
           settled = true;
           resolve({ exitCode, signal });
         });
       });
+      const outcome = await Promise.race([closeOutcome, terminationFailure]);
 
       if (active.cancellationReason !== undefined) {
         throw new OwnerShellCancelledError(active.cancellationReason);
@@ -176,7 +197,6 @@ export class OwnerShellSupervisor implements OwnerShellBackend {
     } finally {
       if (timer) clearTimeout(timer);
       if (input.signal) input.signal.removeEventListener("abort", abort);
-      this.active.delete(active);
     }
   }
 
@@ -191,8 +211,12 @@ export class OwnerShellSupervisor implements OwnerShellBackend {
 
   private terminate(active: ActiveRun): Promise<void> {
     if (active.terminationPromise) return active.terminationPromise;
-    active.terminationPromise = this.terminateOnce(active);
-    return active.terminationPromise;
+    const attempt = this.terminateOnce(active);
+    active.terminationPromise = attempt;
+    void attempt.catch(() => {
+      if (active.terminationPromise === attempt) delete active.terminationPromise;
+    });
+    return attempt;
   }
 
   private async terminateOnce(active: ActiveRun): Promise<void> {
