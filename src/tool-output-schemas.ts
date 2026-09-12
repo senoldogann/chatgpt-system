@@ -27,6 +27,9 @@ export const systemCapabilitiesOutputSchema = z.object({
     enabled: z.boolean(),
     adminLeaseMaxTtlSeconds: z.literal(3600),
   }),
+  ownerRuntime: z.object({
+    enabled: z.boolean(),
+  }),
   computerUse: z.object({
     enabled: z.boolean(),
     fullHostJsEnabled: z.boolean(),
@@ -103,6 +106,9 @@ export const systemEnvironmentOutputSchema = z.object({
   pathEntries: z.array(z.string()),
   roots: z.array(z.string()),
   terminal: z.object({
+    enabled: z.boolean(),
+  }),
+  ownerRuntime: z.object({
     enabled: z.boolean(),
   }),
   computerUse: z.object({
@@ -237,6 +243,19 @@ export const projectCheckOutputSchema = z.object({
     workingTreeDigest: sha256Schema,
   }).strict(),
   checks: z.array(projectCheckItemSchema),
+}).strict();
+
+export const shellRunOutputSchema = z.object({
+  cwd: z.string(),
+  exitCode: z.number().int().nullable(),
+  signal: z.string().nullable(),
+  stdout: z.string(),
+  stderr: z.string(),
+  stdoutBytesSeen: nonNegativeInt,
+  stderrBytesSeen: nonNegativeInt,
+  stdoutTruncated: z.boolean(),
+  stderrTruncated: z.boolean(),
+  timedOut: z.boolean(),
 }).strict();
 
 export const terminalResultOutputSchema = z.object({

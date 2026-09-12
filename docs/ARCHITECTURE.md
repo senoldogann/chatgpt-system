@@ -2,7 +2,7 @@
 
 ## Goal
 
-Provide an MCP boundary between an AI client and a developer workstation without turning a natural-language request into unrestricted shell access.
+Provide an MCP boundary between an AI client and a developer workstation with narrow Project/User capabilities and an explicitly enabled Admin Owner Runtime for full-host development when the operator chooses that trust level.
 
 ## Layers
 
@@ -24,7 +24,12 @@ MCP tool registry
    |
    +--> GitService ----------> read status/diff/log + typed local mutations + Admin-only GitHub push
    |
-   +--> ProcessService ------> bounded one-shot execution
+   +--> ProcessService ------> bounded structured one-shot execution
+   |
+   +--> OwnerShellService (Admin + Owner Runtime facade)
+   |          |
+   |          v
+   |     OwnerShellSupervisor --> arbitrary trusted login-shell execution + owned process groups
    |
    +--> ManagedProcessService (authority-scoped facade)
    |          |
@@ -46,7 +51,7 @@ MCP tool registry
 AuditLogger (redacted JSONL metadata)
 ```
 
-One `RuntimeServices` instance owns one `AuthorityManager`, one `ProcessSupervisor`, and one optional browser service/runtime. HTTP, stdio, the local authority control socket, and every authority-scoped MCP call reuse that same runtime. There is no shadow lease store, per-request process registry, or second browser agent.
+One `RuntimeServices` instance owns one `AuthorityManager`, one `ProcessSupervisor`, one `OwnerShellSupervisor`, and one optional browser service/runtime. HTTP, stdio, the local authority control socket, and every authority-scoped MCP call reuse that same runtime. There is no shadow lease store, per-request process registry, or second browser agent.
 
 ## Filesystem path decision
 
@@ -80,10 +85,10 @@ The privilege ladder is enforced by local trusted code:
 ```text
 Project -> explicit roots, filesystem/Git, no terminal, no browser content/action access
 User    -> current-user home, filesystem/Git, no terminal, no browser content/action access
-Admin   -> host scope as current OS user, terminal/process + browser capability
+Admin   -> host scope as current OS user, structured terminal/process + optional Owner Runtime + browser capability
 ```
 
-Project authority may be created directly through MCP. By default, User/Admin authority begins locally on the Mac through the private Unix control socket and protected LocalAuthentication helper. An explicit `--personal-admin` runtime mode is the one intentional exception: on a private daily-driver workstation, MCP may request the existing fixed Admin profile directly. The lease remains short-lived, in-memory, and governed by the same `AuthorityManager`; the mode does not create arbitrary roots and does not bypass the separate `--enable-terminal` or `--enable-browser` startup gates.
+Project authority may be created directly through MCP. By default, User/Admin authority begins locally on the Mac through the private Unix control socket and protected LocalAuthentication helper. An explicit `--personal-admin` runtime mode is the one intentional exception: on a private daily-driver workstation, MCP may request the existing fixed Admin profile directly. The lease remains short-lived, in-memory, and governed by the same `AuthorityManager`; the mode does not create arbitrary roots and does not bypass the separate `--enable-terminal`, `--enable-owner-runtime`, or `--enable-browser` startup gates. Owner Runtime itself additionally requires Personal Admin and never widens Project/User.
 
 `browser_health` is deliberately lease-free because it returns categorical readiness only. Every page/content/action/diagnostic browser tool is resolved through an active Admin lease before reaching the browser service.
 
@@ -109,6 +114,33 @@ The project targets the MCP TypeScript SDK v2 and the 2026-07-28 protocol line.
 - bounded execution time.
 
 It is intentionally not described as an OS sandbox. An interpreter or build tool still has the permissions of the OS account that launched `chatgpt-system`.
+
+## Owner Runtime shell architecture
+
+`terminal_run` stays the narrow structured executor. Owner Runtime adds a separate `shell_run` path only for Admin when `--personal-admin --enable-owner-runtime` is active:
+
+```text
+Admin lease + ownerRuntime.enabled
+        |
+        v
+OwnerShellService
+  - Admin/gate check
+  - authority PathPolicy cwd check
+  - script size/NUL validation
+  - content-free audit metadata
+        |
+        v
+shared OwnerShellSupervisor
+        |
+        +--> trusted shellPath -lc <script>
+        +--> shell=false at Node spawn boundary
+        +--> sanitized child environment
+        +--> dedicated POSIX process group
+        +--> bounded stdout/stderr tails
+        +--> timeout / MCP abort / daemon-shutdown cleanup
+```
+
+The MCP caller supplies shell **script content**, not the shell executable, child environment, OS PID, signal, or detached mode. Shell syntax, arbitrary installed executables, compilers/package managers, Git, and normal network access therefore work with the permissions of the current OS user. This is intentionally full-host execution, not an OS sandbox. Omitted `timeoutMs` installs no Owner Runtime wall-clock deadline; retained output and protocol payloads remain bounded. Phase 1 is one-shot execution and does not yet expose a persistent PTY.
 
 ## Managed process architecture
 

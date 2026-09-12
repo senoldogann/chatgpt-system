@@ -15,6 +15,9 @@ export interface SystemEnvironment {
   terminal: {
     enabled: boolean;
   };
+  ownerRuntime: {
+    enabled: boolean;
+  };
   computerUse: {
     enabled: boolean;
     fullHostJsEnabled: boolean;
@@ -42,6 +45,9 @@ export async function describeSystemEnvironment(config: AppConfig): Promise<Syst
     roots: [...config.roots],
     terminal: {
       enabled: config.terminal.enabled,
+    },
+    ownerRuntime: {
+      enabled: config.ownerRuntime?.enabled === true,
     },
     computerUse: {
       enabled: config.computerUse.enabled,

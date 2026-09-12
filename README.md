@@ -250,13 +250,14 @@ npm run setup:chatgpt -- \
   --enable-terminal \
   --enable-project-exec \
   --personal-admin \
+  --enable-owner-runtime \
   --enable-browser \
   --enable-computer-use \
   --enable-full-host-js \
   --doctor
 ```
 
-The generated tunnel child command always enables the private local authority control socket. `--enable-terminal`, `--enable-project-exec`, `--personal-admin`, `--enable-browser`, `--enable-computer-use`, and `--enable-full-host-js` are separate explicit trust decisions. `--enable-project-exec` does not enable host terminal access; it only enables the Project-only Docker sandbox. Full-host JavaScript cannot be enabled without Computer Runtime; omitting either gate preserves the secure default.
+The generated tunnel child command always enables the private local authority control socket. `--enable-terminal`, `--enable-project-exec`, `--personal-admin`, `--enable-owner-runtime`, `--enable-browser`, `--enable-computer-use`, and `--enable-full-host-js` are separate explicit trust decisions. `--enable-owner-runtime` requires `--personal-admin` and enables the Admin-only unrestricted `shell_run` surface; it does not widen Project/User authority or change `terminal_run`. `--enable-project-exec` does not enable host terminal access; it only enables the Project-only Docker sandbox. Full-host JavaScript cannot be enabled without Computer Runtime; omitting any gate preserves the corresponding secure default.
 
 Headless browser mode is optional:
 
@@ -283,6 +284,7 @@ npm run setup:chatgpt -- \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
   --enable-terminal \
   --personal-admin \
+  --enable-owner-runtime \
   --enable-browser \
   --force \
   --doctor
@@ -449,6 +451,18 @@ project_exec
 
 `project_exec` requires a Project lease and the explicit Project-execution startup gate. It never falls back to `terminal_run`; Docker daemon/image/context failures fail closed.
 
+### Owner Runtime full-host shell
+
+```text
+shell_run
+```
+
+`Owner Runtime` is an explicit private-workstation capability for a locally approved Admin session. It requires `--personal-admin --enable-owner-runtime`; Personal Admin alone is not sufficient. `shell_run` executes arbitrary login-shell syntax through the trusted startup shell (macOS default `/bin/zsh`) as the current macOS user, including pipes, redirects, compound commands, installed compilers/package managers, normal host network access, and executable paths that are not in the structured terminal allowlist. It is **not an OS sandbox** and Project/User leases cannot use it.
+
+Unlike `terminal_run`, `shell_run` has no inherited command allowlist or default legacy command wall-clock timeout. Caller-supplied finite timeout, MCP cancellation, and daemon shutdown terminate the owned process group. stdout/stderr retention remains bounded in memory and overflow drops old bytes instead of killing the job. The child receives the sanitized daemon environment; control-plane/authority secrets are not automatically forwarded. Audit stores only lifecycle metadata plus script byte count/SHA-256, never raw script, output, environment, or lease content. Phase 1 is one-shot shell execution; interactive PTY sessions are a later Owner Runtime phase.
+
+Use `terminal_run` when a command fits the explicit structured argv/allowlist contract. Use `shell_run` only when the engineering task actually needs shell syntax or an unrestricted local toolchain.
+
 ### One-shot and managed host processes
 
 ```text
@@ -535,7 +549,7 @@ Creating a new file does not require `expectedSha256`.
 
 Managed processes additionally use opaque IDs and daemon-controlled stop semantics. On POSIX the daemon sends `SIGTERM`, waits the configured grace period, and escalates to `SIGKILL` only if required.
 
-Neither one-shot nor managed Admin host execution is an OS sandbox.
+Neither structured one-shot/managed Admin host execution nor Owner Runtime `shell_run` is an OS sandbox. `shell_run` is intentionally separate: it uses the trusted login shell, has no executable allowlist, and keeps only bounded stdout/stderr tails while preserving timeout/cancellation/shutdown process-group cleanup.
 
 `project_exec` is a separate Docker isolation boundary: it accepts only Project leases, requires explicit startup opt-in, rejects non-local Docker contexts, disables container networking, uses a read-only container root plus bounded `/tmp`, and bind-mounts only the selected project root at `/workspace`. Its Linux environment may differ from the macOS host, and the Docker daemon itself remains trusted infrastructure. A missing/unhealthy daemon, missing fixed image, or backend failure is reported as `SANDBOX_UNAVAILABLE`; there is no host fallback.
 

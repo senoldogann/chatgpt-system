@@ -253,6 +253,7 @@ npm run setup:chatgpt -- \
   --enable-terminal \
   --enable-project-exec \
   --personal-admin \
+  --enable-owner-runtime \
   --enable-browser \
   --enable-computer-use \
   --enable-full-host-js \
@@ -280,11 +281,12 @@ The capability gates are independent:
 - omitting `--enable-terminal` keeps one-shot/managed **host** process execution disabled;
 - omitting `--enable-project-exec` keeps `project_exec` disabled even for Project leases; enabling it does not grant host-terminal authority;
 - omitting `--personal-admin` preserves local User/Admin approval;
+- omitting `--enable-owner-runtime` keeps unrestricted `shell_run` disabled even for Admin; `--enable-owner-runtime` itself requires `--personal-admin`;
 - omitting `--enable-browser` keeps Browser Runtime disabled even for Admin;
 - omitting `--enable-computer-use` keeps Computer Runtime disabled even for Admin;
 - omitting `--enable-full-host-js` keeps `computer_run_js` disabled even when Computer Runtime is enabled;
 - `--enable-full-host-js` without `--enable-computer-use` is rejected;
-- enabling Browser, Computer Runtime, or full-host JavaScript does not make Project/User capable of using those surfaces;
+- enabling Owner Runtime, Browser, Computer Runtime, or full-host JavaScript does not make Project/User capable of using those surfaces;
 - `project_exec` accepts Project authority only; User/Admin leases are rejected instead of being silently widened.
 
 The default browser profile is:
@@ -306,6 +308,7 @@ npm run setup:chatgpt -- \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
   --enable-terminal \
   --personal-admin \
+  --enable-owner-runtime \
   --enable-browser \
   --enable-computer-use \
   --enable-full-host-js \
@@ -400,6 +403,7 @@ project_exec
 Host execution/process tools:
 
 ```text
+shell_run
 terminal_run
 process_start
 process_list
@@ -407,6 +411,12 @@ process_status
 process_logs
 process_stop
 ```
+
+`terminal_run` is the structured path: `shell=false`, configured executable basename allowlist, bounded command timeout/output, and Admin terminal capability. Prefer it when a command fits that contract.
+
+`shell_run` is the Owner Runtime escape hatch for full local development. It requires an Admin lease plus `--personal-admin --enable-owner-runtime`, executes arbitrary login-shell syntax through the trusted startup shell as the current macOS user, and is not an OS sandbox. It supports pipes/redirection/compound commands, installed compilers and package managers, Git, arbitrary executable paths, and normal host network access. The MCP caller cannot choose the shell executable or child environment. Omitted `timeoutMs` has no product wall-clock deadline; finite timeout, MCP cancellation, and daemon shutdown terminate the owned process group. Retained stdout/stderr remain bounded, and audit keeps only script byte count/SHA-256 and lifecycle metadata. Project/User are denied. Phase 1 does not yet expose an interactive persistent PTY.
+
+Use `shell_run` only when the engineering workflow needs unrestricted shell semantics or a tool outside the structured allowlist; keep `terminal_run` for narrow deterministic commands.
 
 Browser tools:
 

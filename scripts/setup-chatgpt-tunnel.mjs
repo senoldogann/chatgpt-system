@@ -23,6 +23,9 @@ Options:
   --enable-terminal       Opt in to bootstrap terminal configuration. Disabled by default.
   --enable-project-exec   Opt in to Docker-sandboxed Project execution. Disabled by default.
   --personal-admin        Allow ChatGPT to mint short-lived Admin leases directly. Disabled by default.
+  --enable-owner-runtime  Opt in to Admin-only unrestricted Owner Runtime shell execution; requires --personal-admin.
+  --owner-shell-path <path>
+                          Override the trusted login shell executable; requires --enable-owner-runtime.
   --allow-command <name>  Allowlisted executable basename. Repeatable.
   --enable-browser        Opt in to the Admin-only Playwright browser capability. Disabled by default.
   --enable-computer-use   Opt in to the Admin-only native Computer Runtime. Disabled by default.
@@ -74,6 +77,8 @@ function parseArgs(argv) {
     terminal: false,
     projectExec: false,
     personalAdmin: false,
+    ownerRuntime: false,
+    ownerShellPath: undefined,
     browser: false,
     computerUse: false,
     fullHostJs: false,
@@ -103,6 +108,10 @@ function parseArgs(argv) {
     }
     if (arg === "--personal-admin") {
       options.personalAdmin = true;
+      continue;
+    }
+    if (arg === "--enable-owner-runtime") {
+      options.ownerRuntime = true;
       continue;
     }
     if (arg === "--enable-browser") {
@@ -138,7 +147,7 @@ function parseArgs(argv) {
       continue;
     }
 
-    if (["--root", "--tunnel-id", "--profile", "--allow-command", "--browser-existing-chrome-user-data-dir"].includes(arg)) {
+    if (["--root", "--tunnel-id", "--profile", "--allow-command", "--owner-shell-path", "--browser-existing-chrome-user-data-dir"].includes(arg)) {
       const value = argv[index + 1];
       if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);
       index += 1;
@@ -149,6 +158,7 @@ function parseArgs(argv) {
       if (arg === "--tunnel-id") options.tunnelId = value;
       if (arg === "--profile") options.profile = value;
       if (arg === "--allow-command") options.commands.push(value);
+      if (arg === "--owner-shell-path") options.ownerShellPath = value;
       if (arg === "--browser-existing-chrome-user-data-dir") options.browserExistingChromeUserDataDir = value;
       continue;
     }
@@ -220,6 +230,15 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   if (options.commands.length > 0 && !options.terminal) {
     throw new Error("--allow-command requires --enable-terminal.");
   }
+  if (options.ownerRuntime && !options.personalAdmin) {
+    throw new Error("--enable-owner-runtime requires --personal-admin.");
+  }
+  if (options.ownerShellPath !== undefined && !options.ownerRuntime) {
+    throw new Error("--owner-shell-path requires --enable-owner-runtime.");
+  }
+  if (options.ownerShellPath !== undefined && !path.isAbsolute(options.ownerShellPath)) {
+    throw new Error("--owner-shell-path must be an absolute path.");
+  }
   if (options.browserHeadless && !options.browser) {
     throw new Error("--browser-headless requires --enable-browser.");
   }
@@ -265,6 +284,8 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   if (options.terminal) commandParts.push("--enable-terminal");
   if (options.projectExec) commandParts.push("--enable-project-exec");
   if (options.personalAdmin) commandParts.push("--personal-admin");
+  if (options.ownerRuntime) commandParts.push("--enable-owner-runtime");
+  if (options.ownerShellPath !== undefined) commandParts.push("--owner-shell-path", options.ownerShellPath);
   if (options.browser) commandParts.push("--enable-browser");
   if (options.computerUse) commandParts.push("--enable-computer-use");
   if (options.fullHostJs) commandParts.push("--enable-full-host-js");
@@ -295,6 +316,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     serverPath,
     controlSocketPath,
     projectExecEnabled: options.projectExec,
+    ownerRuntimeEnabled: options.ownerRuntime,
     computerUseEnabled: options.computerUse,
     fullHostJsEnabled: options.fullHostJs,
     computerRuntimeBundlePath,
@@ -411,6 +433,7 @@ async function main() {
   console.log("  Bootstrap terminal: " + (setup.mcpCommand.includes("--enable-terminal") ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Project execution: " + (setup.projectExecEnabled ? "EXPLICITLY ENABLED (Docker sandbox)" : "disabled"));
   console.log("  Personal Admin: " + (setup.mcpCommand.includes("--personal-admin") ? "EXPLICITLY ENABLED" : "disabled"));
+  console.log("  Owner Runtime: " + (setup.ownerRuntimeEnabled ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Browser: " + (setup.mcpCommand.includes("--enable-browser") ? (setup.mcpCommand.includes("--browser-headless") ? "EXPLICITLY ENABLED (headless)" : "EXPLICITLY ENABLED (headed)") : "disabled"));
   console.log("  Computer Runtime: " + (setup.mcpCommand.includes("--enable-computer-use") ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Full-host JavaScript: " + (setup.fullHostJsEnabled ? "EXPLICITLY ENABLED" : "disabled"));

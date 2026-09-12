@@ -22,6 +22,8 @@ Server options:
   --enable-terminal                Enable bootstrap terminal_run. Disabled by default.
   --enable-project-exec            Enable Docker-sandboxed Project execution. Disabled by default.
   --personal-admin                 Allow this MCP client to mint short-lived Admin leases directly. Disabled by default.
+  --enable-owner-runtime           Enable Admin-only unrestricted Owner Runtime shell capabilities. Disabled by default.
+  --owner-shell-path <path>        Trusted login shell executable; requires --enable-owner-runtime. Default on macOS: /bin/zsh.
   --allow-command <name>           Terminal executable allowlist (repeatable).
   --enable-browser                 Enable the Admin-only Playwright browser runtime. Disabled by default.
   --enable-computer-use            Enable the Admin-only native Computer Runtime. Disabled by default.
@@ -117,14 +119,14 @@ async function main(): Promise<void> {
         reportError: reportShutdownError,
       }));
       console.error(
-        `[chatgpt-system] stdio ready; roots=${config.roots.join(",")}; terminal=${config.terminal.enabled ? "enabled" : "disabled"}; project-exec=${config.projectExec.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`,
+        `[chatgpt-system] stdio ready; roots=${config.roots.join(",")}; terminal=${config.terminal.enabled ? "enabled" : "disabled"}; owner-runtime=${config.ownerRuntime.enabled ? "enabled" : "disabled"}; project-exec=${config.projectExec.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`,
       );
       return;
     }
 
     const server = startHttp(runtime);
     server.once("listening", () => {
-      console.error(`[chatgpt-system] HTTP MCP listening on http://${config.http.host}:${config.http.port}/mcp; project-exec=${config.projectExec.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`);
+      console.error(`[chatgpt-system] HTTP MCP listening on http://${config.http.host}:${config.http.port}/mcp; owner-runtime=${config.ownerRuntime.enabled ? "enabled" : "disabled"}; project-exec=${config.projectExec.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`);
     });
     installShutdown(() => closeRuntimeResources({
       runtime,

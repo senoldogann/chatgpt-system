@@ -1,76 +1,106 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-12T18:20+03:00
-Status: Computer Runtime v2 Slice 5 complete; awaiting the next explicitly scoped capability.
+Last updated: 2026-09-12T19:37+03:00
+Status: Owner Runtime Phase 1 published as PR #39; exact-head CI and separate main-merge authorization remain the release gates.
 
 This file is a handoff cache, not the sole source of truth. A resumed agent must reconcile it against Git/worktree reality and the latest Project Continuity checkpoint before editing.
 
 ## Current goal
 
-Keep the merged Computer Runtime v2 Slice 5 baseline stable. Do not implicitly extend Slice 5; the next implementation must start from a new explicit goal/plan after reconciling current `main` and Project Continuity.
+Deliver Owner Runtime / Full-Host Development in reviewable phases so a locally approved Admin ChatGPT session can perform Codex-class local development while `Project` and `User` authority remain narrow. Phase 1 is the unrestricted one-shot `shell_run` surface; PTY, Computer Runtime productivity-ceiling removal, and final end-to-end acceptance remain separate later phases.
 
 ## Active workspace
 
-- Stable project worktree: `/Users/dogan/chatgpt-system`
-- Stable branch: `main`
-- Slice 5 implementation PR: `#37` — merged
-- Slice 5 merge commit: `b1503e438b3e43b1ae3e0e8de10626fe8bdfb739`
-- Project Continuity alias: exact alias `chatgpt-system`, anchored to `/Users/dogan/chatgpt-system`.
-- No Slice 5 implementation worktree is authoritative after the merge; old feature worktrees/branches are historical context only and must not override current Git reality.
+- Stable project root / continuity anchor: `/Users/dogan/chatgpt-system` on `main`.
+- Stable merged baseline: `main@a5923a5bbae8743abc1cd5ca39cdb73926787270`.
+- Active isolated managed worktree: `/Users/dogan/.chatgpt-system/worktrees/d0a0a546782faa2c9a9906345e9290c84508aad64b304746b50965bb2ff58ef1/d9a07fdd-6900-4143-9dda-d4ce640a571f`.
+- Active branch: `design/owner-runtime-full-host`.
+- Open pull request: `#39` — `https://github.com/senoldogann/chatgpt-system/pull/39`, base `main`.
+- Approved design: `docs/superpowers/specs/2026-09-12-owner-runtime-full-host-development-design.md`.
+- Phase 1 plan: `docs/superpowers/plans/2026-09-12-owner-runtime-phase1-shell.md`.
+- Latest implementation head before this state refresh: `452d147` (`fix: surface owner shell signaling failures`).
+- Project Continuity exact alias: `chatgpt-system`, intentionally anchored to the stable root worktree rather than this feature worktree.
 
 ## Completed
 
-- PRs #28–#35 were inspected/reconciled and merged before the final Slice 5 gate.
-- PR #36 was reviewed against the plan/CI and squash-merged as `d48b9b3b319395732334eb226dec459b961f1cff`.
-- Task 9 added content-free deterministic target-source audit metadata without persisting target text/coordinates.
-- Real-Mac acceptance exposed and fixed a stale recovery-cache bug: explicit `observe` now refreshes the shared recovery state before later semantic mutation. The fix was developed RED → GREEN and covered by native regression tests.
-- Slice 5 routing, OCR limitations, acceptance evidence, and performance notes are documented in `docs/CHATGPT_INTEGRATION.md`.
-- Exact signed helper acceptance preserved stable TCC identity; Accessibility, Screen Recording, event-listen, and event-post readiness were verified true.
-- Fixture acceptance covered AX resolve/click, stale-target refusal with fresh semantic recovery, ambiguity fail-closed behavior, OCR-only resolve/click, screen/AX verification, five semantic local actions in one `computer_run_js`, physical takeover cleanup, and the emergency chord.
-- Harmless real-app smoke covered Calculator, Finder, TextEdit, System Settings, and Chrome.
-- PR #37 exact head `ae7b2f7ed96dc53d8a7ee7b5ed1d15634441fcda` passed both hosted CI trigger sets (Node 22, Node 24, macOS-native) and was squash-merged as `b1503e438b3e43b1ae3e0e8de10626fe8bdfb739`.
-- Root `main` was fast-forwarded to the merge commit and post-merge verification passed.
+- `cb20690` — Owner Runtime full-host development design.
+- `3bc3c3a` — detailed Phase 1 shell plan and planning handoff.
+- `5a1b203` — explicit Owner Runtime startup gate/config/CLI/categorical capability reporting.
+- `3a2eda9` — shared `OwnerShellSupervisor`, authority-scoped `OwnerShellService`, bounded output tails, timeout/abort/shutdown process-group cleanup, stable errors, and runtime shutdown ownership.
+- `ccdc1c1` — strict `shell_run` MCP surface, output schema, AbortSignal propagation, Project/User denial, Owner gate enforcement, and content-free shell audit contract.
+- `6d0b66c` — ChatGPT tunnel setup propagation plus README/security/architecture/integration documentation.
+- `12ba094` — acceptance regression proving Admin can execute outside the bootstrap root while an omitted shell timeout remains independent of the legacy structured-terminal timeout.
+- `452d147` — final-review lifecycle fix: process-group signal-management failures are surfaced as stable `SHELL_FAILED` instead of producing an unhandled rejection; active child ownership remains tracked until close and failed termination attempts can be retried during shutdown.
+
+Phase 1 behavior now implemented:
+
+```text
+Admin + Personal Admin + explicit Owner Runtime gate
+  -> shell_run
+  -> trusted configured login shell
+  -> arbitrary shell syntax / executable paths / installed toolchains / host network
+  -> authority-scoped cwd as the current OS user
+  -> bounded retained stdout/stderr tails
+  -> optional finite timeout or no default wall-clock deadline
+  -> MCP abort / daemon-shutdown process-group cleanup
+```
+
+`terminal_run` remains a separate structured `shell=false` + executable-allowlist surface. `Project` and `User` still cannot use host shell execution. No persistent PTY was added in Phase 1.
 
 ## Current state
 
-Computer Runtime v2 Slice 5 has no known open implementation, test, security, hosted-CI, or real-Mac acceptance blocker. The merged baseline is on `main` at/after `b1503e438b3e43b1ae3e0e8de10626fe8bdfb739`.
-
-The current task is handoff-only: keep this file and the Project Continuity checkpoint aligned with merged Git reality. No further Computer Runtime feature layer is implied by Slice 5 completion.
-
-## Next exact step
-
-When the user next asks to continue `chatgpt-system`:
-
-1. Run the root `AGENTS.md` continuation boot sequence and `project_resume` for exact alias `chatgpt-system`.
-2. Reconcile current `main`/worktrees against the latest checkpoint before editing; do not resurrect old Task 7/8/9 branches from historical context.
-3. If the user requests a new capability, inspect the current architecture and create/confirm a new scoped plan before implementation.
-4. Preserve the accepted Slice 5 safety invariants below and rerun the relevant fresh verification gates for any later change.
-
-## Invariants
-
-- Every `computer_run_js` call keeps fresh child/Worker isolation. Reuse is limited to compatible daemon/native connections and content-free safe process-local metadata/cache.
-- Explicit fresh observation refreshes the shared recovery cache before later semantic mutation.
-- Semantic targets/window generation/display topology are revalidated before physical mutation; stale, ambiguous, unsafe, permission, takeover, and exhausted-recovery states fail closed.
-- `exists()` returns `false` only for target-not-found; other stable errors propagate.
-- Timeout/cancellation/takeover prevents later physical action and releases held input.
-- OCR fallback captures the focused display; repeated identical visible text may intentionally end in `COMPUTER_NEEDS_REPLAN` rather than guessed coordinates.
-- Never persist screenshots, OCR/AX document text, typed sensitive content, credentials, secrets, lease IDs, or raw native pointers in continuity/audit metadata.
-- Preserve other agents' dirty/untracked work.
-- No direct `main` mutation, main merge, history rewrite, or production deployment without explicit user authorization.
-- Fresh verification evidence is required before completion/PASS claims for later changes.
+Phase 1 implementation is complete in the isolated feature worktree and has no known production code/audit blocker. The final branch-scope review found one lifecycle-management defect in the timeout/abort signaling error path; it was reproduced with a RED regression, fixed in `452d147`, and reverified. A subsequent full-suite run exposed a separate test-only scheduler race in the SIGKILL escalation test; single-test repetition proved production behavior stable, and the test was converted to the supervisor's injected child/signal path for deterministic escalation evidence. The branch is published and PR #39 is open. GitHub CI status must always be evaluated against the exact current PR head because any later docs/code commit invalidates earlier hosted evidence. `main` merge remains a separate explicit authorization gate.
 
 ## Verification
 
-Final Slice 5 evidence:
+Fresh Phase 1 evidence before this state-file commit:
 
-- PR #37 hosted CI on exact feature head `ae7b2f7ed96dc53d8a7ee7b5ed1d15634441fcda`: both Node 22 jobs PASS, both Node 24 jobs PASS, both macOS-native jobs PASS.
-- PR #37: MERGED as `b1503e438b3e43b1ae3e0e8de10626fe8bdfb739`.
-- Post-merge `swift test --package-path native/macos-computer-runtime`: `164/164` passed.
-- Post-merge `npm run check`: `560/560` passed with `1` environment-gated skip.
-- Post-merge `npm audit --omit=dev`: `0` vulnerabilities.
-- Root `main` was clean and synchronized with `origin/main` at the Slice 5 merge milestone.
+- Task 1 focused config/CLI/environment suite: `29/29` PASS; TypeScript build PASS.
+- Task 2 shell lifecycle/process compatibility suite: `25/25` PASS; TypeScript build PASS.
+- Task 3 MCP/audit/catalog suite: `10/10` PASS; TypeScript build PASS.
+- Task 4 setup/docs compatibility suite: `56/56` PASS.
+- Focused Phase 1 acceptance suite: `64/64` PASS.
+- Acceptance covers Project/User denial, disabled-Admin `OWNER_RUNTIME_DISABLED`, arbitrary shell syntax and non-allowlisted executable paths, unchanged `terminal_run` allowlist behavior, Admin cwd outside the bootstrap root, daemon-secret canary isolation, bounded output without output-volume termination, no inherited legacy command timeout, explicit timeout, MCP abort, daemon shutdown, process-group cleanup, and content-free audit metadata.
+- Pre-state-commit `npm run check`: `97` test files PASS + `1` skipped; `587/587` tests PASS + `1` environment-gated skip.
+- Pre-state-commit `npm audit --omit=dev`: `0` vulnerabilities.
+- Pre-state-commit `git diff --check origin/main...HEAD`: PASS.
+- Pre-state-commit worktree: clean.
+- Final branch review found a real `terminate()` signaling-failure bug: non-`ESRCH` process-group signal errors could resolve the shell request later while also causing an unhandled rejected promise. RED regression reproduced both symptoms.
+- `452d147` fixes the lifecycle path by surfacing stable `SHELL_FAILED`, keeping active ownership until child close, and allowing later shutdown retry after a failed termination attempt.
+- Post-fix Owner shell/process/shutdown compatibility suite: `31/31` PASS; TypeScript build PASS.
+- Static scope review: no `package.json`/lockfile change, no Project/User shell widening, no `terminal_run` semantic widening, no caller-controlled shell executable/environment/PID/signal surface, and audit metadata remains content-free.
+- First final full-suite attempt after `5d5554f` had exactly one failure: the real-shell SIGKILL escalation test observed `SIGTERM` under suite load. The same test passed `10/10` in isolation, showing a setup race where a 30 ms timeout could fire before the shell installed its `trap`.
+- Escalation verification was made deterministic using the existing injected `spawnProcess`/`signalProcess` seams: fake owned PID `4242` ignores SIGTERM and emits close only on SIGKILL; the test asserts exact `-pid` SIGTERM→SIGKILL ordering. The deterministic escalation case passed `10/10` repeated runs.
+- PR #39 was opened from `design/owner-runtime-full-host`; its first published head `735a15f` passed hosted Node 22, Node 24, and `macos-native`, and GitHub reported `mergeStateStatus=CLEAN`. Any newer PR head must independently satisfy the same three hosted checks before merge.
+
+Because this state-file commit changes HEAD, exact-head completion evidence must be rerun after committing this file; do not reuse the pre-state-commit full gate as final exact-head proof.
+
+## Next exact step
+
+1. Commit this PR/handoff state refresh.
+2. Rerun exact-head local `npm run check`, `npm audit --omit=dev`, `git diff --check origin/main...HEAD`, and clean-status verification.
+3. Push the updated feature head to PR #39 and wait for exact-head Node 22, Node 24, and macOS-native CI.
+4. Verify GitHub reports the expected head SHA, server-side diff scope, all required checks successful, and `mergeStateStatus=CLEAN`.
+5. Update Project Continuity with the published exact-head evidence and stop before merging to `main`; merge remains a separate explicit authorization gate.
+6. After a verified Phase 1 merge, write the separate Phase 2 interactive-PTY implementation plan from the approved design.
+
+## Invariants
+
+- Full-host Owner Runtime is Admin-only and separately opt-in; `Project` and `User` retain current host-execution restrictions.
+- Existing `terminal_run` stays structured, allowlisted, timeout/output bounded, and `shell=false`; unrestricted shell is the distinct `shell_run` tool.
+- The MCP caller cannot choose the trusted shell executable, child environment, raw OS PID, process-group ID, arbitrary signal, or detached mode.
+- Owner Runtime executes as the current macOS user; it does not bypass TCC, sudo, Keychain, SIP, or OS authentication.
+- Daemon/tunnel/authority secrets are not automatically forwarded to Owner shell children.
+- Raw shell script, stdout/stderr, environment values, typed computer text, screenshot/OCR/AX content, credentials, secrets, lease IDs, and raw native/OS identifiers must not enter persistent audit/continuity metadata.
+- Long Owner Runtime work may omit a product wall-clock deadline, but retained memory/protocol/output payloads remain bounded and every owned execution remains stoppable through cancellation/shutdown.
+- Computer Runtime user takeover, emergency stop, held-input cleanup, bounded automatic recovery, and fail-closed semantic targeting remain authoritative and unchanged by Phase 1.
+- Local worktree/files are active implementation truth; Git is durable code/history; Project Continuity is semantic handoff memory.
+- Preserve unrelated agents/worktrees. Branch push/PR creation is authorized for this Phase 1 head; direct `main` mutation, main merge, history rewrite, or deployment still require separate explicit user authorization.
 
 ## Blockers / uncertainties
 
-- No Slice 5 blocker is known.
-- The next product/capability goal has not been selected. Do not infer one from the completed Slice 5 plan; obtain or establish a new scoped goal before implementation.
+- No known Phase 1 code, test, audit, or local-verification blocker remains before the final exact-head rerun.
+- Hosted CI passed on the first PR head `735a15f`; any later head, including this state refresh, must rerun Node 22/24 and macOS-native before merge.
+- Main merge is intentionally blocked on separate explicit user authorization even after exact-head CI is green.
+- Persistent interactive PTY is intentionally deferred to Phase 2; dependency choice remains to be validated there.
+- Screen Recording/Accessibility readiness is outside Phase 1 shell scope and will be rechecked during later Owner Runtime/Computer Runtime real-Mac acceptance.
