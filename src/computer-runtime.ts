@@ -30,10 +30,15 @@ export interface ComputerHealthResult {
 }
 
 export interface ComputerProgramSession {
+  cancel(): void;
   execute(action: ComputerAction): Promise<unknown>;
   listApps(): Promise<unknown>;
   activeWindow(): Promise<unknown>;
   screenshot(): Promise<{ pngBase64: string; width: number; height: number }>;
+  resolve(target: ComputerTarget, options: { retryBudget?: number }): Promise<ComputerResolvedTargetView>;
+  resolveMany(targets: ComputerTarget[], options: { retryBudget?: number }): Promise<ComputerResolvedTargetView[]>;
+  exists(target: ComputerTarget, options: { retryBudget?: number }): Promise<boolean>;
+  refreshObservation(): Promise<unknown>;
 }
 
 export type PointerMotionMode = "instant" | "fast" | "natural";
@@ -422,6 +427,38 @@ class PhysicalActionLane {
   }
 }
 
+function requireActiveProgram(signal: AbortSignal): void {
+  if (signal.aborted) throw new ComputerError("COMPUTER_JS_FAILED");
+}
+
+function waitForProgramDelay(
+  sleep: (milliseconds: number) => Promise<void>,
+  milliseconds: number,
+  signal: AbortSignal,
+): Promise<void> {
+  requireActiveProgram(signal);
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error: unknown | undefined): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", abort);
+      if (error === undefined) resolve();
+      else reject(error);
+    };
+    const abort = (): void => finish(new ComputerError("COMPUTER_JS_FAILED"));
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      void sleep(milliseconds).then(
+        () => finish(undefined),
+        (error: unknown) => finish(error),
+      );
+    } catch (error) {
+      finish(error);
+    }
+  });
+}
+
 export class ComputerRuntime {
   private readonly physicalLane = new PhysicalActionLane();
   private readonly now: () => number;
@@ -686,16 +723,35 @@ export class ComputerRuntime {
     return this.physicalLane.run(async () => {
       this.requireEnabled();
       const sessionLane = new PhysicalActionLane();
+      const sessionAbort = new AbortController();
+      let accepting = true;
+      const runSession = <Result>(operation: () => Promise<Result>): Promise<Result> => {
+        if (!accepting) return Promise.reject(new ComputerError("COMPUTER_JS_FAILED"));
+        return sessionLane.run(() => {
+          requireActiveProgram(sessionAbort.signal);
+          return operation();
+        });
+      };
       const session: ComputerProgramSession = Object.freeze({
-        execute: (action: ComputerAction) => sessionLane.run(() => this.executeProgramAction(action)),
-        listApps: () => this.listApps(),
-        activeWindow: () => this.activeWindow(),
-        screenshot: () => this.screenshot(),
+        cancel: () => {
+          accepting = false;
+          sessionAbort.abort();
+        },
+        execute: (action: ComputerAction) => runSession(() => this.executeProgramAction(action, sessionAbort.signal)),
+        listApps: () => runSession(() => this.listApps()),
+        activeWindow: () => runSession(() => this.activeWindow()),
+        screenshot: () => runSession(() => this.screenshot()),
+        resolve: (target: ComputerTarget, options: { retryBudget?: number }) => runSession(() => this.resolve(target, options)),
+        resolveMany: (targets: ComputerTarget[], options: { retryBudget?: number }) => runSession(() => this.resolveMany(targets, options)),
+        exists: (target: ComputerTarget, options: { retryBudget?: number }) => runSession(() => this.exists(target, options)),
+        refreshObservation: () => runSession(() => this.refreshObservation()),
       });
       try {
         return await work(session);
       } finally {
+        accepting = false;
         await sessionLane.run(async () => undefined);
+        sessionAbort.abort();
         await this.releaseInputsBestEffort();
       }
     });
@@ -841,18 +897,21 @@ export class ComputerRuntime {
     });
   }
 
-  private async executeProgramAction(action: ComputerAction): Promise<unknown> {
+  private async executeProgramAction(action: ComputerAction, signal: AbortSignal): Promise<unknown> {
     this.requireEnabled();
+    requireActiveProgram(signal);
     const prepared = preparedAction(action, this.config.maxAutomaticRetriesPerAction);
     if (prepared.localWaitMs !== undefined) {
       if (prepared.localWaitMs > this.config.maxActionProgramRuntimeMs) {
         throw new ComputerError("COMPUTER_TIMEOUT");
       }
-      await this.sleep(prepared.localWaitMs);
+      await waitForProgramDelay(this.sleep, prepared.localWaitMs, signal);
       this.requireEnabled();
+      requireActiveProgram(signal);
       return { state: "completed" };
     }
 
+    requireActiveProgram(signal);
     const result = await this.native.request(
       prepared.method!,
       prepared.params,

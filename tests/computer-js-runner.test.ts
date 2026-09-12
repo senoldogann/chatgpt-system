@@ -125,35 +125,55 @@ describe("fixed full-host computer JavaScript runner", () => {
     expect(JSON.parse(complete!.resultJson!)).toEqual({ text: "fixture-value", imported: 42 });
   });
 
-  it("exposes only the Slice 3 computer proxy and round-trips strict RPC results", async () => {
+  it("exposes the Slice 5 semantic proxy and round-trips strict resolver RPC results", async () => {
     const cwd = await tempCwd();
     const rpcCalls: Array<{ method: string; params: unknown }> = [];
     const execution = await runRunner({
       cwd,
       source: `
-        const missing = ["find", "exists"].filter((name) => name in computer);
-        const clicked = await computer.click({ x: 12, y: 34 });
-        return { missing, clicked };
+        const missing = ["find"].filter((name) => name in computer);
+        const targets = await computer.resolveMany([
+          { by: "text", text: "Name", exact: true },
+          { by: "text", text: "Submit", exact: true },
+        ], { retryBudget: 2 });
+        const exists = await computer.exists({ by: "text", text: "Optional" });
+        const fresh = await computer.refreshObservation();
+        return { missing, targetCount: targets.length, exists, fresh };
       `,
       onRpc: (message) => {
         rpcCalls.push({ method: message.method, params: message.params });
-        return {
-          type: "rpc_result",
-          id: message.id,
-          ok: true,
-          result: { state: "completed" },
-        };
+        const result = message.method === "resolve_many"
+          ? [{ source: "ax" }, { source: "ax" }]
+          : message.method === "exists"
+            ? false
+            : { snapshotId: "fresh" };
+        return { type: "rpc_result", id: message.id, ok: true, result };
       },
     });
 
     expect(execution.exitCode).toBe(0);
-    expect(rpcCalls).toEqual([{ method: "click", params: { x: 12, y: 34 } }]);
+    expect(rpcCalls).toEqual([
+      {
+        method: "resolve_many",
+        params: {
+          targets: [
+            { by: "text", text: "Name", exact: true },
+            { by: "text", text: "Submit", exact: true },
+          ],
+          retryBudget: 2,
+        },
+      },
+      { method: "exists", params: { target: { by: "text", text: "Optional" } } },
+      { method: "refresh_observation", params: {} },
+    ]);
     const complete = execution.messages.find((message) =>
       typeof message === "object" && message !== null && (message as { type?: unknown }).type === "complete"
     ) as { resultJson?: string } | undefined;
     expect(JSON.parse(complete!.resultJson!)).toEqual({
       missing: [],
-      clicked: { state: "completed" },
+      targetCount: 2,
+      exists: false,
+      fresh: { snapshotId: "fresh" },
     });
   });
 

@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ComputerJsRpcMethod } from "./computer-js-protocol.js";
 import { ComputerError } from "./computer-errors.js";
 import type { ComputerProgramSession } from "./computer-runtime.js";
-import type { ComputerAction } from "./computer-types.js";
+import type { ComputerAction, ComputerTarget } from "./computer-types.js";
 
 const emptySchema = z.object({}).strict();
 const selectorFields = {
@@ -10,6 +10,24 @@ const selectorFields = {
   name: z.string().min(1).max(4_096).optional(),
 };
 const pointFields = { x: z.number().finite(), y: z.number().finite() };
+const targetTextSchema = z.string().min(1).max(4_096);
+const retryBudgetSchema = z.number().int().min(0).max(2);
+const computerTargetSchema = z.discriminatedUnion("by", [
+  z.object({ by: z.literal("index"), snapshotId: targetTextSchema, index: z.number().int().nonnegative() }).strict(),
+  z.object({
+    by: z.literal("role"),
+    role: targetTextSchema,
+    name: targetTextSchema.optional(),
+    exact: z.boolean().optional(),
+  }).strict(),
+  z.object({ by: z.literal("text"), text: targetTextSchema, exact: z.boolean().optional() }).strict(),
+  z.object({ by: z.literal("label"), label: targetTextSchema, exact: z.boolean().optional() }).strict(),
+  z.object({ by: z.literal("ocrText"), text: targetTextSchema, exact: z.boolean().optional() }).strict(),
+  z.object({ by: z.literal("point"), ...pointFields }).strict(),
+]);
+type ParsedComputerTarget = z.infer<typeof computerTargetSchema>;
+const coordinateSchema = z.object(pointFields).strict();
+const actionLocationFields = { target: computerTargetSchema, retryBudget: retryBudgetSchema.optional() };
 const motionModeSchema = z.enum(["instant", "fast", "natural"]);
 const mouseButtonSchema = z.enum(["left", "right", "middle"]);
 const modifierSchema = z.enum(["control", "option", "shift", "command"]);
@@ -37,32 +55,43 @@ const verificationSchema = z.discriminatedUnion("kind", [
 
 const openSchema = z.object({ ...selectorFields, timeoutMs: focusTimeoutSchema.optional() }).strict();
 const focusSchema = z.object({ ...selectorFields, timeoutMs: focusTimeoutSchema.optional() }).strict();
-const moveSchema = z.object({
-  ...pointFields,
-  motionMode: motionModeSchema.optional(),
-  verify: verificationSchema.optional(),
-}).strict();
-const clickSchema = z.object({
-  ...pointFields,
-  button: mouseButtonSchema.optional(),
-  motionMode: motionModeSchema.optional(),
-  verify: verificationSchema.optional(),
-}).strict();
+const moveSchema = z.union([
+  z.object({ ...pointFields, motionMode: motionModeSchema.optional(), verify: verificationSchema.optional() }).strict(),
+  z.object({ ...actionLocationFields, motionMode: motionModeSchema.optional(), verify: verificationSchema.optional() }).strict(),
+]);
+const clickSchema = z.union([
+  z.object({
+    ...pointFields,
+    button: mouseButtonSchema.optional(),
+    motionMode: motionModeSchema.optional(),
+    verify: verificationSchema.optional(),
+  }).strict(),
+  z.object({
+    ...actionLocationFields,
+    button: mouseButtonSchema.optional(),
+    motionMode: motionModeSchema.optional(),
+    verify: verificationSchema.optional(),
+  }).strict(),
+]);
 const dragSchema = z.object({
-  from: z.object(pointFields).strict(),
-  to: z.object(pointFields).strict(),
+  from: z.union([coordinateSchema, computerTargetSchema]),
+  to: z.union([coordinateSchema, computerTargetSchema]),
+  retryBudget: retryBudgetSchema.optional(),
   button: mouseButtonSchema.optional(),
   motionMode: motionModeSchema.optional(),
   verify: verificationSchema.optional(),
 }).strict();
-const scrollSchema = z.object({
+const scrollFields = {
   vertical: z.number().int().min(-10_000).max(10_000),
   horizontal: z.number().int().min(-10_000).max(10_000),
-  x: z.number().finite().optional(),
-  y: z.number().finite().optional(),
   motionMode: motionModeSchema.optional(),
   verify: verificationSchema.optional(),
-}).strict();
+};
+const scrollSchema = z.union([
+  z.object(scrollFields).strict(),
+  z.object({ ...scrollFields, ...pointFields }).strict(),
+  z.object({ ...scrollFields, ...actionLocationFields }).strict(),
+]);
 const typeTextSchema = z.object({
   text: z.string().max(16_384),
   ...selectorFields,
@@ -85,6 +114,47 @@ const waitUntilChangedSchema = z.object({
   baselineDigest: z.string().min(1).max(4_096),
   timeoutMs: verificationTimeoutSchema.optional(),
 }).strict();
+const targetRequestSchema = z.object({
+  target: computerTargetSchema,
+  retryBudget: retryBudgetSchema.optional(),
+}).strict();
+const targetsRequestSchema = z.object({
+  targets: z.array(computerTargetSchema).min(1).max(100),
+  retryBudget: retryBudgetSchema.optional(),
+}).strict();
+
+function retryOptions(retryBudget: number | undefined): { retryBudget?: number } {
+  return retryBudget === undefined ? {} : { retryBudget };
+}
+
+function canonicalTarget(target: ParsedComputerTarget): ComputerTarget {
+  switch (target.by) {
+    case "index":
+      return { by: "index", snapshotId: target.snapshotId, index: target.index };
+    case "role":
+      return {
+        by: "role",
+        role: target.role,
+        ...(target.name === undefined ? {} : { name: target.name }),
+        ...(target.exact === undefined ? {} : { exact: target.exact }),
+      };
+    case "text":
+    case "ocrText":
+      return {
+        by: target.by,
+        text: target.text,
+        ...(target.exact === undefined ? {} : { exact: target.exact }),
+      };
+    case "label":
+      return {
+        by: "label",
+        label: target.label,
+        ...(target.exact === undefined ? {} : { exact: target.exact }),
+      };
+    case "point":
+      return { by: "point", x: target.x, y: target.y };
+  }
+}
 
 function parse<T>(schema: z.ZodType<T>, params: unknown): T {
   const parsed = schema.safeParse(params);
@@ -104,6 +174,21 @@ export async function dispatchComputerJsRpc(
     case "screenshot":
       parse(emptySchema, params);
       return session.screenshot();
+    case "resolve": {
+      const input = parse(targetRequestSchema, params);
+      return session.resolve(canonicalTarget(input.target), retryOptions(input.retryBudget));
+    }
+    case "resolve_many": {
+      const input = parse(targetsRequestSchema, params);
+      return session.resolveMany(input.targets.map(canonicalTarget), retryOptions(input.retryBudget));
+    }
+    case "exists": {
+      const input = parse(targetRequestSchema, params);
+      return session.exists(canonicalTarget(input.target), retryOptions(input.retryBudget));
+    }
+    case "refresh_observation":
+      parse(emptySchema, params);
+      return session.refreshObservation();
     case "pointer_position":
       parse(emptySchema, params);
       return session.execute({ type: "pointer_position" });

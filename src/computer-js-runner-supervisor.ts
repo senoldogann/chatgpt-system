@@ -35,6 +35,7 @@ export interface ComputerJsRunnerRequest {
   cwd: string;
   timeoutMs: number;
   signal?: AbortSignal;
+  onTerminate?: () => void;
   onRpc: (method: ComputerJsRpcMethod, params: unknown) => Promise<unknown>;
 }
 
@@ -160,6 +161,7 @@ export class ComputerJsRunnerSupervisor {
         if (terminal) return;
         terminal = true;
         detachRequestGuards();
+        request.onTerminate?.();
         const primary = error instanceof ComputerError ? error : new ComputerError("COMPUTER_JS_FAILED");
         void this.terminate(active).then(
           () => reject(primary),
