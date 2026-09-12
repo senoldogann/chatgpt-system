@@ -39,7 +39,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-async function fixture(fullHostJsEnabled = true) {
+async function fixture(fullHostJsEnabled = true, ownerRuntimeEnabled = false) {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-js-mcp-"));
   cleanups.push(base);
   const root = path.join(base, "root");
@@ -58,6 +58,14 @@ async function fixture(fullHostJsEnabled = true) {
     },
 
     personalAdmin: { enabled: true },
+    ownerRuntime: {
+      enabled: ownerRuntimeEnabled,
+      shellPath: "/bin/zsh",
+      maxScriptBytes: 262_144,
+      maxTerminalSessions: 8,
+      maxTerminalOutputBytes: 262_144,
+      maxTerminalInputBytes: 65_536,
+    },
     computerUse: {
       enabled: true,
       fullHostJsEnabled,
@@ -180,6 +188,36 @@ describe("computer_run_js MCP tool", () => {
     }
   });
 
+  it("accepts explicit timeout above the legacy 30s cap only when Owner Runtime is enabled", async () => {
+    const owner = await fixture(true, true);
+    try {
+      const admin = await owner.runtime.authority.start({ profile: "admin" });
+      const result = await owner.client.callTool({
+        name: "computer_run_js",
+        arguments: { authorityLeaseId: admin.leaseId, source: "return 1;", timeoutMs: 60_000 },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(owner.fake.calls[0]?.timeoutMs).toBe(60_000);
+    } finally {
+      await owner.transport.terminateSession();
+      await owner.client.close();
+    }
+
+    const legacy = await fixture(true, false);
+    try {
+      const admin = await legacy.runtime.authority.start({ profile: "admin" });
+      const result = await legacy.client.callTool({
+        name: "computer_run_js",
+        arguments: { authorityLeaseId: admin.leaseId, source: "return 1;", timeoutMs: 60_000 },
+      });
+      expect(result.isError).toBe(true);
+      expect(legacy.fake.calls).toHaveLength(0);
+    } finally {
+      await legacy.transport.terminateSession();
+      await legacy.client.close();
+    }
+  });
+
   it("bounds source at the MCP schema and stdout/stderr at the public output schema", async () => {
     const enabled = await fixture(true);
     try {
@@ -215,7 +253,10 @@ describe("computer_run_js MCP tool", () => {
       },
     };
     const runtime = {
-      config: { computerUse: { fullHostJsEnabled: true, maxJsRuntimeMs: 30_000 } },
+      config: {
+        ownerRuntime: { enabled: true },
+        computerUse: { fullHostJsEnabled: true, maxJsSourceBytes: 262_144, maxJsRuntimeMs: 30_000 },
+      },
       audit: { record: async () => undefined },
       authority: { resolve: () => ({ profile: "admin" }) },
       computerJs: { run: async (input: ComputerJsRunInput) => { observed.push(input); return { stdout: "", stderr: "" }; } },

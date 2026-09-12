@@ -87,6 +87,15 @@ describe("ComputerJsRunnerSupervisor", () => {
   });
 
 
+  it("runs successfully when no local deadline is supplied", async () => {
+    const supervisor = createSupervisor();
+    await expect(supervisor.run({
+      source: "return 42;",
+      cwd: await tempCwd(),
+      onRpc: async () => ({}),
+    })).resolves.toMatchObject({ result: 42 });
+  });
+
   it("rejects oversized source before spawning", async () => {
     let spawnCount = 0;
     const supervisor = createSupervisor({

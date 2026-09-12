@@ -726,7 +726,10 @@ export class ComputerRuntime {
     return this.physical("release_inputs", {});
   }
 
-  async withExclusiveProgram<T>(work: (session: ComputerProgramSession) => Promise<T>): Promise<T> {
+  async withExclusiveProgram<T>(
+    work: (session: ComputerProgramSession) => Promise<T>,
+    options: { ownerMode?: boolean | undefined } = {},
+  ): Promise<T> {
     this.requireEnabled();
     return this.physicalLane.run(async () => {
       this.requireEnabled();
@@ -745,7 +748,8 @@ export class ComputerRuntime {
           accepting = false;
           sessionAbort.abort();
         },
-        execute: (action: ComputerAction) => runSession(() => this.executeProgramAction(action, sessionAbort.signal)),
+        execute: (action: ComputerAction) => runSession(() =>
+          this.executeProgramAction(action, sessionAbort.signal, options.ownerMode === true)),
         listApps: () => runSession(() => this.listApps()),
         activeWindow: () => runSession(() => this.activeWindow()),
         screenshot: () => runSession(() => this.screenshot()),
@@ -953,12 +957,16 @@ export class ComputerRuntime {
     });
   }
 
-  private async executeProgramAction(action: ComputerAction, signal: AbortSignal): Promise<unknown> {
+  private async executeProgramAction(
+    action: ComputerAction,
+    signal: AbortSignal,
+    ownerMode = false,
+  ): Promise<unknown> {
     this.requireEnabled();
     requireActiveProgram(signal);
     const prepared = preparedAction(action, this.config.maxAutomaticRetriesPerAction);
     if (prepared.localWaitMs !== undefined) {
-      if (prepared.localWaitMs > this.config.maxActionProgramRuntimeMs) {
+      if (!ownerMode && prepared.localWaitMs > this.config.maxActionProgramRuntimeMs) {
         throw new ComputerError("COMPUTER_TIMEOUT");
       }
       await waitForProgramDelay(prepared.localWaitMs, signal);
