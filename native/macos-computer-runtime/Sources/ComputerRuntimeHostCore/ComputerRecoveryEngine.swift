@@ -303,7 +303,7 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
 
         let capture: ScreenImageCapture
         do {
-            capture = try await screenCapture.captureMainDisplayImage()
+            capture = try await screenCapture.captureFocusedDisplayImage()
         } catch {
             throw ComputerRecoveryError.unavailable
         }

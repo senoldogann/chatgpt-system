@@ -55,6 +55,36 @@ final class RecoveryEngineTests: XCTestCase {
         XCTAssertEqual(captureCount, 1)
     }
 
+    func testOcrOnASecondaryDisplayResolvesIntoThatDisplayCoordinateSpace() async throws {
+        let accessibility = FakeRecoveryAccessibility(elements: [])
+        let ocr = CountingOCR(
+            fast: [
+                OcrTextCandidate(
+                    text: "Visual Submit",
+                    bounds: ComputerBounds(x: 50, y: 50, width: 100, height: 25),
+                    confidence: 0.95,
+                    source: .fast,
+                    observationId: "ocr-secondary"
+                ),
+            ],
+            accurate: []
+        )
+        let capture = CountingScreenCapture(
+            imageWidth: 200,
+            imageHeight: 100,
+            screenBounds: ComputerBounds(x: 1_440, y: -180, width: 1_000, height: 500)
+        )
+        let engine = makeEngine(accessibility: accessibility, ocr: ocr, capture: capture)
+
+        let result = try await engine.resolve(.ocrText(text: "Visual Submit", exact: true), retryBudget: 2)
+
+        XCTAssertEqual(result.source, .ocr)
+        XCTAssertEqual(result.bounds, ComputerBounds(x: 1_690, y: 70, width: 500, height: 125))
+        XCTAssertEqual(result.actionPoint, ComputerPoint(x: 1_940, y: 132.5))
+        let captureCount = await capture.captureCount
+        XCTAssertEqual(captureCount, 1)
+    }
+
     func testPersistentAmbiguityStopsWithNeedsReplanWithinBudget() async {
         let accessibility = FakeRecoveryAccessibility(elements: [
             button(index: 1, title: "Save", x: 10),
@@ -260,7 +290,7 @@ private actor CountingScreenCapture: ScreenImageCapturing {
         self.capture = ScreenImageCapture(image: context.makeImage()!, screenBounds: screenBounds)
     }
 
-    func captureMainDisplayImage() async throws -> ScreenImageCapture {
+    func captureFocusedDisplayImage() async throws -> ScreenImageCapture {
         captureCount += 1
         return capture
     }
