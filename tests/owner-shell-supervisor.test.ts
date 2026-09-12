@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
 import { OwnerShellSupervisor } from "../src/owner-shell-supervisor.js";
 
@@ -95,16 +97,36 @@ describe("OwnerShellSupervisor", () => {
   });
 
   it("escalates to SIGKILL when the owned process group ignores SIGTERM", async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      pid: number;
+      stdout: PassThrough;
+      stderr: PassThrough;
+      kill: (signal?: NodeJS.Signals) => boolean;
+    };
+    child.pid = 4242;
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => true;
+    const signals: Array<{ target: number; signal: NodeJS.Signals }> = [];
+
     const supervisor = new OwnerShellSupervisor({
       maxRetainedBytesPerStream: 1024,
-      processStopGraceMs: 20,
+      processStopGraceMs: 5,
+      spawnProcess: (() => child) as never,
+      signalProcess: (target, signal) => {
+        signals.push({ target, signal });
+        if (signal === "SIGKILL") {
+          queueMicrotask(() => child.emit("close", null, "SIGKILL"));
+        }
+      },
     });
-    try {
-      const result = await supervisor.run(runInput("trap '' TERM; while :; do sleep 1; done", { timeoutMs: 30 }));
-      expect(result.timedOut).toBe(true);
-      expect(result.signal).toBe("SIGKILL");
-    } finally {
-      await supervisor.close();
-    }
+
+    const result = await supervisor.run(runInput("ignored", { timeoutMs: 5 }));
+    expect(result.timedOut).toBe(true);
+    expect(result.signal).toBe("SIGKILL");
+    expect(signals).toEqual([
+      { target: -4242, signal: "SIGTERM" },
+      { target: -4242, signal: "SIGKILL" },
+    ]);
   });
 });

@@ -1,6 +1,6 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-12T19:33+03:00
+Last updated: 2026-09-12T19:37+03:00
 Status: Owner Runtime Phase 1 implemented and locally verified; remote PR/CI publication gate remains.
 
 This file is a handoff cache, not the sole source of truth. A resumed agent must reconcile it against Git/worktree reality and the latest Project Continuity checkpoint before editing.
@@ -48,7 +48,7 @@ Admin + Personal Admin + explicit Owner Runtime gate
 
 ## Current state
 
-Phase 1 implementation is complete in the isolated feature worktree and has no known local code/test/audit blocker. The final branch-scope review found one lifecycle-management defect in the timeout/abort signaling error path; it was reproduced with a RED regression, fixed in `452d147`, and reverified. The user has now explicitly authorized the next remote step: branch push, Phase 1 PR creation, and hosted CI verification. `main` merge remains a separate authorization gate.
+Phase 1 implementation is complete in the isolated feature worktree and has no known production code/audit blocker. The final branch-scope review found one lifecycle-management defect in the timeout/abort signaling error path; it was reproduced with a RED regression, fixed in `452d147`, and reverified. A subsequent full-suite run exposed a separate test-only scheduler race in the SIGKILL escalation test; single-test repetition proved production behavior stable, and the test was converted to the supervisor's injected child/signal path for deterministic escalation evidence. The user has explicitly authorized branch push, Phase 1 PR creation, and hosted CI verification. `main` merge remains a separate authorization gate.
 
 ## Verification
 
@@ -68,12 +68,14 @@ Fresh Phase 1 evidence before this state-file commit:
 - `452d147` fixes the lifecycle path by surfacing stable `SHELL_FAILED`, keeping active ownership until child close, and allowing later shutdown retry after a failed termination attempt.
 - Post-fix Owner shell/process/shutdown compatibility suite: `31/31` PASS; TypeScript build PASS.
 - Static scope review: no `package.json`/lockfile change, no Project/User shell widening, no `terminal_run` semantic widening, no caller-controlled shell executable/environment/PID/signal surface, and audit metadata remains content-free.
+- First final full-suite attempt after `5d5554f` had exactly one failure: the real-shell SIGKILL escalation test observed `SIGTERM` under suite load. The same test passed `10/10` in isolation, showing a setup race where a 30 ms timeout could fire before the shell installed its `trap`.
+- Escalation verification was made deterministic using the existing injected `spawnProcess`/`signalProcess` seams: fake owned PID `4242` ignores SIGTERM and emits close only on SIGKILL; the test asserts exact `-pid` SIGTERM→SIGKILL ordering. The deterministic escalation case passed `10/10` repeated runs.
 
 Because this state-file commit changes HEAD, exact-head completion evidence must be rerun after committing this file; do not reuse the pre-state-commit full gate as final exact-head proof.
 
 ## Next exact step
 
-1. Commit this `docs/PROJECT_STATE.md` handoff refresh.
+1. Commit the deterministic escalation-test stabilization together with this state refresh.
 2. Rerun exact-head `npm run check`, `npm audit --omit=dev`, `git diff --check origin/main...HEAD`, and clean-status verification on the resulting head.
 3. Update Project Continuity with the final local exact-head evidence.
 4. Push `design/owner-runtime-full-host`, open the Phase 1 PR, wait for exact-head Node 22/24 and macOS-native CI, then verify server-side diff scope, head SHA, and mergeability.
