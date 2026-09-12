@@ -74,6 +74,23 @@ public protocol AccessibilityReading: Sendable {
     func observe(for application: WorkspaceApplication, limits: ObservationLimits) throws -> ComputerObservation
 }
 
+protocol ComputerObservationCaching: Sendable {
+    func store(_ observation: CachedComputerObservation)
+    func current(
+        appIdentity: String,
+        windowIdentity: String,
+        windowGeneration: String,
+        displayTopologyDigest: String
+    ) -> CachedComputerObservation?
+    func invalidate()
+    func updateCapability(
+        appIdentity: String,
+        windowIdentity: String,
+        windowGeneration: String,
+        capability: PerceptionCapabilityProfile
+    )
+}
+
 public protocol ScreenshotCapturing: Sendable {
     func captureMainDisplay(maxBytes: Int) async throws -> ComputerScreenshot
 }
