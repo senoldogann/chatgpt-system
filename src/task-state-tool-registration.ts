@@ -155,7 +155,7 @@ export function registerTaskStateTool(server: McpServer, runtime: TaskStateToolR
         if (verification.required && verification.overallStatus !== "PASS") {
           throw new VerificationRequiredError(verification.overallStatus);
         }
-        return taskState.complete(input.taskId, input.summary, input.evidenceRefs, input.cwd);
+        return taskState.complete(input.taskId, input.summary, input.evidenceRefs, input.cwd, verification.observed);
       }
       return taskState.fail(input.taskId, input.summary, input.evidenceRefs, input.cwd);
     }),
