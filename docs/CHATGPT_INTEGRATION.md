@@ -4,7 +4,7 @@ This runbook connects `chatgpt-system` to ChatGPT Web/Desktop through an OpenAI 
 
 Browser Runtime is part of the same shared authority boundary. ChatGPT remains the reasoning agent; Playwright is deterministic browser infrastructure.
 
-Computer Runtime v2 Slice 4 keeps the accepted Swift/macOS 14+ helper and strict low-level `computer_*` surface, then adds separately gated owner-trust `computer_run_js`. ChatGPT remains the reasoning agent; the native helper stays deterministic observation/input infrastructure while the JavaScript runner is an explicit full-host capability boundary.
+Computer Runtime v2 Slice 5 keeps the accepted Swift/macOS 14+ helper and separately gated owner-trust `computer_run_js`, then adds semantic targets, bounded AX/Vision recovery, stale-target refusal, and revalidation-aware physical actions. ChatGPT remains the reasoning agent; the native helper stays deterministic observation/input infrastructure while the JavaScript runner remains an explicit full-host capability boundary.
 
 ## Architecture
 
@@ -131,7 +131,7 @@ The runtime never executes repository `.build/release` output as the production 
 
 ## 3a. Build, sign, and install Computer Runtime v2
 
-The native helper remains under `native/macos-computer-runtime`, requires macOS 14+, and communicates only through inherited stdin/stdout using strict bounded NDJSON. Slice 3 established the TypeScript supervisor, Admin policy, strict low-level MCP registration, bounded typed `computer_run`, stable daily-driver installation, takeover safety, and ordered shutdown cleanup. Slice 4 adds the separate full-host JavaScript runner without changing the native helper protocol.
+The native helper remains under `native/macos-computer-runtime`, requires macOS 14+, and communicates only through inherited stdin/stdout using strict bounded NDJSON. Slice 3 established the TypeScript supervisor, Admin policy, strict low-level MCP registration, bounded typed `computer_run`, stable daily-driver installation, takeover safety, and ordered shutdown cleanup. Slice 4 added the separate full-host JavaScript runner. Slice 5 adds native target resolution/recovery, focused-display Vision OCR fallback, semantic physical-action inputs, and matching semantic helpers inside `computer_run_js`.
 
 Run:
 
@@ -163,11 +163,48 @@ com.senoldogann.chatgpt-system.computer-runtime
 com.senoldogann.chatgpt-system.computer-runtime.fixture
 ```
 
-The native protocol implements passive `health`, bounded `list_apps`, AX-first `active_window` / `observe`, bounded in-memory ScreenCaptureKit `screenshot`, app open/focus, pointer movement, click/double-click, mouse down/up, drag, bounded scroll, Unicode typing, named key/chord actions, `release_inputs`, and deterministic AX/text/screen-region verification primitives. Health reports passive Accessibility, Screen Recording, event-listen, and event-post readiness without requesting permission.
+The native protocol implements passive `health`, bounded `list_apps`, AX-first `active_window` / explicit-fresh `observe`, `resolve_target` / `resolve_targets`, bounded in-memory ScreenCaptureKit `screenshot`, app open/focus, pointer movement, click/double-click, mouse down/up, drag, bounded scroll, Unicode typing, named key/chord actions, `release_inputs`, and deterministic AX/text/screen-region verification primitives. Semantic physical actions resolve through the shared recovery engine immediately before controller mutation. Health reports passive Accessibility, Screen Recording, event-listen, and event-post readiness without requesting permission.
 
 Physical mutations are serialized and every synthetic CoreGraphics event uses one runtime-owned tag. A listen-only takeover monitor ignores owned events, interrupts active actions on conservative unowned user input, and recognizes the fixed Control+Option+Command+Escape emergency chord. TCC is only preflighted; the protocol does not request or bypass Accessibility, Screen Recording, event-listen, or event-post permission.
 
-The fixture remains deterministic local acceptance infrastructure only and contains no user data. Slice 4 adds `computer_run_js` behind `--enable-computer-use --enable-full-host-js`. Scripts run as the current macOS user with normal Node.js APIs; they are not root-confined and this is not an OS sandbox. Source is delivered only over stdin to the fixed runner entrypoint. The daemon strips its secret-bearing environment before spawn while preserving basic user environment such as HOME/PATH. Ordinary descendants remain in the owned POSIX process group and are terminated on normal completion, timeout, cancellation, takeover, or shutdown; deliberately detached or daemonized descendants can escape that group and are not claimed as contained. Slice 5 OCR fallback, semantic target resolution, stale-target detection, and the recovery ladder remain absent. Installing or testing the native helper does not itself require restarting the daily-driver daemon.
+The fixture remains deterministic local acceptance infrastructure only and contains no user data. `computer_run_js` remains behind `--enable-computer-use --enable-full-host-js`. Scripts run as the current macOS user with normal Node.js APIs; they are not root-confined and this is not an OS sandbox. Source is delivered only over stdin to the fixed runner entrypoint. The daemon strips its secret-bearing environment before spawn while preserving basic user environment such as HOME/PATH. Ordinary descendants remain in the owned POSIX process group and are terminated on normal completion, timeout, cancellation, takeover, or shutdown; deliberately detached or daemonized descendants can escape that group and are not claimed as contained. Slice 5 keeps target/OCR/AX content out of durable caches and audit metadata; the bounded native observation cache is in-memory only. Installing or testing the native helper does not itself require restarting the daily-driver daemon.
+
+### 3b. Slice 5 routing, recovery, and acceptance
+
+Use the least powerful deterministic route that can satisfy the task:
+
+1. Prefer Browser Runtime for ordinary web semantics.
+2. For native desktop UI, prefer AX-backed `role`, `label`, `text`, or fresh `index` targets.
+3. Use `refreshObservation()` after a known UI mutation/reorder when the next target may have moved; native `observe` refreshes the recovery cache as well as returning the fresh bounded observation.
+4. Use `ocrText` only when structured AX evidence is insufficient or the target is deliberately visual-only. The recovery ladder is bounded to fast then accurate Vision OCR and never retries without limit.
+5. Use explicit point targets only when the caller supplied the point. Ambiguous, stale, unsafe, permission, takeover, and exhausted-recovery states fail closed instead of guessing coordinates.
+
+Direct `computer_move_mouse`, `computer_click`, `computer_drag`, and positioned `computer_scroll` accept semantic targets in the Slice 5 branch contract; typed `computer_run` has the same semantic-target parity. `computer_run_js` exposes `resolve`, `resolveMany`, `exists`, and `refreshObservation`, plus semantic action inputs. `exists` returns `false` only for target-not-found and propagates ambiguity/stale/permission/takeover failures.
+
+The current Vision recovery path captures the **focused display**, not a cropped target region. Region verification itself is cropped and digest-only. Repeated identical visible text on the focused display can therefore make an OCR target ambiguous and produce `COMPUTER_NEEDS_REPLAN`; callers should narrow the visible state rather than guess. Cached observations are bounded/in-memory, but known UI reorders should be followed by explicit fresh observation before the next semantic mutation.
+
+Real-Mac acceptance on 2026-09-12 used the exact signed helper identity (`tccIdentityStable: true`) with Accessibility, Screen Recording, event-listen, and event-post readiness all true. Recorded evidence was content-free timing/count metadata only:
+
+| Acceptance probe | Result |
+| --- | --- |
+| AX fixture target | `source=ax`; resolve 64.5 ms; verified click effect |
+| stale index after intentional reorder | `COMPUTER_STALE_SNAPSHOT`; status unchanged; fresh semantic `Reorder Alpha` recovery succeeded in 179.8 ms |
+| duplicate semantic target | `COMPUTER_NEEDS_REPLAN` in 51.9 ms; no pointer/status change |
+| OCR-only fixture target | `source=ocr`; resolve 574 ms; semantic click + screen-region verification 511.2 ms; AX status confirmed effect |
+| one JS fixture workflow | 5 semantic local pointer actions in 57.5 ms, one model/tool turn |
+| physical takeover | unowned input interrupted an active held drag with `COMPUTER_USER_TAKEOVER`; OS left-button state was `up` afterward |
+| emergency chord | unowned Control+Option+Command+Escape aligned into an active pointer action returned `COMPUTER_USER_TAKEOVER` |
+| Calculator cold/warm native request | 59.7 ms / 2.3 ms |
+| Calculator warm AX resolve | 8.3-14.4 ms |
+| main-display screenshot | 235.9 ms, 1710x1112, 1,095,457 decoded PNG bytes in the measured run |
+| Calculator focused-display OCR | `source=ocr`, 2991.7 ms |
+| Calculator 5-step semantic workflow | 54.7 ms; 5 local actions; 6 logical native IPC requests; one model/tool turn |
+| Calculator observe+resolveMany+5 moves+screenshot | 310.6 ms end-to-end; 9 logical native IPC requests; one screenshot; one model/tool turn |
+| connection reuse | same native helper PID remained active across two separate ordinary `computer_run_js` calls |
+
+The timing values are one controlled acceptance run, not latency guarantees. Native IPC counts above are logical request counts at the TypeScript/native boundary; internal Vision candidate work is deliberately not persisted in audit logs.
+
+An independent repeat after the fresh-observation recovery-cache fix measured 44.5 ms cold / 7.3 ms warm native health, 2.9-12.3 ms warm Calculator AX resolution, a 220.9 ms main-display screenshot, a 1694.6 ms focused-display OCR resolve, and a 318.9 ms Calculator `active_window` + fresh observe + `resolveMany` + five semantic moves + screenshot workflow using 9 logical native IPC requests. Finder, TextEdit, System Settings, and Chrome also completed harmless frontmost/observation smoke checks; System Settings had one transient `openApp` unavailable result even though it became frontmost, after which `active_window` and fresh observation succeeded.
 
 ## 4. Install the browser binary
 
@@ -394,7 +431,7 @@ browser_close
 
 `browser_health` is lease-free and categorical. Every other browser tool requires Admin authority. Browser MCP schemas do not accept raw selectors, JavaScript, CDP endpoints, proxy/executable settings, cookie/storage operations, or file-upload paths.
 
-Computer Runtime v2 Slice 4 exposes this strict MCP catalog:
+Computer Runtime v2 Slice 5 exposes this strict MCP catalog:
 
 ```text
 computer_health
@@ -638,7 +675,7 @@ Browser page IDs and diagnostic buffers are in-memory only. The dedicated browse
 
 Validate Web first, then Desktop with the same installed plugin/backend. Do not create a second permanent authority implementation for Desktop. Count actual MCP calls, not UI labels, as acceptance evidence.
 
-Browser Runtime exists so normal web tasks can prefer deterministic semantic automation. Computer Runtime v2 Slice 4 is the separate Admin-gated native desktop-control surface. ChatGPT can use strict low-level computer tools, typed `computer_run`, and separately gated owner-trust `computer_run_js`. Slice 5 semantic target resolution, OCR fallback, stale-target recovery, and recovery ladder remain separate later capabilities.
+Browser Runtime exists so normal web tasks can prefer deterministic semantic automation. Computer Runtime v2 Slice 5 is the separate Admin-gated native desktop-control surface. ChatGPT can use direct semantic/coordinate computer tools, typed `computer_run`, and separately gated owner-trust `computer_run_js`; the native helper owns AX-first resolution, bounded recovery, focused-display Vision fallback, and fail-closed stale/ambiguous target handling.
 
 ## 20. Troubleshooting order
 
@@ -686,11 +723,11 @@ Implemented:
 - stable fixed-path daily-driver helper signing/install plus disposable helper/fixture packaging;
 - lease-free `computer_health`, Admin-only strict `computer_*` MCP tools, bounded typed `computer_run`, and separately gated Admin-only `computer_run_js`;
 - fixed per-call full-host runner with stdin-only source, sanitized secret-bearing environment, bounded source/runtime/output, private low-level computer RPC, process-group cleanup for ordinary descendants, request cancellation, and takeover-fatal termination;
-- no OCR, semantic target resolver, stale-target recovery, or recovery engine in Slice 4;
+- Slice 5 semantic AX/label/text/index/point/OCR targets, bounded recovery, stale-snapshot refusal, focused-display Vision fallback, and fresh-observation cache refresh;
 - lease expiry/revoke/isolation;
 - audit redaction.
 
 Next separate capability layers:
 
-- Slice 5 semantic target resolution, OCR fallback, stale-target recovery, and recovery ladder;
+- no additional Computer Runtime feature layer is implied by Slice 5 completion; any expansion requires a separate plan;
 - typed root-only ServiceManagement/XPC operations only for concrete root-only needs.
