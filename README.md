@@ -82,9 +82,9 @@ The shared runtime currently includes:
 - deterministic app open/focus, pointer movement, click/double-click, mouse down/up, drag, scroll, Unicode typing, named keys/chords, and `release_inputs` on one serialized physical-action lane;
 - one runtime-owned CoreGraphics event tag, listen-only takeover monitoring, fixed Control+Option+Command+Escape emergency stop, and deterministic AX/text/screen-region verification primitives;
 - dedicated TypeScript native-host supervisor with fixed helper path, strict request/response correlation, crash/restart handling, bounded frames, and one shared `ComputerRuntime`;
-- lease-free categorical `computer_health`, Admin-only strict `computer_*` MCP tools, and bounded typed `computer_run` with no automatic mutation retry or rollback claim;
+- lease-free categorical `computer_health`, Admin-only strict `computer_*` MCP tools, and typed `computer_run`; in Admin Owner Runtime it has no legacy 100-action or implicit 30-second productivity cap, while returned step summaries and payloads remain bounded;
 - stable daily-driver installer at `~/.chatgpt-system/ChatGPTSystemComputerRuntime.app`, preserving the fixed bundle ID `com.senoldogann.chatgpt-system.computer-runtime` and designated requirement across updates;
-- Admin-only `computer_run_js` behind the separate `--enable-full-host-js` gate, using a fixed runner entrypoint, stdin-only source delivery, sanitized child environment, bounded runtime/output, private low-level computer RPC, and per-call process isolation;
+- Admin-only `computer_run_js` behind the separate `--enable-full-host-js` gate, using a fixed runner entrypoint, stdin-only source delivery, sanitized child environment, bounded source/output/result memory, private low-level computer RPC, and per-call process isolation; Admin Owner Runtime may omit the wall-clock deadline while explicit timeout/cancellation remain authoritative;
 - no OCR, semantic target resolver, `computer.find` / `computer.exists`, stale-target recovery, or recovery ladder yet;
 - JSONL audit trail with redacted authority/process/browser/computer metadata;
 - localhost Host/Origin validation for HTTP mode;
@@ -469,6 +469,8 @@ Unlike `terminal_run`, `shell_run` has no inherited command allowlist or default
 
 `terminal_session_*` is the persistent interactive counterpart. `terminal_session_open` starts the same trusted login shell in a real PTY and returns an opaque daemon-local session ID, never an OS PID. Reads use a monotonic output-event cursor over a bounded UTF-8-safe in-memory ring; writes and resize requests are bounded; sessions may outlive the Admin lease that created them but only a later active Admin Owner Runtime lease can rediscover or operate them. Project/User cannot list or use PTYs. Sessions do not survive daemon restart, and daemon shutdown owns SIGTERM -> grace -> SIGKILL cleanup. PTY input/output and session identifiers are not durable audit content.
 
+Owner Runtime also changes only the **productivity ceilings** of Computer Runtime for an approved Admin. `computer_run` may execute more than the legacy 100-action cap and, when `timeoutMs` is omitted, has no implicit 30-second program deadline. `computer_run_js` likewise has no implicit 30-second runner deadline in Owner mode. A supplied finite timeout, MCP cancellation, user takeover, the fixed emergency chord, and daemon/runtime shutdown remain authoritative. An already-issued native action is allowed to finish as one atomic operation bounded by the existing native request timeout; cancellation prevents later actions and cleanup releases held input. JS source/output/result, screenshots, observations, recovery retries, protocol frames, and returned `computer_run` step summaries remain bounded.
+
 Use `terminal_run` for narrow deterministic argv/allowlist commands, `shell_run` for unrestricted one-shot shell work, and `terminal_session_*` when a compiler, REPL, debugger, prompt, or dev server genuinely needs a TTY or persistent interactive state.
 
 ### One-shot and managed host processes
@@ -530,7 +532,7 @@ computer_run
 computer_run_js
 ```
 
-`computer_health` is lease-free; every other computer tool is Admin-only. `computer_run_js` additionally requires the explicit full-host JavaScript gate and returns only its bounded structured `stdout`, `stderr`, and optional JSON-compatible `result`; it does not report a synthetic cleanup-success field. Direct raw `computer_mouse_down` / `computer_mouse_up` are not registered. Hold primitives exist only inside bounded typed `computer_run`.
+`computer_health` is lease-free; every other computer tool is Admin-only. `computer_run_js` additionally requires the explicit full-host JavaScript gate and returns only its bounded structured `stdout`, `stderr`, and optional JSON-compatible `result`; it does not report a synthetic cleanup-success field. With Admin Owner Runtime enabled, omitted `computer_run` / `computer_run_js` timeout means no local productivity deadline, while finite timeout/cancellation/takeover/emergency/shutdown and all payload/memory/recovery bounds remain in force. Direct raw `computer_mouse_down` / `computer_mouse_up` are not registered. Hold primitives exist only inside typed `computer_run`, whose returned step-detail tail is bounded independently of the number of actions executed.
 
 Every MCP tool declares explicit safety annotations and output schemas. Successful calls return readable text plus validated structured content.
 

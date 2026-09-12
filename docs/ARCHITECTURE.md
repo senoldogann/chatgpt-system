@@ -142,6 +142,12 @@ shared OwnerShellSupervisor
 
 The MCP caller supplies shell **script content**, not the shell executable, child environment, OS PID, signal, or detached mode. Shell syntax, arbitrary installed executables, compilers/package managers, Git, and normal network access therefore work with the permissions of the current OS user. This is intentionally full-host execution, not an OS sandbox. Omitted `timeoutMs` installs no Owner Runtime wall-clock deadline; retained output and protocol payloads remain bounded.
 
+## Owner Computer Runtime productivity policy
+
+The existing persistent Computer Runtime helper remains the only desktop-control session. Owner Runtime does not introduce a second session or video stream; ChatGPT continues to use direct `computer_*` calls or the local fast paths `computer_run` / `computer_run_js`. The scoped Admin service passes an internal Owner flag only when the Owner Runtime startup gate is enabled. Non-Owner Admin calls retain the legacy action/runtime caps for compatibility.
+
+In Owner mode, execution count/duration and retained result memory are deliberately separate concerns. `computer_run` can execute beyond the legacy 100-action count and can omit a program deadline, but it retains only a fixed bounded tail of step summaries while preserving exact `completedCount` / `actionCount`. `computer_run_js` can omit its runner timer, but JS source and combined output/result remain bounded. Explicit deadlines, MCP cancellation, physical-input serialization, native per-request timeout, recovery budget `2`, user takeover, emergency stop, and ordered shutdown remain authoritative. Cancellation can abort local waits immediately; an already-issued native helper request remains atomic and bounded, after which no later action starts and cleanup runs.
+
 Persistent interactive work uses a separate PTY path rather than changing `terminal_run` or overloading `shell_run`:
 
 ```text
