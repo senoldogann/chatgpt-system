@@ -4,7 +4,7 @@ import CoreGraphics
 import Foundation
 import ScreenCaptureKit
 
-public struct SystemScreenshotCapturer: ScreenshotCapturing {
+public struct SystemScreenshotCapturer: ScreenshotCapturing, ScreenImageCapturing {
     public init() {}
 
     public func captureMainDisplay(maxBytes: Int) async throws -> ComputerScreenshot {
@@ -12,6 +12,25 @@ public struct SystemScreenshotCapturer: ScreenshotCapturing {
             throw ScreenshotCaptureError.outputLimit
         }
 
+        let image = try await captureMainDisplayImage()
+        let representation = NSBitmapImageRep(cgImage: image)
+        guard let png = representation.representation(using: .png, properties: [:]),
+              !png.isEmpty
+        else {
+            throw ScreenshotCaptureError.unavailable
+        }
+        guard png.count <= maxBytes else {
+            throw ScreenshotCaptureError.outputLimit
+        }
+
+        return ComputerScreenshot(
+            pngBase64: png.base64EncodedString(),
+            width: image.width,
+            height: image.height
+        )
+    }
+
+    func captureMainDisplayImage() async throws -> CGImage {
         let content = try await SCShareableContent.excludingDesktopWindows(
             false,
             onScreenWindowsOnly: true
@@ -32,24 +51,9 @@ public struct SystemScreenshotCapturer: ScreenshotCapturing {
         configuration.height = display.height
         configuration.showsCursor = true
 
-        let image = try await SCScreenshotManager.captureImage(
+        return try await SCScreenshotManager.captureImage(
             contentFilter: filter,
             configuration: configuration
-        )
-        let representation = NSBitmapImageRep(cgImage: image)
-        guard let png = representation.representation(using: .png, properties: [:]),
-              !png.isEmpty
-        else {
-            throw ScreenshotCaptureError.unavailable
-        }
-        guard png.count <= maxBytes else {
-            throw ScreenshotCaptureError.outputLimit
-        }
-
-        return ComputerScreenshot(
-            pngBase64: png.base64EncodedString(),
-            width: image.width,
-            height: image.height
         )
     }
 }

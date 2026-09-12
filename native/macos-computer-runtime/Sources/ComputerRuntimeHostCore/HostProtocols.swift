@@ -1,4 +1,5 @@
 import ComputerRuntimeCore
+import CoreGraphics
 import Darwin
 
 public struct WorkspaceApplication: Equatable, Sendable {
@@ -93,6 +94,14 @@ protocol ComputerObservationCaching: Sendable {
 
 public protocol ScreenshotCapturing: Sendable {
     func captureMainDisplay(maxBytes: Int) async throws -> ComputerScreenshot
+}
+
+protocol ScreenImageCapturing: Sendable {
+    func captureMainDisplayImage() async throws -> CGImage
+}
+
+protocol VisionTextRecognizing: Sendable {
+    func recognizeText(in image: CGImage, mode: VisionRecognitionMode) async throws -> [OcrTextCandidate]
 }
 
 public protocol ComputerActionHandling: Sendable {
