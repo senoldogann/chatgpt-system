@@ -218,8 +218,8 @@ describe("computer_run_js MCP tool", () => {
     }
   });
 
-  it("bounds source at the MCP schema and stdout/stderr at the public output schema", async () => {
-    const enabled = await fixture(true);
+  it("bounds source at the MCP schema and stdout/stderr at the public output schema even in Owner mode", async () => {
+    const enabled = await fixture(true, true);
     try {
       const admin = await enabled.runtime.authority.start({ profile: "admin" });
       const oversizedSource = "x".repeat(COMPUTER_MAX_JS_SOURCE_BYTES + 1);

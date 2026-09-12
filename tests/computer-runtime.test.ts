@@ -297,6 +297,20 @@ describe("ComputerRuntime computer_run", () => {
     expect(native.calls).toHaveLength(101);
   });
 
+  it("executes 300 Owner actions while retaining only the bounded step tail", async () => {
+    const { runtime: subject } = runtime();
+    const actions = Array.from({ length: 300 }, () => ({ type: "pointer_position" as const }));
+
+    const result = await subject.run({ actions, finalObservation: "none" }, { ownerMode: true });
+
+    expect(result.completedCount).toBe(300);
+    expect(result.actionCount).toBe(300);
+    expect(result.steps).toHaveLength(COMPUTER_MAX_RUN_STEP_RESULTS);
+    expect(result.stepsTruncated).toBe(true);
+    expect(result.steps[0]?.index).toBe(300 - COMPUTER_MAX_RUN_STEP_RESULTS);
+    expect(result.steps.at(-1)?.index).toBe(299);
+  });
+
   it("has no implicit legacy run deadline in Owner mode when timeout is omitted", async () => {
     const native = new FakeNative();
     let now = 1_000;
