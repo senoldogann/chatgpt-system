@@ -16,6 +16,7 @@ import { applyPatch as applyUnifiedPatch, parsePatch } from "diff";
 import type { AuditLogger } from "./audit.js";
 import type { LimitsConfig } from "./config.js";
 import { ConflictError, LimitError, PolicyError, RecoveryRequiredError } from "./errors.js";
+import { withPathLocks } from "./path-lock.js";
 import { PathPolicy } from "./policy.js";
 
 const MAX_PATCH_COUNT = 100;
@@ -70,6 +71,12 @@ export interface PatchSetResult {
     bytes: number;
     sha256: string;
   }>;
+}
+
+function requirePatchCount(count: number): void {
+  if (count < 1 || count > MAX_PATCH_COUNT) {
+    throw new LimitError(`Patch set must contain between 1 and ${MAX_PATCH_COUNT} entries.`);
+  }
 }
 
 function sha256(buffer: Buffer): string {
@@ -324,9 +331,7 @@ export class PatchSetService {
   }
 
   private async prepare(inputs: PatchSetInput[], transactionId: string): Promise<PreparedPatch[]> {
-    if (inputs.length < 1 || inputs.length > MAX_PATCH_COUNT) {
-      throw new LimitError(`Patch set must contain between 1 and ${MAX_PATCH_COUNT} entries.`);
-    }
+    requirePatchCount(inputs.length);
     let patchBytes = 0;
     const prepared: PreparedPatch[] = [];
     const seen = new Set<string>();
@@ -436,6 +441,12 @@ export class PatchSetService {
   }
 
   async apply(inputs: PatchSetInput[]): Promise<PatchSetResult> {
+    requirePatchCount(inputs.length);
+    const targets = await Promise.all(inputs.map((input) => this.policy.resolve(input.path)));
+    return withPathLocks(targets, () => this.applyLocked(inputs));
+  }
+
+  private async applyLocked(inputs: PatchSetInput[]): Promise<PatchSetResult> {
     const recoveredTransactions = await this.recoverPending();
     const transactionId = randomUUID();
     const entries = await this.prepare(inputs, transactionId);

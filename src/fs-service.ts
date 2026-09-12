@@ -15,6 +15,7 @@ import { applyPatch as applyUnifiedPatch } from "diff";
 import { AuditLogger } from "./audit.js";
 import { ConflictError, LimitError, PolicyError } from "./errors.js";
 import type { LimitsConfig } from "./config.js";
+import { withPathLock, withPathLocks } from "./path-lock.js";
 import { PathPolicy } from "./policy.js";
 
 function sha256(buffer: Buffer): string {
@@ -146,7 +147,7 @@ export class FileSystemService {
       throw new LimitError("Write exceeds configured byte limit.", { bytes: buffer.byteLength, limit: this.limits.maxWriteBytes });
     }
 
-    return this.audit.run("fs.write", this.policy.display(resolved), async () => {
+    return this.audit.run("fs.write", this.policy.display(resolved), async () => withPathLock(resolved, async () => {
       const current = await this.verifyExpectedHash(resolved, expectedSha256);
       await this.atomicWrite(resolved, buffer, current.mode);
       return {
@@ -155,12 +156,12 @@ export class FileSystemService {
         sha256: sha256(buffer),
         created: !current.exists,
       };
-    }, { bytes: buffer.byteLength });
+    }), { bytes: buffer.byteLength });
   }
 
   async patch(input: string, patchText: string, expectedSha256: string): Promise<Record<string, unknown>> {
     const resolved = await this.policy.resolve(input);
-    return this.audit.run("fs.patch", this.policy.display(resolved), async () => {
+    return this.audit.run("fs.patch", this.policy.display(resolved), async () => withPathLock(resolved, async () => {
       await this.verifyExpectedHash(resolved, expectedSha256);
       const source = await readFile(resolved, "utf8");
       const result = applyUnifiedPatch(source, patchText);
@@ -172,25 +173,25 @@ export class FileSystemService {
       const info = await lstat(resolved);
       await this.atomicWrite(resolved, buffer, info.mode & 0o777);
       return { path: this.policy.display(resolved), bytes: buffer.byteLength, sha256: sha256(buffer) };
-    }, { patchBytes: Buffer.byteLength(patchText) });
+    }), { patchBytes: Buffer.byteLength(patchText) });
   }
 
   async move(sourceInput: string, destinationInput: string, expectedSha256?: string): Promise<Record<string, unknown>> {
     const source = await this.policy.resolve(sourceInput);
     const destination = await this.policy.resolve(destinationInput);
-    return this.audit.run("fs.move", `${this.policy.display(source)} -> ${this.policy.display(destination)}`, async () => {
+    return this.audit.run("fs.move", `${this.policy.display(source)} -> ${this.policy.display(destination)}`, async () => withPathLocks([source, destination], async () => {
       const info = await lstat(source);
       if (info.isFile()) await this.verifyExpectedHash(source, expectedSha256);
       if (await exists(destination)) throw new ConflictError("Destination already exists.");
       await mkdir(path.dirname(destination), { recursive: true });
       await rename(source, destination);
       return { from: this.policy.display(source), to: this.policy.display(destination) };
-    });
+    }));
   }
 
   async remove(input: string, expectedSha256?: string, recursive = false): Promise<Record<string, unknown>> {
     const resolved = await this.policy.resolve(input);
-    return this.audit.run("fs.remove", this.policy.display(resolved), async () => {
+    return this.audit.run("fs.remove", this.policy.display(resolved), async () => withPathLock(resolved, async () => {
       if (this.policy.roots.includes(resolved)) throw new PolicyError("Removing an allowed root is forbidden.");
       const info = await lstat(resolved);
       if (info.isFile()) {
@@ -203,7 +204,7 @@ export class FileSystemService {
         throw new PolicyError("Only regular files and directories can be removed.");
       }
       return { path: this.policy.display(resolved), removed: true };
-    });
+    }));
   }
 
   async makeDirectory(input: string): Promise<Record<string, unknown>> {
