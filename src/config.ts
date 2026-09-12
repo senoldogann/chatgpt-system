@@ -7,6 +7,8 @@ import { defaultExistingChromeUserDataDir } from "./existing-chrome-discovery.js
 export const COMPUTER_MAX_JS_SOURCE_BYTES = 262_144;
 export const COMPUTER_MAX_JS_RUNTIME_MS = 30_000;
 export const COMPUTER_MAX_JS_OUTPUT_BYTES = 1_048_576;
+export const COMPUTER_MAX_RUN_STEP_RESULTS = 256;
+export const COMPUTER_MAX_EXPLICIT_RUNTIME_MS = 2_147_483_647;
 export const CONTINUITY_MAX_RESUME_CHARS = 12_000;
 export const CONTINUITY_MAX_TRACKED_PATHS = 100;
 export const CONTINUITY_REMOTE_TIMEOUT_MS = 10_000;

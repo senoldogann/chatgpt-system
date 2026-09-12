@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ComputerUseConfig } from "../src/config.js";
+import { COMPUTER_MAX_RUN_STEP_RESULTS, type ComputerUseConfig } from "../src/config.js";
 import { ComputerError } from "../src/computer-errors.js";
 import { ComputerRuntime, type ComputerNativeRequesting } from "../src/computer-runtime.js";
 import type { ComputerNativeMethod } from "../src/computer-types.js";
+import { computerRunOutputSchema } from "../src/tool-output-schemas.js";
 
 type Call = { method: ComputerNativeMethod; params: Record<string, unknown>; timeoutMs?: number };
 
@@ -211,6 +212,30 @@ describe("ComputerRuntime direct operations", () => {
 
 
 describe("ComputerRuntime computer_run", () => {
+  it("bounds the public step-result contract independently of actionCount", () => {
+    const steps = Array.from({ length: COMPUTER_MAX_RUN_STEP_RESULTS + 1 }, (_, index) => ({
+      index,
+      type: "pointer_position" as const,
+      state: "completed" as const,
+    }));
+
+    expect(computerRunOutputSchema.safeParse({
+      state: "completed",
+      completedCount: steps.length,
+      actionCount: steps.length,
+      steps,
+      stepsTruncated: true,
+    }).success).toBe(false);
+
+    expect(computerRunOutputSchema.safeParse({
+      state: "completed",
+      completedCount: steps.length,
+      actionCount: steps.length,
+      steps: steps.slice(1),
+      stepsTruncated: true,
+    }).success).toBe(true);
+  });
+
   it("validates every action before any native mutation", async () => {
     const { native, runtime: subject } = runtime();
     await expect(subject.run({

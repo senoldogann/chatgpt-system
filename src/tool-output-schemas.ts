@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { COMPUTER_MAX_JS_OUTPUT_BYTES } from "./config.js";
+import { COMPUTER_MAX_JS_OUTPUT_BYTES, COMPUTER_MAX_RUN_STEP_RESULTS } from "./config.js";
 
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 const pathTypeSchema = z.enum(["directory", "file", "symlink", "other"]);
@@ -640,7 +640,8 @@ export const computerRunOutputSchema = z.object({
     index: z.number().int().nonnegative(),
     type: computerRunStepTypeSchema,
     state: z.literal("completed"),
-  })),
+  }).strict()).max(COMPUTER_MAX_RUN_STEP_RESULTS),
+  stepsTruncated: z.boolean(),
   finalObservation: z.union([
     computerActiveWindowOutputSchema,
     computerObservationOutputSchema,

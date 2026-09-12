@@ -853,6 +853,7 @@ export class ComputerRuntime {
           completedCount: steps.length,
           actionCount,
           steps,
+          stepsTruncated: false,
           ...(finalResult !== undefined ? { finalObservation: finalResult } : {}),
         };
       } finally {

@@ -1,7 +1,11 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.js";
+import {
+  COMPUTER_MAX_EXPLICIT_RUNTIME_MS,
+  COMPUTER_MAX_RUN_STEP_RESULTS,
+  loadConfig,
+} from "../src/config.js";
 
 describe("computer use configuration", () => {
   it("is disabled by default with fixed bounded runtime defaults", async () => {
@@ -21,6 +25,18 @@ describe("computer use configuration", () => {
       maxJsSourceBytes: 262_144,
       maxJsRuntimeMs: 30_000,
       maxJsOutputBytes: 1_048_576,
+    });
+  });
+
+  it("keeps legacy runtime caps while exposing fixed Owner containment constants", async () => {
+    const config = await loadConfig({ roots: [process.cwd()] });
+
+    expect(COMPUTER_MAX_RUN_STEP_RESULTS).toBe(256);
+    expect(COMPUTER_MAX_EXPLICIT_RUNTIME_MS).toBe(2_147_483_647);
+    expect(config.computerUse).toMatchObject({
+      maxActionProgramActions: 100,
+      maxActionProgramRuntimeMs: 30_000,
+      maxJsRuntimeMs: 30_000,
     });
   });
 
