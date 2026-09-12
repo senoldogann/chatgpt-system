@@ -286,6 +286,72 @@ describe("ComputerRuntime computer_run", () => {
     expect(native.calls).toHaveLength(0);
   });
 
+  it("executes more than the legacy action cap in Owner mode", async () => {
+    const { native, runtime: subject } = runtime(undefined, { maxActionProgramActions: 3 });
+    const actions = Array.from({ length: 101 }, () => ({ type: "pointer_position" as const }));
+
+    const result = await subject.run({ actions, finalObservation: "none" }, { ownerMode: true });
+
+    expect(result.completedCount).toBe(101);
+    expect(result.actionCount).toBe(101);
+    expect(native.calls).toHaveLength(101);
+  });
+
+  it("has no implicit legacy run deadline in Owner mode when timeout is omitted", async () => {
+    const native = new FakeNative();
+    let now = 1_000;
+    native.responder = (call) => {
+      if (call.method === "pointer_position") now += 31_000;
+      return { x: 1, y: 1 };
+    };
+    const subject = new ComputerRuntime(native, config, { now: () => now });
+
+    const result = await subject.run({
+      actions: [{ type: "pointer_position" }, { type: "pointer_position" }],
+      finalObservation: "none",
+    }, { ownerMode: true });
+
+    expect(result.completedCount).toBe(2);
+    expect(native.calls.map((call) => call.timeoutMs)).toEqual([10_000, 10_000]);
+  });
+
+  it("keeps an explicit finite Owner timeout authoritative", async () => {
+    const native = new FakeNative();
+    let now = 1_000;
+    native.responder = (call) => {
+      if (call.method === "pointer_position") now += 81;
+      return { x: 1, y: 1 };
+    };
+    const subject = new ComputerRuntime(native, config, { now: () => now });
+
+    await expect(subject.run({
+      actions: [{ type: "pointer_position" }, { type: "pointer_position" }],
+      finalObservation: "none",
+      timeoutMs: 80,
+    }, { ownerMode: true })).rejects.toMatchObject({
+      code: "COMPUTER_TIMEOUT",
+      details: { failedStepIndex: 1, completedCount: 1, actionCount: 2 },
+    });
+  });
+
+  it("aborts an Owner local wait, starts no later action, and releases inputs", async () => {
+    const { native, runtime: subject } = runtime();
+    const controller = new AbortController();
+    const running = subject.run({
+      actions: [
+        { type: "wait", durationMs: 100 },
+        { type: "click", x: 2, y: 2 },
+      ],
+      finalObservation: "none",
+    }, { ownerMode: true, signal: controller.signal });
+
+    setTimeout(() => controller.abort(), 5);
+
+    await expect(running).rejects.toMatchObject({ code: "COMPUTER_ACTION_FAILED" });
+    expect(native.calls.map((call) => call.method)).not.toContain("click");
+    expect(native.calls.map((call) => call.method)).toContain("release_inputs");
+  });
+
   it("uses one absolute deadline and does not start another step after expiry", async () => {
     const native = new FakeNative();
     let now = 1_000;

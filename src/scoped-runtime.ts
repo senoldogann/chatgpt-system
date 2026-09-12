@@ -86,6 +86,11 @@ export function createScopedRuntime(base: ScopedRuntimeBase, authority: Authorit
       base.config.limits,
     ),
     browser: new ScopedBrowserService(base.browser, base.audit, authority.profile === "admin"),
-    computer: new ScopedComputerService(base.computer, base.audit, authority.profile === "admin"),
+    computer: new ScopedComputerService(
+      base.computer,
+      base.audit,
+      authority.profile === "admin",
+      base.config.ownerRuntime?.enabled === true,
+    ),
   };
 }

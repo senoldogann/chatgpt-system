@@ -1,4 +1,8 @@
-import type { ComputerUseConfig } from "./config.js";
+import {
+  COMPUTER_MAX_EXPLICIT_RUNTIME_MS,
+  COMPUTER_MAX_RUN_STEP_RESULTS,
+  type ComputerUseConfig,
+} from "./config.js";
 import { ComputerError, isComputerErrorCode } from "./computer-errors.js";
 import type {
   ComputerAction,
@@ -39,6 +43,17 @@ export interface ComputerProgramSession {
   resolveMany(targets: ComputerTarget[], options: { retryBudget?: number }): Promise<ComputerResolvedTargetView[]>;
   exists(target: ComputerTarget, options: { retryBudget?: number }): Promise<boolean>;
   refreshObservation(): Promise<unknown>;
+}
+
+export interface ComputerRunInput {
+  actions: ComputerAction[];
+  finalObservation?: ComputerFinalObservation | undefined;
+  timeoutMs?: number | undefined;
+}
+
+export interface ComputerRunExecutionOptions {
+  ownerMode?: boolean | undefined;
+  signal?: AbortSignal | undefined;
 }
 
 export type PointerMotionMode = "instant" | "fast" | "natural";
@@ -750,14 +765,14 @@ export class ComputerRuntime {
     });
   }
 
-  async run(input: {
-    actions: ComputerAction[];
-    finalObservation?: ComputerFinalObservation | undefined;
-    timeoutMs?: number | undefined;
-  }): Promise<ComputerRunResult> {
+  async run(
+    input: ComputerRunInput,
+    options: ComputerRunExecutionOptions = {},
+  ): Promise<ComputerRunResult> {
     this.requireEnabled();
     if (!Array.isArray(input.actions) || input.actions.length === 0) invalid();
-    if (input.actions.length > this.config.maxActionProgramActions) {
+    const ownerMode = options.ownerMode === true;
+    if (!ownerMode && input.actions.length > this.config.maxActionProgramActions) {
       throw new ComputerError("COMPUTER_OUTPUT_LIMIT");
     }
 
@@ -766,10 +781,17 @@ export class ComputerRuntime {
       invalid();
     }
 
-    let boundedRuntimeMs = this.config.maxActionProgramRuntimeMs;
+    let deadline: number | undefined;
     if (input.timeoutMs !== undefined) {
-      if (!Number.isInteger(input.timeoutMs) || input.timeoutMs <= 0) invalid();
-      boundedRuntimeMs = Math.min(input.timeoutMs, this.config.maxActionProgramRuntimeMs);
+      if (!Number.isInteger(input.timeoutMs) || input.timeoutMs <= 0 || input.timeoutMs > COMPUTER_MAX_EXPLICIT_RUNTIME_MS) {
+        invalid();
+      }
+      const effectiveTimeoutMs = ownerMode
+        ? input.timeoutMs
+        : Math.min(input.timeoutMs, this.config.maxActionProgramRuntimeMs);
+      deadline = this.now() + effectiveTimeoutMs;
+    } else if (!ownerMode) {
+      deadline = this.now() + this.config.maxActionProgramRuntimeMs;
     }
 
     // Validate and canonicalize the entire program before entering the physical lane.
@@ -779,9 +801,34 @@ export class ComputerRuntime {
 
     return this.physicalLane.run(async () => {
       this.requireEnabled();
-      const deadline = this.now() + boundedRuntimeMs;
       const steps: ComputerRunResult["steps"] = [];
+      let stepsTruncated = false;
+      let completedCount = 0;
       let needsCleanup = holdCapablePresent;
+
+      const retainStep = (index: number, type: ComputerAction["type"]): void => {
+        if (steps.length === COMPUTER_MAX_RUN_STEP_RESULTS) {
+          steps.shift();
+          stepsTruncated = true;
+        }
+        steps.push({ index, type, state: "completed" });
+      };
+
+      const remainingMs = (): number | undefined => {
+        if (deadline === undefined) return undefined;
+        return Math.floor(deadline - this.now());
+      };
+
+      const nativeTimeoutMs = (): number => {
+        const remaining = remainingMs();
+        if (remaining === undefined) return this.config.requestTimeoutMs;
+        if (remaining <= 0) throw new ComputerError("COMPUTER_TIMEOUT");
+        return Math.min(this.config.requestTimeoutMs, remaining);
+      };
+
+      const requireRequestActive = (): void => {
+        if (options.signal?.aborted) throw new ComputerError("COMPUTER_ACTION_FAILED");
+      };
 
       try {
         for (let index = 0; index < prepared.length; index += 1) {
@@ -791,58 +838,52 @@ export class ComputerRuntime {
               new ComputerError("COMPUTER_UNAVAILABLE"),
               index,
               action.type,
-              steps.length,
+              completedCount,
               actionCount,
             );
           }
-          const remainingMs = Math.floor(deadline - this.now());
-          if (remainingMs <= 0) {
-            throw this.runFailure(
-              new ComputerError("COMPUTER_TIMEOUT"),
-              index,
-              action.type,
-              steps.length,
-              actionCount,
-            );
-          }
-
           try {
+            requireRequestActive();
+            const remaining = remainingMs();
+            if (remaining !== undefined && remaining <= 0) throw new ComputerError("COMPUTER_TIMEOUT");
+
             if (action.localWaitMs !== undefined) {
-              if (action.localWaitMs > remainingMs) {
-                await this.sleep(remainingMs);
+              if (remaining !== undefined && action.localWaitMs > remaining) {
+                await this.waitForRunDelay(remaining, options.signal);
+                requireRequestActive();
                 throw new ComputerError("COMPUTER_TIMEOUT");
               }
-              await this.sleep(action.localWaitMs);
+              await this.waitForRunDelay(action.localWaitMs, options.signal);
+              requireRequestActive();
             } else {
               if (action.physical) needsCleanup = true;
               const result = await this.native.request(
                 action.method!,
                 action.params,
-                Math.min(this.config.requestTimeoutMs, remainingMs),
+                nativeTimeoutMs(),
               );
+              requireRequestActive();
               if (action.type === "observe") validateObservationOutput(result, this.config);
             }
           } catch (error) {
-            throw this.runFailure(error, index, action.type, steps.length, actionCount);
+            throw this.runFailure(error, index, action.type, completedCount, actionCount);
           }
 
-          steps.push({ index, type: action.type, state: "completed" });
+          completedCount += 1;
+          retainStep(index, action.type);
         }
 
+        requireRequestActive();
         let state: ComputerRunResult["state"] = "completed";
         let finalResult: unknown;
         if (finalObservation !== "none") {
           try {
-            const remainingMs = Math.floor(deadline - this.now());
-            if (remainingMs <= 0) throw new ComputerError("COMPUTER_TIMEOUT");
             const method = finalObservation === "observe" ? "observe" : "active_window";
-            finalResult = await this.native.request(
-              method,
-              {},
-              Math.min(this.config.requestTimeoutMs, remainingMs),
-            );
+            finalResult = await this.native.request(method, {}, nativeTimeoutMs());
+            requireRequestActive();
             if (method === "observe") finalResult = validateObservationOutput(finalResult, this.config);
-          } catch {
+          } catch (error) {
+            if (options.signal?.aborted) throw error;
             state = "completed_unverified";
             finalResult = undefined;
           }
@@ -850,14 +891,14 @@ export class ComputerRuntime {
 
         return {
           state,
-          completedCount: steps.length,
+          completedCount,
           actionCount,
           steps,
-          stepsTruncated: false,
+          stepsTruncated,
           ...(finalResult !== undefined ? { finalObservation: finalResult } : {}),
         };
       } finally {
-        if (needsCleanup) {
+        if (needsCleanup || options.signal?.aborted) {
           try {
             await this.native.request("release_inputs", {}, this.config.requestTimeoutMs);
           } catch {
@@ -888,6 +929,27 @@ export class ComputerRuntime {
       } finally {
         await this.native.close();
       }
+    });
+  }
+
+  private async waitForRunDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+    if (!signal) {
+      await this.sleep(milliseconds);
+      return;
+    }
+    if (signal.aborted) throw new ComputerError("COMPUTER_ACTION_FAILED");
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: unknown): void => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", abort);
+        if (error === undefined) resolve();
+        else reject(error);
+      };
+      const abort = (): void => finish(new ComputerError("COMPUTER_ACTION_FAILED"));
+      signal.addEventListener("abort", abort, { once: true });
+      void this.sleep(milliseconds).then(() => finish(), (error) => finish(error));
     });
   }
 
