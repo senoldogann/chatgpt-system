@@ -1,158 +1,164 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-12T23:31+03:00
-Status: Owner Runtime Phase 2 is merged and fully verified on `main`; Phase 3 Computer Runtime ceilings/cancellation is planned in an isolated branch and production implementation has not started.
+Last updated: 2026-09-13T00:15+03:00
+Status: Owner Runtime Phase 3 Computer Runtime ceilings/cancellation implementation is locally complete and pre-state verified on an isolated feature branch. Final state commit + exact-head re-verification remain before any publication gate.
 
 This file is a handoff cache, not the sole source of truth. A resumed agent must reconcile it against Git/worktree reality and the latest Project Continuity checkpoint before editing.
 
 ## Current goal
 
-Execute **Owner Runtime Phase 3 — Computer Runtime ceilings/cancellation** from the approved Owner Runtime design. Remove the development-era 100-action and 30-second productivity ceilings only for locally approved Admin Owner Runtime while preserving payload/memory/recovery bounds, request cancellation, takeover/emergency behavior, stable-helper/TCC readiness, and daemon cleanup.
+Finish **Owner Runtime Phase 3 — Computer Runtime ceilings/cancellation** as a reviewable branch. Owner/Admin mode removes development-era Computer Runtime productivity ceilings while preserving legacy non-Owner behavior, bounded payload/memory/recovery, deterministic cancellation/cleanup, takeover/emergency behavior, stable-helper/TCC readiness, and the existing native helper architecture.
 
 ## Active workspace
 
 - Stable project root / continuity anchor: `/Users/dogan/chatgpt-system` on `main`.
 - Stable merged baseline: `main@7aece8f5cb1b4397de04704a41b95626a0b8e887`.
-- `origin/main` matches the same merge commit.
-- Phase 2 PR: `#40`, squash-merged after exact-head CI verification.
-- Phase 2 reviewed head: `b929564b9d57f191f142700fe6643ae6ee45ae65`.
-- Phase 2 historical managed worktree was cleanly removed after merge; the local squash-source branch is intentionally preserved because safe `git branch -d` does not consider squash ancestry merged.
+- `origin/main` matches the same Phase 2 merge baseline.
 - Active Phase 3 managed worktree: `/Users/dogan/.chatgpt-system/worktrees/d0a0a546782faa2c9a9906345e9290c84508aad64b304746b50965bb2ff58ef1/8cae9810-41f3-4aa6-9c3e-61ef564ffdab`.
 - Active Phase 3 branch: `feat/owner-runtime-phase3-computer-ceilings`.
-- Phase 3 branch base: exact merged `main@7aece8f5cb1b4397de04704a41b95626a0b8e887`.
+- Pre-state verified Phase 3 HEAD: `d80d32c95ccfdfe094b9700426ca951491a64a01`.
 - Approved design: `docs/superpowers/specs/2026-09-12-owner-runtime-full-host-development-design.md`.
-- Phase 3 plan: `docs/superpowers/plans/2026-09-12-owner-runtime-phase3-computer-ceilings.md`.
-- Project Continuity exact alias: `chatgpt-system`; continuity remains anchored to the stable root worktree.
+- Phase 3 implementation plan: `docs/superpowers/plans/2026-09-12-owner-runtime-phase3-computer-ceilings.md`.
+- Project Continuity exact alias: `chatgpt-system`; semantic continuity remains anchored to the stable root worktree.
 
 ## Completed
 
 ### Owner Runtime Phase 1 — unrestricted one-shot shell
 
-- Merged through PR #39 as `0195a432bae370eb36dedf65056c874634f805dc`.
-- Added explicit Owner Runtime gate, unrestricted `shell_run`, bounded retained output, cancellation/process-group cleanup, and content-free audit while keeping `terminal_run` narrow.
+- PR #39 merged as `0195a432bae370eb36dedf65056c874634f805dc`.
+- Added explicit Owner Runtime gate and unrestricted one-shot `shell_run` while keeping `terminal_run` narrow.
 
 ### Owner Runtime Phase 2 — persistent interactive PTY
 
-- Final PR #40 exact head `b929564b9d57f191f142700fe6643ae6ee45ae65` passed local and hosted acceptance with `mergeStateStatus=CLEAN`.
-- PR #40 was squash-merged as `7aece8f5cb1b4397de04704a41b95626a0b8e887`.
-- Stable root `main` was fast-forwarded and matches `origin/main`.
-- Public PTY surface is exactly:
+- PR #40 reviewed head `b929564b9d57f191f142700fe6643ae6ee45ae65` passed local/hosted acceptance.
+- PR #40 squash-merged as `7aece8f5cb1b4397de04704a41b95626a0b8e887`.
+- Stable main/origin main match that commit.
+- PTY remains a distinct Admin + Owner Runtime subsystem; Project/User are unchanged.
 
-```text
-terminal_session_open
-terminal_session_read
-terminal_session_write
-terminal_session_resize
-terminal_session_close
-terminal_session_list
-```
+### Owner Runtime Phase 3 — implementation milestones
 
-- PTYs are Admin + Owner Runtime only, daemon-owned rather than lease-owned, rediscoverable by a later Admin lease, hidden from Project/User, bounded in memory/input/session count, content-free in audit, and terminated as process groups on daemon shutdown.
-- Existing `terminal_run` and one-shot `shell_run` semantics were not widened.
+Phase 3 followed the committed RED → GREEN plan and is split into reviewable commits:
 
-### Phase 2 post-merge verification
-
-Fresh verification on exact merged `main@7aece8f5cb1b4397de04704a41b95626a0b8e887` after `npm ci --ignore-scripts`:
-
-- TypeScript build: PASS.
-- Node/TypeScript tests: `614/614` PASS + `1` environment-gated skip across `105` passing test files + `1` skipped file.
-- Real PTY focused acceptance: `3/3` PASS.
-- `npm audit --omit=dev`: `0` vulnerabilities.
-- Swift macOS Computer Runtime: `164/164` PASS.
-- Stable root `main` worktree: clean and synchronized with `origin/main`.
-- Hosted `main` CI run `34709058304` on exact merge commit: Node 22 SUCCESS, Node 24 SUCCESS, macOS-native SUCCESS, including Owner Runtime PTY native binding.
-
-The initial combined `npm run check` post-merge attempt exceeded the local terminal tool's 60-second transport limit; build and `npm test` were rerun separately and both completed successfully. This was a tool transport timeout, not a product test failure.
-
-### Phase 3 planning
-
-- Approved design explicitly defines Phase 3 as:
-  - remove arbitrary Owner Computer Runtime action/runtime hard maxima;
-  - preserve payload/memory/recovery bounds;
-  - strengthen request cancellation cleanup where needed;
-  - verify stable helper/TCC readiness;
-  - add long local computer/JS acceptance.
-- A fresh isolated Phase 3 worktree/branch was created from merged main.
-- Phase 3 baseline in that worktree after `npm ci --ignore-scripts`:
-  - TypeScript build PASS;
-  - Node/TypeScript `614/614` PASS + `1` environment-gated skip.
-- Current hard-ceiling map is confirmed:
-  - `maxActionProgramActions = 100`;
-  - `maxActionProgramRuntimeMs = 30_000`;
-  - `maxJsRuntimeMs = 30_000`;
-  - `computer_run` does not currently receive the MCP request `AbortSignal`;
-  - `computer_run_js` already receives MCP cancellation and terminates its runner process group;
-  - `maxAutomaticRetriesPerAction = 2` remains a correctness bound and must not be removed.
-- Detailed Phase 3 implementation plan is written and self-reviewed; production code has not been changed.
+- `23b7557` — Phase 3 implementation plan and planning state.
+- `4f976dd` — fixed containment contract: bounded returned-step tail and explicit-timeout technical bound while retaining legacy config fields.
+- `a96cb73` — Owner `computer_run`: remove legacy action/deadline ceilings, preserve explicit timeout, propagate MCP cancellation, abort local waits, keep cleanup authoritative.
+- `77eaafc` — Owner `computer_run_js`: true omitted-timeout/no-deadline mode, optional runner timer, Owner-aware explicit timeout schema, preserve AbortSignal/process-group cleanup.
+- `0acd31e` — regression tests locking returned-memory, retry, source/output, and audit-redaction containment.
+- `d80d32c` — Phase 3 long-run acceptance, macOS-native CI long-run step, and operator/security/architecture documentation.
 
 ## Current state
 
-Phase 2 is no longer an active branch-delivery task; it is merged stable reality. Phase 3 is at the **implementation-plan gate** in the isolated feature worktree.
-
-The Phase 3 plan intentionally separates productivity ceilings from containment:
-
 ```text
-Admin + Owner Runtime
+Admin + ownerRuntime.enabled
         |
         +-- computer_run
-        |     - no 100-action execution cap
-        |     - no implicit 30s owner deadline
-        |     - explicit finite timeout still authoritative
-        |     - MCP cancellation stops future work / local waits
-        |     - returned step summaries remain memory-bounded
+        |     - may execute beyond legacy 100-action cap
+        |     - omitted timeout => no local program deadline
+        |     - explicit finite timeout remains authoritative
+        |     - MCP AbortSignal aborts local waits and prevents later actions
+        |     - an already-issued native RPC remains one atomic bounded request
+        |     - held-input cleanup remains best-effort authoritative
+        |     - exact completed/action counts retained
+        |     - only a fixed 256-step summary tail is returned
         |
         +-- computer_run_js
-              - no implicit 30s owner deadline
-              - explicit finite timeout still authoritative
-              - existing AbortSignal -> runner group termination retained
-              - source/output/result byte limits retained
+              - omitted timeout => no local runner deadline
+              - explicit finite timeout remains authoritative
+              - MCP AbortSignal still terminates owned runner/process group
+              - Owner-dispatched local wait is not capped by legacy 30s
+              - source/stdout/stderr/result byte bounds remain unchanged
 ```
 
-Non-Owner Admin compatibility remains deliberately narrow: the existing legacy action/runtime caps continue to apply when the Owner Runtime startup gate is not enabled.
+Non-Owner Admin compatibility is intentionally preserved:
 
-The plan does **not** add a second Computer Runtime session abstraction, remote-desktop/video streaming, a new native protocol, or any TCC bypass. Phase 4 Codex-class end-to-end engineering acceptance remains separate.
+- `maxActionProgramActions` still caps non-Owner `computer_run`.
+- `maxActionProgramRuntimeMs` still supplies/clamps non-Owner run deadlines.
+- `maxJsRuntimeMs` still supplies/clamps non-Owner `computer_run_js` deadlines and MCP schema.
+- Project/User authority remains narrow and unchanged.
 
-## Next exact step
+The implementation does **not** add another Computer Runtime session, remote desktop/video stream, new native cancel protocol, or TCC bypass. The existing persistent native helper, physical-input lane, AX-first recovery, stale-target handling, takeover monitor, fixed emergency chord, and shutdown ordering remain the architecture.
 
-1. Commit the Phase 3 implementation plan and this planning-state handoff as one docs-only milestone on `feat/owner-runtime-phase3-computer-ceilings`.
-2. Re-run docs contract, placeholder scan, `git diff --check`, and clean worktree verification on that planning head.
-3. Checkpoint Project Continuity with the exact planning commit.
-4. Begin Task 1 of `docs/superpowers/plans/2026-09-12-owner-runtime-phase3-computer-ceilings.md` using RED → GREEN TDD.
-5. Keep each task independently reviewable and committed before advancing.
-6. Stop before remote publication/main merge unless the relevant authorization gate is satisfied; main merge remains separately explicit.
+## Containment and cancellation invariants
 
-## Invariants
-
-- Project/User authority remains narrow.
-- Owner semantics require both an Admin authority lease and the explicit Owner Runtime startup gate.
-- `terminal_run`, `shell_run`, PTY, Browser Runtime, Git, and Project Exec semantics are out of Phase 3 scope.
-- Existing persistent native Computer Runtime helper, physical-input lane, AX-first recovery, verification, takeover detection, and fixed emergency chord remain the architecture.
-- Owner productivity limits may be removed, but MCP/frame size, JS source/output/result bytes, screenshot bytes, observation bounds, result-retention memory, and other protocol/memory containment remain bounded.
-- `maxAutomaticRetriesPerAction = 2` remains bounded.
-- Omitted Owner timeout means no local wall-clock deadline; explicit finite timeout remains authoritative.
-- Request cancellation must prevent further program work and abort local waits. An already-issued native RPC remains one atomic operation bounded by the existing native `requestTimeoutMs`; after it returns, cancellation must prevent the next action and cleanup must run.
-- Takeover, emergency stop, daemon/runtime shutdown, and held-input release remain authoritative regardless of Owner mode.
-- No TCC, Accessibility, Screen Recording, sudo, Keychain, SIP, or OS-authentication bypass.
-- Raw computer content, typed text, screenshots, OCR/AX text, JS source/output, credentials, environment values, PIDs, signals, and authority secrets must not enter persistent audit/continuity.
-- Stable `main` is not directly edited; feature work stays isolated.
-- Preserve unfamiliar/other-agent worktrees. No history rewrite or deployment without explicit authorization.
+- `COMPUTER_MAX_RUN_STEP_RESULTS = 256` is a memory/protocol retention bound, not an execution-count bound.
+- `COMPUTER_MAX_EXPLICIT_RUNTIME_MS = 2_147_483_647` bounds optional explicit timer values; Owner omitted timeout remains intentionally unbounded by a product wall-clock deadline.
+- `maxAutomaticRetriesPerAction = 2` remains a correctness/recovery bound.
+- JS source, combined stdout/stderr/result, screenshots, observations, MCP/native frames, and other protocol/memory payloads remain bounded.
+- MCP cancellation prevents additional `computer_run` work and makes local waits abortable.
+- A native request already handed to the helper is not preempted by killing the helper; it remains bounded by `requestTimeoutMs`, after which cancellation prevents another action and cleanup runs.
+- `computer_run_js` cancellation continues to terminate the owned runner process group and cancel its exclusive computer session.
+- User takeover, the fixed emergency chord, explicit timeout, daemon/runtime shutdown, and input release remain authoritative in Owner mode.
+- Audit/continuity must not persist action bodies, typed text, screenshots, OCR/AX content, JS source/output, AbortSignal objects, credentials, environment values, native request IDs, PIDs, or signals.
+- No TCC, Accessibility, Screen Recording, sudo, Keychain, SIP, or OS-authentication bypass is introduced.
 
 ## Verification
 
-- Stable `main`/`origin/main`: `7aece8f5cb1b4397de04704a41b95626a0b8e887`.
-- Phase 2 post-merge local Node/TS: `614/614` PASS + `1` skip.
-- Phase 2 post-merge PTY acceptance: `3/3` PASS.
-- Phase 2 post-merge production audit: `0 vulnerabilities`.
-- Phase 2 post-merge Swift: `164/164` PASS.
-- Hosted merged-main CI: Node 22 SUCCESS, Node 24 SUCCESS, macOS-native SUCCESS.
-- Phase 3 branch baseline build: PASS.
-- Phase 3 branch baseline Node/TS: `614/614` PASS + `1` skip.
-- Phase 3 plan placeholder scan: PASS after removing a self-matching scan command.
-- Current planning diff whitespace check: PASS.
+Pre-state verification evidence on `d80d32c95ccfdfe094b9700426ca951491a64a01`:
+
+Fresh local evidence after Task 5 commit:
+
+- `npm run build`: PASS.
+- `npm test`: `628/628` PASS + `2` intentional/environment-gated skips across `106` passing test files + `1` skipped file.
+- `npm audit --omit=dev`: `0` vulnerabilities.
+- Fast Phase 3 acceptance: `2/2` PASS + `1` long-run skip.
+- Deliberate long Owner acceptance with `CHATGPT_SYSTEM_LONG_OWNER_ACCEPTANCE=1`: `3/3` PASS; no-timeout Owner JavaScript ran `31.351s`, beyond the legacy 30s ceiling.
+- Swift macOS Computer Runtime: `164/164` PASS.
+- `git diff --check origin/main...HEAD`: PASS.
+- Feature worktree was clean before this `PROJECT_STATE.md` edit.
+
+Live real-Mac release gate, checked fresh during the same pre-state verification:
+
+```text
+installed helper available: true
+tccIdentityStable: true
+computer_health.state: running
+accessibilityTrusted: true
+screenCaptureAuthorized: true
+eventListenAuthorized: true
+eventPostAuthorized: true
+fullHostJsEnabled: true
+```
+
+Only categorical/content-free readiness was recorded. No screen/UI content, credentials, environment values, or native identifiers are persisted here.
+
+## Hosted acceptance state
+
+- No Phase 3 branch publication/PR/hosted CI claim exists yet.
+- `.github/workflows/ci.yml` now adds one macOS-native Owner Runtime long computer acceptance step; the 31-second acceptance is intentionally not duplicated across both Linux Node matrix jobs.
+- Hosted Node 22/24 and macOS-native evidence must bind to the exact published Phase 3 SHA after publication.
+
+## Next exact step
+
+1. Run docs contract tests, plan placeholder scan, and `git diff --check` for this state update.
+2. Commit only `docs/PROJECT_STATE.md` as the final local handoff commit.
+3. Because HEAD changes, rerun the full exact-head gate on the successor SHA:
+   - `npm run build`;
+   - `npm test`;
+   - `npm audit --omit=dev`;
+   - fast Phase 3 acceptance;
+   - deliberate >30s Owner acceptance;
+   - Swift macOS Computer Runtime tests;
+   - `git diff --check origin/main...HEAD`;
+   - clean status.
+4. Re-check live installed-helper/TCC categorical readiness.
+5. Review `git diff --stat`, `git diff --name-only`, commit log, and final worktree status against Phase 3 scope.
+6. Checkpoint Project Continuity with the exact final local SHA and evidence.
+7. Stop at remote publication authorization. Do not push/create PR or merge main unless the user explicitly authorizes the corresponding remote-write step; main merge remains a separate explicit gate.
+
+## Invariants
+
+- Stable `main` is not directly edited.
+- Project/User authority stays narrow.
+- Owner semantics require Admin plus the explicit Owner Runtime startup gate.
+- `terminal_run`, `shell_run`, PTY, Browser Runtime, Git, and Project Exec semantics are outside Phase 3 scope.
+- Existing Computer Runtime native protocol/helper architecture is preserved.
+- Productivity ceilings may be removed only in Owner mode; payload/memory/recovery/TCC/takeover/emergency/shutdown containment remains bounded and authoritative.
+- Preserve unfamiliar/other-agent worktrees.
+- No history rewrite, deployment, remote publication, or main merge without the appropriate explicit authorization.
 
 ## Blockers / uncertainties
 
-- No known planning blocker.
-- Exact implementation details for bounded returned `computer_run` step summaries are specified in the plan and must be validated by TDD before becoming product contract.
-- MCP cancellation cannot preempt a native RPC already handed to the existing helper without a larger native-protocol/lifecycle change. Phase 3 therefore treats an issued native request as an atomic bounded operation and guarantees no subsequent action starts after cancellation; TDD must verify this boundary and held-input cleanup.
-- Stable helper/TCC readiness must be re-verified during final real-Mac Phase 3 acceptance. Do not infer current permission state from older Slice 5 evidence.
+- No local implementation or verification blocker is currently known.
+- Hosted Phase 3 CI is not yet available because the branch has not been published.
+- The existing native protocol has no mid-request cancel message. Phase 3 intentionally treats an already-issued native request as one atomic bounded operation instead of adding a new native cancellation protocol in this phase.
+- Final completion/publication claims must use the successor exact HEAD after this state file is committed and the full gate is rerun.
