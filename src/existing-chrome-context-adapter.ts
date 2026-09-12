@@ -43,8 +43,29 @@ export function createExistingChromeContextAdapter(
       if (property === "on") {
         return (event: string, listener: (...args: unknown[]) => void) => {
           if (event === "page") {
+            const announced = new WeakSet<Page>();
+            const announce = (page: Page): void => {
+              if (announced.has(page)) return;
+              announced.add(page);
+              listener(wrapPage(page));
+            };
             target.on("page", (page) => {
-              if (isExistingChromePageEligible(page.url())) listener(wrapPage(page));
+              if (isExistingChromePageEligible(page.url())) {
+                announce(page);
+                return;
+              }
+              // A tab emitted as chrome://newtab becomes visible only once it navigates.
+              const stopWatching = (): void => {
+                page.off("framenavigated", onNavigated);
+                page.off("close", stopWatching);
+              };
+              const onNavigated = (): void => {
+                if (!isExistingChromePageEligible(page.url())) return;
+                stopWatching();
+                announce(page);
+              };
+              page.on("framenavigated", onNavigated);
+              page.on("close", stopWatching);
             });
             return proxy;
           }

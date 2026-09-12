@@ -27,6 +27,11 @@ class FakePage extends EventEmitter {
     return this.currentUrl;
   }
 
+  navigateTo(url: string): void {
+    this.currentUrl = url;
+    this.emit("framenavigated");
+  }
+
   async title(): Promise<string> {
     return this.pageTitle;
   }
@@ -102,5 +107,83 @@ describe("existing Chrome context adapter", () => {
     await backend.closeTab(pageId);
 
     expect(page.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("registers a tab that only becomes eligible after navigation", async () => {
+    const context = new FakeContext([]);
+    const adapted = createExistingChromeContextAdapter(
+      context as unknown as BrowserContext,
+      async () => undefined,
+    );
+    const seen: Page[] = [];
+    adapted.on("page", (page) => seen.push(page));
+
+    const page = new FakePage("chrome://newtab", "New Tab");
+    context.fakePages.push(page);
+    context.emit("page", page);
+    expect(seen).toEqual([]);
+
+    page.navigateTo("https://example.com");
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.url()).toBe("https://example.com");
+  });
+
+  it("registers a newly eligible tab once and then drops its navigation listeners", async () => {
+    const context = new FakeContext([]);
+    const adapted = createExistingChromeContextAdapter(
+      context as unknown as BrowserContext,
+      async () => undefined,
+    );
+    const seen: Page[] = [];
+    adapted.on("page", (page) => seen.push(page));
+
+    const page = new FakePage("chrome://newtab", "New Tab");
+    context.fakePages.push(page);
+    context.emit("page", page);
+    page.navigateTo("https://example.com");
+    page.navigateTo("https://example.org");
+
+    expect(seen).toHaveLength(1);
+    expect(page.listenerCount("framenavigated")).toBe(0);
+    expect(page.listenerCount("close")).toBe(0);
+  });
+
+  it("drops navigation listeners when an ineligible tab closes before becoming eligible", async () => {
+    const context = new FakeContext([]);
+    const adapted = createExistingChromeContextAdapter(
+      context as unknown as BrowserContext,
+      async () => undefined,
+    );
+    const seen: Page[] = [];
+    adapted.on("page", (page) => seen.push(page));
+
+    const page = new FakePage("chrome://newtab", "New Tab");
+    context.fakePages.push(page);
+    context.emit("page", page);
+    expect(page.listenerCount("framenavigated")).toBe(1);
+
+    await page.close();
+
+    expect(seen).toEqual([]);
+    expect(page.listenerCount("framenavigated")).toBe(0);
+    expect(page.listenerCount("close")).toBe(0);
+  });
+
+  it("announces a duplicated page event only once", async () => {
+    const context = new FakeContext([]);
+    const adapted = createExistingChromeContextAdapter(
+      context as unknown as BrowserContext,
+      async () => undefined,
+    );
+    const seen: Page[] = [];
+    adapted.on("page", (page) => seen.push(page));
+
+    const page = new FakePage("https://example.com", "Example");
+    context.fakePages.push(page);
+    context.emit("page", page);
+    context.emit("page", page);
+
+    expect(seen).toHaveLength(1);
   });
 });
