@@ -1,6 +1,6 @@
 # Computer Runtime v2 Slice 5: Hybrid Perception, Recovery, and Performance Design
 
-**Status:** Proposed for user review
+**Status:** Approved
 **Date:** 2026-09-12
 **Branch:** `feat/computer-runtime-v2-slice5-recovery-vision`
 **Base:** `baaaeb528646f1329d9114e660ae1e77da9d1a45`
@@ -160,7 +160,7 @@ The OCR pipeline is two-tiered:
 
 ```text
 CGImage/crop
-  -> Vision RecognizeTextRequest fast mode
+  -> Vision VNRecognizeTextRequest fast mode
   -> unique high-quality match?
        yes -> candidate
        no  -> bounded tighter crop / accurate mode
@@ -634,7 +634,7 @@ The design was cross-checked against public OpenAI computer-use behavior and cur
   https://openai.com/index/introducing-gpt-5-4/
 - OpenAI Responses API reference — computer action vocabulary, screenshots, batched computer action list, safety-check output contract.
   https://developers.openai.com/api/reference/cli/resources/beta/subresources/responses
-- Apple Vision `RecognizeTextRequest` — native text recognition over image input.
-  https://developer.apple.com/documentation/vision/recognizetextrequest
+- Apple Vision `VNRecognizeTextRequest` — macOS 14-compatible native text recognition over `CGImage`, with fast/accurate recognition levels.
+  https://developer.apple.com/documentation/vision/vnrecognizetextrequest
 - Apple ScreenCaptureKit / `SCScreenshotManager` — native screenshot capture already used by Computer Runtime v2.
   https://developer.apple.com/documentation/screencapturekit/scscreenshotmanager
