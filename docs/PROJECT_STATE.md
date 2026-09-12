@@ -1,83 +1,76 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-12T18:05+03:00
-Status: active
+Last updated: 2026-09-12T18:20+03:00
+Status: Computer Runtime v2 Slice 5 complete; awaiting the next explicitly scoped capability.
 
 This file is a handoff cache, not the sole source of truth. A resumed agent must reconcile it against Git/worktree reality and the latest Project Continuity checkpoint before editing.
 
 ## Current goal
 
-Finish Computer Runtime v2 Slice 5 safely by shepherding Task 9 / PR #37 through its final review and merge gate. Do not merge `main` without explicit user authorization.
+Keep the merged Computer Runtime v2 Slice 5 baseline stable. Do not implicitly extend Slice 5; the next implementation must start from a new explicit goal/plan after reconciling current `main` and Project Continuity.
 
 ## Active workspace
 
-- Branch: `feat/computer-runtime-v2-slice5-task9`
-- Worktree: `/private/tmp/chatgpt-system-slice5-task9`
-- Remote PR: `#37` — `https://github.com/senoldogann/chatgpt-system/pull/37`
-- Remote base: `main` at `d48b9b3b319395732334eb226dec459b961f1cff` (PR #36 squash merge)
-- Pre-handoff verified feature head before this state-file refresh: `9b4676c8ce0ad1cff7eb8c83f9f3ef7a2e55f5cf`
-- The exact feature HEAD will advance when this handoff file is committed; always read Git rather than treating the value above as current.
-- Project Continuity alias `chatgpt-system` remains anchored to the stable root worktree `/Users/dogan/chatgpt-system`.
-
-The root worktree is intentionally not being used for Task 9 implementation. Its local `main` may lag verified remote `main`; reconcile Git before any later main update.
+- Stable project worktree: `/Users/dogan/chatgpt-system`
+- Stable branch: `main`
+- Slice 5 implementation PR: `#37` — merged
+- Slice 5 merge commit: `b1503e438b3e43b1ae3e0e8de10626fe8bdfb739`
+- Project Continuity alias: exact alias `chatgpt-system`, anchored to `/Users/dogan/chatgpt-system`.
+- No Slice 5 implementation worktree is authoritative after the merge; old feature worktrees/branches are historical context only and must not override current Git reality.
 
 ## Completed
 
-- PRs #28–#35 were inspected/reconciled and were already merged.
-- PR #36 was reviewed against the Slice 5 plan and CI, then squash-merged as `d48b9b3b319395732334eb226dec459b961f1cff` under the user's explicit authorization.
-- Task 9 content-free target-source audit metadata is committed (`bbe6934c93b2476ab9f15186946eb928ebc0b38a`).
-- Real-Mac acceptance exposed a stale recovery-cache bug: protocol `observe` returned a fresh Accessibility snapshot without refreshing the shared recovery state, so a later semantic mutation could use old geometry.
-- The bug was fixed with RED → GREEN TDD in `ce728478ddcc20e96ccce6c305a57e5e718d1aad` (`fix: refresh recovery state on observe`).
-- Slice 5 routing, limitations, acceptance evidence, and performance notes were documented in `0fe6c11e5b25a2954664e38c65eca917961981ad`.
-- The feature branch was merged with current `origin/main` to remove already-merged Task 8 files from the PR diff; the resulting PR #37 server-side scope is Task 9 only.
-- Exact signed helper installation preserved the stable signing/designated requirement and reported `tccIdentityStable: true`; Accessibility, Screen Recording, event-listen, and event-post readiness were all verified true.
-- Deterministic fixture acceptance passed: AX resolve/click, intentional stale rejection with no old-geometry actuation plus fresh semantic recovery, duplicate-target fail-closed behavior, OCR-only resolve/click, screen/AX effect verification, 5 semantic local actions in one `computer_run_js`, physical takeover interruption/input release, and the emergency chord.
-- Harmless real-app smoke covered Calculator, Finder, TextEdit, System Settings, and Chrome. One System Settings `openApp` call transiently returned unavailable although the app became frontmost; immediate `active_window` + fresh observation succeeded.
-- Connection reuse was verified across separate ordinary `computer_run_js` calls using the same daemon-owned native helper process.
+- PRs #28–#35 were inspected/reconciled and merged before the final Slice 5 gate.
+- PR #36 was reviewed against the plan/CI and squash-merged as `d48b9b3b319395732334eb226dec459b961f1cff`.
+- Task 9 added content-free deterministic target-source audit metadata without persisting target text/coordinates.
+- Real-Mac acceptance exposed and fixed a stale recovery-cache bug: explicit `observe` now refreshes the shared recovery state before later semantic mutation. The fix was developed RED → GREEN and covered by native regression tests.
+- Slice 5 routing, OCR limitations, acceptance evidence, and performance notes are documented in `docs/CHATGPT_INTEGRATION.md`.
+- Exact signed helper acceptance preserved stable TCC identity; Accessibility, Screen Recording, event-listen, and event-post readiness were verified true.
+- Fixture acceptance covered AX resolve/click, stale-target refusal with fresh semantic recovery, ambiguity fail-closed behavior, OCR-only resolve/click, screen/AX verification, five semantic local actions in one `computer_run_js`, physical takeover cleanup, and the emergency chord.
+- Harmless real-app smoke covered Calculator, Finder, TextEdit, System Settings, and Chrome.
+- PR #37 exact head `ae7b2f7ed96dc53d8a7ee7b5ed1d15634441fcda` passed both hosted CI trigger sets (Node 22, Node 24, macOS-native) and was squash-merged as `b1503e438b3e43b1ae3e0e8de10626fe8bdfb739`.
+- Root `main` was fast-forwarded to the merge commit and post-merge verification passed.
 
 ## Current state
 
-PR #37 is OPEN and GitHub reports `mergeStateStatus=CLEAN`. Its server-side diff contains only Task 9 files. The latest hosted CI run for the verified head passed Node 22, Node 24, and macOS-native jobs; duplicate push/PR-triggered CI sets were also green.
+Computer Runtime v2 Slice 5 has no known open implementation, test, security, hosted-CI, or real-Mac acceptance blocker. The merged baseline is on `main` at/after `b1503e438b3e43b1ae3e0e8de10626fe8bdfb739`.
 
-No known code, test, security, or real-Mac acceptance blocker remains. The remaining merge gate is explicit user authorization to merge PR #37 into `main`.
+The current task is handoff-only: keep this file and the Project Continuity checkpoint aligned with merged Git reality. No further Computer Runtime feature layer is implied by Slice 5 completion.
 
 ## Next exact step
 
-1. Commit this `PROJECT_STATE.md` refresh on `feat/computer-runtime-v2-slice5-task9` without mixing unrelated files.
-2. Because the branch HEAD changes, rerun the full exact-head gate: native Swift suite, `npm run check`, `npm audit --omit=dev`, `git diff --check origin/main...HEAD`, and clean status.
-3. Push the updated branch and wait for the new PR #37 hosted CI to finish; verify server-side diff scope and `mergeStateStatus` again.
-4. If all gates remain green, stop before merging and obtain explicit user authorization for PR #37 → `main`.
-5. After an authorized merge, update/fast-forward the root main worktree safely, run post-merge verification, and checkpoint continuity to the next planned capability.
+When the user next asks to continue `chatgpt-system`:
+
+1. Run the root `AGENTS.md` continuation boot sequence and `project_resume` for exact alias `chatgpt-system`.
+2. Reconcile current `main`/worktrees against the latest checkpoint before editing; do not resurrect old Task 7/8/9 branches from historical context.
+3. If the user requests a new capability, inspect the current architecture and create/confirm a new scoped plan before implementation.
+4. Preserve the accepted Slice 5 safety invariants below and rerun the relevant fresh verification gates for any later change.
 
 ## Invariants
 
 - Every `computer_run_js` call keeps fresh child/Worker isolation. Reuse is limited to compatible daemon/native connections and content-free safe process-local metadata/cache.
-- Explicit fresh observation must refresh the shared recovery cache before later semantic mutation.
-- Semantic targets/window generation/display topology are revalidated before physical mutation; stale, ambiguous, unsafe, permission, takeover, and exhausted-recovery paths fail closed.
+- Explicit fresh observation refreshes the shared recovery cache before later semantic mutation.
+- Semantic targets/window generation/display topology are revalidated before physical mutation; stale, ambiguous, unsafe, permission, takeover, and exhausted-recovery states fail closed.
 - `exists()` returns `false` only for target-not-found; other stable errors propagate.
-- Timeout/cancellation/takeover must prevent later physical action and release held input.
-- OCR fallback currently captures the focused display, so repeated identical visible text can intentionally end in `COMPUTER_NEEDS_REPLAN` rather than guessing.
+- Timeout/cancellation/takeover prevents later physical action and releases held input.
+- OCR fallback captures the focused display; repeated identical visible text may intentionally end in `COMPUTER_NEEDS_REPLAN` rather than guessed coordinates.
 - Never persist screenshots, OCR/AX document text, typed sensitive content, credentials, secrets, lease IDs, or raw native pointers in continuity/audit metadata.
 - Preserve other agents' dirty/untracked work.
 - No direct `main` mutation, main merge, history rewrite, or production deployment without explicit user authorization.
-- Fresh verification evidence is required before completion/PASS claims.
+- Fresh verification evidence is required before completion/PASS claims for later changes.
 
 ## Verification
 
-Fresh verification on feature head `9b4676c8ce0ad1cff7eb8c83f9f3ef7a2e55f5cf` before this state-file refresh:
+Final Slice 5 evidence:
 
-- `swift test --package-path native/macos-computer-runtime`: `164/164` passed.
-- `npm run check`: `560/560` passed with `1` environment-gated skip.
-- `npm audit --omit=dev`: `0` vulnerabilities.
-- `git diff --check origin/main...HEAD`: PASS.
-- Worktree: clean.
-- PR #37 hosted CI: Node 22 PASS, Node 24 PASS, macOS-native PASS for both triggered CI sets.
-- PR #37: OPEN, server-side Task 9-only diff, `mergeStateStatus=CLEAN`.
-
-This evidence must be rerun after committing this file because the exact HEAD changes.
+- PR #37 hosted CI on exact feature head `ae7b2f7ed96dc53d8a7ee7b5ed1d15634441fcda`: both Node 22 jobs PASS, both Node 24 jobs PASS, both macOS-native jobs PASS.
+- PR #37: MERGED as `b1503e438b3e43b1ae3e0e8de10626fe8bdfb739`.
+- Post-merge `swift test --package-path native/macos-computer-runtime`: `164/164` passed.
+- Post-merge `npm run check`: `560/560` passed with `1` environment-gated skip.
+- Post-merge `npm audit --omit=dev`: `0` vulnerabilities.
+- Root `main` was clean and synchronized with `origin/main` at the Slice 5 merge milestone.
 
 ## Blockers / uncertainties
 
-- No implementation blocker is currently known.
-- PR #37 must not be merged until the user explicitly authorizes that merge.
-- The root `/Users/dogan/chatgpt-system` local `main` may lag remote `main`; re-read status/HEAD before any post-merge synchronization.
+- No Slice 5 blocker is known.
+- The next product/capability goal has not been selected. Do not infer one from the completed Slice 5 plan; obtain or establish a new scoped goal before implementation.
