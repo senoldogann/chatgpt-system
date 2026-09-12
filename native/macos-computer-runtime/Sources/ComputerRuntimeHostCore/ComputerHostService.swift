@@ -92,7 +92,8 @@ public struct ComputerHostService: Sendable {
                 applicationController: applicationController,
                 appSleeper: SystemInputSleeper(),
                 takeoverMonitor: takeoverMonitor,
-                verification: verification
+                verification: verification,
+                recovery: recovery
             ),
             recovery: recovery
         )
