@@ -139,7 +139,7 @@ public struct ComputerHostService: Sendable {
             guard hasEmptyObjectParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
             }
-            return handleObservation(requestId: request.requestId)
+            return await handleObservation(requestId: request.requestId)
 
         case "screenshot":
             guard hasEmptyObjectParams(request.params) else {
@@ -197,16 +197,34 @@ public struct ComputerHostService: Sendable {
         }
     }
 
-    private func handleObservation(requestId: String) -> ComputerProtocolResponse {
+    private func handleObservation(requestId: String) async -> ComputerProtocolResponse {
         guard permissions.accessibilityTrusted() else {
             return accessibilityPermissionRequired(requestId: requestId)
         }
-        guard let application = workspace.frontmostApplication(), let accessibility else {
-            return unavailable(requestId: requestId)
+
+        let observation: ComputerObservation
+        if let recovery {
+            do {
+                observation = try await recovery.refreshObservation()
+            } catch ComputerRecoveryError.permissionRequired {
+                return accessibilityPermissionRequired(requestId: requestId)
+            } catch {
+                return unavailable(requestId: requestId)
+            }
+        } else {
+            guard let application = workspace.frontmostApplication(), let accessibility else {
+                return unavailable(requestId: requestId)
+            }
+            do {
+                observation = try accessibility.observe(for: application, limits: .default)
+            } catch AccessibilityReadError.permissionRequired {
+                return accessibilityPermissionRequired(requestId: requestId)
+            } catch {
+                return unavailable(requestId: requestId)
+            }
         }
 
         do {
-            let observation = try accessibility.observe(for: application, limits: .default)
             let safeObservation = sanitizeObservation(observation, limits: .default)
             let digest = try ObservationDigest.digest(safeObservation)
             let digestedObservation = ComputerObservation(
@@ -218,8 +236,6 @@ public struct ComputerHostService: Sendable {
                 digest: digest
             )
             return encodeBoundedObservation(digestedObservation, requestId: requestId)
-        } catch AccessibilityReadError.permissionRequired {
-            return accessibilityPermissionRequired(requestId: requestId)
         } catch {
             return unavailable(requestId: requestId)
         }
