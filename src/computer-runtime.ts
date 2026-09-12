@@ -432,30 +432,23 @@ function requireActiveProgram(signal: AbortSignal): void {
 }
 
 function waitForProgramDelay(
-  sleep: (milliseconds: number) => Promise<void>,
   milliseconds: number,
   signal: AbortSignal,
 ): Promise<void> {
   requireActiveProgram(signal);
   return new Promise<void>((resolve, reject) => {
     let settled = false;
+    const timer = setTimeout(() => finish(undefined), milliseconds);
     const finish = (error: unknown | undefined): void => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       signal.removeEventListener("abort", abort);
       if (error === undefined) resolve();
       else reject(error);
     };
     const abort = (): void => finish(new ComputerError("COMPUTER_JS_FAILED"));
     signal.addEventListener("abort", abort, { once: true });
-    try {
-      void sleep(milliseconds).then(
-        () => finish(undefined),
-        (error: unknown) => finish(error),
-      );
-    } catch (error) {
-      finish(error);
-    }
   });
 }
 
@@ -905,7 +898,7 @@ export class ComputerRuntime {
       if (prepared.localWaitMs > this.config.maxActionProgramRuntimeMs) {
         throw new ComputerError("COMPUTER_TIMEOUT");
       }
-      await waitForProgramDelay(this.sleep, prepared.localWaitMs, signal);
+      await waitForProgramDelay(prepared.localWaitMs, signal);
       this.requireEnabled();
       requireActiveProgram(signal);
       return { state: "completed" };
