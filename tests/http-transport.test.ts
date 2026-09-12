@@ -39,6 +39,12 @@ const expectedAnnotations = {
   git_push: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   git_worktree: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   shell_run: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  terminal_session_open: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  terminal_session_read: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  terminal_session_write: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  terminal_session_resize: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  terminal_session_close: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+  terminal_session_list: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   terminal_run: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   process_start: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   process_list: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -97,7 +103,15 @@ const codingHarnessV2ToolNames = [
   "project_exec",
   "task_state",
 ] as const;
-const ownerRuntimeToolNames = ["shell_run"] as const;
+const ownerRuntimeToolNames = [
+  "shell_run",
+  "terminal_session_open",
+  "terminal_session_read",
+  "terminal_session_write",
+  "terminal_session_resize",
+  "terminal_session_close",
+  "terminal_session_list",
+] as const;
 const continuityV1ToolNames = [
   "project_checkpoint",
   "project_context_read",

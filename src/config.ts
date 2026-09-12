@@ -11,6 +11,9 @@ export const CONTINUITY_MAX_RESUME_CHARS = 12_000;
 export const CONTINUITY_MAX_TRACKED_PATHS = 100;
 export const CONTINUITY_REMOTE_TIMEOUT_MS = 10_000;
 export const OWNER_SHELL_MAX_SCRIPT_BYTES = 262_144;
+export const OWNER_TERMINAL_MAX_SESSIONS = 32;
+export const OWNER_TERMINAL_MAX_OUTPUT_BYTES = 262_144;
+export const OWNER_TERMINAL_MAX_INPUT_BYTES = 65_536;
 
 export interface LimitsConfig {
   maxReadBytes: number;
@@ -45,6 +48,9 @@ export interface OwnerRuntimeConfig {
   enabled: boolean;
   shellPath: string;
   maxScriptBytes: number;
+  maxTerminalSessions: number;
+  maxTerminalOutputBytes: number;
+  maxTerminalInputBytes: number;
 }
 
 export interface ComputerUseConfig {
@@ -307,6 +313,9 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       enabled: ownerRuntimeEnabled,
       shellPath: ownerShellPath,
       maxScriptBytes: OWNER_SHELL_MAX_SCRIPT_BYTES,
+      maxTerminalSessions: OWNER_TERMINAL_MAX_SESSIONS,
+      maxTerminalOutputBytes: OWNER_TERMINAL_MAX_OUTPUT_BYTES,
+      maxTerminalInputBytes: OWNER_TERMINAL_MAX_INPUT_BYTES,
     },
     computerUse: {
       enabled: overrides.computerUseEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_COMPUTER_USE),

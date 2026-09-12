@@ -8,7 +8,9 @@ import { FileSystemService } from "./fs-service.js";
 import { GitService } from "./git-service.js";
 import { ManagedProcessService } from "./managed-process-service.js";
 import { OwnerShellService } from "./owner-shell-service.js";
+import { TerminalSessionService } from "./terminal-session-service.js";
 import type { OwnerShellSupervisor } from "./owner-shell-supervisor.js";
+import type { TerminalSessionSupervisor } from "./terminal-session-supervisor.js";
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { ProjectExecService } from "./project-exec-service.js";
@@ -24,6 +26,7 @@ export interface ScopedRuntime {
   process: ProcessService;
   processes: ManagedProcessService;
   shell: OwnerShellService;
+  terminals: TerminalSessionService;
   codeQuery: CodeQueryService;
   projectExec: ProjectExecService;
   browser: ScopedBrowserService;
@@ -35,6 +38,7 @@ export interface ScopedRuntimeBase {
   audit: AuditLogger;
   processSupervisor: ProcessSupervisor;
   ownerShellSupervisor: OwnerShellSupervisor;
+  terminalSessionSupervisor: TerminalSessionSupervisor;
   projectExecBackend: ProjectExecBackend;
   browser: BrowserService;
   computer: ComputerRuntime;
@@ -61,6 +65,13 @@ export function createScopedRuntime(base: ScopedRuntimeBase, authority: Authorit
       policy,
       base.audit,
       base.ownerShellSupervisor,
+      base.config.ownerRuntime,
+      authority.profile === "admin",
+    ),
+    terminals: new TerminalSessionService(
+      policy,
+      base.audit,
+      base.terminalSessionSupervisor,
       base.config.ownerRuntime,
       authority.profile === "admin",
     ),

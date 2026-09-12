@@ -115,6 +115,30 @@ export class OwnerShellCancelledError extends AppError {
   }
 }
 
+export class TerminalSessionNotFoundError extends AppError {
+  constructor() {
+    super("The terminal session was not found.", "TERMINAL_SESSION_NOT_FOUND", { retryable: false });
+  }
+}
+
+export class TerminalSessionClosedError extends AppError {
+  constructor() {
+    super("The terminal session is no longer running.", "TERMINAL_SESSION_CLOSED", { retryable: false });
+  }
+}
+
+export class TerminalSessionLimitError extends AppError {
+  constructor() {
+    super("The terminal session limit has been reached.", "TERMINAL_SESSION_LIMIT", { retryable: true });
+  }
+}
+
+export class TerminalSessionFailedError extends AppError {
+  constructor() {
+    super("The terminal session could not be created or managed.", "TERMINAL_SESSION_FAILED", { retryable: true });
+  }
+}
+
 export class ProjectExecDisabledError extends AppError {
   constructor() {
     super(

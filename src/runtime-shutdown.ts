@@ -2,10 +2,10 @@ import type { ContinuityStore } from "./continuity-store.js";
 import type { ControlServerHandle } from "./control-server.js";
 import type { RuntimeServices } from "./server.js";
 
-export type RuntimeShutdownPhase = "computer-js" | "computer" | "owner-shell" | "processes" | "browser" | "continuity" | "control" | "transport";
+export type RuntimeShutdownPhase = "computer-js" | "computer" | "terminal-sessions" | "owner-shell" | "processes" | "browser" | "continuity" | "control" | "transport";
 
 export async function closeRuntimeResources(input: {
-  runtime: Pick<RuntimeServices, "computerJs" | "computer" | "ownerShellSupervisor" | "processSupervisor" | "browser"> & {
+  runtime: Pick<RuntimeServices, "computerJs" | "computer" | "terminalSessionSupervisor" | "ownerShellSupervisor" | "processSupervisor" | "browser"> & {
     continuityStore?: Pick<ContinuityStore, "close">;
   };
   control?: ControlServerHandle;
@@ -22,6 +22,7 @@ export async function closeRuntimeResources(input: {
 
   await attempt("computer-js", () => input.runtime.computerJs.close());
   await attempt("computer", () => input.runtime.computer.close());
+  await attempt("terminal-sessions", () => input.runtime.terminalSessionSupervisor.close());
   await attempt("owner-shell", () => input.runtime.ownerShellSupervisor.close());
   await attempt("processes", () => input.runtime.processSupervisor.close());
   await attempt("browser", async () => {

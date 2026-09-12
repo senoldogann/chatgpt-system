@@ -1,106 +1,166 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-12T19:37+03:00
-Status: Owner Runtime Phase 1 published as PR #39; exact-head CI and separate main-merge authorization remain the release gates.
+Last updated: 2026-09-12T20:37+03:00
+Status: Owner Runtime Phase 2 persistent interactive PTY is published as PR #40; exact published implementation head passed local and hosted acceptance, and only the final docs-only handoff head refresh remains before the merge gate.
 
 This file is a handoff cache, not the sole source of truth. A resumed agent must reconcile it against Git/worktree reality and the latest Project Continuity checkpoint before editing.
 
 ## Current goal
 
-Deliver Owner Runtime / Full-Host Development in reviewable phases so a locally approved Admin ChatGPT session can perform Codex-class local development while `Project` and `User` authority remain narrow. Phase 1 is the unrestricted one-shot `shell_run` surface; PTY, Computer Runtime productivity-ceiling removal, and final end-to-end acceptance remain separate later phases.
+Finish **Owner Runtime Phase 2 — persistent interactive PTY** as a reviewable branch after the verified Phase 1 merge. Keep PTY Admin-only behind the existing Owner Runtime gate, preserve the narrow `terminal_run` and one-shot `shell_run` contracts, and do not mix Phase 3 Computer Runtime ceiling work into this branch.
 
 ## Active workspace
 
 - Stable project root / continuity anchor: `/Users/dogan/chatgpt-system` on `main`.
-- Stable merged baseline: `main@a5923a5bbae8743abc1cd5ca39cdb73926787270`.
-- Active isolated managed worktree: `/Users/dogan/.chatgpt-system/worktrees/d0a0a546782faa2c9a9906345e9290c84508aad64b304746b50965bb2ff58ef1/d9a07fdd-6900-4143-9dda-d4ce640a571f`.
-- Active branch: `design/owner-runtime-full-host`.
-- Open pull request: `#39` — `https://github.com/senoldogann/chatgpt-system/pull/39`, base `main`.
+- Stable merged baseline: `main@0195a432bae370eb36dedf65056c874634f805dc`.
+- Phase 1 PR: `#39`, merged by squash after explicit authorization.
+- Active Phase 2 managed worktree: `/Users/dogan/.chatgpt-system/worktrees/d0a0a546782faa2c9a9906345e9290c84508aad64b304746b50965bb2ff58ef1/1f372958-250d-456a-be9f-9ce8ddafc944`.
+- Active Phase 2 branch: `feat/owner-runtime-phase2-pty`.
+- Phase 2 PR: `#40` — `https://github.com/senoldogann/chatgpt-system/pull/40`.
+- Published implementation/handoff head before this CI-record docs commit: `e24901b213c87f7948a7ef2894083b1e476e1f27`.
 - Approved design: `docs/superpowers/specs/2026-09-12-owner-runtime-full-host-development-design.md`.
-- Phase 1 plan: `docs/superpowers/plans/2026-09-12-owner-runtime-phase1-shell.md`.
-- Latest implementation head before this state refresh: `452d147` (`fix: surface owner shell signaling failures`).
-- Project Continuity exact alias: `chatgpt-system`, intentionally anchored to the stable root worktree rather than this feature worktree.
+- Phase 2 plan: `docs/superpowers/plans/2026-09-12-owner-runtime-phase2-pty.md`.
+- Project Continuity exact alias: `chatgpt-system`; continuity remains anchored to the stable root worktree.
 
 ## Completed
 
-- `cb20690` — Owner Runtime full-host development design.
-- `3bc3c3a` — detailed Phase 1 shell plan and planning handoff.
-- `5a1b203` — explicit Owner Runtime startup gate/config/CLI/categorical capability reporting.
-- `3a2eda9` — shared `OwnerShellSupervisor`, authority-scoped `OwnerShellService`, bounded output tails, timeout/abort/shutdown process-group cleanup, stable errors, and runtime shutdown ownership.
-- `ccdc1c1` — strict `shell_run` MCP surface, output schema, AbortSignal propagation, Project/User denial, Owner gate enforcement, and content-free shell audit contract.
-- `6d0b66c` — ChatGPT tunnel setup propagation plus README/security/architecture/integration documentation.
-- `12ba094` — acceptance regression proving Admin can execute outside the bootstrap root while an omitted shell timeout remains independent of the legacy structured-terminal timeout.
-- `452d147` — final-review lifecycle fix: process-group signal-management failures are surfaced as stable `SHELL_FAILED` instead of producing an unhandled rejection; active child ownership remains tracked until close and failed termination attempts can be retried during shutdown.
+### Phase 1 merge
 
-Phase 1 behavior now implemented:
+- PR #39 exact head `6776214b9a8e15cbe23a75172c22fa54f3cab772` passed hosted Node 22, Node 24, and macOS-native CI with `mergeStateStatus=CLEAN`.
+- PR #39 was squash-merged as `0195a432bae370eb36dedf65056c874634f805dc`.
+- Stable root `main` was fast-forwarded to the merge commit and matches `origin/main`.
+- Fresh merged-root verification passed: Node/TypeScript `588/588` + `1` skip, production audit `0` vulnerabilities, Swift `164/164`.
+
+### Phase 2 implementation
+
+Implementation followed the committed RED → GREEN plan and is split into reviewable commits:
+
+- `0aa038b` — exact `node-pty@1.2.0-beta.15`, lazy `NodePtyBackend`, real TTY/write/read/resize smoke, macOS CI PTY binding hook.
+- `82b6cda` — bounded UTF-8-safe output ring, monotonic event-sequence cursors, daemon-owned `TerminalSessionSupervisor`, process-group cleanup, fixed PTY resource ceilings.
+- `975d658` — Admin + Owner Runtime service/policy layer, later-Admin visibility, stable PTY errors, content-free audit.
+- `da37e55` — six strict `terminal_session_*` MCP tools, output schemas, scoped runtime wiring, shared supervisor ownership, ordered daemon shutdown.
+- `cf8a162` — real MCP PTY integration covering TTY interaction, cursoring, resize, lease handoff, audit privacy, and runtime shutdown cleanup.
+
+Public PTY surface is exactly:
 
 ```text
-Admin + Personal Admin + explicit Owner Runtime gate
-  -> shell_run
-  -> trusted configured login shell
-  -> arbitrary shell syntax / executable paths / installed toolchains / host network
-  -> authority-scoped cwd as the current OS user
-  -> bounded retained stdout/stderr tails
-  -> optional finite timeout or no default wall-clock deadline
-  -> MCP abort / daemon-shutdown process-group cleanup
+terminal_session_open
+terminal_session_read
+terminal_session_write
+terminal_session_resize
+terminal_session_close
+terminal_session_list
 ```
 
-`terminal_run` remains a separate structured `shell=false` + executable-allowlist surface. `Project` and `User` still cannot use host shell execution. No persistent PTY was added in Phase 1.
+The resulting architecture is:
+
+```text
+Admin lease + ownerRuntime.enabled
+        |
+        v
+TerminalSessionService
+  - Admin/gate/path visibility policy
+  - bounded input / dimensions / cursor validation
+  - content-free audit metadata
+        |
+        v
+shared TerminalSessionSupervisor
+  - opaque daemon-local session registry
+  - bounded UTF-8 output ring + event-sequence cursor
+  - later-Admin rediscovery; Project/User hidden
+  - SIGTERM -> grace -> SIGKILL shutdown cleanup
+        |
+        v
+lazy NodePtyBackend
+  - exact node-pty@1.2.0-beta.15
+  - trusted configured login shell
+  - real interactive PTY
+```
+
+### Phase 2 acceptance evidence before final docs/state commit
+
+- Real PTY backend test: PASS after fresh `npm ci --ignore-scripts`.
+- Real MCP integration: TTY + interactive input + resize + cursor no-duplication + Admin lease A → B rediscovery + content-free audit + daemon shutdown cleanup PASS.
+- Integration test repeated after initial acceptance: `5/5` PASS.
+- Focused MCP/runtime compatibility: Owner shell, authority, HTTP catalog, PTY, and shutdown suites PASS.
+- Full `npm run check`: `614/614` tests PASS with `1` environment-gated skip; `105` test files PASS + `1` skipped file.
+- `npm audit --omit=dev`: `0` vulnerabilities.
+- `swift test --package-path native/macos-computer-runtime`: `164/164` PASS.
+- `git diff --check origin/main...HEAD`: PASS at implementation head; docs/state are being committed next, so exact-head gates must be rerun after that commit.
+
+### Phase 2 publication / hosted acceptance
+
+- Exact local/published head `e24901b213c87f7948a7ef2894083b1e476e1f27` passed fresh local acceptance after the first final handoff commit:
+  - `npm run check`: `614/614` PASS + `1` environment-gated skip;
+  - real PTY exact-head acceptance: `3/3` PASS;
+  - `npm audit --omit=dev`: `0` vulnerabilities;
+  - Swift Computer Runtime: `164/164` PASS;
+  - `git diff --check origin/main...HEAD`: PASS;
+  - worktree clean.
+- Branch `feat/owner-runtime-phase2-pty` was pushed at exact head `e24901b...` and PR #40 was opened against `main`.
+- GitHub server-side PR diff contains the expected `31` files only.
+- Hosted CI on exact head `e24901b...` passed in both push and pull-request runs:
+  - Node 22: SUCCESS;
+  - Node 24: SUCCESS;
+  - macOS-native: SUCCESS.
+- GitHub reported `mergeStateStatus=CLEAN` for PR #40 at exact head `e24901b...`.
 
 ## Current state
 
-Phase 1 implementation is complete in the isolated feature worktree and has no known production code/audit blocker. The final branch-scope review found one lifecycle-management defect in the timeout/abort signaling error path; it was reproduced with a RED regression, fixed in `452d147`, and reverified. A subsequent full-suite run exposed a separate test-only scheduler race in the SIGKILL escalation test; single-test repetition proved production behavior stable, and the test was converted to the supervisor's injected child/signal path for deterministic escalation evidence. The branch is published and PR #39 is open. GitHub CI status must always be evaluated against the exact current PR head because any later docs/code commit invalidates earlier hosted evidence. `main` merge remains a separate explicit authorization gate.
+Phase 2 production implementation and hosted acceptance are complete. PR #40 is review-ready and clean. This state update records the hosted CI milestone; because it creates one docs-only successor head, that exact final PR head still needs the standard fresh local/hosted verification refresh before merge authorization is requested. No Phase 3 Computer Runtime ceiling change is present.
 
-## Verification
+Key behavior now implemented:
 
-Fresh Phase 1 evidence before this state-file commit:
-
-- Task 1 focused config/CLI/environment suite: `29/29` PASS; TypeScript build PASS.
-- Task 2 shell lifecycle/process compatibility suite: `25/25` PASS; TypeScript build PASS.
-- Task 3 MCP/audit/catalog suite: `10/10` PASS; TypeScript build PASS.
-- Task 4 setup/docs compatibility suite: `56/56` PASS.
-- Focused Phase 1 acceptance suite: `64/64` PASS.
-- Acceptance covers Project/User denial, disabled-Admin `OWNER_RUNTIME_DISABLED`, arbitrary shell syntax and non-allowlisted executable paths, unchanged `terminal_run` allowlist behavior, Admin cwd outside the bootstrap root, daemon-secret canary isolation, bounded output without output-volume termination, no inherited legacy command timeout, explicit timeout, MCP abort, daemon shutdown, process-group cleanup, and content-free audit metadata.
-- Pre-state-commit `npm run check`: `97` test files PASS + `1` skipped; `587/587` tests PASS + `1` environment-gated skip.
-- Pre-state-commit `npm audit --omit=dev`: `0` vulnerabilities.
-- Pre-state-commit `git diff --check origin/main...HEAD`: PASS.
-- Pre-state-commit worktree: clean.
-- Final branch review found a real `terminate()` signaling-failure bug: non-`ESRCH` process-group signal errors could resolve the shell request later while also causing an unhandled rejected promise. RED regression reproduced both symptoms.
-- `452d147` fixes the lifecycle path by surfacing stable `SHELL_FAILED`, keeping active ownership until child close, and allowing later shutdown retry after a failed termination attempt.
-- Post-fix Owner shell/process/shutdown compatibility suite: `31/31` PASS; TypeScript build PASS.
-- Static scope review: no `package.json`/lockfile change, no Project/User shell widening, no `terminal_run` semantic widening, no caller-controlled shell executable/environment/PID/signal surface, and audit metadata remains content-free.
-- First final full-suite attempt after `5d5554f` had exactly one failure: the real-shell SIGKILL escalation test observed `SIGTERM` under suite load. The same test passed `10/10` in isolation, showing a setup race where a 30 ms timeout could fire before the shell installed its `trap`.
-- Escalation verification was made deterministic using the existing injected `spawnProcess`/`signalProcess` seams: fake owned PID `4242` ignores SIGTERM and emits close only on SIGKILL; the test asserts exact `-pid` SIGTERM→SIGKILL ordering. The deterministic escalation case passed `10/10` repeated runs.
-- PR #39 was opened from `design/owner-runtime-full-host`; its first published head `735a15f` passed hosted Node 22, Node 24, and `macos-native`, and GitHub reported `mergeStateStatus=CLEAN`. Any newer PR head must independently satisfy the same three hosted checks before merge.
-
-Because this state-file commit changes HEAD, exact-head completion evidence must be rerun after committing this file; do not reuse the pre-state-commit full gate as final exact-head proof.
+- PTY exists only for Admin under explicit `--personal-admin --enable-owner-runtime`.
+- Sessions are daemon-owned rather than lease-owned: creator lease expiry/revocation does not kill a PTY, and a later active Admin Owner lease can rediscover/manage it.
+- Project/User cannot list/discover/read/write/resize/close Owner PTYs.
+- MCP sees opaque session IDs only; no OS PID/process-group ID, arbitrary signal, shell executable, caller environment, or detached-mode input is exposed.
+- Output is retained only in a bounded UTF-8-safe in-memory ring with monotonic event-sequence cursors; truncation is explicit when the requested cursor predates retained history.
+- Input size, session count, output retention, and terminal dimensions are bounded; session wall-clock runtime is not arbitrarily capped while the daemon is alive.
+- PTY input/output/session identifiers are excluded from persistent audit metadata.
+- Sessions do not survive daemon restart; runtime shutdown terminates every running PTY process group with SIGTERM then SIGKILL after the configured grace period.
+- `terminal_run` remains allowlisted `shell=false`; `shell_run` remains unrestricted one-shot Owner shell; PTY is a distinct persistent subsystem.
 
 ## Next exact step
 
-1. Commit this PR/handoff state refresh.
-2. Rerun exact-head local `npm run check`, `npm audit --omit=dev`, `git diff --check origin/main...HEAD`, and clean-status verification.
-3. Push the updated feature head to PR #39 and wait for exact-head Node 22, Node 24, and macOS-native CI.
-4. Verify GitHub reports the expected head SHA, server-side diff scope, all required checks successful, and `mergeStateStatus=CLEAN`.
-5. Update Project Continuity with the published exact-head evidence and stop before merging to `main`; merge remains a separate explicit authorization gate.
-6. After a verified Phase 1 merge, write the separate Phase 2 interactive-PTY implementation plan from the approved design.
+1. Commit this CI-record `PROJECT_STATE.md` update as a docs-only PR successor head.
+2. Because HEAD changes, rerun fresh exact-head local verification: `npm run check`, `npm audit --omit=dev`, real PTY integration, Swift `164/164`, `git diff --check origin/main...HEAD`, and clean status.
+3. Push that exact docs-only successor head to PR #40 and wait for hosted Node 22/24 + macOS-native CI on the same SHA.
+4. Verify server-side PR diff scope and `mergeStateStatus=CLEAN` once more.
+5. Checkpoint Project Continuity with the final exact published SHA and hosted evidence.
+6. Stop before any `main` merge unless merge authorization is separately explicit.
 
 ## Invariants
 
-- Full-host Owner Runtime is Admin-only and separately opt-in; `Project` and `User` retain current host-execution restrictions.
-- Existing `terminal_run` stays structured, allowlisted, timeout/output bounded, and `shell=false`; unrestricted shell is the distinct `shell_run` tool.
-- The MCP caller cannot choose the trusted shell executable, child environment, raw OS PID, process-group ID, arbitrary signal, or detached mode.
-- Owner Runtime executes as the current macOS user; it does not bypass TCC, sudo, Keychain, SIP, or OS authentication.
-- Daemon/tunnel/authority secrets are not automatically forwarded to Owner shell children.
-- Raw shell script, stdout/stderr, environment values, typed computer text, screenshot/OCR/AX content, credentials, secrets, lease IDs, and raw native/OS identifiers must not enter persistent audit/continuity metadata.
-- Long Owner Runtime work may omit a product wall-clock deadline, but retained memory/protocol/output payloads remain bounded and every owned execution remains stoppable through cancellation/shutdown.
-- Computer Runtime user takeover, emergency stop, held-input cleanup, bounded automatic recovery, and fail-closed semantic targeting remain authoritative and unchanged by Phase 1.
+- PTY is Admin-only and requires the existing explicit Owner Runtime startup gate.
+- Project/User cannot discover, read, write, resize, list, or close PTY sessions.
+- Existing `terminal_run` stays structured/allowlisted; existing `shell_run` stays unrestricted one-shot; PTY is a distinct persistent surface.
+- MCP never exposes raw OS PID/process-group ID, arbitrary signal, child environment, shell executable selection, or detached mode.
+- PTY sessions run as the current OS user and do not bypass TCC, sudo, Keychain, SIP, or OS authentication.
+- Admin lease expiration/revocation does not kill the session; a later active Admin Owner lease may rediscover/manage it.
+- Sessions do not persist across daemon restart and all running PTY process groups are terminated on daemon shutdown.
+- PTY output retention, input payloads, session count, and dimensions remain bounded; session runtime itself has no arbitrary wall-clock deadline.
+- Raw PTY input/output, session IDs, PIDs, environment values, credentials, and secrets must not enter persistent audit or continuity metadata.
 - Local worktree/files are active implementation truth; Git is durable code/history; Project Continuity is semantic handoff memory.
-- Preserve unrelated agents/worktrees. Branch push/PR creation is authorized for this Phase 1 head; direct `main` mutation, main merge, history rewrite, or deployment still require separate explicit user authorization.
+- Preserve unrelated agents/worktrees. No direct `main` mutation, main merge, history rewrite, or deployment without explicit authorization.
+
+## Verification
+
+- Stable main: `0195a432bae370eb36dedf65056c874634f805dc`, clean and synchronized with `origin/main` at the last reconciliation.
+- Phase 2 branch baseline before implementation: `588/588` PASS + `1` skip.
+- Exact dependency candidate: `node-pty@1.2.0-beta.15`; real Apple Silicon PTY smoke PASS.
+- Phase 2 implementation pre-handoff Node/TypeScript: `614/614` PASS + `1` skip.
+- Phase 2 real PTY integration: PASS; repeated `5/5` PASS.
+- Phase 2 production audit: `0 vulnerabilities`.
+- Unchanged Swift Computer Runtime: `164/164` PASS.
+- Docs contract tests: `3/3` PASS before final state commit.
+- Phase 2 plan placeholder scan: PASS.
+- Exact published head `e24901b213c87f7948a7ef2894083b1e476e1f27`: local `614/614` + `1` skip, PTY `3/3`, audit `0`, Swift `164/164`, diff check PASS, clean status.
+- PR #40 at exact head `e24901b...`: hosted Node 22 SUCCESS, Node 24 SUCCESS, macOS-native SUCCESS, server-side diff `31` expected files, `mergeStateStatus=CLEAN`.
 
 ## Blockers / uncertainties
 
-- No known Phase 1 code, test, audit, or local-verification blocker remains before the final exact-head rerun.
-- Hosted CI passed on the first PR head `735a15f`; any later head, including this state refresh, must rerun Node 22/24 and macOS-native before merge.
-- Main merge is intentionally blocked on separate explicit user authorization even after exact-head CI is green.
-- Persistent interactive PTY is intentionally deferred to Phase 2; dependency choice remains to be validated there.
-- Screen Recording/Accessibility readiness is outside Phase 1 shell scope and will be rechecked during later Owner Runtime/Computer Runtime real-Mac acceptance.
+- No local Phase 2 design or implementation blocker is known.
+- `node-pty@1.2.0-beta.15` is intentionally an exact prerelease pin because stable `1.1.0` has the macOS packaging defect. Local macOS plus hosted Node 22/24 Linux and hosted macOS evidence are now green on `e24901b...`; the final docs-only successor head still must rerun hosted CI before merge.
+- The `project_check` Docker sandbox previously reported the repository npm check as `UNAVAILABLE`; host verification is authoritative for this local native PTY work and is green.
+- Screen Recording/Accessibility readiness is outside Phase 2 PTY scope and remains for later integrated Owner Runtime/Computer Runtime acceptance.

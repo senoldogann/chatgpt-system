@@ -2,7 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadConfig, OWNER_SHELL_MAX_SCRIPT_BYTES } from "../src/config.js";
+import {
+  loadConfig,
+  OWNER_SHELL_MAX_SCRIPT_BYTES,
+  OWNER_TERMINAL_MAX_INPUT_BYTES,
+  OWNER_TERMINAL_MAX_OUTPUT_BYTES,
+  OWNER_TERMINAL_MAX_SESSIONS,
+} from "../src/config.js";
 
 const cleanups: string[] = [];
 
@@ -38,6 +44,9 @@ describe("Owner Runtime configuration", () => {
       enabled: true,
       shellPath: expect.stringMatching(/^\//),
       maxScriptBytes: OWNER_SHELL_MAX_SCRIPT_BYTES,
+      maxTerminalSessions: OWNER_TERMINAL_MAX_SESSIONS,
+      maxTerminalOutputBytes: OWNER_TERMINAL_MAX_OUTPUT_BYTES,
+      maxTerminalInputBytes: OWNER_TERMINAL_MAX_INPUT_BYTES,
     });
   });
 
