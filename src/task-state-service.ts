@@ -21,6 +21,7 @@ import {
   RecoveryRequiredError,
   TaskStateNotFoundError,
 } from "./errors.js";
+import { withPathLock } from "./path-lock.js";
 import { PathPolicy } from "./policy.js";
 import type {
   RepositoryStateObservation,
@@ -242,6 +243,11 @@ function validStoredRecord(value: unknown, taskId: string, fingerprint: string):
     && typeof record.updatedAt === "string";
 }
 
+export interface TaskStateVerifiedObservation {
+  head: string;
+  workingTreeDigest: string;
+}
+
 export class TaskStateService {
   constructor(
     private readonly policy: PathPolicy,
@@ -433,7 +439,7 @@ export class TaskStateService {
     return this.audit.run(
       "task.state",
       this.policy.display(observation.repositoryRoot),
-      async () => {
+      async () => withPathLock(this.recordPath(observation, taskId), async () => {
         const record = await this.load(observation, taskId);
         if (record.status !== "active") throw new ConflictError("Only an active task can accept a checkpoint.");
         if (record.checkpoints.length >= MAX_CHECKPOINTS) throw new LimitError("Task checkpoint count exceeded its bounded limit.");
@@ -463,7 +469,7 @@ export class TaskStateService {
         };
         await this.persist(observation, updated);
         return this.view(updated, observation);
-      },
+      }),
       { operation: "checkpoint" },
     );
   }
@@ -485,13 +491,21 @@ export class TaskStateService {
     summaryInput: string,
     evidenceRefsInput: string[] | undefined,
     cwdInput: string,
+    verified: TaskStateVerifiedObservation | undefined,
   ): Promise<TaskStateView> {
     this.assertProject();
     const observation = await this.observeRepositoryState(cwdInput);
+    if (verified !== undefined
+      && (verified.head !== observation.head || verified.workingTreeDigest !== observation.workingTreeDigest)) {
+      throw new ConflictError("Repository state changed between verification and task completion.", {
+        verified,
+        observed: { head: observation.head, workingTreeDigest: observation.workingTreeDigest },
+      });
+    }
     return this.audit.run(
       "task.state",
       this.policy.display(observation.repositoryRoot),
-      async () => {
+      async () => withPathLock(this.recordPath(observation, taskId), async () => {
         const record = await this.load(observation, taskId);
         if (record.status !== "active") throw new ConflictError("Only an active task can enter a terminal state.");
         const revision = record.revision + 1;
@@ -516,16 +530,22 @@ export class TaskStateService {
         };
         await this.persist(observation, updated);
         return this.view(updated, observation);
-      },
+      }),
       { operation: status === "completed" ? "complete" : "fail", status },
     );
   }
 
-  async complete(taskId: string, summaryInput: string, evidenceRefsInput: string[] | undefined, cwdInput = "."): Promise<TaskStateView> {
-    return this.terminal("completed", taskId, summaryInput, evidenceRefsInput, cwdInput);
+  async complete(
+    taskId: string,
+    summaryInput: string,
+    evidenceRefsInput: string[] | undefined,
+    cwdInput: string,
+    verified: TaskStateVerifiedObservation,
+  ): Promise<TaskStateView> {
+    return this.terminal("completed", taskId, summaryInput, evidenceRefsInput, cwdInput, verified);
   }
 
   async fail(taskId: string, summaryInput: string, evidenceRefsInput: string[] | undefined, cwdInput = "."): Promise<TaskStateView> {
-    return this.terminal("failed", taskId, summaryInput, evidenceRefsInput, cwdInput);
+    return this.terminal("failed", taskId, summaryInput, evidenceRefsInput, cwdInput, undefined);
   }
 }
