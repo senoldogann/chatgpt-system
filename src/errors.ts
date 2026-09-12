@@ -93,6 +93,28 @@ export class VerificationRequiredError extends AppError {
   }
 }
 
+export class OwnerRuntimeDisabledError extends AppError {
+  constructor() {
+    super(
+      "Owner Runtime is disabled. Restart with --enable-owner-runtime or CHATGPT_SYSTEM_ENABLE_OWNER_RUNTIME=true.",
+      "OWNER_RUNTIME_DISABLED",
+      { retryable: false },
+    );
+  }
+}
+
+export class OwnerShellFailedError extends AppError {
+  constructor() {
+    super("Owner shell execution could not be started or managed.", "SHELL_FAILED", { retryable: true });
+  }
+}
+
+export class OwnerShellCancelledError extends AppError {
+  constructor(reason: "abort" | "shutdown") {
+    super("Owner shell execution was cancelled.", "SHELL_CANCELLED", { reason, retryable: true });
+  }
+}
+
 export class ProjectExecDisabledError extends AppError {
   constructor() {
     super(

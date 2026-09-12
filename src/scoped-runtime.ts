@@ -7,6 +7,8 @@ import type { AppConfig } from "./config.js";
 import { FileSystemService } from "./fs-service.js";
 import { GitService } from "./git-service.js";
 import { ManagedProcessService } from "./managed-process-service.js";
+import { OwnerShellService } from "./owner-shell-service.js";
+import type { OwnerShellSupervisor } from "./owner-shell-supervisor.js";
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { ProjectExecService } from "./project-exec-service.js";
@@ -21,6 +23,7 @@ export interface ScopedRuntime {
   git: GitService;
   process: ProcessService;
   processes: ManagedProcessService;
+  shell: OwnerShellService;
   codeQuery: CodeQueryService;
   projectExec: ProjectExecService;
   browser: ScopedBrowserService;
@@ -31,6 +34,7 @@ export interface ScopedRuntimeBase {
   config: AppConfig;
   audit: AuditLogger;
   processSupervisor: ProcessSupervisor;
+  ownerShellSupervisor: OwnerShellSupervisor;
   projectExecBackend: ProjectExecBackend;
   browser: BrowserService;
   computer: ComputerRuntime;
@@ -53,6 +57,13 @@ export function createScopedRuntime(base: ScopedRuntimeBase, authority: Authorit
     git: new GitService(policy, base.audit, config, { remoteWriteEnabled: authority.profile === "admin" }),
     process: new ProcessService(policy, base.audit, config),
     processes: new ManagedProcessService(policy, config.terminal, base.processSupervisor),
+    shell: new OwnerShellService(
+      policy,
+      base.audit,
+      base.ownerShellSupervisor,
+      base.config.ownerRuntime,
+      authority.profile === "admin",
+    ),
     codeQuery: new CodeQueryService(policy, base.audit, config.limits),
     projectExec: new ProjectExecService(
       policy,

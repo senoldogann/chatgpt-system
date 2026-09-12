@@ -29,6 +29,7 @@ import { registerPatchSetTool } from "./patch-set-tool-registration.js";
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
 import { ProcessSupervisor } from "./process-supervisor.js";
+import { OwnerShellSupervisor } from "./owner-shell-supervisor.js";
 import { registerProjectCheckTool } from "./project-check-tool-registration.js";
 import { registerProjectExecTool } from "./project-exec-tool-registration.js";
 import { createProjectContinuityRuntime, type ProjectContinuityRuntime } from "./project-continuity-runtime.js";
@@ -69,6 +70,7 @@ export interface RuntimeServices extends ProjectContinuityRuntime {
   git: GitService;
   process: ProcessService;
   processSupervisor: ProcessSupervisor;
+  ownerShellSupervisor: OwnerShellSupervisor;
   projectExecBackend: ProjectExecBackend;
   taskStateRoot: string;
   worktreeRoot: string;
@@ -127,6 +129,10 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     },
   });
   const processSupervisor = new ProcessSupervisor({ limits: config.limits, audit });
+  const ownerShellSupervisor = new OwnerShellSupervisor({
+    maxRetainedBytesPerStream: config.limits.maxCommandOutputBytes,
+    processStopGraceMs: config.limits.processStopGraceMs,
+  });
   const projectExecBackend = options.projectExecBackend ?? new DockerProjectExecBackend({
     maxOutputBytes: config.limits.maxCommandOutputBytes,
     cleanupTimeoutMs: config.limits.processStopGraceMs,
@@ -165,6 +171,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     git: new GitService(policy, audit, config),
     process: new ProcessService(policy, audit, config),
     processSupervisor,
+    ownerShellSupervisor,
     projectExecBackend,
     taskStateRoot,
     worktreeRoot,
