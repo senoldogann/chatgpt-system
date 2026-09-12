@@ -103,7 +103,11 @@ struct ScreenImageCapture: @unchecked Sendable {
 }
 
 protocol ScreenImageCapturing: Sendable {
-    func captureMainDisplayImage() async throws -> ScreenImageCapture
+    func captureFocusedDisplayImage() async throws -> ScreenImageCapture
+}
+
+protocol FocusedDisplayReading: Sendable {
+    func focusedDisplayID() -> CGDirectDisplayID?
 }
 
 protocol VisionTextRecognizing: Sendable {
