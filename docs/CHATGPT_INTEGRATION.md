@@ -281,7 +281,7 @@ The capability gates are independent:
 - omitting `--enable-terminal` keeps one-shot/managed **host** process execution disabled;
 - omitting `--enable-project-exec` keeps `project_exec` disabled even for Project leases; enabling it does not grant host-terminal authority;
 - omitting `--personal-admin` preserves local User/Admin approval;
-- omitting `--enable-owner-runtime` keeps unrestricted `shell_run` disabled even for Admin; `--enable-owner-runtime` itself requires `--personal-admin`;
+- omitting `--enable-owner-runtime` keeps unrestricted `shell_run` and persistent `terminal_session_*` PTY tools disabled even for Admin; `--enable-owner-runtime` itself requires `--personal-admin`;
 - omitting `--enable-browser` keeps Browser Runtime disabled even for Admin;
 - omitting `--enable-computer-use` keeps Computer Runtime disabled even for Admin;
 - omitting `--enable-full-host-js` keeps `computer_run_js` disabled even when Computer Runtime is enabled;
@@ -404,6 +404,12 @@ Host execution/process tools:
 
 ```text
 shell_run
+terminal_session_open
+terminal_session_read
+terminal_session_write
+terminal_session_resize
+terminal_session_close
+terminal_session_list
 terminal_run
 process_start
 process_list
@@ -414,9 +420,11 @@ process_stop
 
 `terminal_run` is the structured path: `shell=false`, configured executable basename allowlist, bounded command timeout/output, and Admin terminal capability. Prefer it when a command fits that contract.
 
-`shell_run` is the Owner Runtime escape hatch for full local development. It requires an Admin lease plus `--personal-admin --enable-owner-runtime`, executes arbitrary login-shell syntax through the trusted startup shell as the current macOS user, and is not an OS sandbox. It supports pipes/redirection/compound commands, installed compilers and package managers, Git, arbitrary executable paths, and normal host network access. The MCP caller cannot choose the shell executable or child environment. Omitted `timeoutMs` has no product wall-clock deadline; finite timeout, MCP cancellation, and daemon shutdown terminate the owned process group. Retained stdout/stderr remain bounded, and audit keeps only script byte count/SHA-256 and lifecycle metadata. Project/User are denied. Phase 1 does not yet expose an interactive persistent PTY.
+`shell_run` is the Owner Runtime escape hatch for unrestricted one-shot local development. It requires an Admin lease plus `--personal-admin --enable-owner-runtime`, executes arbitrary login-shell syntax through the trusted startup shell as the current macOS user, and is not an OS sandbox. It supports pipes/redirection/compound commands, installed compilers and package managers, Git, arbitrary executable paths, and normal host network access. The MCP caller cannot choose the shell executable or child environment. Omitted `timeoutMs` has no product wall-clock deadline; finite timeout, MCP cancellation, and daemon shutdown terminate the owned process group. Retained stdout/stderr remain bounded, and audit keeps only script byte count/SHA-256 and lifecycle metadata. Project/User are denied.
 
-Use `shell_run` only when the engineering workflow needs unrestricted shell semantics or a tool outside the structured allowlist; keep `terminal_run` for narrow deterministic commands.
+`terminal_session_*` is the persistent interactive Owner path behind the same gate. `open` starts the trusted configured login shell in a real PTY and returns an opaque daemon-local session ID; `read` uses a monotonic event-sequence cursor over bounded UTF-8-safe retained output; `write` and `resize` are bounded; `list` and `close` operate only on sessions manageable by the current Admin scope. A session may outlive its creating Admin lease and be rediscovered by a later approved Admin Owner lease, but it never persists across daemon restart. Project/User cannot enumerate it. Raw PID/process group, signal, shell path, child environment, PTY input/output, and session ID are excluded from persistent audit metadata. Daemon shutdown terminates every running PTY with group SIGTERM, the configured grace interval, then SIGKILL if necessary.
+
+Use `terminal_run` for narrow deterministic commands, `shell_run` for unrestricted one-shot shell execution, and `terminal_session_*` for REPLs, debugger/CLI prompts, persistent dev servers, or any tool that genuinely requires a TTY.
 
 Browser tools:
 
@@ -727,7 +735,7 @@ Implemented:
 - deterministic Admin-only Playwright Browser Runtime;
 - semantic browser targets, credential refusal, snapshot/network redaction, and bounded diagnostics;
 - dedicated persistent Chromium automation profile;
-- ordered full-host JavaScript/computer/process/browser/control/transport runtime cleanup;
+- ordered full-host JavaScript/computer/Owner-PTY/Owner-shell/process/browser/control/transport runtime cleanup;
 - Swift 6/macOS 14+ Computer Runtime v2 native layer plus dedicated TypeScript native-host supervisor;
 - passive TCC health, bounded app/window + AX observation, ScreenCaptureKit screenshot capture, deterministic open/focus, physical mouse/keyboard input, held-input cleanup, takeover/emergency safety, and deterministic AX/text/screen-region verification;
 - stable fixed-path daily-driver helper signing/install plus disposable helper/fixture packaging;

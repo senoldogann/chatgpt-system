@@ -115,7 +115,7 @@ The project targets the MCP TypeScript SDK v2 and the 2026-07-28 protocol line.
 
 It is intentionally not described as an OS sandbox. An interpreter or build tool still has the permissions of the OS account that launched `chatgpt-system`.
 
-## Owner Runtime shell architecture
+## Owner Runtime shell and PTY architecture
 
 `terminal_run` stays the narrow structured executor. Owner Runtime adds a separate `shell_run` path only for Admin when `--personal-admin --enable-owner-runtime` is active:
 
@@ -140,7 +140,31 @@ shared OwnerShellSupervisor
         +--> timeout / MCP abort / daemon-shutdown cleanup
 ```
 
-The MCP caller supplies shell **script content**, not the shell executable, child environment, OS PID, signal, or detached mode. Shell syntax, arbitrary installed executables, compilers/package managers, Git, and normal network access therefore work with the permissions of the current OS user. This is intentionally full-host execution, not an OS sandbox. Omitted `timeoutMs` installs no Owner Runtime wall-clock deadline; retained output and protocol payloads remain bounded. Phase 1 is one-shot execution and does not yet expose a persistent PTY.
+The MCP caller supplies shell **script content**, not the shell executable, child environment, OS PID, signal, or detached mode. Shell syntax, arbitrary installed executables, compilers/package managers, Git, and normal network access therefore work with the permissions of the current OS user. This is intentionally full-host execution, not an OS sandbox. Omitted `timeoutMs` installs no Owner Runtime wall-clock deadline; retained output and protocol payloads remain bounded.
+
+Persistent interactive work uses a separate PTY path rather than changing `terminal_run` or overloading `shell_run`:
+
+```text
+Admin lease + ownerRuntime.enabled
+        |
+        v
+TerminalSessionService
+  - Admin/gate + PathPolicy visibility
+  - input/dimension/cursor validation
+  - content-free lifecycle audit
+        |
+        v
+shared TerminalSessionSupervisor
+  - opaque session registry
+  - bounded UTF-8 output ring + monotonic sequence cursors
+  - later-Admin rediscovery; Project/User hidden
+  - SIGTERM / grace / SIGKILL daemon cleanup
+        |
+        v
+lazy NodePtyBackend -> trusted shellPath -l in a real PTY
+```
+
+`terminal_session_open/read/write/resize/close/list` expose only opaque daemon-local session IDs. Raw PID/process-group IDs, arbitrary signals, shell path, child environment, and detached mode never enter the MCP schema. Sessions may outlive the lease that created them but not the daemon process; there is no disk-backed terminal history. PTY input/output stays in bounded memory and is excluded from persistent audit/continuity metadata.
 
 ## Managed process architecture
 
