@@ -57,6 +57,55 @@ function isAllowedGitHubOrigin(url: string): boolean {
     || GITHUB_SSH_URL_REMOTE.test(url);
 }
 
+const LEASE_WRITABLE_CONFIG_SCOPES: ReadonlySet<string> = new Set(["local", "worktree"]);
+const COMMAND_CAPABLE_CONFIG_SECTIONS: ReadonlySet<string> = new Set(["alias", "pager"]);
+const COMMAND_CAPABLE_CONFIG_VARIABLES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ["browser", new Set(["cmd", "path"])],
+  ["core", new Set([
+    "alternaterefscommand",
+    "askpass",
+    "editor",
+    "fsmonitor",
+    "gitproxy",
+    "hookspath",
+    "pager",
+    "sshcommand",
+  ])],
+  ["credential", new Set(["helper"])],
+  ["diff", new Set(["command", "external", "textconv"])],
+  ["filter", new Set(["clean", "process", "smudge"])],
+  ["gpg", new Set(["program"])],
+  ["init", new Set(["templatedir"])],
+  ["interactive", new Set(["difffilter"])],
+  ["merge", new Set(["driver"])],
+  ["protocol", new Set(["command"])],
+  ["remote", new Set(["receivepack", "uploadpack"])],
+  ["sequence", new Set(["editor"])],
+  ["trailer", new Set(["command"])],
+  ["uploadpack", new Set(["packobjectshook"])],
+  ["web", new Set(["browser"])],
+]);
+
+function isCommandCapableConfigKey(key: string): boolean {
+  const segments = key.split(".");
+  if (segments.length < 2) return false;
+  const section = segments[0]!.toLowerCase();
+  const variable = segments[segments.length - 1]!.toLowerCase();
+  return COMMAND_CAPABLE_CONFIG_SECTIONS.has(section)
+    || COMMAND_CAPABLE_CONFIG_VARIABLES.get(section)?.has(variable) === true;
+}
+
+function commandCapableConfigKeys(listing: string): string[] {
+  const records = listing.split("\u0000");
+  const offending: string[] = [];
+  for (let index = 0; index + 1 < records.length; index += 2) {
+    if (!LEASE_WRITABLE_CONFIG_SCOPES.has(records[index]!)) continue;
+    const key = records[index + 1]!.split("\n")[0]!;
+    if (isCommandCapableConfigKey(key)) offending.push(key);
+  }
+  return [...new Set(offending)].sort();
+}
+
 export class GitService {
   private readonly remoteWriteEnabled: boolean;
   private readonly remoteUrlPolicy: (url: string) => boolean;
@@ -79,73 +128,107 @@ export class GitService {
   ): Promise<GitResult> {
     const cwd = await this.policy.resolve(cwdInput);
     return this.audit.run(auditAction, this.policy.display(cwd), async () => {
-      return new Promise<GitResult>((resolve, reject) => {
-        const child = spawn(
-          "git",
-          [
-            "-c", "core.hooksPath=/dev/null",
-            "-c", "core.fsmonitor=false",
-            "-c", "diff.external=",
-            "-c", "interactive.diffFilter=",
-            "-c", "commit.gpgSign=false",
-            ...args,
-          ],
-          {
-            cwd,
-            shell: false,
-            env: {
-              ...process.env,
-              GIT_OPTIONAL_LOCKS: auditAction === "git.read" ? "0" : "1",
-              GIT_PAGER: "cat",
-              PAGER: "cat",
-              GIT_TERMINAL_PROMPT: "0",
-            },
-            stdio: ["ignore", "pipe", "pipe"],
+      await this.assertRepositoryAuthority(cwd);
+      return this.spawnGit(cwd, args, auditAction);
+    }, metadata);
+  }
+
+  private async assertRepositoryAuthority(cwd: string): Promise<void> {
+    const toplevel = await this.spawnGit(cwd, ["rev-parse", "--show-toplevel"], "git.read");
+    const repositoryRoot = toplevel.stdout.trim();
+    if (toplevel.exitCode !== 0 || !repositoryRoot) {
+      throw new PolicyError("Git operations require a repository inside an allowed root.", {
+        cwd: this.policy.display(cwd),
+        stderr: toplevel.stderr.trim(),
+      });
+    }
+    await this.policy.resolve(repositoryRoot);
+
+    const listed = await this.spawnGit(cwd, ["config", "--list", "--show-scope", "--null"], "git.read");
+    if (listed.exitCode !== 0) {
+      throw new PolicyError("Git repository configuration could not be inspected for command-capable settings.", {
+        cwd: this.policy.display(cwd),
+        exitCode: listed.exitCode,
+        stderr: listed.stderr.trim(),
+      });
+    }
+    const offending = commandCapableConfigKeys(listed.stdout);
+    if (offending.length > 0) {
+      throw new PolicyError(
+        "Git repository configuration can run external commands; remove these repository-scoped settings before using Git tools.",
+        { cwd: this.policy.display(cwd), keys: offending },
+      );
+    }
+  }
+
+  private spawnGit(cwd: string, args: string[], auditAction: string): Promise<GitResult> {
+    return new Promise<GitResult>((resolve, reject) => {
+      const child = spawn(
+        "git",
+        [
+          "-c", "core.hooksPath=/dev/null",
+          "-c", "core.fsmonitor=false",
+          "-c", "diff.external=",
+          "-c", "interactive.diffFilter=",
+          "-c", "commit.gpgSign=false",
+          ...args,
+        ],
+        {
+          cwd,
+          shell: false,
+          env: {
+            ...process.env,
+            GIT_OPTIONAL_LOCKS: auditAction === "git.read" ? "0" : "1",
+            GIT_LITERAL_PATHSPECS: "1",
+            GIT_PAGER: "cat",
+            PAGER: "cat",
+            GIT_TERMINAL_PROMPT: "0",
           },
-        );
-        const stdout: Buffer[] = [];
-        const stderr: Buffer[] = [];
-        let bytes = 0;
-        let tooLarge = false;
-        let timedOut = false;
-        const timer = setTimeout(() => {
-          timedOut = true;
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      let bytes = 0;
+      let tooLarge = false;
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGKILL");
+      }, this.config.limits.commandTimeoutMs);
+      const collect = (target: Buffer[]) => (chunk: Buffer) => {
+        bytes += chunk.byteLength;
+        if (bytes > this.config.limits.maxCommandOutputBytes) {
+          tooLarge = true;
           child.kill("SIGKILL");
-        }, this.config.limits.commandTimeoutMs);
-        const collect = (target: Buffer[]) => (chunk: Buffer) => {
-          bytes += chunk.byteLength;
-          if (bytes > this.config.limits.maxCommandOutputBytes) {
-            tooLarge = true;
-            child.kill("SIGKILL");
-            return;
-          }
-          target.push(chunk);
-        };
-        child.stdout.on("data", collect(stdout));
-        child.stderr.on("data", collect(stderr));
-        child.once("error", (error) => {
-          clearTimeout(timer);
-          reject(error);
-        });
-        child.once("close", (code) => {
-          clearTimeout(timer);
-          if (timedOut) {
-            reject(new PolicyError("Git command exceeded the configured timeout."));
-            return;
-          }
-          if (tooLarge) {
-            reject(new PolicyError("Git output exceeded the configured limit."));
-            return;
-          }
-          resolve({
-            cwd: this.policy.display(cwd),
-            exitCode: code ?? 1,
-            stdout: Buffer.concat(stdout).toString("utf8"),
-            stderr: Buffer.concat(stderr).toString("utf8"),
-          });
+          return;
+        }
+        target.push(chunk);
+      };
+      child.stdout.on("data", collect(stdout));
+      child.stderr.on("data", collect(stderr));
+      child.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.once("close", (code) => {
+        clearTimeout(timer);
+        if (timedOut) {
+          reject(new PolicyError("Git command exceeded the configured timeout."));
+          return;
+        }
+        if (tooLarge) {
+          reject(new PolicyError("Git output exceeded the configured limit."));
+          return;
+        }
+        resolve({
+          cwd: this.policy.display(cwd),
+          exitCode: code ?? 1,
+          stdout: Buffer.concat(stdout).toString("utf8"),
+          stderr: Buffer.concat(stderr).toString("utf8"),
         });
       });
-    }, metadata);
+    });
   }
 
   private async resolveStagePaths(cwdInput: string, inputs: string[]): Promise<{ cwd: string; paths: string[] }> {
