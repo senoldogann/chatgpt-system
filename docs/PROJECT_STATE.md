@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-13T22:48+03:00
-Status: **Task 1 GREEN and committed; Task 2 Keychain unattended path is next.**
+Last updated: 2026-09-13T22:55+03:00
+Status: **Tasks 1-2 GREEN and committed; Task 3 unattended-readiness status is next.**
 
 This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then read the active spec and plan.
 
@@ -26,7 +26,8 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 - Project Continuity alias: `chatgpt-system-desktop`.
 - Active design spec: `docs/superpowers/specs/2026-09-13-owner-workstation-verified-project-session-design.md`.
 - Active implementation plan: `docs/superpowers/plans/2026-09-13-owner-workstation-verified-project-session.md`.
-- Task 1 Owner Workstation preset is implemented and committed at `31ec3d2`; Task 2 has not started.
+- Task 1 Owner Workstation preset is committed at `31ec3d2`.
+- Task 2 unattended Keychain path is committed at `7233fd9`.
 
 ## Completed
 
@@ -36,6 +37,7 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 - `npm ci` completed with 0 reported vulnerabilities.
 - Focused baseline regression tests, the full Node/TypeScript gate, and the macOS Computer Runtime suite are GREEN after minimal remediation.
 - Task 1 Owner Workstation preset completed and committed at `31ec3d2`.
+- Task 2 dedicated Keychain store/read/delete path completed and committed at `7233fd9`.
 
 ## Current state
 
@@ -90,10 +92,14 @@ Execution must start with Superpowers `using-git-worktrees`, creating isolated b
 - Task 1 RED evidence: 4 expected failures for unknown/missing `--owner-workstation` behavior.
 - Task 1 focused GREEN: `tests/cli-command.test.ts`, `tests/owner-runtime-config.test.ts`, and `tests/setup-chatgpt-tunnel.test.ts` = `53/53` PASS.
 - Task 1 TypeScript build: PASS.
+- Task 2 RED: 7 expected failures proved runner/setup/native helper lacked dedicated read/delete/helper-path wiring.
+- Task 2 focused GREEN: 18/18 tests PASS, including real macOS Keychain store/read/delete integration.
+- Task 2 native broker release build: PASS.
+- Diagnostic timing proved the only transient failure was the cold Swift build exceeding Vitest default 5s; helper store/read/delete themselves completed in ~0.13s total. Native integration test now uses the repository-wide 30s integration budget.
 
 ## Next exact step
 
-Execute Task 2 from the approved implementation plan in the same managed worktree: write RED tests for the dedicated Keychain helper `read` path and LaunchAgent `--keychain-helper` wiring, run the focused tests to confirm expected failure, then implement only the minimal Swift/helper/setup/runner changes needed for GREEN. Do not push or open a PR.
+Execute Task 3 from the approved implementation plan: add RED tests for deterministic Owner Workstation readiness aggregation, then implement passive stable Computer Runtime/TCC/credential readiness collection and the `owner-workstation:status` command. Do not prompt for permissions, invoke `tccutil`, push, or open a PR.
 
 ## Invariants
 
@@ -107,5 +113,5 @@ Execute Task 2 from the approved implementation plan in the same managed worktre
 ## Blockers / uncertainties
 
 - No baseline blocker remains after the focused, full Node/TypeScript, and native macOS gates passed.
-- Task 1 is complete and committed; Tasks 2-7 remain.
+- Tasks 1-2 are complete and committed; Tasks 3-7 remain.
 - `origin/feat/computer-use-bridge` remains intentionally untouched.
