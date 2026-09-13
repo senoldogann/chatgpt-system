@@ -99,6 +99,7 @@ The project targets the MCP TypeScript SDK v2 and the 2026-07-28 protocol line.
 - **stdio** uses the SDK `serveStdio(factory)` entry point.
 - **HTTP** uses `createMcpHandler(factory)` wrapped with `@modelcontextprotocol/node`'s `toNodeHandler`.
 - HTTP creates MCP servers from the same shared runtime and requires bearer authentication at the outer Node HTTP layer.
+- HTTP binds to loopback by default. A non-loopback bind is rejected unless the operator explicitly supplies `--allow-non-loopback-http` or `CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP=true`; that acknowledgement assumes an authenticated TLS reverse proxy is already present and does not add TLS or weaken bearer authentication.
 - ChatGPT personal Plugin usage normally reaches stdio through OpenAI Secure MCP Tunnel, so the workstation does not need a public inbound MCP listener.
 - Optional macOS daily-driver mode runs `tunnel-client` under a user LaunchAgent. A small Node runner retrieves the tunnel control-plane credential from the login Keychain, injects it only into the tunnel child environment, bounds stdout/stderr tail logs, and exits with the tunnel so launchd can restart it.
 
@@ -271,6 +272,7 @@ PlaywrightBrowserBackend
    |  - role/text/label/testId locators only
    |  - opaque page IDs
    |  - bounded console/network tails
+   |  - capture-time bounds before retention: 2,048-char diagnostic text and 16,384-char URL-like strings
    |  - in-memory screenshots
    v
 persistent Chromium context
@@ -281,6 +283,30 @@ MCP never receives Playwright handles, browser PIDs, CDP/WebSocket endpoints, ex
 Caller navigation accepts only `http:` and `https:`. Browser actions require a semantic target to resolve to exactly one element. Fill/key operations refuse deterministic password/OTP/payment credential signals. ARIA snapshots are captured in AI-oriented mode and current editable values are removed before leaving the local runtime.
 
 Browser diagnostics are operational aids, not a network sandbox. Redirects, page JavaScript, and remote sites still execute with the permissions and network access of the owned browser process.
+
+Diagnostic content is bounded twice: the Playwright backend truncates remote-controlled diagnostic strings before storing them in `diagnosticsByPageId`, and `BrowserService` still sanitizes/redacts the public MCP output. This prevents a page from relying on an oversized console message or URL to consume unbounded daemon memory before the output layer applies its own limits.
+
+## Computer native-helper lifecycle
+
+The macOS Computer Runtime helper remains a permission-bearing child owned by `ComputerNativeSupervisor`. Normal shutdown first closes the protocol client and attempts graceful EOF. If the helper does not exit, cleanup is bounded and escalates deterministically:
+
+```text
+graceful stdin EOF
+   |
+   | close grace
+   v
+SIGTERM
+   |
+   | close grace
+   v
+still alive? -> SIGKILL
+   |
+   | final bounded grace
+   v
+cleanup complete
+```
+
+Fatal protocol/timeout invalidation uses the same termination routine asynchronously, with the cleanup promise explicitly handled so an uncooperative child cannot create an unhandled rejection. MCP callers still never choose PIDs or signals.
 
 ## Runtime shutdown
 
@@ -298,6 +324,8 @@ An abrupt daemon crash can leave a detached managed child alive. No PID registry
 ## Audit boundary
 
 Authority, managed-process, and browser lifecycle/action events are written as JSONL metadata. Process audit records may include command basename, argument count, and coarse state. Browser audit records may include operation category, outcome, duration, bounded counts, sanitized host/origin, and stable error code where useful.
+
+`AuditLogger` serializes writes and keeps the active audit file bounded to 16 MiB plus one `.1` rotated generation. Direct `record()` reports persistence failures to callers that explicitly asked to write an audit record. `run()` deliberately treats persistence as best-effort after the wrapped operation has produced an outcome: a completed side effect is not retroactively reported as failed because the audit sink became unavailable, and an operation error is rethrown unchanged even if recording that error also fails. This avoids turning an audit-storage incident into a duplicate-retry trigger for non-idempotent actions.
 
 They do not include:
 
