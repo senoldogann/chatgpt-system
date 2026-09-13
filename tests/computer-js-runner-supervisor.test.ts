@@ -138,6 +138,60 @@ describe("ComputerJsRunnerSupervisor", () => {
     expect(signals.some(({ signal }) => signal === "SIGTERM" || signal === "SIGKILL")).toBe(true);
   });
 
+  it("preserves a completed result when process-group signaling races with runner close", async () => {
+    let raced = false;
+    const supervisor = createSupervisor({
+      processStopGraceMs: 100,
+      signalProcess: (target, signal) => {
+        if (!raced && signal === "SIGTERM") {
+          raced = true;
+          try {
+            process.kill(target, signal);
+          } finally {
+            throw Object.assign(new Error("signal raced with close"), { code: "EPERM" });
+          }
+        }
+        process.kill(target, signal);
+      },
+    });
+
+    await expect(supervisor.run({
+      source: "return { completed: true };",
+      cwd: await tempCwd(),
+      timeoutMs: 3_000,
+      onRpc: async () => ({}),
+    })).resolves.toMatchObject({ result: { completed: true } });
+    expect(raced).toBe(true);
+  });
+
+  it("still fails cleanup when signaling fails and the completed runner remains open", async () => {
+    let target: number | undefined;
+    const supervisor = createSupervisor({
+      processStopGraceMs: 30,
+      signalProcess: (nextTarget) => {
+        target = nextTarget;
+        throw Object.assign(new Error("signal denied"), { code: "EPERM" });
+      },
+    });
+
+    try {
+      await expect(supervisor.run({
+        source: `
+          const { spawn } = require("node:child_process");
+          spawn(process.execPath, ["-e", "setInterval(() => {}, 1_000)"], { stdio: "ignore" });
+          return { completed: true };
+        `,
+        cwd: await tempCwd(),
+        timeoutMs: 3_000,
+        onRpc: async () => ({}),
+      })).rejects.toMatchObject({ code: "COMPUTER_JS_FAILED" });
+    } finally {
+      if (target !== undefined) {
+        try { process.kill(target, "SIGKILL"); } catch { /* cleanup-only */ }
+      }
+    }
+  });
+
   it("times out and escalates SIGTERM to SIGKILL for a runner group that does not stop", async () => {
     const signals: Array<{ target: number; signal: NodeJS.Signals }> = [];
     const supervisor = createSupervisor({

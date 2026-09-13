@@ -312,13 +312,33 @@ export class ComputerJsRunnerSupervisor {
 
   private async terminateOnce(runner: ActiveRunner): Promise<void> {
     const pid = runner.child.pid;
-    if (pid !== undefined) this.sendSignal(pid, "SIGTERM");
-    else runner.child.kill("SIGTERM");
+    if (pid !== undefined) {
+      if (await this.sendSignalAllowingCloseRace(runner, pid, "SIGTERM")) return;
+    } else {
+      runner.child.kill("SIGTERM");
+    }
 
     if (await this.waitClosed(runner, this.options.processStopGraceMs)) return;
-    if (pid !== undefined) this.sendSignal(pid, "SIGKILL");
-    else runner.child.kill("SIGKILL");
+    if (pid !== undefined) {
+      if (await this.sendSignalAllowingCloseRace(runner, pid, "SIGKILL")) return;
+    } else {
+      runner.child.kill("SIGKILL");
+    }
     await runner.closed;
+  }
+
+  private async sendSignalAllowingCloseRace(
+    runner: ActiveRunner,
+    pid: number,
+    signal: NodeJS.Signals,
+  ): Promise<boolean> {
+    try {
+      this.sendSignal(pid, signal);
+      return false;
+    } catch (error) {
+      if (await this.waitClosed(runner, this.options.processStopGraceMs)) return true;
+      throw error;
+    }
   }
 
   private sendSignal(pid: number, signal: NodeJS.Signals): void {
