@@ -1,6 +1,6 @@
 # Computer Use Perception Reliability Design
 
-**Status:** Draft for user review
+**Status:** Approved
 **Date:** 2026-09-14
 **Branch:** `design/computer-use-perception-reliability`
 **Base:** `d5a24e469ad0fa948dfdbb52e16c4609e0c017da`

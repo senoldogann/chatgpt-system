@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
 Last updated: 2026-09-14T02:00+03:00
-Status: **Computer Use perception reliability design written; implementation has not started.**
+Status: **Computer Use perception reliability spec is approved and the TDD implementation plan is written; implementation has not started.**
 
 This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then continue from the exact next step below.
 
@@ -17,12 +17,13 @@ The problem is no longer tool routing: explicit Computer Use correctly reaches r
 - Project Continuity alias: `chatgpt-system-desktop`.
 - Design branch: `design/computer-use-perception-reliability`.
 - Design base: `d5a24e469ad0fa948dfdbb52e16c4609e0c017da`.
-- Active design spec: `docs/superpowers/specs/2026-09-14-computer-use-perception-reliability-design.md`.
+- Approved design spec: `docs/superpowers/specs/2026-09-14-computer-use-perception-reliability-design.md`.
+- Implementation plan: `docs/superpowers/plans/2026-09-14-computer-use-perception-reliability.md`.
 - `origin/feat/computer-use-bridge` remains intentionally retained at `aca2507210c356fd6d2bc89bb86a1f1dc01719c0`; do not delete or rewrite it without separate classification.
 
 ## Current state
 
-The architecture decisions are complete and implementation is still blocked by the Superpowers spec-review gate.
+The architecture decisions and writing-plans phase are complete. No runtime/production implementation has started yet.
 
 Approved design decisions:
 
@@ -35,6 +36,8 @@ Approved design decisions:
 7. Recovery ladder is AX -> fresh AX -> focused-window OCR -> fresh screenshot/model replan -> one explicit verified visual point -> `COMPUTER_NEEDS_REPLAN`.
 8. The runtime never invents coordinates or automatically retries failed point guesses.
 9. TCC, user takeover, CAPTCHA/anti-bot, input safety, and Browser-vs-Computer boundaries remain unchanged.
+
+The implementation plan decomposes the work into eight TDD tasks: perception model/classification, focused-window OCR, stopped-Chrome launch policy, canonical key normalization, bounded point recovery, MCP perception metadata/privacy, deterministic fixture regressions, and real-Mac/publication acceptance.
 
 ## Root-cause evidence
 
@@ -53,6 +56,8 @@ Approved design decisions:
 - AX traversal-limit hypothesis was disproved.
 - Renderer-accessibility feasibility was proved with an isolated real Google Chrome instance; no Chrome for Testing was used.
 - Existing native recovery/OCR implementation boundaries were inspected and reused in the design instead of inventing a second perception subsystem.
+- Design self-review found no placeholder/TODO, routing contradiction, safety-boundary regression, or unresolved product-contract ambiguity.
+- Implementation plan covers every approved spec section and uses RED -> minimal GREEN -> focused verification -> commit for each implementation task.
 - No runtime implementation code has been modified for this reliability slice yet.
 
 ## Completed
@@ -60,21 +65,21 @@ Approved design decisions:
 - Previous Computer-Use-first real-Chrome routing slice is merged and closed.
 - Product acceptance proved routing alone was insufficient and exposed the perception/action-contract defects.
 - Architectural brainstorming for the new reliability slice is complete.
-- Design spec written at `docs/superpowers/specs/2026-09-14-computer-use-perception-reliability-design.md`.
+- Design spec written and approved at `docs/superpowers/specs/2026-09-14-computer-use-perception-reliability-design.md`.
+- Detailed TDD implementation plan written at `docs/superpowers/plans/2026-09-14-computer-use-perception-reliability.md`.
 
 ## Next exact step
 
-1. Self-review the written design spec for placeholders, internal contradictions, scope creep, and ambiguous implementation contracts.
-2. Commit only the design spec + this project-state update on `design/computer-use-perception-reliability`.
-3. Ask the user to review/approve the written spec.
-4. Only after explicit spec approval invoke `superpowers:writing-plans` and create the TDD implementation plan.
-5. Do not modify runtime/production implementation before that approval gate.
+1. Commit the approved-spec status, implementation plan, and this handoff update on `design/computer-use-perception-reliability`.
+2. Choose execution mode required by Superpowers: `subagent-driven-development` (recommended where fresh subagents are available) or inline `executing-plans` in this conversation.
+3. For inline execution, read `superpowers:executing-plans`, create an isolated implementation worktree/feature branch via `superpowers:using-git-worktrees`, and execute the plan task-by-task with TDD checkpoints.
+4. Do not implement runtime/production changes on this design branch.
 
 ## Invariants
 
 - Git/worktree reality outranks Continuity, this file, and older chat context.
 - Never reset, clean, revert, overwrite, or delete unfamiliar work.
-- Do not develop on `main`.
+- Do not develop on `main` or the design branch.
 - Explicit Computer Use must remain on `computer_*`; Browser Runtime is not a substitute.
 - Normal user Chrome profile/session must be preserved.
 - Already-running Chrome must not be silently restarted by this feature.
@@ -85,5 +90,5 @@ Approved design decisions:
 
 ## Blockers / uncertainties
 
-- Implementation is intentionally blocked until the user reviews and approves the written design spec.
+- No design blocker remains. Implementation is waiting only for execution-mode handoff.
 - `NSWorkspace.OpenConfiguration.arguments` is the preferred stopped-Chrome launch mechanism; implementation must prove it preserves the default profile/session. A narrow dedicated launch adapter is allowed only if the Apple API path fails deterministic real-Mac tests.
