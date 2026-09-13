@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-13T22:10+03:00
-Status: **v2 design and implementation plan complete; implementation has not started.**
+Last updated: 2026-09-13T22:20+03:00
+Status: **implementation preflight GREEN after isolated baseline remediation; Task 1 is next.**
 
 This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then read the active spec and plan.
 
@@ -17,14 +17,35 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 ## Active workspace
 
 - Authoritative checkout: `/Users/dogan/Desktop/chatgpt-system`.
-- Current planning branch: `design/owner-workstation-verified-project-session`.
+- Planning checkout: `/Users/dogan/Desktop/chatgpt-system` on `design/owner-workstation-verified-project-session` at `a90fdc5f3a2b99ac7bbf85be3f45206a3d2fdafc`, clean before worktree creation.
+- Active implementation branch: `feat/owner-workstation-verified-project-session`.
+- Active managed worktree: `/Users/dogan/.chatgpt-system/worktrees/e4eaca835975a22d75cc3e7778bb895500595d13b544a96d350c557d9edad976/71bcabad-7ca8-4a45-8788-fc44ff0e2fcf`.
+- Managed worktree ID: `71bcabad-7ca8-4a45-8788-fc44ff0e2fcf`.
+- Implementation worktree started from exact planning HEAD `a90fdc5f3a2b99ac7bbf85be3f45206a3d2fdafc`.
 - Branch base: clean synchronized `main` at `57e7a9ebc3bb3be555b6bab3a228b40d833425f1`.
 - Project Continuity alias: `chatgpt-system-desktop`.
 - Active design spec: `docs/superpowers/specs/2026-09-13-owner-workstation-verified-project-session-design.md`.
 - Active implementation plan: `docs/superpowers/plans/2026-09-13-owner-workstation-verified-project-session.md`.
-- Runtime implementation code has not started.
+- Planned feature implementation has not started; only baseline remediation is in progress.
 
-## Approved design decisions
+## Completed
+
+- Approved design and seven-task implementation plan committed at `a90fdc5f3a2b99ac7bbf85be3f45206a3d2fdafc`.
+- Project Continuity alias `chatgpt-system-desktop` resumed and reconciled against live Git/worktree state.
+- Superpowers-managed implementation worktree created from the exact planning commit.
+- `npm ci` completed with 0 reported vulnerabilities.
+- Focused baseline regression tests, the full Node/TypeScript gate, and the macOS Computer Runtime suite are GREEN after minimal remediation.
+
+## Current state
+
+- Initial `npm run check` reproduced two baseline failures before Task 1.
+- `tests/project-continuity-docs.test.ts` failed because the planning handoff rewrite removed required live-state headings.
+- `tests/terminal-session-supervisor.test.ts` failed under the harness `TERM=dumb`; `sanitizedTerminalEnvironment()` preserved that value even though `NodePtyBackend` advertises `xterm-256color`.
+- Focused control proved the terminal suite passes with `TERM=xterm-256color` and fails with `TERM=dumb`.
+- Minimal remediation restores the required handoff structure and pins the spawned PTY environment to the backend's declared terminal type.
+- No Owner Workstation feature code has been implemented yet.
+
+Approved design decisions remain:
 
 - `owner-workstation` is explicit opt-in and composes existing gates rather than inventing a new authority profile.
 - The preset enables Personal Admin, Owner Runtime, terminal/PTY, local Docker Project Exec, Computer Use, and full-host JS. Browser Runtime remains independent and is not implicitly enabled.
@@ -52,7 +73,7 @@ The approved plan is split into seven TDD review gates:
 
 Execution must start with Superpowers `using-git-worktrees`, creating isolated branch/worktree `feat/owner-workstation-verified-project-session` from the commit containing the plan. Use `subagent-driven-development` by preference, or `executing-plans` for inline execution.
 
-## Planning verification
+## Verification
 
 - Current design branch was created from clean synchronized main.
 - Existing `ProjectCheckService` was verified to bind evidence to exact `HEAD` + `workingTreeDigest` and automatically report changed state as `STALE`.
@@ -60,12 +81,17 @@ Execution must start with Superpowers `using-git-worktrees`, creating isolated b
 - Existing daily-driver was verified to store through `chatgpt-system-keychain-helper` but read via `/usr/bin/security`; the plan removes that split path.
 - Existing Computer Runtime installer already verifies fixed bundle identity, strict signature, stable designated requirement, and refuses silent stable-to-ad-hoc downgrade.
 - Plan self-review covered spec mapping, placeholder scan, and interface/type consistency.
+- Initial `npm run check`: RED at planning HEAD; 643 tests passed, 2 failed, and 2 were skipped.
+- Focused RED evidence: handoff document contract failed on missing `## Completed`; terminal supervisor failed with received `TERM=dumb` instead of `xterm-256color`.
+- Focused baseline regression: `2` files and `9/9` tests PASS.
+- `npm run check`: TypeScript build PASS; `107` Vitest files passed, `1` intentionally skipped; `645` tests passed, `2` intentionally skipped.
+- `npm run test:computer:macos`: Swift build PASS; `164/164` tests PASS.
 
 ## Next exact step
 
-Commit the amended approved spec, implementation plan, and this state update on `design/owner-workstation-verified-project-session`. Then hand execution to the chosen agent. That agent must resume `chatgpt-system-desktop`, reconcile the clean planning commit, invoke Superpowers `using-git-worktrees`, create `feat/owner-workstation-verified-project-session`, run the baseline gates from the plan, and execute Task 1 with TDD. Do not push or open a PR during implementation.
+Commit the verified baseline remediation using only `docs/PROJECT_STATE.md` and `src/terminal-session-supervisor.ts`, checkpoint the resulting exact HEAD, then generate the Task 1 SDD brief and dispatch its fresh TDD implementer. Do not push or open a PR.
 
-## Lifecycle invariants
+## Invariants
 
 - Code/tests/builds/acceptance remain local until final fresh verification is green.
 - GitHub is publication/review/final CI only.
@@ -73,3 +99,9 @@ Commit the amended approved spec, implementation plan, and this state update on 
 - After merge: synchronize local `main`, verify the merge, delete proven merged local/remote implementation branches and unused worktrees, and finish clean.
 - Meaningful milestones update both this file and Project Continuity when available.
 - Preserve `origin/feat/computer-use-bridge` until its three unmerged documentation commits are explicitly classified, merged, or otherwise preserved.
+
+## Blockers / uncertainties
+
+- No baseline blocker remains after the focused, full Node/TypeScript, and native macOS gates passed.
+- No planned feature implementation has begun; baseline remediation is separate from Tasks 1-7.
+- `origin/feat/computer-use-bridge` remains intentionally untouched.
