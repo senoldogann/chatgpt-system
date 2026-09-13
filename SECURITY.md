@@ -71,6 +71,8 @@ Personal Admin does **not** imply terminal, Owner Runtime, or browser capability
 
 This mode materially increases the impact of a malicious or prompt-injected MCP request and should be enabled only on a private workstation controlled by the same user. The default local-approval path remains available and unchanged when the flag is absent.
 
+`--owner-workstation` is the single explicit private-Mac preset for that trust decision. It composes Personal Admin, Owner Runtime, terminal/PTY, Project Exec, Computer Use, and full-host JavaScript without changing their underlying authority checks. Browser Runtime remains independently gated. The preset grants the current macOS user's normal filesystem/network/process capability; it does not grant root or bypass sudo, TCC, SIP, FileVault/login, or Keychain authentication.
+
 ## Owner Runtime shell and PTY boundary
 
 Owner Runtime is the deliberate escape hatch for Codex-class local development on a private workstation. `shell_run` invokes only the trusted configured login shell (macOS default `/bin/zsh`) with `-lc`, `shell=false` at the Node spawn boundary, the Admin-authorized cwd, and the sanitized child environment. The script may contain pipes, redirects, command substitution, compound shell syntax, arbitrary executable paths, package managers, compilers, Git, and normal host-network operations that the current OS user could run from Terminal.
@@ -89,9 +91,9 @@ Containment remains bounded for MCP/native frames, JavaScript source, stdout/std
 
 ## Daily-driver tunnel credential boundary
 
-The optional macOS daily-driver service is a user LaunchAgent, not a root daemon. The one-time installer reads `CONTROL_PLANE_API_KEY` from the operator's current environment, builds the repository's small Swift Keychain helper, and sends the credential to that helper on stdin. The helper uses Apple's Security.framework (`SecItemUpdate`/`SecItemAdd`) so the credential is stored byte-for-byte without interactive TTY handling and is never placed in spawned argv.
+The optional macOS daily-driver service is a user LaunchAgent, not a root daemon. The installer builds the repository's small Swift Keychain helper, atomically installs it at a private executable path under `~/.chatgpt-system/bin`, and uses that same dedicated helper for app-specific `store`, `read`, and idempotent `delete`. A new credential is sent only on stdin and is never placed in spawned argv.
 
-At runtime the wrapper retrieves that fixed Keychain item and places the value only in the `tunnel-client` child environment. The LaunchAgent plist contains only absolute executable/script paths, profile name, and log path. Runner stdout/stderr logs are bounded tails and intentionally do not include the key or environment dump.
+Runtime `read` uses Security.framework with authentication UI disabled/fail-closed. It therefore supports unattended access only when the app-owned login-Keychain item is already readable for the logged-in user; it never tries to bypass Keychain authentication or display a hidden prompt. The wrapper places the returned value only in the `tunnel-client` child environment. The LaunchAgent plist contains only absolute executable/script paths, profile name, log path, and helper path. Runner stdout/stderr logs are bounded tails and intentionally do not include the key or environment dump.
 
 This key authenticates `tunnel-client` to the Secure MCP Tunnel control plane. It is not a model invocation credential used by `chatgpt-system`, and the bridge does not turn daily-driver startup into direct model API usage.
 
@@ -235,7 +237,7 @@ The Docker daemon is trusted infrastructure and the sandbox executes Linux tooli
 
 Built-in Git tooling separates read operations from narrow typed mutations. `git_status`, `git_diff`, and `git_log` are read-only. Local mutation tools expose only validated branch creation/switching, explicit file staging, bounded commit messages, and fixed-option merges; they do not accept arbitrary Git arguments. Repository hooks, external diff/textconv, pagers, and commit signing are disabled for these operations.
 
-`git_push` is a separate remote-write boundary. It requires Admin authority, accepts no remote/refspec/force input, resolves only the existing `origin`, rejects credential-bearing or non-GitHub origin URLs, and pushes only the validated current branch to the same remote branch name. Interactive Git prompting remains disabled.
+`git_push` is a separate remote-write boundary with two independent active leases: `authorityLeaseId` must resolve to Admin and `projectAuthorityLeaseId` must resolve to the exact Project lease created by `project_resume`. The resumed context is kept only in bounded in-memory digest-keyed state; generic Project leases do not satisfy it. Immediately before publication, Project Continuity revalidates the registered worktree identity, the tree must be clean and non-`main`, and existing `ProjectCheckService` evidence must be a fresh `PASS` bound to the exact current `HEAD` and `workingTreeDigest`. A stale/missing/failed/unavailable verification fails closed. The final remote write rechecks branch/HEAD and pushes the verified commit SHA only to the same validated branch at the existing credential-free GitHub `origin`. MCP accepts no remote/refspec/force/branch/head or verification-override input, and interactive Git prompting remains disabled.
 
 Git audit metadata records operation categories and bounded counts/flags, not commit messages, staged path values, remote URLs, or credentials.
 

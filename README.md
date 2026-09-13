@@ -241,23 +241,17 @@ Create the fixed Project execution image first if you want Project leases to run
 npm run setup:project-exec
 ```
 
-Create the tunnel in OpenAI Platform, then configure the local profile. For the full daily-driver capability set including Project execution and browser:
+Create the tunnel in OpenAI Platform, then configure the local profile. On one trusted private Mac, the explicit Owner Workstation preset composes the daily-driver capability set in one opt-in:
 
 ```bash
 npm run setup:chatgpt -- \
   --root /absolute/path/to/disposable-test-project \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
-  --enable-terminal \
-  --enable-project-exec \
-  --personal-admin \
-  --enable-owner-runtime \
-  --enable-browser \
-  --enable-computer-use \
-  --enable-full-host-js \
+  --owner-workstation \
   --doctor
 ```
 
-The generated tunnel child command always enables the private local authority control socket. `--enable-terminal`, `--enable-project-exec`, `--personal-admin`, `--enable-owner-runtime`, `--enable-browser`, `--enable-computer-use`, and `--enable-full-host-js` are separate explicit trust decisions. `--enable-owner-runtime` requires `--personal-admin` and enables the Admin-only unrestricted `shell_run` plus persistent `terminal_session_*` PTY surfaces; it does not widen Project/User authority or change `terminal_run`. `--enable-project-exec` does not enable host terminal access; it only enables the Project-only Docker sandbox. Full-host JavaScript cannot be enabled without Computer Runtime; omitting any gate preserves the corresponding secure default.
+`--owner-workstation` enables Personal Admin, Owner Runtime, structured host terminal/PTY capability, local Docker Project Exec, Computer Use, and full-host JavaScript. It is still current-user authority, **not root** and not an OS sandbox. macOS sudo, TCC, SIP, FileVault/login, and Keychain authentication boundaries remain authoritative. Browser Runtime stays independent and is never enabled by this preset; add `--enable-browser` separately only when the Playwright layer is intentionally wanted. The individual capability flags remain available for narrower configurations: `--enable-terminal`, `--enable-project-exec`, `--personal-admin`, `--enable-owner-runtime`, `--enable-computer-use`, and `--enable-full-host-js`. Omitting the preset preserves the secure defaults.
 
 Headless browser mode is optional:
 
@@ -282,10 +276,7 @@ If the `chatgpt-system` tunnel profile already exists and its child command is s
 npm run setup:chatgpt -- \
   --root /absolute/path/to/disposable-test-project \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
-  --enable-terminal \
-  --personal-admin \
-  --enable-owner-runtime \
-  --enable-browser \
+  --owner-workstation \
   --force \
   --doctor
 ```
@@ -316,10 +307,11 @@ Maintenance commands:
 
 ```bash
 npm run daily-driver:status
+npm run owner-workstation:status
 npm run daily-driver:uninstall
 ```
 
-The LaunchAgent runs as the logged-in user. The tunnel credential is not written to the plist, repository, audit log, runner logs, or spawned command argv.
+The LaunchAgent runs as the logged-in user. The dedicated `chatgpt-system-keychain-helper` owns app-specific Keychain store/read/delete operations; runtime reads fail closed rather than opening authentication UI. The tunnel credential is not written to the plist, repository, audit log, runner logs, or spawned command argv. `owner-workstation:status` is passive: it reports stable Computer Runtime identity, Accessibility/Screen Recording/event permission booleans, and non-interactive credential readability without changing TCC or Keychain policy.
 
 ## Authority privilege ladder
 
@@ -441,7 +433,7 @@ git_merge_branch
 git_push
 ```
 
-`git_push` is Admin-only and pushes only the validated current branch to the existing credential-free GitHub `origin`. Remote/refspec/force input is not exposed.
+`git_push` is a dual-authority publication gate. `authorityLeaseId` must be an active Admin lease and `projectAuthorityLeaseId` must be the exact active Project lease returned by `project_resume` for the registered worktree. Publication is denied on `main`, on a dirty tree, when resumed worktree identity no longer matches, or unless `project_check` reports a fresh `PASS` for the exact current `HEAD` + `workingTreeDigest`. The final Git refspec uses that verified commit SHA and the validated current branch; remote/refspec/force/branch/head verification overrides are not exposed to MCP callers.
 
 ### Sandboxed Project execution
 

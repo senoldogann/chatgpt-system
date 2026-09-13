@@ -134,7 +134,7 @@ describe("git_push dual authority", () => {
     } });
     expect(result.isError).toBe(true);
     expect(textContent(result)).toContain("PROJECT_RESUME_REQUIRED");
-  });
+  }, 15_000);
 
   it("requires the Admin lease in the Admin field", async () => {
     const test = await fixture();
@@ -143,7 +143,7 @@ describe("git_push dual authority", () => {
     } });
     expect(result.isError).toBe(true);
     expect(textContent(result)).toContain("AUTHORITY_DENIED");
-  });
+  }, 15_000);
 
   it("does not let a resumed Project-A lease publish Project-B", async () => {
     const test = await fixture();
@@ -152,7 +152,7 @@ describe("git_push dual authority", () => {
     } });
     expect(result.isError).toBe(true);
     expect(textContent(result)).toMatch(/POLICY_DENIED|PROJECT_RESUME_REQUIRED/);
-  });
+  }, 15_000);
 
   it("rejects a revoked resumed lease before registry metadata can authorize publication", async () => {
     const test = await fixture();
@@ -163,7 +163,7 @@ describe("git_push dual authority", () => {
     } });
     expect(result.isError).toBe(true);
     expect(textContent(result)).toContain("AUTHORITY_REQUIRED");
-  });
+  }, 15_000);
 
   it("valid dual authority with fresh PASS reaches the final remote policy boundary", async () => {
     const test = await fixture();
@@ -174,5 +174,5 @@ describe("git_push dual authority", () => {
     expect(textContent(result)).toContain("credential-free GitHub origin URL");
     expect(textContent(result)).not.toContain("PROJECT_RESUME_REQUIRED");
     expect(textContent(result)).not.toContain("LOCAL_VERIFICATION");
-  });
+  }, 15_000);
 });

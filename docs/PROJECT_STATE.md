@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-13T23:08+03:00
-Status: **Tasks 1-5 GREEN and committed; Task 6 dual-authority MCP wiring is next.**
+Last updated: 2026-09-13T23:30+03:00
+Status: **Tasks 1-6 complete; Task 7 local acceptance GREEN through real unattended readiness; final docs commit and freshness rerun are next.**
 
 This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then read the active spec and plan.
 
@@ -31,6 +31,8 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 - Task 3 Owner Workstation readiness status is committed at `762af40`.
 - Task 4 Continuity resume registry is committed at `5d1e273`.
 - Task 5 freshness-bound publish gate is committed at `ce2a99f`.
+- Task 6 dual-authority MCP publication wiring is committed at `e02f85b`.
+- Current implementation HEAD before final docs commit: `e02f85b5d6e64cac1d8d684d302f7c6282e8b7e7`.
 
 ## Completed
 
@@ -44,6 +46,7 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 - Task 3 deterministic/passive Owner Workstation readiness status completed and committed at `762af40`.
 - Task 4 bounded in-memory resume-context evidence completed and committed at `5d1e273`.
 - Task 5 freshness-bound publish gate and exact verified-HEAD Git push completed and committed at `ce2a99f`.
+- Task 6 dual-authority `git_push`, resumed-worktree identity revalidation, and MCP integration coverage completed and committed at `e02f85b`.
 
 ## Current state
 
@@ -104,12 +107,22 @@ Execution must start with Superpowers `using-git-worktrees`, creating isolated b
 - Task 3 focused GREEN: `23/23` tests PASS; TypeScript build PASS.
 - Task 4 focused GREEN: `24/24` continuity tests PASS; TypeScript build PASS. Successful resumes register exact worktree metadata; generic/failed leases do not; registry evicts oldest after 256 contexts and stores lease digests rather than raw IDs.
 - Task 5 focused GREEN: `21/21` publish-gate/Git/ProjectCheck tests PASS; TypeScript build PASS; `git diff --check` PASS. Stale branch/HEAD and dirty/main/non-PASS states fail closed.
+- Task 6 GREEN: dual-authority/resume/continuity core `21/21` PASS, transport/Git-boundary `6/6` PASS, updated authority schema `7/7` PASS, resumed-worktree replacement regression `10/10` PASS, and TypeScript build PASS. Generic/wrong/revoked authority fails closed; valid dual authority with fresh PASS reaches the final remote policy boundary.
 - Real `npm run owner-workstation:status` executed without prompts: stable Computer Runtime and all four passive permission booleans are true; credential readiness is currently false because the newly built stable Keychain helper has not yet been installed into the user home by Task 7 setup.
 - Diagnostic timing proved the only transient failure was the cold Swift build exceeding Vitest default 5s; helper store/read/delete themselves completed in ~0.13s total. Native integration test now uses the repository-wide 30s integration budget.
+- Task 7 combined focused acceptance: `17/17` files and `139/139` tests PASS.
+- Task 7 full repository gate: TypeScript build PASS; Vitest `112` files PASS + `1` intentionally skipped; `688` tests PASS + `2` intentionally skipped.
+- Production dependency audit: `npm audit --omit=dev` reports `0` vulnerabilities.
+- macOS authority broker release build: PASS.
+- macOS Computer Runtime native suite: `164/164` PASS.
+- Real PTY acceptance: `3/3` PASS. Owner Computer Runtime Phase 3: `2` PASS + `1` intentional skip.
+- Real daily-driver acceptance: LaunchAgent reinstall PASS; existing app-owned Keychain credential reused non-interactively; no API key written to the LaunchAgent plist.
+- Real `owner-workstation:status`: `ready=true`; Computer Runtime availability/stable TCC identity/bundle/signature all true; Accessibility, Screen Recording, event-listen, and event-post all true; credential readable non-interactively=true.
+- The first combined focused run exposed only docs-contract drift plus an integration timeout budget under parallel load; both were corrected without weakening security behavior, then the full focused gate passed.
 
 ## Next exact step
 
-Execute Task 6 from the approved implementation plan: change the MCP `git_push` schema to require both active Admin `authorityLeaseId` and exact resumed Project `projectAuthorityLeaseId`, revalidate the registered worktree identity through Project Continuity before publication, then route only through `ProjectPublishGate`. Add integration tests for generic/wrong/revoked authority and exact valid dual authority.
+Commit the final Task 7 docs/state and bounded MCP integration timeout adjustment, then rerun `npm run check` because the commit changes `HEAD`. If fresh verification remains GREEN, detach the now-clean managed implementation worktree to free the feature branch, switch the authoritative registered checkout `/Users/dogan/Desktop/chatgpt-system` to `feat/owner-workstation-verified-project-session`, resume `chatgpt-system-desktop`, checkpoint the exact final branch/HEAD, and produce fresh `project_check run/report` evidence. Stop before `git_push` unless the user explicitly authorizes push/PR.
 
 ## Invariants
 
@@ -123,5 +136,5 @@ Execute Task 6 from the approved implementation plan: change the MCP `git_push` 
 ## Blockers / uncertainties
 
 - No baseline blocker remains after the focused, full Node/TypeScript, and native macOS gates passed.
-- Tasks 1-5 are complete and committed; Tasks 6-7 remain.
+- Tasks 1-6 are complete and committed. Task 7 local acceptance is GREEN; final docs commit/freshness rerun and registered-checkout publication preparation remain.
 - `origin/feat/computer-use-bridge` remains intentionally untouched.
