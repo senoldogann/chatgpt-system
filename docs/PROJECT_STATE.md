@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-13T23:01+03:00
-Status: **Tasks 1-4 GREEN and committed; Task 5 freshness-bound publish gate is next.**
+Last updated: 2026-09-13T23:08+03:00
+Status: **Tasks 1-5 GREEN and committed; Task 6 dual-authority MCP wiring is next.**
 
 This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then read the active spec and plan.
 
@@ -30,6 +30,7 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 - Task 2 unattended Keychain path is committed at `7233fd9`.
 - Task 3 Owner Workstation readiness status is committed at `762af40`.
 - Task 4 Continuity resume registry is committed at `5d1e273`.
+- Task 5 freshness-bound publish gate is committed at `ce2a99f`.
 
 ## Completed
 
@@ -42,6 +43,7 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 - Task 2 dedicated Keychain store/read/delete path completed and committed at `7233fd9`.
 - Task 3 deterministic/passive Owner Workstation readiness status completed and committed at `762af40`.
 - Task 4 bounded in-memory resume-context evidence completed and committed at `5d1e273`.
+- Task 5 freshness-bound publish gate and exact verified-HEAD Git push completed and committed at `ce2a99f`.
 
 ## Current state
 
@@ -101,12 +103,13 @@ Execution must start with Superpowers `using-git-worktrees`, creating isolated b
 - Task 2 native broker release build: PASS.
 - Task 3 focused GREEN: `23/23` tests PASS; TypeScript build PASS.
 - Task 4 focused GREEN: `24/24` continuity tests PASS; TypeScript build PASS. Successful resumes register exact worktree metadata; generic/failed leases do not; registry evicts oldest after 256 contexts and stores lease digests rather than raw IDs.
+- Task 5 focused GREEN: `21/21` publish-gate/Git/ProjectCheck tests PASS; TypeScript build PASS; `git diff --check` PASS. Stale branch/HEAD and dirty/main/non-PASS states fail closed.
 - Real `npm run owner-workstation:status` executed without prompts: stable Computer Runtime and all four passive permission booleans are true; credential readiness is currently false because the newly built stable Keychain helper has not yet been installed into the user home by Task 7 setup.
 - Diagnostic timing proved the only transient failure was the cold Swift build exceeding Vitest default 5s; helper store/read/delete themselves completed in ~0.13s total. Native integration test now uses the repository-wide 30s integration budget.
 
 ## Next exact step
 
-Execute Task 5 from the approved implementation plan: extract the existing ProjectCheck service factory without behavior change, write RED tests for a `ProjectPublishGate`, then require clean non-main state plus fresh exact-state PASS and harden `GitService.push` to publish only the verified commit SHA.
+Execute Task 6 from the approved implementation plan: change the MCP `git_push` schema to require both active Admin `authorityLeaseId` and exact resumed Project `projectAuthorityLeaseId`, revalidate the registered worktree identity through Project Continuity before publication, then route only through `ProjectPublishGate`. Add integration tests for generic/wrong/revoked authority and exact valid dual authority.
 
 ## Invariants
 
@@ -120,5 +123,5 @@ Execute Task 5 from the approved implementation plan: extract the existing Proje
 ## Blockers / uncertainties
 
 - No baseline blocker remains after the focused, full Node/TypeScript, and native macOS gates passed.
-- Tasks 1-4 are complete and committed; Tasks 5-7 remain.
+- Tasks 1-5 are complete and committed; Tasks 6-7 remain.
 - `origin/feat/computer-use-bridge` remains intentionally untouched.
