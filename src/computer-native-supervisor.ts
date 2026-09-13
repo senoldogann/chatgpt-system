@@ -80,6 +80,7 @@ export class ComputerNativeSupervisor {
   private closePromise: Promise<void> | undefined;
   private closing = false;
   private unavailable = false;
+  private readonly terminating = new Set<Promise<void>>();
 
   constructor(private readonly options: ComputerNativeSupervisorOptions) {
     if (!Number.isInteger(options.requestTimeoutMs) || options.requestTimeoutMs <= 0) {
@@ -235,7 +236,7 @@ export class ComputerNativeSupervisor {
     this.current = undefined;
     this.unavailable = true;
     record.client.close(error);
-    if (!record.child.killed) record.child.kill("SIGTERM");
+    this.startTermination(record, false);
   }
 
   private async closeOwnedHost(): Promise<void> {
@@ -248,21 +249,42 @@ export class ComputerNativeSupervisor {
     }
 
     const record = this.current;
-    if (!record) return;
-    this.current = undefined;
-    record.client.close(new ComputerError("COMPUTER_UNAVAILABLE"));
-
-    try {
-      record.child.stdin?.end();
-    } catch {
-      // Graceful EOF is best effort before owned-child termination.
+    if (record) {
+      this.current = undefined;
+      record.client.close(new ComputerError("COMPUTER_UNAVAILABLE"));
+      await this.terminateRecord(record, true);
     }
 
-    const closedGracefully = await this.waitForClose(record, this.closeGraceMs);
-    if (!closedGracefully && !record.child.killed) {
-      record.child.kill("SIGTERM");
-      await this.waitForClose(record, this.closeGraceMs);
+    if (this.terminating.size > 0) {
+      await Promise.allSettled([...this.terminating]);
     }
+  }
+
+  private startTermination(record: HostRecord, gracefulStdin: boolean): void {
+    const termination = this.terminateRecord(record, gracefulStdin);
+    this.terminating.add(termination);
+    void termination
+      .finally(() => { this.terminating.delete(termination); })
+      .catch(() => {
+        // Fatal-path cleanup failures must not become unhandled rejections.
+      });
+  }
+
+  private async terminateRecord(record: HostRecord, gracefulStdin: boolean): Promise<void> {
+    if (gracefulStdin) {
+      try {
+        record.child.stdin?.end();
+      } catch {
+        // Graceful EOF is best effort before owned-child termination.
+      }
+      if (await this.waitForClose(record, this.closeGraceMs)) return;
+    }
+
+    record.child.kill("SIGTERM");
+    if (await this.waitForClose(record, this.closeGraceMs)) return;
+
+    record.child.kill("SIGKILL");
+    await this.waitForClose(record, this.closeGraceMs);
   }
 
   private waitForClose(record: HostRecord, timeoutMs: number): Promise<boolean> {
