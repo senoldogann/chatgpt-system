@@ -175,11 +175,12 @@ The fixture remains deterministic local acceptance infrastructure only and conta
 
 Use the least powerful deterministic route that can satisfy the task:
 
-1. Prefer Browser Runtime for ordinary web semantics.
-2. For native desktop UI, prefer AX-backed `role`, `label`, `text`, or fresh `index` targets.
-3. Use `refreshObservation()` after a known UI mutation/reorder when the next target may have moved; native `observe` refreshes the recovery cache as well as returning the fresh bounded observation.
-4. Use `ocrText` only when structured AX evidence is insufficient or the target is deliberately visual-only. The recovery ladder is bounded to fast then accurate Vision OCR and never retries without limit.
-5. Use explicit point targets only when the caller supplied the point. Ambiguous, stale, unsafe, permission, takeover, and exhausted-recovery states fail closed instead of guessing coordinates.
+1. User intent wins: when the user explicitly asks for **Computer Use**, real Google Chrome, or physical pointer and keyboard interaction, use Computer Runtime end-to-end. For Chrome, open/focus bundle identifier `com.google.Chrome`; `browser_*` is Playwright automation, so do not substitute Chrome for Testing for this workflow.
+2. Browser Runtime may be preferred for ordinary web semantics only when the user has not required Computer Use/physical desktop interaction, or when semantic Playwright automation was explicitly requested. Existing-Chrome CDP attach is still Browser Runtime, not physical Computer Use.
+3. For native desktop UI, prefer AX-backed `role`, `label`, `text`, or fresh `index` targets.
+4. Use `refreshObservation()` after a known UI mutation/reorder when the next target may have moved; native `observe` refreshes the recovery cache as well as returning the fresh bounded observation.
+5. Use `ocrText` only when structured AX evidence is insufficient or the target is deliberately visual-only. The recovery ladder is bounded to fast then accurate Vision OCR and never retries without limit.
+6. Use explicit point targets only when the caller supplied the point. Ambiguous, stale, unsafe, permission, takeover, and exhausted-recovery states fail closed instead of guessing coordinates.
 
 Direct `computer_move_mouse`, `computer_click`, `computer_drag`, and positioned `computer_scroll` accept semantic targets in the Slice 5 branch contract; typed `computer_run` has the same semantic-target parity. `computer_run_js` exposes `resolve`, `resolveMany`, `exists`, and `refreshObservation`, plus semantic action inputs. `exists` returns `false` only for target-not-found and propagates ambiguity/stale/permission/takeover failures.
 

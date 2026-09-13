@@ -209,6 +209,13 @@ describe("browser MCP tools", () => {
         expect(byName.get(name)?.inputSchema).toMatchObject({ type: "object", additionalProperties: false });
       }
 
+      for (const name of expectedTools) {
+        const description = byName.get(name)?.description ?? "";
+        expect(description, `${name} must identify semantic Playwright routing`).toMatch(/semantic Playwright/i);
+        expect(description, `${name} must defer explicit Computer Use`).toMatch(/do not use.*Computer Use/i);
+        expect(description, `${name} must point to Computer Runtime`).toContain("computer_*");
+      }
+
       const health = await client.callTool({ name: "browser_health", arguments: {} });
       expect(health.isError).not.toBe(true);
       expect(health.structuredContent).toEqual({ enabled: true, state: "stopped", browserInstalled: true });
