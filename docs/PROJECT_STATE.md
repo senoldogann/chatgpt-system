@@ -1,152 +1,97 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-14T00:32+03:00
-Status: **Tasks 1-7 complete; bounded follow-up fixes dynamic-project UX and Project Exec portability/timeout before final exact-state publication.**
+Last updated: 2026-09-14T00:48+03:00
+Status: **Owner Workstation + Verified Project Session slice is implemented, verified, merged, and cleaned up.**
 
-This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then read the active spec and plan.
+This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then read any active spec/plan for new work.
 
 ## Current goal
 
-Implement the approved Owner Workstation + Verified Project Session slice:
+Keep the merged Owner Workstation + Verified Project Session slice stable. New implementation work must start from clean synchronized `main` on a non-main branch/worktree and follow the repository local-first lifecycle.
 
-1. explicit Owner Workstation daily-driver mode with practical full current-user local capability;
-2. unattended readiness through stable Computer Runtime identity and non-interactive access to `chatgpt-system`'s own Keychain credential, without macOS security bypass;
-3. fail-closed local-first typed publication requiring fresh verification for the exact state being pushed;
-4. exact `project_resume` provenance before registered-project typed publication;
-5. make bootstrap-root semantics explicit to agents so new repositories can receive exact Project leases without tunnel reconfiguration;
-6. make Owner Workstation verification portable to the Linux Project Exec sandbox with a bounded 120-second command budget and cross-platform Rolldown fallback.
+The completed slice provides:
+
+1. explicit Owner Workstation daily-driver mode with full current-user local capability while retaining macOS security boundaries;
+2. unattended readiness through stable Computer Runtime identity and non-interactive app-owned Keychain credentials;
+3. exact `project_resume` provenance plus fresh local `project_check PASS` before typed publication;
+4. dynamic exact Project roots outside bootstrap/default roots without widening Project authority to `/` or the entire home directory;
+5. Linux Project Exec verification portability with a bounded Owner Workstation command budget;
+6. ChatGPT Web custom-app recovery guidance for conversations where developer MCP availability disappears.
 
 ## Active workspace
 
-- Authoritative registered checkout: `/Users/dogan/Desktop/chatgpt-system`, now on `feat/owner-workstation-verified-project-session`.
-- Active implementation/publication branch: `feat/owner-workstation-verified-project-session`.
-- Preserved managed implementation worktree: `/Users/dogan/.chatgpt-system/worktrees/e4eaca835975a22d75cc3e7778bb895500595d13b544a96d350c557d9edad976/71bcabad-7ca8-4a45-8788-fc44ff0e2fcf`, detached at `eb05294a81f63fcf9b83ae35ae21f9e5667784ea` so the branch can be checked out at the registered publication worktree without deleting the isolated worktree before merge.
-- Managed worktree ID: `71bcabad-7ca8-4a45-8788-fc44ff0e2fcf`.
-- Implementation worktree started from exact planning HEAD `a90fdc5f3a2b99ac7bbf85be3f45206a3d2fdafc`.
-- Branch base: clean synchronized `main` at `57e7a9ebc3bb3be555b6bab3a228b40d833425f1`.
+- Authoritative checkout: `/Users/dogan/Desktop/chatgpt-system`.
 - Project Continuity alias: `chatgpt-system-desktop`.
-- Active design spec: `docs/superpowers/specs/2026-09-13-owner-workstation-verified-project-session-design.md`.
-- Active implementation plan: `docs/superpowers/plans/2026-09-13-owner-workstation-verified-project-session.md`.
-- Task 1 Owner Workstation preset is committed at `31ec3d2`.
-- Task 2 unattended Keychain path is committed at `7233fd9`.
-- Task 3 Owner Workstation readiness status is committed at `762af40`.
-- Task 4 Continuity resume registry is committed at `5d1e273`.
-- Task 5 freshness-bound publish gate is committed at `ce2a99f`.
-- Task 6 dual-authority MCP publication wiring is committed at `e02f85b`.
-- Final workflow/docs commit before this state-only transition checkpoint: `eb05294a81f63fcf9b83ae35ae21f9e5667784ea`.
+- Primary implementation PR: `#44`.
+- Primary feature head: `79087289845674976184a6ae728bc5f89943727e`.
+- Primary squash merge result: `7df8082a0758873fcb4a36b6307f41f8ea72e520`.
+- Primary feature branch `feat/owner-workstation-verified-project-session` was deleted locally and remotely only after merge verification.
+- Managed implementation worktree `71bcabad-7ca8-4a45-8788-fc44ff0e2fcf` was verified clean and removed through the typed worktree lifecycle.
+- Historical design spec: `docs/superpowers/specs/2026-09-13-owner-workstation-verified-project-session-design.md`.
+- Historical implementation plan: `docs/superpowers/plans/2026-09-13-owner-workstation-verified-project-session.md`.
+- `origin/feat/computer-use-bridge` remains intentionally retained at `aca2507210c356fd6d2bc89bb86a1f1dc01719c0`; do not delete or rewrite it without separate classification.
 
 ## Completed
 
-- Approved design and seven-task implementation plan committed at `a90fdc5f3a2b99ac7bbf85be3f45206a3d2fdafc`.
-- Project Continuity alias `chatgpt-system-desktop` resumed and reconciled against live Git/worktree state.
-- Superpowers-managed implementation worktree created from the exact planning commit.
-- `npm ci` completed with 0 reported vulnerabilities.
-- Focused baseline regression tests, the full Node/TypeScript gate, and the macOS Computer Runtime suite are GREEN after minimal remediation.
-- Task 1 Owner Workstation preset completed and committed at `31ec3d2`.
-- Task 2 dedicated Keychain store/read/delete path completed and committed at `7233fd9`.
-- Task 3 deterministic/passive Owner Workstation readiness status completed and committed at `762af40`.
-- Task 4 bounded in-memory resume-context evidence completed and committed at `5d1e273`.
-- Task 5 freshness-bound publish gate and exact verified-HEAD Git push completed and committed at `ce2a99f`.
-- Task 6 dual-authority `git_push`, resumed-worktree identity revalidation, and MCP integration coverage completed and committed at `e02f85b`.
+- Added explicit `--owner-workstation` preset composing Personal Admin, Owner Runtime, terminal/PTY, Project Exec, Computer Use, and full-host JavaScript. Browser Runtime remains an independent gate and is explicitly enabled on this workstation.
+- Added dedicated native Keychain store/read/delete path and passive unattended-readiness reporting without TCC, SIP, FileVault/login, sudo/root, or Keychain-authentication bypass.
+- Added bounded in-memory `ContinuityResumeRegistry`; only successful `project_resume` leases prove publication provenance.
+- Added fail-closed `ProjectPublishGate`: non-main clean tree, exact resumed worktree identity, and fresh exact-state ProjectCheck PASS are required.
+- Hardened typed `git_push` to require active Admin + exact resumed Project authority and to push the exact verified commit SHA.
+- Clarified that configured `roots` are bootstrap/default roots, not a permanent repository allowlist. New exact Project roots may be opened with `session_authority_start`, then registered once and resumed later.
+- Owner Workstation uses a bounded `120000ms` command timeout; the global secure default remains `60000ms`.
+- Added `@rolldown/binding-wasm32-wasi@1.2.8` for cross-platform Vitest startup inside Linux Project Exec.
+- Kept Project Exec sandbox security unchanged and moved executable test fixtures from sandbox `/tmp` to ignored `node_modules/.cache/chatgpt-system-test-tmp` after directly proving `/tmp` is non-executable in the sandbox.
+- Added ChatGPT Web custom-app recovery contract: `This conversation does not support developer MCPs` is treated as product-surface/tool-routing unavailability, never proof of local daemon failure. Agents must not claim unperformed local work or substitute an unmounted container for the user's Mac.
+- Restarted the daily-driver tunnel after final tool metadata changes; current tunnel uses `--owner-workstation --enable-browser` with the existing Keychain-backed credential.
+- Published exact verified feature state through typed dual-authority `git_push`, merged PR #44 only after exact-head hosted checks passed, synchronized local `main` with `origin/main`, and cleaned only proven-merged feature state.
 
 ## Current state
 
-- Initial `npm run check` reproduced two baseline failures before Task 1.
-- `tests/project-continuity-docs.test.ts` failed because the planning handoff rewrite removed required live-state headings.
-- `tests/terminal-session-supervisor.test.ts` failed under the harness `TERM=dumb`; `sanitizedTerminalEnvironment()` preserved that value even though `NodePtyBackend` advertises `xterm-256color`.
-- Focused control proved the terminal suite passes with `TERM=xterm-256color` and fails with `TERM=dumb`.
-- Minimal remediation restores the required handoff structure and pins the spawned PTY environment to the backend's declared terminal type.
-- Task 1 implemented the explicit `--owner-workstation` preset as a pure config transformation and single tunnel flag; secure defaults and Browser independence remain intact.
-
-Approved design decisions remain:
-
-- `owner-workstation` is explicit opt-in and composes existing gates rather than inventing a new authority profile.
-- The preset enables Personal Admin, Owner Runtime, terminal/PTY, local Docker Project Exec, Computer Use, and full-host JS. Browser Runtime remains independent and is not implicitly enabled.
-- Project Exec was added to the preset during implementation planning because the mandatory fresh `project_check PASS` publish gate uses the existing local Docker Project Exec backend; without it, the preset could not satisfy its own publication contract.
-- Owner Runtime stays full current-user host capability, not root and not an OS sandbox.
-- Unattended readiness means stable pre-authorized identity and app-owned credentials; no TCC DB, Keychain-authentication, SIP, FileVault/login, or sudo/root bypass.
-- The app-owned daily-driver credential will use the dedicated native Keychain helper for store/read/delete; runtime reads must fail rather than prompt interactively.
-- Reuse existing `ProjectCheckService` HEAD + `workingTreeDigest` freshness evidence; do not create another verification store.
-- Add bounded in-memory `ContinuityResumeRegistry`, populated only by `project_resume`; generic Project leases do not prove continuity.
-- Typed `git_push` requires active Admin `authorityLeaseId` plus exact resumed Project `projectAuthorityLeaseId`, non-main clean tree, and fresh PASS.
-- Final Git push sends the exact verified commit, while preserving current-branch/GitHub-origin/no-force restrictions.
-- Browser-vs-Computer-Use simplification remains deferred until a later real Chrome benchmark slice.
-
-## Plan structure
-
-The approved plan is split into seven TDD review gates:
-
-1. Owner Workstation preset.
-2. Non-interactive app-owned Keychain path.
-3. Deterministic unattended-readiness status.
-4. Bounded resume-context registry.
-5. Freshness-bound Project Publish Gate.
-6. Dual-authority `git_push` MCP wiring.
-7. Documentation, full local acceptance, continuity checkpoint, typed publication, exact-head CI/merge, and branch/worktree cleanup.
-
-Execution must start with Superpowers `using-git-worktrees`, creating isolated branch/worktree `feat/owner-workstation-verified-project-session` from the commit containing the plan. Use `subagent-driven-development` by preference, or `executing-plans` for inline execution.
+- Primary implementation is merged into `main` through PR #44.
+- Local `main` was fast-forward synchronized to the PR #44 squash merge result and matched `origin/main` at that point.
+- No primary implementation worktree or feature branch remains.
+- No open PR remained after the primary merge/cleanup verification.
+- Owner Workstation live capabilities report dynamic Project roots, Project Exec enabled, Owner Runtime enabled, Computer Use/full-host JS enabled, and `commandTimeoutMs=120000`.
+- The ChatGPT-facing tool metadata explains both dynamic-project root semantics and the developer-MCP-unavailable recovery contract.
 
 ## Verification
 
-- Current design branch was created from clean synchronized main.
-- Existing `ProjectCheckService` was verified to bind evidence to exact `HEAD` + `workingTreeDigest` and automatically report changed state as `STALE`.
-- Existing `git_push` was verified to require Admin/current branch/GitHub origin but not yet continuity or local-verification freshness.
-- Existing daily-driver was verified to store through `chatgpt-system-keychain-helper` but read via `/usr/bin/security`; the plan removes that split path.
-- Existing Computer Runtime installer already verifies fixed bundle identity, strict signature, stable designated requirement, and refuses silent stable-to-ad-hoc downgrade.
-- Plan self-review covered spec mapping, placeholder scan, and interface/type consistency.
-- Initial `npm run check`: RED at planning HEAD; 643 tests passed, 2 failed, and 2 were skipped.
-- Focused RED evidence: handoff document contract failed on missing `## Completed`; terminal supervisor failed with received `TERM=dumb` instead of `xterm-256color`.
-- Focused baseline regression: `2` files and `9/9` tests PASS.
-- `npm run check`: TypeScript build PASS; `107` Vitest files passed, `1` intentionally skipped; `645` tests passed, `2` intentionally skipped.
-- `npm run test:computer:macos`: Swift build PASS; `164/164` tests PASS.
-- Task 1 RED evidence: 4 expected failures for unknown/missing `--owner-workstation` behavior.
-- Task 1 focused GREEN: `tests/cli-command.test.ts`, `tests/owner-runtime-config.test.ts`, and `tests/setup-chatgpt-tunnel.test.ts` = `53/53` PASS.
-- Task 1 TypeScript build: PASS.
-- Task 2 RED: 7 expected failures proved runner/setup/native helper lacked dedicated read/delete/helper-path wiring.
-- Task 2 focused GREEN: 18/18 tests PASS, including real macOS Keychain store/read/delete integration.
-- Task 2 native broker release build: PASS.
-- Task 3 focused GREEN: `23/23` tests PASS; TypeScript build PASS.
-- Task 4 focused GREEN: `24/24` continuity tests PASS; TypeScript build PASS. Successful resumes register exact worktree metadata; generic/failed leases do not; registry evicts oldest after 256 contexts and stores lease digests rather than raw IDs.
-- Task 5 focused GREEN: `21/21` publish-gate/Git/ProjectCheck tests PASS; TypeScript build PASS; `git diff --check` PASS. Stale branch/HEAD and dirty/main/non-PASS states fail closed.
-- Task 6 GREEN: dual-authority/resume/continuity core `21/21` PASS, transport/Git-boundary `6/6` PASS, updated authority schema `7/7` PASS, resumed-worktree replacement regression `10/10` PASS, and TypeScript build PASS. Generic/wrong/revoked authority fails closed; valid dual authority with fresh PASS reaches the final remote policy boundary.
-- Real `npm run owner-workstation:status` executed without prompts: stable Computer Runtime and all four passive permission booleans are true; credential readiness is currently false because the newly built stable Keychain helper has not yet been installed into the user home by Task 7 setup.
-- Diagnostic timing proved the only transient failure was the cold Swift build exceeding Vitest default 5s; helper store/read/delete themselves completed in ~0.13s total. Native integration test now uses the repository-wide 30s integration budget.
-- Task 7 combined focused acceptance: `17/17` files and `139/139` tests PASS.
-- Task 7 full repository gate: TypeScript build PASS; Vitest `112` files PASS + `1` intentionally skipped; `688` tests PASS + `2` intentionally skipped.
-- Production dependency audit: `npm audit --omit=dev` reports `0` vulnerabilities.
-- macOS authority broker release build: PASS.
-- macOS Computer Runtime native suite: `164/164` PASS.
-- Real PTY acceptance: `3/3` PASS. Owner Computer Runtime Phase 3: `2` PASS + `1` intentional skip.
-- Real daily-driver acceptance: LaunchAgent reinstall PASS; existing app-owned Keychain credential reused non-interactively; no API key written to the LaunchAgent plist.
-- Real `owner-workstation:status`: `ready=true`; Computer Runtime availability/stable TCC identity/bundle/signature all true; Accessibility, Screen Recording, event-listen, and event-post all true; credential readable non-interactively=true.
-- The first combined focused run exposed only docs-contract drift plus an integration timeout budget under parallel load; both were corrected without weakening security behavior, then the full focused gate passed.
-- Final workflow/docs commit: `eb05294` (`docs: finalize owner workstation workflow`).
-- Publication worktree transition: the clean managed worktree was detached at `eb05294`; the authoritative registered checkout was switched to the feature branch at the same exact commit; a fresh `project_resume` revalidated the registered worktree identity and observed a clean tree with the feature branch unpublished.
-- User approved the bounded follow-up after another ChatGPT agent misread `system_environment.roots` as a permanent project restriction. The code already permits explicit Project roots outside bootstrap roots; the agent-facing output/tool descriptions now state that contract and recommend `session_authority_start` → `project_register` → `project_resume`.
-- Owner Workstation now uses a bounded `120000ms` command timeout while the global secure default remains `60000ms`.
-- `@rolldown/binding-wasm32-wasi@1.2.8` is pinned as a dev dependency so Vitest can start inside Linux Project Exec even when host `node_modules` was installed on macOS.
-- Follow-up RED: 6 expected failures covered missing root semantics, 120-second preset budget, and WASI fallback. Focused GREEN after implementation: system environment `11/11`, authority catalog `2/2`, Owner config `6/6`, HTTP `3/3`, Project Exec portability `4/4`, CLI `17/17`.
-- Follow-up full host gate: TypeScript build PASS; `112` Vitest files PASS + `1` skip; `689` tests PASS + `2` skips.
-- Sandbox executable-fixture root cause was measured directly: `/tmp` execution returns `EACCES` inside Project Exec while `/workspace/node_modules/.cache/chatgpt-system-test-tmp` executes normally. Production sandbox flags were not weakened.
-- Portable executable fixture helper committed at `bb0af49`; the three affected suites pass `24/24` on both macOS host and Linux Project Exec.
-- ChatGPT Web custom-app recovery contract added: `This conversation does not support developer MCPs` is treated as product-surface/tool-routing unavailability, never as proof the local daemon failed. Agents must not claim local changes or substitute an unmounted container; use supported standard text chat/app selection or `@mention`, Refresh changed actions when needed, then `project_resume`. Agent mode/custom-app and Deep Research read/fetch limitations are documented from current OpenAI product guidance.
-- Recovery metadata/docs focused GREEN: `14/14` tests PASS. No keyword-filter evasion behavior was added.
+- Final feature HEAD `79087289845674976184a6ae728bc5f89943727e`: host `npm run check` PASS — TypeScript build PASS; `113` test files PASS + `1` intentional skip; `690` tests PASS + `2` intentional skips.
+- `npm audit --omit=dev`: `0` vulnerabilities.
+- Linux Project Exec executable-fixture regression: affected suites `24/24` PASS on both macOS host and Linux sandbox.
+- ChatGPT custom-app recovery metadata/docs tests: `14/14` PASS.
+- Final Linux `project_check run` and independent `report`: `PASS` for exact feature HEAD and clean-tree digest `f0af1e1d86a1c7d87a6741fb76deb2ceb20d27ded2019e53949ede9d907c758a`; `stateChangedDuringRun=false`.
+- PR #44 hosted CI on exact head: Node 22 PASS, Node 24 PASS, and macOS native PASS across both triggered CI runs; merge state was `CLEAN` before merge.
+- PR #44 merged exact head `79087289845674976184a6ae728bc5f89943727e` to squash merge commit `7df8082a0758873fcb4a36b6307f41f8ea72e520`.
+- Post-merge local `main` `npm run check`: TypeScript build PASS; `113` test files PASS + `1` intentional skip; `690` tests PASS + `2` intentional skips.
+- Cleanup verification: local and remote primary feature refs absent, only the authoritative main worktree remained, open PR list empty, and `origin/feat/computer-use-bridge` remained intact at `aca2507210c356fd6d2bc89bb86a1f1dc01719c0`.
 
 ## Next exact step
 
-Commit the ChatGPT Web custom-app recovery contract, then run fresh `npm run check` and production audit on the resulting exact HEAD. Restart the daily driver once more so the updated tool descriptions are live, checkpoint Continuity, obtain a fresh `project_resume`, and require Linux `project_check run/report` PASS for that exact clean HEAD. With all local gates green, proceed through typed dual-authority `git_push`, create the PR, require exact-head hosted checks, merge, sync local `main`, and remove only proven-merged implementation branch/worktree state. Preserve `origin/feat/computer-use-bridge`.
+There is no active implementation task for this slice. For future work:
+
+1. `project_resume("chatgpt-system-desktop")` and reconcile Git/worktree reality.
+2. Ensure local `main` is clean and synchronized with `origin/main`.
+3. Create a new non-main branch/worktree for the new approved spec/plan.
+4. Keep all code/test/build verification local before publication.
+5. Preserve `origin/feat/computer-use-bridge` until it is separately classified.
 
 ## Invariants
 
-- Code/tests/builds/acceptance remain local until final fresh verification is green.
-- GitHub is publication/review/final CI only.
-- Exact-head hosted checks must pass before merge.
-- After merge: synchronize local `main`, verify the merge, delete proven merged local/remote implementation branches and unused worktrees, and finish clean.
-- Meaningful milestones update both this file and Project Continuity when available.
-- Preserve `origin/feat/computer-use-bridge` until its three unmerged documentation commits are explicitly classified, merged, or otherwise preserved.
+- Git/worktree reality outranks Continuity, this handoff file, and older chat context.
+- Never reset, clean, revert, overwrite, or delete another agent's unfamiliar work.
+- Development does not happen on `main`.
+- Local verification must be fresh for the exact state being published.
+- Typed publication requires the exact active `project_resume` context and Admin authority.
+- GitHub is the publication/review/final-CI gate, not the primary development/test environment.
+- macOS TCC, SIP, FileVault/login, Keychain authentication, and sudo/root boundaries remain authoritative.
+- ChatGPT product-surface/tool-routing restrictions are not bypassed by keyword changes or local fallbacks.
+- `origin/feat/computer-use-bridge` remains intentionally preserved until separately classified.
 
 ## Blockers / uncertainties
 
-- No baseline blocker remains after the focused, full Node/TypeScript, and native macOS gates passed.
-- Tasks 1-7 are complete. The user explicitly asked to finish the remaining fixes and approved the dynamic-project recommendation; the bounded follow-up is locally GREEN before commit. Final exact-state host/ProjectCheck evidence and publication lifecycle remain.
-- `origin/feat/computer-use-bridge` remains intentionally untouched.
+- No blocker remains for the completed Owner Workstation + Verified Project Session slice.
+- Browser Runtime versus pure Computer Use simplification remains a separate future benchmark/design decision.
+- ChatGPT product-surface routing is controlled by ChatGPT; the local MCP can expose recovery guidance but cannot force a surface that does not support developer MCPs to expose them.
+- `origin/feat/computer-use-bridge` still contains separately retained unmerged work and requires its own classification before any deletion.

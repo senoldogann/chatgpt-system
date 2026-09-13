@@ -156,9 +156,9 @@ describe("Owner Runtime PTY integration", () => {
       sessionId,
       `printf 'TTY:%s SIZE:%s ${firstMarker} ${inputSecret}\\n' \"$([ -t 0 ] && echo yes || echo no)\" \"$(stty size)\"\r`,
     );
-    const first = await readUntil(fixture.client, adminA, sessionId, firstMarker);
-    expect(first.data).toContain("TTY:yes");
-    expect(first.data).toMatch(/SIZE:24 80/);
+    const firstOutput = `TTY:yes SIZE:24 80 ${firstMarker} ${inputSecret}`;
+    const first = await readUntil(fixture.client, adminA, sessionId, firstOutput);
+    expect(first.data).toContain(firstOutput);
 
     const duplicateCheck = await fixture.client.callTool({
       name: "terminal_session_read",
@@ -175,8 +175,9 @@ describe("Owner Runtime PTY integration", () => {
     expect(resized.structuredContent).toMatchObject({ cols: 100, rows: 30 });
 
     await writeSession(fixture.client, adminA, sessionId, `printf 'SIZE2:%s ${secondMarker}\\n' \"$(stty size)\"\r`);
-    const second = await readUntil(fixture.client, adminA, sessionId, secondMarker, first.nextSequence);
-    expect(second.data).toMatch(/SIZE2:30 100/);
+    const secondOutput = `SIZE2:30 100 ${secondMarker}`;
+    const second = await readUntil(fixture.client, adminA, sessionId, secondOutput, first.nextSequence);
+    expect(second.data).toContain(secondOutput);
 
     await endAuthority(fixture.client, adminA);
     const adminB = await startAdmin(fixture.client);
@@ -190,9 +191,10 @@ describe("Owner Runtime PTY integration", () => {
     });
 
     const handoffMarker = "PTY_HANDOFF_MARKER_a245";
-    await writeSession(fixture.client, adminB, sessionId, `printf '${handoffMarker}\\n'\r`);
-    const handoff = await readUntil(fixture.client, adminB, sessionId, handoffMarker, second.nextSequence);
-    expect(handoff.data).toContain(handoffMarker);
+    const handoffOutput = `HANDOFF:${handoffMarker}`;
+    await writeSession(fixture.client, adminB, sessionId, `printf 'HANDOFF:%s\\n' '${handoffMarker}'\r`);
+    const handoff = await readUntil(fixture.client, adminB, sessionId, handoffOutput, second.nextSequence);
+    expect(handoff.data).toContain(handoffOutput);
 
     const closed = await fixture.client.callTool({
       name: "terminal_session_close",
