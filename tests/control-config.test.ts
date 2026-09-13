@@ -10,6 +10,7 @@ const saved = {
   maxProcessLogBytesPerStream: process.env.CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM,
   processStopGraceMs: process.env.CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS,
   personalAdmin: process.env.CHATGPT_SYSTEM_PERSONAL_ADMIN,
+  allowNonLoopbackHttp: process.env.CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP,
 };
 
 function restoreEnv(key: keyof NodeJS.ProcessEnv, value: string | undefined): void {
@@ -24,6 +25,7 @@ afterEach(() => {
   restoreEnv("CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM", saved.maxProcessLogBytesPerStream);
   restoreEnv("CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS", saved.processStopGraceMs);
   restoreEnv("CHATGPT_SYSTEM_PERSONAL_ADMIN", saved.personalAdmin);
+  restoreEnv("CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP", saved.allowNonLoopbackHttp);
 });
 
 describe("local authority control configuration", () => {
@@ -115,5 +117,32 @@ describe("local authority control configuration", () => {
       maxProcessLogBytesPerStream: 4_096,
       processStopGraceMs: 250,
     });
+  });
+
+  it("rejects a non-loopback HTTP host without explicit acknowledgement", async () => {
+    delete process.env.CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP;
+    await expect(loadConfig({ roots: [process.cwd()], host: "0.0.0.0" }))
+      .rejects.toThrow(/non-loopback/i);
+  });
+
+  it.each(["127.0.0.1", "::1", "localhost"])("allows loopback HTTP host %s without acknowledgement", async (host) => {
+    delete process.env.CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP;
+    const config = await loadConfig({ roots: [process.cwd()], host });
+    expect(config.http).toMatchObject({ host, allowNonLoopback: false });
+  });
+
+  it("allows a non-loopback HTTP host with explicit runtime acknowledgement", async () => {
+    const config = await loadConfig({
+      roots: [process.cwd()],
+      host: "0.0.0.0",
+      allowNonLoopbackHttp: true,
+    });
+    expect(config.http).toMatchObject({ host: "0.0.0.0", allowNonLoopback: true });
+  });
+
+  it("supports explicit environment acknowledgement for non-loopback HTTP", async () => {
+    process.env.CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP = "true";
+    const config = await loadConfig({ roots: [process.cwd()], host: "0.0.0.0" });
+    expect(config.http).toMatchObject({ host: "0.0.0.0", allowNonLoopback: true });
   });
 });

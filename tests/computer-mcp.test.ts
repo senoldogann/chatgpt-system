@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ComputerError } from "../src/computer-errors.js";
 import type { ComputerAction } from "../src/computer-types.js";
 import type { AppConfig } from "../src/config.js";
+import { registerComputerTools } from "../src/computer-tool-registration.js";
 import { createRuntimeServices, type RuntimeServices } from "../src/server.js";
 import { startHttp } from "../src/transport.js";
 
@@ -16,12 +17,12 @@ const servers: ReturnType<typeof startHttp>[] = [];
 const runtimes: RuntimeServices[] = [];
 
 class FakeComputerRuntime {
-  readonly calls: Array<{ method: string; input?: unknown }> = [];
+  readonly calls: Array<{ method: string; input?: unknown; options?: unknown }> = [];
   failMethod?: string;
   rawFailure = false;
 
-  private answer(method: string, input?: unknown): unknown {
-    this.calls.push({ method, ...(input !== undefined ? { input } : {}) });
+  private answer(method: string, input?: unknown, options?: unknown): unknown {
+    this.calls.push({ method, ...(input !== undefined ? { input } : {}), ...(options !== undefined ? { options } : {}) });
     if (this.failMethod === method) {
       if (this.rawFailure) throw new Error("NATIVE_STDERR_CANARY REQUEST_ID_CANARY");
       throw new ComputerError("COMPUTER_ACTION_FAILED");
@@ -69,6 +70,7 @@ class FakeComputerRuntime {
           completedCount: actions.length,
           actionCount: actions.length,
           steps: actions.map((action, index) => ({ index, type: action.type, state: "completed" })),
+          stepsTruncated: false,
         };
       }
       default:
@@ -94,7 +96,7 @@ class FakeComputerRuntime {
   async waitForText(input: unknown) { return this.answer("waitForText", input); }
   async waitUntilChanged(input: unknown) { return this.answer("waitUntilChanged", input); }
   async releaseInputs() { return this.answer("releaseInputs"); }
-  async run(input: unknown) { return this.answer("run", input) as never; }
+  async run(input: unknown, options?: unknown) { return this.answer("run", input, options) as never; }
   async close(): Promise<void> {}
 }
 
@@ -127,6 +129,14 @@ async function fixture() {
     },
 
     personalAdmin: { enabled: true },
+    ownerRuntime: {
+      enabled: true,
+      shellPath: "/bin/zsh",
+      maxScriptBytes: 262_144,
+      maxTerminalSessions: 8,
+      maxTerminalOutputBytes: 262_144,
+      maxTerminalInputBytes: 65_536,
+    },
     computerUse: {
       enabled: true,
       fullHostJsEnabled: true,
@@ -144,7 +154,7 @@ async function fixture() {
     },
     browser: { enabled: false, headless: true, timeoutMs: 2_000, userDataDir: path.join(base, "browser") },
     control: { enabled: false, socketPath: path.join(base, "control.sock") },
-    http: { host: "127.0.0.1", port: 0, token },
+    http: { host: "127.0.0.1", port: 0, allowNonLoopback: false, token },
     limits: {
       maxReadBytes: 1024 * 1024,
       maxWriteBytes: 1024 * 1024,
@@ -313,6 +323,28 @@ describe("computer MCP tools", () => {
     }
   });
 
+  it("passes the MCP request AbortSignal and Owner mode into computer_run", async () => {
+    const { runtime, fake } = await fixture();
+    const controller = new AbortController();
+    let handler: ((input: Record<string, unknown>, ctx: { mcpReq: { signal?: AbortSignal } }) => Promise<unknown>) | undefined;
+    const fakeServer = {
+      registerTool: (name: string, _definition: unknown, candidate: typeof handler) => {
+        if (name === "computer_run") handler = candidate;
+      },
+    };
+    registerComputerTools(fakeServer as never, runtime);
+    const admin = await runtime.authority.start({ profile: "admin" });
+
+    await handler!({
+      authorityLeaseId: admin.leaseId,
+      actions: [{ type: "pointer_position" }],
+      finalObservation: "none",
+    }, { mcpReq: { signal: controller.signal } });
+
+    const runCall = fake.calls.find((call) => call.method === "run");
+    expect(runCall?.options).toMatchObject({ ownerMode: true, signal: controller.signal });
+  });
+
   it("accepts semantic targets in computer_run without guessing coordinates", async () => {
     const { runtime, fake, client, transport } = await fixture();
     try {
@@ -329,12 +361,12 @@ describe("computer MCP tools", () => {
       });
 
       expect(run.isError).not.toBe(true);
-      expect(fake.calls).toContainEqual({
+      expect(fake.calls).toContainEqual(expect.objectContaining({
         method: "run",
         input: expect.objectContaining({
           actions: [{ type: "click", target: { by: "text", text: "Run", exact: true } }],
         }),
-      });
+      }));
     } finally {
       await transport.terminateSession();
       await client.close();

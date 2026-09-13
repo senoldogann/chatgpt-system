@@ -123,12 +123,13 @@ describe("ScopedComputerService policy and audit", () => {
   it("records useful computer metadata without typed text wait text coordinates lease ids request ids or native errors", async () => {
     const { auditFile, audit } = await fixture();
     const backend = new FakeComputerBackend();
-    const service = new ScopedComputerService(backend, audit, true);
+    const service = new ScopedComputerService(backend, audit, true, true);
+    const controller = new AbortController();
 
     await service.typeText({ text: "SECRET_TYPED_CANARY", name: "Example" });
     await service.waitForText({ text: "SECRET_WAIT_CANARY", timeoutMs: 100 });
     await service.moveMouse({ x: 91827, y: 73645 });
-    await service.run({ actions: [{ type: "pointer_position" }], finalObservation: "none" });
+    await service.run({ actions: [{ type: "pointer_position" }], finalObservation: "none" }, controller.signal);
 
     backend.failMethod = "observe";
     await expect(service.observe()).rejects.toThrow("NATIVE_STDERR_CANARY");
@@ -162,6 +163,7 @@ describe("ScopedComputerService policy and audit", () => {
         "bounds",
         "region",
         "coordinates",
+        "signal",
       ]),
     );
     expect(log).toContain('"action":"computer.type_text"');

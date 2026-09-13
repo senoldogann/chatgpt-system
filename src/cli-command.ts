@@ -117,6 +117,10 @@ export function parseCliCommand(argv: string[]): CliCommand {
       overrides.controlEnabled = true;
       continue;
     }
+    if (arg === "--allow-non-loopback-http") {
+      overrides.allowNonLoopbackHttp = true;
+      continue;
+    }
     if (arg === "--root") {
       roots.push(takeValue(argv, index, arg));
       index += 1;

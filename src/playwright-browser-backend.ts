@@ -24,6 +24,8 @@ import { BrowserError } from "./errors.js";
 export interface PlaywrightBrowserBackendOptions {
   timeoutMs: number;
   maxDiagnosticEntries?: number;
+  maxDiagnosticMessageChars?: number;
+  maxDiagnosticUrlChars?: number;
 }
 
 interface PageDiagnostics {
@@ -38,6 +40,8 @@ interface PageDiagnostics {
 export class PlaywrightBrowserBackend implements BrowserBackend {
   private readonly timeoutMs: number;
   private readonly maxDiagnosticEntries: number;
+  private readonly maxDiagnosticMessageChars: number;
+  private readonly maxDiagnosticUrlChars: number;
   private readonly pagesById = new Map<string, Page>();
   private readonly idsByPage = new WeakMap<Page, string>();
   private readonly diagnosticsByPageId = new Map<string, PageDiagnostics>();
@@ -54,6 +58,14 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
     }
     this.timeoutMs = options.timeoutMs;
     this.maxDiagnosticEntries = Math.max(1, options.maxDiagnosticEntries ?? 100);
+    this.maxDiagnosticMessageChars = options.maxDiagnosticMessageChars ?? 2_048;
+    this.maxDiagnosticUrlChars = options.maxDiagnosticUrlChars ?? 16_384;
+    if (!Number.isInteger(this.maxDiagnosticMessageChars) || this.maxDiagnosticMessageChars <= 0) {
+      throw new Error("Browser diagnostic message limit must be a positive integer.");
+    }
+    if (!Number.isInteger(this.maxDiagnosticUrlChars) || this.maxDiagnosticUrlChars <= 0) {
+      throw new Error("Browser diagnostic URL limit must be a positive integer.");
+    }
 
     for (const page of context.pages()) {
       this.registerPage(page, false);
@@ -340,7 +352,7 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
       diagnostics.consoleEntries,
       {
         level,
-        message: message.text(),
+        message: this.boundDiagnosticText(message.text()),
         evidence: this.nextEvidence(diagnostics),
         ...(runtimeSource ? { runtimeSource } : {}),
       },
@@ -356,8 +368,8 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
       diagnostics.networkEntries,
       {
         method: request.method(),
-        url: request.url(),
-        ...(failure?.errorText ? { failure: failure.errorText } : {}),
+        url: this.boundDiagnosticUrl(request.url()),
+        ...(failure?.errorText ? { failure: this.boundDiagnosticText(failure.errorText) } : {}),
         ...this.requestCorrelation(request, diagnostics),
       },
       (truncated) => { diagnostics.networkTruncated = truncated; },
@@ -374,7 +386,7 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
       diagnostics.networkEntries,
       {
         method: request.method(),
-        url: response.url(),
+        url: this.boundDiagnosticUrl(response.url()),
         status,
         ...this.requestCorrelation(request, diagnostics),
       },
@@ -397,7 +409,7 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
       const location = message.location();
       if (!location?.url) return undefined;
       return {
-        url: location.url,
+        url: this.boundDiagnosticUrl(location.url),
         ...(Number.isFinite(location.lineNumber) ? { lineNumber: location.lineNumber } : {}),
         ...(Number.isFinite(location.columnNumber) ? { columnNumber: location.columnNumber } : {}),
         sourceMapStatus: "UNAVAILABLE" as const,
@@ -416,7 +428,7 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
     let initiator: { kind: "frame"; url: string } | undefined;
     try {
       const frameUrl = request.frame().url();
-      if (frameUrl) initiator = { kind: "frame", url: frameUrl };
+      if (frameUrl) initiator = { kind: "frame", url: this.boundDiagnosticUrl(frameUrl) };
     } catch {
       initiator = undefined;
     }
@@ -427,6 +439,16 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
       navigationRequest: request.isNavigationRequest(),
       ...(initiator ? { initiator } : {}),
     };
+  }
+
+  private boundDiagnosticText(value: string): string {
+    if (value.length <= this.maxDiagnosticMessageChars) return value;
+    return value.slice(value.length - this.maxDiagnosticMessageChars);
+  }
+
+  private boundDiagnosticUrl(value: string): string {
+    if (value.length <= this.maxDiagnosticUrlChars) return value;
+    return value.slice(0, this.maxDiagnosticUrlChars);
   }
 
   private appendBounded<T>(entries: T[], entry: T, markTruncated: (value: boolean) => void): void {

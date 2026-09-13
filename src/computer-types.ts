@@ -104,5 +104,6 @@ export interface ComputerRunResult {
   completedCount: number;
   actionCount: number;
   steps: ComputerRunStepResult[];
+  stepsTruncated: boolean;
   finalObservation?: unknown;
 }

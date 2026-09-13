@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ComputerUseConfig } from "../src/config.js";
+import { COMPUTER_MAX_RUN_STEP_RESULTS, type ComputerUseConfig } from "../src/config.js";
 import { ComputerError } from "../src/computer-errors.js";
 import { ComputerRuntime, type ComputerNativeRequesting } from "../src/computer-runtime.js";
 import type { ComputerNativeMethod } from "../src/computer-types.js";
+import { computerRunOutputSchema } from "../src/tool-output-schemas.js";
 
 type Call = { method: ComputerNativeMethod; params: Record<string, unknown>; timeoutMs?: number };
 
@@ -211,6 +212,30 @@ describe("ComputerRuntime direct operations", () => {
 
 
 describe("ComputerRuntime computer_run", () => {
+  it("bounds the public step-result contract independently of actionCount", () => {
+    const steps = Array.from({ length: COMPUTER_MAX_RUN_STEP_RESULTS + 1 }, (_, index) => ({
+      index,
+      type: "pointer_position" as const,
+      state: "completed" as const,
+    }));
+
+    expect(computerRunOutputSchema.safeParse({
+      state: "completed",
+      completedCount: steps.length,
+      actionCount: steps.length,
+      steps,
+      stepsTruncated: true,
+    }).success).toBe(false);
+
+    expect(computerRunOutputSchema.safeParse({
+      state: "completed",
+      completedCount: steps.length,
+      actionCount: steps.length,
+      steps: steps.slice(1),
+      stepsTruncated: true,
+    }).success).toBe(true);
+  });
+
   it("validates every action before any native mutation", async () => {
     const { native, runtime: subject } = runtime();
     await expect(subject.run({
@@ -259,6 +284,86 @@ describe("ComputerRuntime computer_run", () => {
       finalObservation: "none",
     })).rejects.toMatchObject({ code: "COMPUTER_OUTPUT_LIMIT" });
     expect(native.calls).toHaveLength(0);
+  });
+
+  it("executes more than the legacy action cap in Owner mode", async () => {
+    const { native, runtime: subject } = runtime(undefined, { maxActionProgramActions: 3 });
+    const actions = Array.from({ length: 101 }, () => ({ type: "pointer_position" as const }));
+
+    const result = await subject.run({ actions, finalObservation: "none" }, { ownerMode: true });
+
+    expect(result.completedCount).toBe(101);
+    expect(result.actionCount).toBe(101);
+    expect(native.calls).toHaveLength(101);
+  });
+
+  it("executes 300 Owner actions while retaining only the bounded step tail", async () => {
+    const { runtime: subject } = runtime();
+    const actions = Array.from({ length: 300 }, () => ({ type: "pointer_position" as const }));
+
+    const result = await subject.run({ actions, finalObservation: "none" }, { ownerMode: true });
+
+    expect(result.completedCount).toBe(300);
+    expect(result.actionCount).toBe(300);
+    expect(result.steps).toHaveLength(COMPUTER_MAX_RUN_STEP_RESULTS);
+    expect(result.stepsTruncated).toBe(true);
+    expect(result.steps[0]?.index).toBe(300 - COMPUTER_MAX_RUN_STEP_RESULTS);
+    expect(result.steps.at(-1)?.index).toBe(299);
+  });
+
+  it("has no implicit legacy run deadline in Owner mode when timeout is omitted", async () => {
+    const native = new FakeNative();
+    let now = 1_000;
+    native.responder = (call) => {
+      if (call.method === "pointer_position") now += 31_000;
+      return { x: 1, y: 1 };
+    };
+    const subject = new ComputerRuntime(native, config, { now: () => now });
+
+    const result = await subject.run({
+      actions: [{ type: "pointer_position" }, { type: "pointer_position" }],
+      finalObservation: "none",
+    }, { ownerMode: true });
+
+    expect(result.completedCount).toBe(2);
+    expect(native.calls.map((call) => call.timeoutMs)).toEqual([10_000, 10_000]);
+  });
+
+  it("keeps an explicit finite Owner timeout authoritative", async () => {
+    const native = new FakeNative();
+    let now = 1_000;
+    native.responder = (call) => {
+      if (call.method === "pointer_position") now += 81;
+      return { x: 1, y: 1 };
+    };
+    const subject = new ComputerRuntime(native, config, { now: () => now });
+
+    await expect(subject.run({
+      actions: [{ type: "pointer_position" }, { type: "pointer_position" }],
+      finalObservation: "none",
+      timeoutMs: 80,
+    }, { ownerMode: true })).rejects.toMatchObject({
+      code: "COMPUTER_TIMEOUT",
+      details: { failedStepIndex: 1, completedCount: 1, actionCount: 2 },
+    });
+  });
+
+  it("aborts an Owner local wait, starts no later action, and releases inputs", async () => {
+    const { native, runtime: subject } = runtime();
+    const controller = new AbortController();
+    const running = subject.run({
+      actions: [
+        { type: "wait", durationMs: 100 },
+        { type: "click", x: 2, y: 2 },
+      ],
+      finalObservation: "none",
+    }, { ownerMode: true, signal: controller.signal });
+
+    setTimeout(() => controller.abort(), 5);
+
+    await expect(running).rejects.toMatchObject({ code: "COMPUTER_ACTION_FAILED" });
+    expect(native.calls.map((call) => call.method)).not.toContain("click");
+    expect(native.calls.map((call) => call.method)).toContain("release_inputs");
   });
 
   it("uses one absolute deadline and does not start another step after expiry", async () => {

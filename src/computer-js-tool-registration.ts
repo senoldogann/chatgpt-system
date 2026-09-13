@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { AuditLogger } from "./audit.js";
 import type { AuthorityManager } from "./authority.js";
+import { COMPUTER_MAX_EXPLICIT_RUNTIME_MS } from "./config.js";
 import type { ComputerJsRuntime } from "./computer-js-runtime.js";
 import { AppError } from "./errors.js";
 import { ScopedComputerJsService } from "./scoped-computer-js-service.js";
@@ -9,6 +10,7 @@ import { computerJsRunOutputSchema } from "./tool-output-schemas.js";
 
 export interface ComputerJsToolRuntime {
   config: {
+    ownerRuntime?: { enabled: boolean };
     computerUse: {
       fullHostJsEnabled: boolean;
       maxJsSourceBytes: number;
@@ -63,6 +65,9 @@ function computerJsFor(runtime: ComputerJsToolRuntime, authorityLeaseId: string)
 }
 
 export function registerComputerJsTools(server: McpServer, runtime: ComputerJsToolRuntime): void {
+  const timeoutSchema = runtime.config.ownerRuntime?.enabled === true
+    ? z.number().int().positive().max(COMPUTER_MAX_EXPLICIT_RUNTIME_MS)
+    : z.number().int().positive().max(runtime.config.computerUse.maxJsRuntimeMs);
   server.registerTool(
     "computer_run_js",
     {
@@ -71,7 +76,7 @@ export function registerComputerJsTools(server: McpServer, runtime: ComputerJsTo
         ...authorityLeaseField,
         source: z.string().max(runtime.config.computerUse.maxJsSourceBytes),
         cwd: z.string().min(1).max(16_384).optional(),
-        timeoutMs: z.number().int().positive().max(runtime.config.computerUse.maxJsRuntimeMs).optional(),
+        timeoutMs: timeoutSchema.optional(),
       }).strict(),
       outputSchema: computerJsRunOutputSchema,
       annotations: mutationAnnotations,

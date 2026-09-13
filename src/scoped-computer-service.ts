@@ -38,6 +38,7 @@ export class ScopedComputerService {
     private readonly service: ScopedComputerBackend,
     private readonly audit: AuditLogger,
     private readonly adminEnabled: boolean,
+    private readonly ownerRuntimeEnabled = false,
   ) {}
 
   health() {
@@ -148,10 +149,13 @@ export class ScopedComputerService {
     return this.runAudit("computer.release_inputs", () => this.service.releaseInputs());
   }
 
-  run(input: RunInput): Promise<ComputerRunResult> {
+  run(input: RunInput, signal?: AbortSignal): Promise<ComputerRunResult> {
     return this.runAudit(
       "computer.run",
-      () => this.service.run(input),
+      () => this.service.run(input, {
+        ownerMode: this.ownerRuntimeEnabled,
+        ...(signal ? { signal } : {}),
+      }),
       { actionCount: input.actions.length },
       (result) => ({ completedCount: result.completedCount }),
     );

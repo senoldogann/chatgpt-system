@@ -137,6 +137,28 @@ describe("CLI command routing", () => {
     ])).toThrow(/enable-control/i);
   });
 
+
+  it("parses explicit non-loopback HTTP acknowledgement", () => {
+    expect(parseCliCommand([
+      "http",
+      "--host", "0.0.0.0",
+      "--allow-non-loopback-http",
+    ])).toEqual({
+      kind: "server",
+      mode: "http",
+      help: false,
+      overrides: {
+        host: "0.0.0.0",
+        allowNonLoopbackHttp: true,
+      },
+    });
+  });
+
+  it("documents the non-loopback HTTP acknowledgement flag in CLI help", async () => {
+    const source = await readFile(new URL("../src/cli.ts", import.meta.url), "utf8");
+    expect(source).toContain("--allow-non-loopback-http");
+  });
+
   it("rejects server-only flags in authorize mode", () => {
     expect(() => parseCliCommand(["authorize", "user", "--root", "/tmp/project"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--enable-control"])).toThrow();
@@ -146,5 +168,6 @@ describe("CLI command routing", () => {
     expect(() => parseCliCommand(["authorize", "admin", "--enable-full-host-js"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--enable-owner-runtime"])).toThrow();
     expect(() => parseCliCommand(["authorize", "admin", "--browser-existing-chrome"])).toThrow();
+    expect(() => parseCliCommand(["authorize", "admin", "--allow-non-loopback-http"])).toThrow();
   });
 });

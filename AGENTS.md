@@ -6,7 +6,7 @@ These rules apply to every agent working in this repository.
 
 When the user says `chatgpt-system kaldığı yerden devam et`, `continue chatgpt-system`, or an equivalent continuation request, do not ask the user to restate prior work unless recovery below is genuinely insufficient.
 
-1. If Project Continuity tools are available, call `project_resume` with the exact alias `chatgpt-system`. Never fuzzy-match or invent another alias.
+1. If Project Continuity tools are available, call `project_resume` with the exact alias `chatgpt-system-desktop`. Never fuzzy-match or invent another alias. The authoritative checkout is `/Users/dogan/Desktop/chatgpt-system`.
 2. Read `docs/PROJECT_STATE.md`.
 3. Inspect current repository reality before editing: `git status`, current branch/HEAD and recent `git log`; inspect `git diff` for a dirty candidate worktree. Also inspect worktree ownership when concurrent work is possible.
 4. Reconcile sources in this order of authority:
@@ -47,6 +47,17 @@ If Project Continuity tools are available, pair the file update with `project_ch
 - Do not delete untracked files from another worktree merely because they look temporary.
 - Prefer an isolated worktree for independent features/fixes.
 - Before merging or rebasing across another agent's branch, inspect its state and preserve its changes.
+
+## Repository lifecycle rules
+
+These are project-wide mandatory rules for every agent and every change:
+
+1. **Local-first development and verification.** Implement code, tests, documentation, migrations, and release checks locally on a non-`main` branch/worktree. Run the relevant focused tests and the complete repository verification gate locally. Only when the local tree is clean and every required check passes may the branch be pushed and a PR opened. Merge only a PR whose exact head passed the required hosted checks.
+2. **Branch cleanup after merge.** After a verified PR is merged, synchronize local `main`, verify the merge, then delete the merged feature/fix branch locally and remotely when it is no longer needed. Never force-delete a dirty/unmerged branch or a branch/worktree that may belong to another agent.
+3. **Keep the project clean.** Keep the authoritative checkout and managed worktrees free of unrelated generated files, stale branches, abandoned worktrees, and accidental changes. Before handoff/completion, require `git status` to be clean, remove only proven-unused agent-owned worktrees/branches, and preserve unfamiliar work.
+4. **Do not block on remote watchers.** For hosted CI/release status, do not use long-running `--watch`/follow commands that can hit agent transport time limits. Use short one-shot status queries and poll again as needed. A tool/transport timeout is never evidence that CI failed; read the actual hosted job conclusion before acting. Long local commands should use managed-process execution with explicit status/log polling when available.
+
+Do not develop directly on `main`. Do not use a remote/PR as the primary test environment. A PR is the publication/review gate after local completion, not a substitute for local verification.
 
 ## Engineering gates
 

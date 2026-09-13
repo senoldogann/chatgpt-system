@@ -26,7 +26,7 @@ async function fixture(enabled: boolean) {
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled, commands: ["node"] },
     projectExec: { enabled: false },
-    http: { host: "127.0.0.1", port: 4312 },
+    http: { host: "127.0.0.1", port: 4312, allowNonLoopback: false },
     limits: {
       maxReadBytes: 1024,
       maxWriteBytes: 1024,

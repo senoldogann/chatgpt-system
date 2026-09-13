@@ -348,7 +348,8 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(workflow).toContain("dist/computer-js-runner.js");
     expect(workflow).toMatch(/Verify built computer JavaScript runner/i);
     const packageData = JSON.parse(packageJson) as { scripts?: Record<string, string> };
-    expect(packageData.scripts?.test).toContain("--maxWorkers=50%");
+    expect(packageData.scripts?.test).toContain("--maxWorkers=25%");
+    expect(packageData.scripts?.test).toContain("--testTimeout=30000");
   });
 
   it("adds personal admin only when explicitly requested", () => {

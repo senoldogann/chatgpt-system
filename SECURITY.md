@@ -81,6 +81,12 @@ Owner shell execution is long-work friendly but not uncontained. Omitting `timeo
 
 Persistent `terminal_session_*` sessions use an exact native PTY backend behind the same Owner Runtime gate. The MCP surface exposes only opaque daemon-local session IDs; raw PIDs, process-group IDs, signals, shell paths, environments, and detached flags remain internal. Sessions can outlive the Admin lease that created them so a later approved Admin Owner lease can rediscover and continue the terminal, but Project/User cannot enumerate or manage them. Output is a bounded UTF-8-safe in-memory ring addressed by monotonic event sequence; writes and dimensions are bounded. Sessions are not persisted across daemon restart. Daemon shutdown owns SIGTERM -> grace -> SIGKILL cleanup for every running PTY. Audit stores only lifecycle and byte-count metadata, never PTY input/output or session identifiers.
 
+## Owner Computer Runtime ceiling boundary
+
+For an Admin lease while Owner Runtime is enabled, the old `computer_run` 100-action ceiling and implicit 30-second program deadline are productivity limits, not security boundaries, and are removed. The same Owner mode lets `computer_run_js` omit its legacy 30-second wall-clock deadline. This does **not** make execution unbounded in memory or unstoppable: explicit finite timeout, MCP cancellation, native request timeout, user takeover, the fixed emergency chord, runtime/daemon shutdown, and held-input release remain authoritative. Cancellation aborts local waits and prevents future actions; a native request already handed to the persistent helper is treated as one atomic bounded operation and is followed by fail-closed cleanup rather than killing the permission-bearing helper mid-action.
+
+Containment remains bounded for MCP/native frames, JavaScript source, stdout/stderr/result bytes, screenshots, observations, returned `computer_run` step summaries, and semantic recovery (`maxAutomaticRetriesPerAction = 2`). Audit records only categorical/count/lifecycle metadata and never stores action bodies, typed text, screenshots, OCR/AX text, JS source/output, AbortSignal objects, credentials, environment values, or native identifiers. TCC is never bypassed: release acceptance requires a stable signed helper plus categorical `computer_health` readiness for Accessibility, Screen Recording, event listen, and event post.
+
 ## Daily-driver tunnel credential boundary
 
 The optional macOS daily-driver service is a user LaunchAgent, not a root daemon. The one-time installer reads `CONTROL_PLANE_API_KEY` from the operator's current environment, builds the repository's small Swift Keychain helper, and sends the credential to that helper on stdin. The helper uses Apple's Security.framework (`SecItemUpdate`/`SecItemAdd`) so the credential is stored byte-for-byte without interactive TTY handling and is never placed in spawned argv.
@@ -250,6 +256,8 @@ The audit log is for operator visibility and debugging. It is not tamper-proof a
 ## HTTP / remote access
 
 Do not expose the raw HTTP listener directly to the public internet. For OpenAI products on a developer Mac, prefer Secure MCP Tunnel with `chatgpt-system` as a local stdio child process. This keeps the MCP server off the public network and uses outbound connectivity from the tunnel client.
+
+The listener binds to loopback by default. A non-loopback host is rejected unless the operator explicitly supplies `--allow-non-loopback-http` or `CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP=true`. That acknowledgement does **not** add TLS, proxy authentication, or network isolation; it is only for deployments already protected by an authenticated TLS reverse proxy. Bearer authentication remains mandatory in all HTTP modes.
 
 See [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md).
 

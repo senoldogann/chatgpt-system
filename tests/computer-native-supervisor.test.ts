@@ -16,10 +16,14 @@ class FakeChild extends EventEmitter {
   killed = false;
   killSignals: Array<NodeJS.Signals | number | undefined> = [];
 
-  constructor(pid: number, closeOnKill = true) {
+  constructor(
+    pid: number,
+    closeOnStdin = true,
+    private readonly closeOnSignals: "all" | ReadonlySet<NodeJS.Signals> = "all",
+  ) {
     super();
     this.pid = pid;
-    if (closeOnKill) {
+    if (closeOnStdin) {
       this.stdin.on("finish", () => queueMicrotask(() => this.emit("close", 0, null)));
     }
   }
@@ -27,7 +31,9 @@ class FakeChild extends EventEmitter {
   kill(signal?: NodeJS.Signals | number): boolean {
     this.killed = true;
     this.killSignals.push(signal);
-    queueMicrotask(() => this.emit("close", null, typeof signal === "string" ? signal : null));
+    if (this.closeOnSignals === "all" || (typeof signal === "string" && this.closeOnSignals.has(signal))) {
+      queueMicrotask(() => this.emit("close", null, typeof signal === "string" ? signal : null));
+    }
     return true;
   }
 }
@@ -185,6 +191,41 @@ describe("ComputerNativeSupervisor", () => {
     expect(diagnostics.bytes).toBe(16);
     expect(diagnostics.truncated).toBe(true);
     expect(diagnostics.content).not.toContain("SECRET-");
+  });
+
+  it("escalates an uncooperative helper from SIGTERM to SIGKILL during shutdown", async () => {
+    const child = new FakeChild(20_000, false, new Set<NodeJS.Signals>(["SIGKILL"]));
+    respondToRequests(child, () => ({ state: "running" }));
+    const spawn: ComputerSpawn = () => {
+      queueMicrotask(() => child.emit("spawn"));
+      return child as unknown as ChildProcess;
+    };
+    const runtime = supervisor(spawn, { closeGraceMs: 5 });
+    await runtime.request("health", {});
+
+    await runtime.close();
+
+    expect(child.killSignals).toEqual(["SIGTERM", "SIGKILL"]);
+  });
+
+  it("escalates fatal invalidation without producing an unhandled rejection", async () => {
+    const child = new FakeChild(20_001, false, new Set<NodeJS.Signals>(["SIGKILL"]));
+    const spawn: ComputerSpawn = () => {
+      queueMicrotask(() => child.emit("spawn"));
+      return child as unknown as ChildProcess;
+    };
+    const runtime = supervisor(spawn, { requestTimeoutMs: 5, closeGraceMs: 5 });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      await expect(runtime.request("health", {})).rejects.toMatchObject({ code: "COMPUTER_TIMEOUT" });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(child.killSignals).toEqual(["SIGTERM", "SIGKILL"]);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 
   it("close is idempotent and permanently prevents lazy restart", async () => {

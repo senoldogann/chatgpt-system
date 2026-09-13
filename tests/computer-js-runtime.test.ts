@@ -69,7 +69,7 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 1_000): Promise<v
   throw new Error("condition was not reached");
 }
 
-async function fixture(overrides: Partial<ComputerUseConfig> = {}) {
+async function fixture(overrides: Partial<ComputerUseConfig> = {}, ownerRuntimeEnabled = false) {
   const root = await mkdtemp(path.join(tmpdir(), "chatgpt-system-js-runtime-"));
   cleanups.push(root);
   const native = new FakeNative();
@@ -77,6 +77,7 @@ async function fixture(overrides: Partial<ComputerUseConfig> = {}) {
   const supervisor = new FakeSupervisor();
   const runtime = new ComputerJsRuntime(computer, {
     roots: [root],
+    ownerRuntime: { enabled: ownerRuntimeEnabled },
     computerUse: { ...computerConfig, ...overrides },
   }, supervisor);
   return { root, native, computer, supervisor, runtime };
@@ -115,6 +116,31 @@ describe("ComputerJsRuntime", () => {
       { cwd: await realpath(relative), timeoutMs: 250 },
       { cwd: await realpath(absolute), timeoutMs: 125 },
     ]);
+  });
+
+  it("uses no implicit JS deadline in Owner mode and keeps explicit finite timeout", async () => {
+    const { runtime, supervisor } = await fixture({ maxJsRuntimeMs: 250 }, true);
+
+    await runtime.run({ source: "return 1;" });
+    await runtime.run({ source: "return 2;", timeoutMs: 999 });
+
+    expect(supervisor.calls.map((call) => call.timeoutMs)).toEqual([undefined, 999]);
+  });
+
+  it("lets Owner JavaScript execute a local wait beyond the legacy action runtime cap", async () => {
+    const owner = await fixture({ maxActionProgramRuntimeMs: 20, maxJsRuntimeMs: 250 }, true);
+    owner.supervisor.responder = async (request) => {
+      await request.onRpc("wait", { durationMs: 25 });
+      return { stdout: "", stderr: "" };
+    };
+    await expect(owner.runtime.run({ source: "return 1;" })).resolves.toMatchObject({ stdout: "", stderr: "" });
+
+    const legacy = await fixture({ maxActionProgramRuntimeMs: 20, maxJsRuntimeMs: 250 }, false);
+    legacy.supervisor.responder = async (request) => {
+      await request.onRpc("wait", { durationMs: 25 });
+      return { stdout: "", stderr: "" };
+    };
+    await expect(legacy.runtime.run({ source: "return 1;" })).rejects.toMatchObject({ code: "COMPUTER_TIMEOUT" });
   });
 
   it("rejects nonexistent and non-directory cwd before spawning", async () => {

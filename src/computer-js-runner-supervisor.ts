@@ -33,7 +33,7 @@ export interface ComputerJsRunnerResult {
 export interface ComputerJsRunnerRequest {
   source: string;
   cwd: string;
-  timeoutMs: number;
+  timeoutMs?: number;
   signal?: AbortSignal;
   onTerminate?: () => void;
   onRpc: (method: ComputerJsRpcMethod, params: unknown) => Promise<unknown>;
@@ -253,8 +253,10 @@ export class ComputerJsRunnerSupervisor {
         void this.handleRpc(child, message, request).catch((error) => finishError(error));
       });
 
-      timer = setTimeout(() => finishError(new ComputerError("COMPUTER_JS_TIMEOUT")), Math.max(0, request.timeoutMs));
-      timer.unref();
+      if (request.timeoutMs !== undefined) {
+        timer = setTimeout(() => finishError(new ComputerError("COMPUTER_JS_TIMEOUT")), request.timeoutMs);
+        timer.unref();
+      }
       if (request.signal?.aborted) {
         finishError(new ComputerError("COMPUTER_JS_FAILED"));
         return;
@@ -310,13 +312,33 @@ export class ComputerJsRunnerSupervisor {
 
   private async terminateOnce(runner: ActiveRunner): Promise<void> {
     const pid = runner.child.pid;
-    if (pid !== undefined) this.sendSignal(pid, "SIGTERM");
-    else runner.child.kill("SIGTERM");
+    if (pid !== undefined) {
+      if (await this.sendSignalAllowingCloseRace(runner, pid, "SIGTERM")) return;
+    } else {
+      runner.child.kill("SIGTERM");
+    }
 
     if (await this.waitClosed(runner, this.options.processStopGraceMs)) return;
-    if (pid !== undefined) this.sendSignal(pid, "SIGKILL");
-    else runner.child.kill("SIGKILL");
+    if (pid !== undefined) {
+      if (await this.sendSignalAllowingCloseRace(runner, pid, "SIGKILL")) return;
+    } else {
+      runner.child.kill("SIGKILL");
+    }
     await runner.closed;
+  }
+
+  private async sendSignalAllowingCloseRace(
+    runner: ActiveRunner,
+    pid: number,
+    signal: NodeJS.Signals,
+  ): Promise<boolean> {
+    try {
+      this.sendSignal(pid, signal);
+      return false;
+    } catch (error) {
+      if (await this.waitClosed(runner, this.options.processStopGraceMs)) return true;
+      throw error;
+    }
   }
 
   private sendSignal(pid: number, signal: NodeJS.Signals): void {
