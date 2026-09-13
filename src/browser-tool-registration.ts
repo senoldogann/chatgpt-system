@@ -90,11 +90,17 @@ function browserFor(runtime: BrowserToolRuntime, authorityLeaseId: string) {
   return createScopedRuntime(runtime, authority).browser;
 }
 
+const BROWSER_ROUTING_GUIDANCE = "Semantic Playwright Browser Runtime only. Do not use browser_* tools when the user explicitly asks for Computer Use, physical mouse/keyboard interaction, or real Google Chrome/macOS app control; use computer_* instead.";
+
+function browserDescription(detail: string): string {
+  return `${BROWSER_ROUTING_GUIDANCE} ${detail}`;
+}
+
 export function registerBrowserTools(server: McpServer, runtime: BrowserToolRuntime): void {
   server.registerTool(
     "browser_health",
     {
-      description: "Report categorical browser readiness without starting the browser or revealing browser content.",
+      description: browserDescription("Report categorical browser readiness without starting the browser or revealing browser content."),
       inputSchema: z.object({}).strict(),
       outputSchema: browserHealthOutputSchema,
       annotations: browserReadAnnotations,
@@ -105,7 +111,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_tabs",
     {
-      description: "List browser tabs using opaque page IDs. Requires an active Admin authority lease.",
+      description: browserDescription("List browser tabs using opaque page IDs. Requires an active Admin authority lease."),
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: browserTabsOutputSchema,
       annotations: browserReadAnnotations,
@@ -116,7 +122,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_new_tab",
     {
-      description: "Create a browser tab and optionally navigate it to an HTTP(S) URL. Requires Admin authority.",
+      description: browserDescription("Create a browser tab and optionally navigate it to an HTTP(S) URL. Requires Admin authority."),
       inputSchema: z.object({
         ...authorityLeaseField,
         url: z.string().min(1).max(8_192).optional(),
@@ -130,7 +136,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_select_tab",
     {
-      description: "Bring one opaque browser page to the front. Requires Admin authority.",
+      description: browserDescription("Bring one opaque browser page to the front. Requires Admin authority."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserTabOutputSchema,
       annotations: browserMutationAnnotations,
@@ -141,7 +147,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_close_tab",
     {
-      description: "Close one opaque browser page. Requires Admin authority.",
+      description: browserDescription("Close one opaque browser page. Requires Admin authority."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserCloseTabOutputSchema,
       annotations: browserIdempotentMutationAnnotations,
@@ -152,7 +158,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_navigate",
     {
-      description: "Navigate one browser page to an HTTP(S) URL. Other URL schemes are refused before Playwright receives them.",
+      description: browserDescription("Navigate one browser page to an HTTP(S) URL. Other URL schemes are refused before Playwright receives them."),
       inputSchema: z.object({
         ...authorityLeaseField,
         ...pageIdField,
@@ -167,7 +173,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_snapshot",
     {
-      description: "Return a bounded AI-oriented ARIA snapshot with current editable values removed. Requires Admin authority.",
+      description: browserDescription("Return a bounded AI-oriented ARIA snapshot with current editable values removed. Requires Admin authority."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserSnapshotOutputSchema,
       annotations: browserReadAnnotations,
@@ -178,7 +184,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_click",
     {
-      description: "Click exactly one semantic browser target. Raw selectors and JavaScript are not accepted.",
+      description: browserDescription("Click exactly one semantic browser target. Raw selectors and JavaScript are not accepted."),
       inputSchema: z.object({
         ...authorityLeaseField,
         ...pageIdField,
@@ -193,7 +199,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_fill",
     {
-      description: "Fill exactly one semantic target after credential-field refusal checks. Password, OTP, and payment credential fields are refused.",
+      description: browserDescription("Fill exactly one semantic target after credential-field refusal checks. Password, OTP, and payment credential fields are refused."),
       inputSchema: z.object({
         ...authorityLeaseField,
         ...pageIdField,
@@ -209,7 +215,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_select_option",
     {
-      description: "Select an option on exactly one semantic target. Requires Admin authority.",
+      description: browserDescription("Select an option on exactly one semantic target. Requires Admin authority."),
       inputSchema: z.object({
         ...authorityLeaseField,
         ...pageIdField,
@@ -225,7 +231,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_press_key",
     {
-      description: "Press one key from the fixed browser key vocabulary after focused credential checks. Requires Admin authority.",
+      description: browserDescription("Press one key from the fixed browser key vocabulary after focused credential checks. Requires Admin authority."),
       inputSchema: z.object({
         ...authorityLeaseField,
         ...pageIdField,
@@ -240,7 +246,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_wait_for_text",
     {
-      description: "Wait for visible text with the requested timeout capped by the configured browser timeout.",
+      description: browserDescription("Wait for visible text with the requested timeout capped by the configured browser timeout."),
       inputSchema: z.object({
         ...authorityLeaseField,
         ...pageIdField,
@@ -256,7 +262,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_screenshot",
     {
-      description: "Capture one browser page as in-memory PNG content plus bounded dimensions. Screenshot bytes are never audited.",
+      description: browserDescription("Capture one browser page as in-memory PNG content plus bounded dimensions. Screenshot bytes are never audited."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserScreenshotMetadataOutputSchema,
       annotations: browserReadAnnotations,
@@ -282,7 +288,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_console_errors",
     {
-      description: "Read bounded recent console error/warning evidence with generation/sequence correlation and sanitized runtime source metadata when available. Source-map locations are never invented when deterministic mapping is unavailable. Console payload is never audited.",
+      description: browserDescription("Read bounded recent console error/warning evidence with generation/sequence correlation and sanitized runtime source metadata when available. Source-map locations are never invented when deterministic mapping is unavailable. Console payload is never audited."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserConsoleOutputSchema,
       annotations: browserReadAnnotations,
@@ -293,7 +299,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_network_errors",
     {
-      description: "Read bounded recent request/HTTP error evidence with generation/sequence, opaque request correlation, resource metadata, and sanitized initiator/URL fields. Query strings, fragments, headers, cookies, and bodies are not exposed.",
+      description: browserDescription("Read bounded recent request/HTTP error evidence with generation/sequence, opaque request correlation, resource metadata, and sanitized initiator/URL fields. Query strings, fragments, headers, cookies, and bodies are not exposed."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserNetworkOutputSchema,
       annotations: browserReadAnnotations,
@@ -304,7 +310,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_close",
     {
-      description: "Idempotently close the owned browser context and clear in-memory browser state. A later Admin action may lazily restart it.",
+      description: browserDescription("Idempotently close the owned browser context and clear in-memory browser state. A later Admin action may lazily restart it."),
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: browserCloseOutputSchema,
       annotations: browserIdempotentMutationAnnotations,

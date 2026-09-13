@@ -310,13 +310,15 @@ function compact<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T;
 }
 
+const COMPUTER_USE_ROUTING_GUIDANCE = "Use Computer Runtime when the user explicitly asks for Computer Use or physical mouse and keyboard interaction. For real Google Chrome, open or focus bundleIdentifier com.google.Chrome; do not substitute browser_* Playwright automation.";
+
 export function registerComputerTools(server: McpServer, runtime: ComputerToolRuntime): void {
   const healthService = new ScopedComputerService(runtime.computer, runtime.audit, false, false);
 
   server.registerTool(
     "computer_health",
     {
-      description: "Report categorical Computer Runtime readiness and passive macOS permission state without an authority lease.",
+      description: `${COMPUTER_USE_ROUTING_GUIDANCE} Report categorical Computer Runtime readiness and passive macOS permission state without an authority lease.`,
       inputSchema: z.object({}).strict(),
       outputSchema: computerHealthOutputSchema,
       annotations: computerReadAnnotations,
@@ -371,7 +373,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
     server.registerTool(
       name,
       {
-        description: `${name === "computer_open_app" ? "Open or" : ""} focus one macOS application by bundle identifier or exact running name. Requires Admin authority.`,
+        description: `${COMPUTER_USE_ROUTING_GUIDANCE} ${name === "computer_open_app" ? "Open or" : ""} focus one macOS application by bundle identifier or exact running name. Requires Admin authority.`,
         inputSchema: z.object({
           ...authorityLeaseField,
           ...selectorFields,
@@ -584,7 +586,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_run",
     {
-      description: "Execute a validated typed Computer Runtime action program under one physical-input lane. No automatic retry or UI rollback is implied.",
+      description: `${COMPUTER_USE_ROUTING_GUIDANCE} Execute a validated typed Computer Runtime action program under one physical-input lane for physical mouse and keyboard actions. No automatic retry or UI rollback is implied.`,
       inputSchema: z.object({
         ...authorityLeaseField,
         actions: z.array(computerActionSchema).min(1),

@@ -173,6 +173,12 @@ The default user-data directory is intentionally a dedicated automation profile.
 
 Existing Chrome attach is a separate explicit mode for trusted use of the Chrome session you are already using, including existing authenticated state. On Chrome 144+, enable remote debugging yourself at `chrome://inspect/#remote-debugging`, then start with `--enable-browser --browser-existing-chrome`. Page/content access remains Admin-only, internal Chrome/extension/DevTools pages are not exposed, and runtime shutdown disconnects automation without intentionally closing the Chrome process or pre-existing tabs. See [docs/EXISTING_CHROME_ATTACH.md](docs/EXISTING_CHROME_ATTACH.md) for the consent, privacy, lifecycle, and non-default user-data-directory rules.
 
+### Browser vs Computer Use routing
+
+User intent wins over the generic web default. When a user explicitly asks for **Computer Use**, real Google Chrome, or physical pointer and keyboard interaction, use Computer Runtime end-to-end. For Chrome, open/focus bundle identifier `com.google.Chrome`, then use `computer_observe` / `computer_screenshot` and physical `computer_*` input tools. `browser_*` is semantic Playwright automation; do not use it for that explicit Computer Use workflow, and do not substitute Chrome for Testing for real Google Chrome.
+
+Browser Runtime remains available when semantic Playwright automation is explicitly requested or when the user has not required Computer Use/physical desktop interaction. Existing-Chrome CDP attach is still Browser Runtime and therefore does not satisfy an explicit physical Computer Use request.
+
 ### Browser authority boundary
 
 `browser_health` is lease-free and returns only categorical readiness.
