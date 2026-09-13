@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-13T15:40+03:00
-Status: Final v1 hardening implementation and release-harness stabilization are locally complete on the Desktop checkout. One final state commit + fresh exact-head verification remain before publication, hosted CI, merge, cleanup, and v1 closure.
+Last updated: 2026-09-13T18:15+03:00
+Status: Final v1 hardening, release-harness stabilization, and local checkout cleanup are complete on the Desktop checkout. One final state commit + fresh exact-head verification remain before publication, hosted CI, merge, branch cleanup, and v1 closure.
 
 This file is a handoff cache, not the sole source of truth. A resumed agent must reconcile it against Git/worktree reality and the latest Project Continuity checkpoint before editing.
 
@@ -13,10 +13,10 @@ Finish the **final v1 hardening/release**: publish the locally merged Owner Runt
 
 - Authoritative development checkout: `/Users/dogan/Desktop/chatgpt-system`.
 - Active branch: `fix/final-hardening-release`.
-- Current pre-state verified feature HEAD: `6f4de6a` (`test: reduce full-suite worker contention`).
+- Current candidate feature HEAD: `8e56440f1fda3356a37df68971533f93d89cc057` (`docs: finalize release evidence`).
 - Desktop local `main`: `5fd7262d7af98f5f1315d38f065ea57b2ad5f5cf` (Owner Runtime Phase 3 locally merged).
 - GitHub `origin/main`: `7aece8f5cb1b4397de04704a41b95626a0b8e887` (Phase 2 published baseline; Phase 3 is not yet remote).
-- `/Users/dogan/chatgpt-system` is retained only as an untouched safety copy and is no longer an active development checkout.
+- The old `/Users/dogan/chatgpt-system` safety clone and all of its historical `/private/tmp`/managed worktrees have been removed after confirming no active process depended on them. `/Users/dogan/Desktop/chatgpt-system` is the only remaining project checkout.
 - Project Continuity exact alias for active work: `chatgpt-system-desktop`.
 - Final hardening design: `docs/superpowers/specs/2026-09-13-final-hardening-release-design.md`.
 - Final hardening plan: `docs/superpowers/plans/2026-09-13-final-hardening-release.md`.
@@ -39,6 +39,7 @@ Finish the **final v1 hardening/release**: publish the locally merged Owner Runt
 - `6e6168f` — non-loopback HTTP explicit opt-in/fail-closed startup guard.
 - `e9031df` — final release architecture/state handoff plus project-wide local-first/branch-cleanup/repo-cleanliness rules in `AGENTS.md`.
 - `6f4de6a` — repo-level Vitest scheduler stabilization: full suite now runs with `--maxWorkers=25%`; temporary per-test timeout widening was reverted, so product/test semantic timeout contracts remain unchanged.
+- `8e56440` — final release evidence handoff before publication.
 
 ## Current state
 
@@ -53,15 +54,17 @@ No authority profile, execution surface, native protocol method, root capability
 
 ## Verification
 
-Pre-state evidence on `6f4de6a`, run from `/Users/dogan/Desktop/chatgpt-system`:
+Current pre-final evidence from `/Users/dogan/Desktop/chatgpt-system`:
 
 - TypeScript build: PASS.
-- Full Vitest suite using the repository script contract `--maxWorkers=25%`: `107` passing test files + `1` intentional skipped file; `643/643` tests PASS + `2` intentional/environment-gated skips.
-- Root cause for prior local full-suite flakes was worker contention across Git/process/PTTY integration suites at `--maxWorkers=50%`. Running the unchanged suite at 25% eliminated those timeouts; the final fix changes only repo-level test parallelism and the matching contract assertion. Temporary per-test timeout increases were reverted.
+- Full Vitest suite using the repository contract `--maxWorkers=25%`: `107` passing test files + `1` intentional skipped file; `643/643` tests PASS + `2` intentional/environment-gated skips.
+- Root cause for the earlier Git/process/PTTY integration timeouts was repo-level worker contention at `--maxWorkers=50%`; the permanent harness contract is 25% and temporary per-test timeout widening was reverted.
+- One later `computer-js-integration` run produced a single generic `COMPUTER_JS_FAILED` after successful user-code completion. It passed immediately in isolation. Temporary env-gated signal diagnostics were added only to the local worktree, then five consecutive full-suite runs all passed with no signal error logged; the diagnostics were reverted completely and no production fix was made for a non-reproducible transient.
 - Prior release gates on the same hardening tree: `npm audit --omit=dev` = `0` vulnerabilities; Owner >30s acceptance `3/3` PASS; real PTY `1/1` PASS; Swift macOS Computer Runtime `164/164` PASS; branch diff-check PASS.
-- `git status --short`: clean before this state edit.
+- Active process inspection confirms the daily-driver runner, tunnel client, and MCP daemon execute from `/Users/dogan/Desktop/chatgpt-system`; the LaunchAgent was reinstalled from Desktop before deleting the old clone/worktrees.
+- Home checkout scan found only `/Users/dogan/Desktop/chatgpt-system` after cleanup.
 
-Node/TypeScript and Swift are deliberately run sequentially. Concurrent cold builds are not used as release evidence.
+The final publication claim will use a fresh clean exact-head gate after this state commit. Node/TypeScript and Swift are deliberately run sequentially; concurrent cold builds are not release evidence.
 
 ## Hosted acceptance state
 
@@ -72,16 +75,14 @@ Node/TypeScript and Swift are deliberately run sequentially. Concurrent cold bui
 
 ## Next exact step
 
-1. Run docs contract tests and `git diff --check` for this final state update.
-2. Commit only `docs/PROJECT_STATE.md`.
-3. Because HEAD changes, rerun the complete release gate sequentially on that exact successor SHA: `npm run check`; production audit; Owner >30s acceptance; real PTY; Swift; branch diff-check; clean status.
-4. Run final branch-scope/security review: no authority widening, new execution surface, bearer-auth weakening, native protocol/TCC identity change, or unrelated dependency/lockfile drift.
-5. Checkpoint Project Continuity against the exact verified Desktop head.
-6. Publish only `fix/final-hardening-release`, open one PR to GitHub `main`, and verify remote head/base/server-side diff.
-7. Require exact-head hosted Node 22, Node 24, and macOS-native CI success plus clean merge state.
-8. Squash-merge only the verified PR head, synchronize Desktop `main`, and rerun the complete local release gate sequentially on the merge commit.
-9. Require hosted `main` CI success on the exact merge commit.
-10. Checkpoint `chatgpt-system-desktop` as `completed` and declare v1 complete. No additional feature work is implied.
+1. Run docs contract tests and `git diff --check` for this final state update, then commit only `docs/PROJECT_STATE.md`.
+2. Rerun the complete release gate sequentially on that exact successor SHA: TypeScript build + full Node suite; production audit; Owner >30s acceptance; real PTY; Swift; branch diff-check; clean status.
+3. Run final branch-scope/security review: no authority widening, new execution surface, bearer-auth weakening, native protocol/TCC identity change, or unrelated dependency/lockfile drift.
+4. Checkpoint Project Continuity against the exact verified Desktop head.
+5. Publish only `fix/final-hardening-release`, open one PR to GitHub `main`, and verify remote head/base/server-side diff.
+6. Require exact-head hosted Node 22, Node 24, and macOS-native CI success plus clean merge state.
+7. Squash-merge only the verified PR head, synchronize Desktop `main`, rerun the complete local release gate sequentially on the merge commit, and require hosted `main` CI success on the same merge commit.
+8. Delete the merged feature branch locally/remotely, verify only clean `main` remains, checkpoint `chatgpt-system-desktop` as `completed`, and declare v1 complete.
 
 ## Invariants
 
