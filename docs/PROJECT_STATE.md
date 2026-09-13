@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-13T22:55+03:00
-Status: **Tasks 1-2 GREEN and committed; Task 3 unattended-readiness status is next.**
+Last updated: 2026-09-13T22:58+03:00
+Status: **Tasks 1-3 GREEN and committed; Task 4 resume-context registry is next.**
 
 This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then read the active spec and plan.
 
@@ -28,6 +28,7 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 - Active implementation plan: `docs/superpowers/plans/2026-09-13-owner-workstation-verified-project-session.md`.
 - Task 1 Owner Workstation preset is committed at `31ec3d2`.
 - Task 2 unattended Keychain path is committed at `7233fd9`.
+- Task 3 Owner Workstation readiness status is committed at `762af40`.
 
 ## Completed
 
@@ -38,6 +39,7 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 - Focused baseline regression tests, the full Node/TypeScript gate, and the macOS Computer Runtime suite are GREEN after minimal remediation.
 - Task 1 Owner Workstation preset completed and committed at `31ec3d2`.
 - Task 2 dedicated Keychain store/read/delete path completed and committed at `7233fd9`.
+- Task 3 deterministic/passive Owner Workstation readiness status completed and committed at `762af40`.
 
 ## Current state
 
@@ -95,11 +97,13 @@ Execution must start with Superpowers `using-git-worktrees`, creating isolated b
 - Task 2 RED: 7 expected failures proved runner/setup/native helper lacked dedicated read/delete/helper-path wiring.
 - Task 2 focused GREEN: 18/18 tests PASS, including real macOS Keychain store/read/delete integration.
 - Task 2 native broker release build: PASS.
+- Task 3 focused GREEN: `23/23` tests PASS; TypeScript build PASS.
+- Real `npm run owner-workstation:status` executed without prompts: stable Computer Runtime and all four passive permission booleans are true; credential readiness is currently false because the newly built stable Keychain helper has not yet been installed into the user home by Task 7 setup.
 - Diagnostic timing proved the only transient failure was the cold Swift build exceeding Vitest default 5s; helper store/read/delete themselves completed in ~0.13s total. Native integration test now uses the repository-wide 30s integration budget.
 
 ## Next exact step
 
-Execute Task 3 from the approved implementation plan: add RED tests for deterministic Owner Workstation readiness aggregation, then implement passive stable Computer Runtime/TCC/credential readiness collection and the `owner-workstation:status` command. Do not prompt for permissions, invoke `tccutil`, push, or open a PR.
+Execute Task 4 from the approved implementation plan: add a bounded in-memory `ContinuityResumeRegistry` keyed by a digest of the lease ID, register only successful `project_resume` leases, and prove generic/missing resume contexts cannot satisfy publication provenance. Use TDD and do not persist raw lease IDs.
 
 ## Invariants
 
@@ -113,5 +117,5 @@ Execute Task 3 from the approved implementation plan: add RED tests for determin
 ## Blockers / uncertainties
 
 - No baseline blocker remains after the focused, full Node/TypeScript, and native macOS gates passed.
-- Tasks 1-2 are complete and committed; Tasks 3-7 remain.
+- Tasks 1-3 are complete and committed; Tasks 4-7 remain.
 - `origin/feat/computer-use-bridge` remains intentionally untouched.
