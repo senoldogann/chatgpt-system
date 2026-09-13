@@ -1,5 +1,5 @@
 import { parseAuthorizeArgs, type AuthorizeArgs } from "./authorize-cli.js";
-import type { ConfigOverrides } from "./config.js";
+import { applyOwnerWorkstationPreset, type ConfigOverrides } from "./config.js";
 
 export interface AuthorizeCliCommand {
   kind: "authorize";
@@ -39,11 +39,10 @@ export function parseCliCommand(argv: string[]): CliCommand {
   let help = false;
   let controlEnabled = false;
   let controlSocketPath: string | undefined;
-  let ownerRuntimeEnabled = false;
   let ownerShellPath: string | undefined;
   const roots: string[] = [];
   const commands: string[] = [];
-  const overrides: ConfigOverrides = {};
+  let overrides: ConfigOverrides = {};
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
@@ -53,6 +52,10 @@ export function parseCliCommand(argv: string[]): CliCommand {
     }
     if (arg === "--help" || arg === "-h") {
       help = true;
+      continue;
+    }
+    if (arg === "--owner-workstation") {
+      overrides = applyOwnerWorkstationPreset({ ...overrides, ownerWorkstationEnabled: true });
       continue;
     }
     if (arg === "--enable-terminal") {
@@ -68,7 +71,6 @@ export function parseCliCommand(argv: string[]): CliCommand {
       continue;
     }
     if (arg === "--enable-owner-runtime") {
-      ownerRuntimeEnabled = true;
       overrides.ownerRuntimeEnabled = true;
       continue;
     }
@@ -145,7 +147,7 @@ export function parseCliCommand(argv: string[]): CliCommand {
   }
 
   if (ownerShellPath !== undefined) {
-    if (!ownerRuntimeEnabled) throw new Error("--owner-shell-path requires --enable-owner-runtime.");
+    if (overrides.ownerRuntimeEnabled !== true) throw new Error("--owner-shell-path requires --enable-owner-runtime or --owner-workstation.");
     overrides.ownerShellPath = ownerShellPath;
   }
   if (controlSocketPath !== undefined) {

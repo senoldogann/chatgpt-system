@@ -66,6 +66,38 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.controlSocketPath).toBe("/home/tester/.chatgpt-system/control.sock");
   });
 
+  it("adds Owner Workstation as one preset flag without enabling browser", () => {
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--owner-workstation",
+    ], {}, context);
+
+    expect(setup.ownerWorkstationEnabled).toBe(true);
+    expect(setup.projectExecEnabled).toBe(true);
+    expect(setup.ownerRuntimeEnabled).toBe(true);
+    expect(setup.computerUseEnabled).toBe(true);
+    expect(setup.fullHostJsEnabled).toBe(true);
+    expect(setup.mcpCommand).toContain("--owner-workstation");
+    expect(setup.mcpCommand).not.toContain("--enable-terminal");
+    expect(setup.mcpCommand).not.toContain("--enable-project-exec");
+    expect(setup.mcpCommand).not.toContain("--personal-admin");
+    expect(setup.mcpCommand).not.toContain("--enable-owner-runtime");
+    expect(setup.mcpCommand).not.toContain("--enable-computer-use");
+    expect(setup.mcpCommand).not.toContain("--enable-full-host-js");
+    expect(setup.mcpCommand).not.toContain("--enable-browser");
+  });
+
+  it("documents and reports the Owner Workstation trust model", async () => {
+    const script = await readFile(new URL("../scripts/setup-chatgpt-tunnel.mjs", import.meta.url), "utf8");
+    const usageStart = script.indexOf("Options:");
+    const usageEnd = script.indexOf("The generated ChatGPT tunnel target");
+    expect(script.slice(usageStart, usageEnd)).toContain("--owner-workstation");
+    expect(script).toContain("Owner Workstation: ");
+    expect(script).toContain("Trust model: full current-user workstation access");
+    expect(script).toContain("Root escalation: not granted");
+  });
+
   it("adds sandboxed project execution only when explicitly requested", () => {
     const setup = buildTunnelSetup([
       "--root", ROOT,

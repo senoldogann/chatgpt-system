@@ -20,6 +20,7 @@ Options:
   --root <path>           Explicit bootstrap filesystem root. Required.
   --tunnel-id <id>        OpenAI Secure MCP Tunnel ID. Required.
   --profile <name>        tunnel-client profile name (default: chatgpt-system).
+  --owner-workstation     Enable the trusted private-Mac preset: Personal Admin, Owner Runtime, terminal/PTY, Project Exec, Computer Use, and full-host JS. Browser remains independent.
   --enable-terminal       Opt in to bootstrap terminal configuration. Disabled by default.
   --enable-project-exec   Opt in to Docker-sandboxed Project execution. Disabled by default.
   --personal-admin        Allow ChatGPT to mint short-lived Admin leases directly. Disabled by default.
@@ -70,10 +71,11 @@ the runtime environment.`);
 }
 
 function parseArgs(argv) {
-  const options = {
+  let options = {
     root: undefined,
     tunnelId: undefined,
     profile: "chatgpt-system",
+    ownerWorkstation: false,
     terminal: false,
     projectExec: false,
     personalAdmin: false,
@@ -96,6 +98,19 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === "--help" || arg === "-h") {
       options.help = true;
+      continue;
+    }
+    if (arg === "--owner-workstation") {
+      options = {
+        ...options,
+        ownerWorkstation: true,
+        terminal: true,
+        projectExec: true,
+        personalAdmin: true,
+        ownerRuntime: true,
+        computerUse: true,
+        fullHostJs: true,
+      };
       continue;
     }
     if (arg === "--enable-terminal") {
@@ -281,14 +296,18 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     "--enable-control",
     "--control-socket", controlSocketPath,
   ];
-  if (options.terminal) commandParts.push("--enable-terminal");
-  if (options.projectExec) commandParts.push("--enable-project-exec");
-  if (options.personalAdmin) commandParts.push("--personal-admin");
-  if (options.ownerRuntime) commandParts.push("--enable-owner-runtime");
+  if (options.ownerWorkstation) {
+    commandParts.push("--owner-workstation");
+  } else {
+    if (options.terminal) commandParts.push("--enable-terminal");
+    if (options.projectExec) commandParts.push("--enable-project-exec");
+    if (options.personalAdmin) commandParts.push("--personal-admin");
+    if (options.ownerRuntime) commandParts.push("--enable-owner-runtime");
+    if (options.computerUse) commandParts.push("--enable-computer-use");
+    if (options.fullHostJs) commandParts.push("--enable-full-host-js");
+  }
   if (options.ownerShellPath !== undefined) commandParts.push("--owner-shell-path", options.ownerShellPath);
   if (options.browser) commandParts.push("--enable-browser");
-  if (options.computerUse) commandParts.push("--enable-computer-use");
-  if (options.fullHostJs) commandParts.push("--enable-full-host-js");
   if (options.browserHeadless) commandParts.push("--browser-headless");
   if (options.browserExistingChrome) commandParts.push("--browser-existing-chrome");
   if (options.browserExistingChromeUserDataDir !== undefined) {
@@ -315,6 +334,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     tunnelId: options.tunnelId,
     serverPath,
     controlSocketPath,
+    ownerWorkstationEnabled: options.ownerWorkstation,
     projectExecEnabled: options.projectExec,
     ownerRuntimeEnabled: options.ownerRuntime,
     computerUseEnabled: options.computerUse,
@@ -430,12 +450,17 @@ async function main() {
   console.log(`  Init: ${printableCommand("tunnel-client", setup.displayInitArgs)}`);
   console.log(`  Doctor: ${printableCommand("tunnel-client", setup.doctorArgs)}`);
   console.log(`  Run: ${printableCommand("tunnel-client", setup.runArgs)}`);
-  console.log("  Bootstrap terminal: " + (setup.mcpCommand.includes("--enable-terminal") ? "EXPLICITLY ENABLED" : "disabled"));
+  console.log("  Owner Workstation: " + (setup.ownerWorkstationEnabled ? "ENABLED" : "disabled"));
+  if (setup.ownerWorkstationEnabled) {
+    console.log("  Trust model: full current-user workstation access");
+    console.log("  Root escalation: not granted");
+  }
+  console.log("  Bootstrap terminal: " + ((setup.ownerWorkstationEnabled || setup.mcpCommand.includes("--enable-terminal")) ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Project execution: " + (setup.projectExecEnabled ? "EXPLICITLY ENABLED (Docker sandbox)" : "disabled"));
-  console.log("  Personal Admin: " + (setup.mcpCommand.includes("--personal-admin") ? "EXPLICITLY ENABLED" : "disabled"));
+  console.log("  Personal Admin: " + ((setup.ownerWorkstationEnabled || setup.mcpCommand.includes("--personal-admin")) ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Owner Runtime: " + (setup.ownerRuntimeEnabled ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Browser: " + (setup.mcpCommand.includes("--enable-browser") ? (setup.mcpCommand.includes("--browser-headless") ? "EXPLICITLY ENABLED (headless)" : "EXPLICITLY ENABLED (headed)") : "disabled"));
-  console.log("  Computer Runtime: " + (setup.mcpCommand.includes("--enable-computer-use") ? "EXPLICITLY ENABLED" : "disabled"));
+  console.log("  Computer Runtime: " + (setup.computerUseEnabled ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Full-host JavaScript: " + (setup.fullHostJsEnabled ? "EXPLICITLY ENABLED" : "disabled"));
   if (setup.computerUseEnabled) console.log(`  Computer Runtime bundle: ${setup.computerRuntimeBundlePath}`);
   console.log("  Local User/Admin authorization: enabled through private Unix socket");
