@@ -1,7 +1,7 @@
 # Owner Workstation + Verified Project Session Design
 
 Date: 2026-09-13
-Status: design draft for user review
+Status: approved design; implementation planning active
 
 ## Problem
 
@@ -56,6 +56,7 @@ The preset enables:
 - Owner Runtime
 - host terminal command capability
 - persistent PTY capability through Owner Runtime
+- Project Exec for freshness-bound local verification
 - Computer Use
 - full-host JavaScript for Computer Use
 
@@ -70,9 +71,12 @@ Expected setup semantics:
   => personalAdmin = true
   => ownerRuntime = true
   => terminal = true
+  => projectExec = true
   => computerUse = true
   => fullHostJs = true
 ```
+
+`projectExec` is part of the preset because the verified publication contract depends on `ProjectCheckService`, whose existing execution backend is the local Docker Project Exec sandbox. This remains local-first and does not grant additional host privilege.
 
 Configuration validation must still enforce all existing dependency relationships and fail closed if a required component is unavailable.
 
