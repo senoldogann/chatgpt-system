@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-13T23:34+03:00
-Status: **Tasks 1-7 implementation/local acceptance complete; final exact-state verification is next, with publication awaiting explicit user authorization.**
+Last updated: 2026-09-14T00:08+03:00
+Status: **Tasks 1-7 complete; bounded follow-up fixes dynamic-project UX and Project Exec portability/timeout before final exact-state publication.**
 
 This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then read the active spec and plan.
 
@@ -12,7 +12,9 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 1. explicit Owner Workstation daily-driver mode with practical full current-user local capability;
 2. unattended readiness through stable Computer Runtime identity and non-interactive access to `chatgpt-system`'s own Keychain credential, without macOS security bypass;
 3. fail-closed local-first typed publication requiring fresh verification for the exact state being pushed;
-4. exact `project_resume` provenance before registered-project typed publication.
+4. exact `project_resume` provenance before registered-project typed publication;
+5. make bootstrap-root semantics explicit to agents so new repositories can receive exact Project leases without tunnel reconfiguration;
+6. make Owner Workstation verification portable to the Linux Project Exec sandbox with a bounded 120-second command budget and cross-platform Rolldown fallback.
 
 ## Active workspace
 
@@ -120,10 +122,15 @@ Execution must start with Superpowers `using-git-worktrees`, creating isolated b
 - The first combined focused run exposed only docs-contract drift plus an integration timeout budget under parallel load; both were corrected without weakening security behavior, then the full focused gate passed.
 - Final workflow/docs commit: `eb05294` (`docs: finalize owner workstation workflow`).
 - Publication worktree transition: the clean managed worktree was detached at `eb05294`; the authoritative registered checkout was switched to the feature branch at the same exact commit; a fresh `project_resume` revalidated the registered worktree identity and observed a clean tree with the feature branch unpublished.
+- User approved the bounded follow-up after another ChatGPT agent misread `system_environment.roots` as a permanent project restriction. The code already permits explicit Project roots outside bootstrap roots; the agent-facing output/tool descriptions now state that contract and recommend `session_authority_start` → `project_register` → `project_resume`.
+- Owner Workstation now uses a bounded `120000ms` command timeout while the global secure default remains `60000ms`.
+- `@rolldown/binding-wasm32-wasi@1.2.8` is pinned as a dev dependency so Vitest can start inside Linux Project Exec even when host `node_modules` was installed on macOS.
+- Follow-up RED: 6 expected failures covered missing root semantics, 120-second preset budget, and WASI fallback. Focused GREEN after implementation: system environment `11/11`, authority catalog `2/2`, Owner config `6/6`, HTTP `3/3`, Project Exec portability `4/4`, CLI `17/17`.
+- Follow-up full host gate: TypeScript build PASS; `112` Vitest files PASS + `1` skip; `689` tests PASS + `2` skips.
 
 ## Next exact step
 
-Commit this state-only publication-preparation checkpoint, then run `npm run check` on the resulting exact final HEAD. If PASS, checkpoint Project Continuity with the final local verification evidence, obtain a fresh `project_resume` lease for that record version, run `project_check` `run` + `report` on `/Users/dogan/Desktop/chatgpt-system`, and require `overallStatus=PASS` for the exact final `HEAD` + clean-tree digest. Then stop before typed `git_push` until the user explicitly authorizes push/PR.
+Commit the bounded follow-up, rerun the full host gate on the new exact HEAD, replace the existing tunnel profile with the same tunnel ID using `--owner-workstation --enable-browser --force`, reinstall/restart the daily driver, verify live `system_capabilities` shows Project Exec enabled and `limits.commandTimeoutMs=120000`, then obtain a fresh `project_resume` and require `project_check run/report` PASS for the exact clean HEAD. If all local gates are green, use the typed dual-authority `git_push`, create/verify the exact-head PR, merge only after hosted checks pass, sync local `main`, and clean only proven-merged implementation branch/worktree state. Preserve `origin/feat/computer-use-bridge`.
 
 ## Invariants
 
@@ -137,5 +144,5 @@ Commit this state-only publication-preparation checkpoint, then run `npm run che
 ## Blockers / uncertainties
 
 - No baseline blocker remains after the focused, full Node/TypeScript, and native macOS gates passed.
-- Tasks 1-7 implementation and local acceptance are complete. Final exact-state `npm run check` + Continuity/`project_check` evidence remain before publication; push/PR still requires explicit user authorization.
+- Tasks 1-7 are complete. The user explicitly asked to finish the remaining fixes and approved the dynamic-project recommendation; the bounded follow-up is locally GREEN before commit. Final exact-state host/ProjectCheck evidence and publication lifecycle remain.
 - `origin/feat/computer-use-bridge` remains intentionally untouched.

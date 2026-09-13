@@ -36,6 +36,7 @@ describe("CLI command routing", () => {
         projectExecEnabled: true,
         computerUseEnabled: true,
         fullHostJsEnabled: true,
+        commandTimeoutMs: 120_000,
       },
     });
   });

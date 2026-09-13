@@ -13,6 +13,7 @@ export const CONTINUITY_MAX_RESUME_CHARS = 12_000;
 export const CONTINUITY_MAX_TRACKED_PATHS = 100;
 export const CONTINUITY_REMOTE_TIMEOUT_MS = 10_000;
 export const OWNER_SHELL_MAX_SCRIPT_BYTES = 262_144;
+export const OWNER_WORKSTATION_COMMAND_TIMEOUT_MS = 120_000;
 export const OWNER_TERMINAL_MAX_SESSIONS = 32;
 export const OWNER_TERMINAL_MAX_OUTPUT_BYTES = 262_144;
 export const OWNER_TERMINAL_MAX_INPUT_BYTES = 65_536;
@@ -106,6 +107,7 @@ export interface ConfigOverrides {
   auditFile?: string;
   terminalEnabled?: boolean;
   ownerWorkstationEnabled?: boolean;
+  commandTimeoutMs?: number;
   projectExecEnabled?: boolean;
   personalAdminEnabled?: boolean;
   ownerRuntimeEnabled?: boolean;
@@ -139,6 +141,7 @@ export function applyOwnerWorkstationPreset(overrides: ConfigOverrides): ConfigO
     projectExecEnabled: true,
     computerUseEnabled: true,
     fullHostJsEnabled: true,
+    commandTimeoutMs: overrides.commandTimeoutMs ?? OWNER_WORKSTATION_COMMAND_TIMEOUT_MS,
   };
 }
 
@@ -388,7 +391,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       maxWriteBytes: env.CHATGPT_SYSTEM_MAX_WRITE_BYTES ?? 2_097_152,
       maxDirectoryEntries: env.CHATGPT_SYSTEM_MAX_DIRECTORY_ENTRIES ?? 2_000,
       maxCommandOutputBytes: env.CHATGPT_SYSTEM_MAX_COMMAND_OUTPUT_BYTES ?? 1_048_576,
-      commandTimeoutMs: env.CHATGPT_SYSTEM_COMMAND_TIMEOUT_MS ?? 60_000,
+      commandTimeoutMs: effectiveOverrides.commandTimeoutMs ?? env.CHATGPT_SYSTEM_COMMAND_TIMEOUT_MS ?? 60_000,
       maxManagedProcesses: env.CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES ?? 32,
       maxProcessLogBytesPerStream: env.CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM ?? 131_072,
       processStopGraceMs: env.CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS ?? 3_000,

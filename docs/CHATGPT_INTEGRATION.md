@@ -233,7 +233,7 @@ Browser page/content operations remain Admin-only. Existing-Chrome mode reuses t
 
 ## 5. Configure the Secure MCP Tunnel profile
 
-Create a disposable bootstrap root:
+Create a disposable bootstrap root. This root is the startup/default scope shown by `system_environment`; it does **not** prevent later Project leases from targeting other explicit repository paths:
 
 ```bash
 rm -rf /tmp/chatgpt-system-acceptance
@@ -320,7 +320,7 @@ npm run setup:chatgpt -- \
 
 `--force` replaces only the existing `tunnel-client` profile configuration. It does not delete repository data or bypass Project/User/Admin policy.
 
-The generated stdio target includes the private control socket and only the explicit feature gates selected during setup.
+The generated stdio target includes the private control socket and only the explicit feature gates selected during setup. The configured bootstrap root is not a permanent repository allowlist: `session_authority_start(profile="project", projectRoots=["/absolute/other-repo"])` may open another exact project directory without tunnel reconfiguration, except that `/` and the entire home directory remain denied. For durable handoff, call `project_register` once and `project_resume` in later chats.
 
 ## 6. Run the tunnel
 

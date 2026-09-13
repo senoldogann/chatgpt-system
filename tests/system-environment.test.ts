@@ -170,6 +170,12 @@ describe("describeSystemEnvironment", () => {
     expect(environment.arch).toBe(arch());
     expect(environment.os).toBe(prettyOperatingSystemName(platform()));
     expect(environment.roots).toEqual([root]);
+    expect(environment.projectAuthority).toEqual({
+      bootstrapRootsAreDefaultsOnly: true,
+      dynamicProjectRootsSupported: true,
+      forbiddenBroadRoots: ["filesystem-root", "home-directory"],
+      recommendedOpenFlow: ["session_authority_start", "project_register", "project_resume"],
+    });
     expect(environment.terminal).toEqual({ enabled: true });
     expect(environment.ownerRuntime).toEqual({ enabled: true });
     expect(environment.computerUse).toEqual({ enabled: true, fullHostJsEnabled: true });
@@ -184,7 +190,7 @@ describe("describeSystemEnvironment", () => {
     });
     expect(JSON.stringify(environment)).not.toContain("canary-secret-value-12345");
     expect(Object.keys(environment).sort()).toEqual(
-      ["arch", "computerUse", "executables", "os", "ownerRuntime", "pathEntries", "platform", "roots", "terminal"],
+      ["arch", "computerUse", "executables", "os", "ownerRuntime", "pathEntries", "platform", "projectAuthority", "roots", "terminal"],
     );
   });
 });
@@ -322,6 +328,8 @@ describe("system_environment MCP tool", () => {
       const tool = tools.find((item) => item.name === "system_environment");
       expect(tool).toBeDefined();
       expect(tool?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+      expect(tool?.description).toMatch(/bootstrap roots.*defaults only/i);
+      expect(tool?.description).toMatch(/outside.*bootstrap roots/i);
       expect(tool?.outputSchema).toMatchObject({ type: "object" });
 
       const result = await client.callTool({ name: "system_environment", arguments: {} });
@@ -330,6 +338,12 @@ describe("system_environment MCP tool", () => {
         platform: platform(),
         arch: arch(),
         roots: [root],
+        projectAuthority: {
+          bootstrapRootsAreDefaultsOnly: true,
+          dynamicProjectRootsSupported: true,
+          forbiddenBroadRoots: ["filesystem-root", "home-directory"],
+          recommendedOpenFlow: ["session_authority_start", "project_register", "project_resume"],
+        },
         terminal: { enabled: false },
         ownerRuntime: { enabled: true },
         computerUse: { enabled: true, fullHostJsEnabled: true },

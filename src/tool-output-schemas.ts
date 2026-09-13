@@ -16,8 +16,20 @@ const authorityRequestStateSchema = z.enum([
   "consumed",
 ]);
 
+const projectAuthoritySemanticsOutputSchema = z.object({
+  bootstrapRootsAreDefaultsOnly: z.literal(true),
+  dynamicProjectRootsSupported: z.literal(true),
+  forbiddenBroadRoots: z.tuple([z.literal("filesystem-root"), z.literal("home-directory")]),
+  recommendedOpenFlow: z.tuple([
+    z.literal("session_authority_start"),
+    z.literal("project_register"),
+    z.literal("project_resume"),
+  ]),
+}).strict();
+
 export const systemCapabilitiesOutputSchema = z.object({
   roots: z.array(z.string()),
+  projectAuthority: projectAuthoritySemanticsOutputSchema,
   auditFile: z.string(),
   terminal: z.object({
     enabled: z.boolean(),
@@ -105,6 +117,7 @@ export const systemEnvironmentOutputSchema = z.object({
   arch: z.string(),
   pathEntries: z.array(z.string()),
   roots: z.array(z.string()),
+  projectAuthority: projectAuthoritySemanticsOutputSchema,
   terminal: z.object({
     enabled: z.boolean(),
   }),

@@ -260,6 +260,12 @@ describe("HTTP MCP transport", () => {
       const capabilities = await client.callTool({ name: "system_capabilities", arguments: {} });
       expect(capabilities.isError).not.toBe(true);
       expect(capabilities.structuredContent).toMatchObject({
+        projectAuthority: {
+          bootstrapRootsAreDefaultsOnly: true,
+          dynamicProjectRootsSupported: true,
+          forbiddenBroadRoots: ["filesystem-root", "home-directory"],
+          recommendedOpenFlow: ["session_authority_start", "project_register", "project_resume"],
+        },
         terminal: { enabled: false },
         ownerRuntime: { enabled: false },
         limits: {

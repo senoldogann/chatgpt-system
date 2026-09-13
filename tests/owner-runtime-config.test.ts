@@ -6,6 +6,7 @@ import {
   applyOwnerWorkstationPreset,
   loadConfig,
   OWNER_SHELL_MAX_SCRIPT_BYTES,
+  OWNER_WORKSTATION_COMMAND_TIMEOUT_MS,
   OWNER_TERMINAL_MAX_INPUT_BYTES,
   OWNER_TERMINAL_MAX_OUTPUT_BYTES,
   OWNER_TERMINAL_MAX_SESSIONS,
@@ -38,6 +39,7 @@ describe("Owner Runtime configuration", () => {
       projectExecEnabled: true,
       computerUseEnabled: true,
       fullHostJsEnabled: true,
+      commandTimeoutMs: OWNER_WORKSTATION_COMMAND_TIMEOUT_MS,
     });
   });
 
@@ -67,6 +69,8 @@ describe("Owner Runtime configuration", () => {
     expect(configured.computerUse.enabled).toBe(true);
     expect(configured.computerUse.fullHostJsEnabled).toBe(true);
     expect(configured.browser.enabled).toBe(false);
+    expect(defaults.limits.commandTimeoutMs).toBe(60_000);
+    expect(configured.limits.commandTimeoutMs).toBe(OWNER_WORKSTATION_COMMAND_TIMEOUT_MS);
   });
 
   it("enables only with Personal Admin and resolves a trusted absolute shell path", async () => {

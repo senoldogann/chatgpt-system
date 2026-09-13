@@ -253,6 +253,8 @@ npm run setup:chatgpt -- \
 
 `--owner-workstation` enables Personal Admin, Owner Runtime, structured host terminal/PTY capability, local Docker Project Exec, Computer Use, and full-host JavaScript. It is still current-user authority, **not root** and not an OS sandbox. macOS sudo, TCC, SIP, FileVault/login, and Keychain authentication boundaries remain authoritative. Browser Runtime stays independent and is never enabled by this preset; add `--enable-browser` separately only when the Playwright layer is intentionally wanted. The individual capability flags remain available for narrower configurations: `--enable-terminal`, `--enable-project-exec`, `--personal-admin`, `--enable-owner-runtime`, `--enable-computer-use`, and `--enable-full-host-js`. Omitting the preset preserves the secure defaults.
 
+The configured `--root` is a **bootstrap/default root**, not a permanent "only this project" restriction. A Project lease may target another explicit repository path outside the bootstrap root with `session_authority_start(profile="project", projectRoots=[...])`; `/` and the entire home directory remain forbidden Project roots. For a new project, the recommended flow is: open the exact Project lease, `project_register` it once for continuity, then use `project_resume` in later chats. Reconfiguring the tunnel is not required for each repository.
+
 Headless browser mode is optional:
 
 ```bash
@@ -334,7 +336,7 @@ session_authority_start({
 })
 ```
 
-It supports filesystem and built-in Git tools inside selected roots. When the independent Project execution gate is enabled, the same Project lease can also call `project_exec` inside those roots without gaining host-terminal authority. `/` and the entire user home directory are rejected as Project roots.
+It supports filesystem and built-in Git tools inside selected roots. These exact Project roots may be outside the tunnel's bootstrap/default root; a new tunnel profile is not required for another repository. When the independent Project execution gate is enabled, the same Project lease can also call `project_exec` inside those roots without gaining host-terminal authority. `/` and the entire user home directory are rejected as Project roots. Register the repository once with `project_register` when continuity is wanted, then use `project_resume` in later chats.
 
 ### User/Admin local authorization
 

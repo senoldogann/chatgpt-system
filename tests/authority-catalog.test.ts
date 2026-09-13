@@ -80,6 +80,8 @@ describe("default authority MCP catalog", () => {
       expect(names).not.toContain("session_authority_request_status");
 
       const start = tools.find((tool) => tool.name === "session_authority_start");
+      expect(start?.description).toMatch(/outside.*bootstrap roots/i);
+      expect(start?.description).toMatch(/project_register.*project_resume/i);
       expect(start?.inputSchema).toMatchObject({
         type: "object",
         properties: {

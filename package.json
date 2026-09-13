@@ -46,6 +46,7 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.0.0",
+    "@rolldown/binding-wasm32-wasi": "1.2.8",
     "@types/better-sqlite3": "9.6.0",
     "@types/node": "^24.0.0",
     "tsx": "^4.20.0",
