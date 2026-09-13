@@ -362,7 +362,7 @@ describe("task_state MCP tool", () => {
       await secondRuntime.transport.terminateSession();
       await secondRuntime.client.close();
     }
-  }, 15_000);
+  });
 
   it("restricts durable task state to Project authority and supports explicit failure terminal state", async () => {
     const { root, taskStateRoot, config } = await fixture();

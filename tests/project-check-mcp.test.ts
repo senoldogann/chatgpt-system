@@ -332,7 +332,7 @@ describe("project_check MCP tool", () => {
       await transport.terminateSession();
       await client.close();
     }
-  }, 30_000);
+  }, 15_000);
 
   it("reports FAIL, STALE-during-run, and UNAVAILABLE without pretending checks passed", async () => {
     const enabled = await fixture(true);
