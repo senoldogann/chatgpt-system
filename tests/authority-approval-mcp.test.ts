@@ -78,7 +78,7 @@ async function fixture() {
       maxActionProgramRuntimeMs: 30_000,
     },
     control: { enabled: false, socketPath },
-    http: { host: "127.0.0.1", port: 0, token },
+    http: { host: "127.0.0.1", port: 0, allowNonLoopback: false, token },
     limits: {
       maxReadBytes: 1024 * 1024,
       maxWriteBytes: 1024 * 1024,

@@ -95,6 +95,7 @@ export interface AppConfig {
   http: {
     host: string;
     port: number;
+    allowNonLoopback: boolean;
     token?: string;
   };
   limits: LimitsConfig;
@@ -123,6 +124,7 @@ export interface ConfigOverrides {
   host?: string;
   port?: number;
   token?: string;
+  allowNonLoopbackHttp?: boolean;
 }
 
 const EnvSchema = z.object({
@@ -156,6 +158,7 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_ENABLE_CONTROL: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_CONTROL_SOCKET: z.string().optional(),
   CHATGPT_SYSTEM_HTTP_HOST: z.string().optional(),
+  CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_HTTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
   CHATGPT_SYSTEM_HTTP_TOKEN: z.string().min(16).optional(),
   CHATGPT_SYSTEM_MAX_READ_BYTES: z.coerce.number().int().positive().optional(),
@@ -188,6 +191,10 @@ export const DEFAULT_COMMANDS = [
 
 function enabled(value: string | undefined): boolean {
   return value === "true" || value === "1";
+}
+
+export function isLoopbackHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "::1" || host === "localhost";
 }
 
 function splitRoots(value: string | undefined): string[] | undefined {
@@ -239,9 +246,16 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
   if (roots.length === 0) throw new Error("At least one filesystem root is required.");
 
   const token = overrides.token ?? env.CHATGPT_SYSTEM_HTTP_TOKEN;
+  const httpHost = overrides.host ?? env.CHATGPT_SYSTEM_HTTP_HOST ?? "127.0.0.1";
+  const allowNonLoopbackHttp = overrides.allowNonLoopbackHttp
+    ?? enabled(env.CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP);
+  if (!isLoopbackHost(httpHost) && !allowNonLoopbackHttp) {
+    throw new Error("Non-loopback HTTP bind requires --allow-non-loopback-http or CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP=true.");
+  }
   const http = {
-    host: overrides.host ?? env.CHATGPT_SYSTEM_HTTP_HOST ?? "127.0.0.1",
+    host: httpHost,
     port: overrides.port ?? env.CHATGPT_SYSTEM_HTTP_PORT ?? 4312,
+    allowNonLoopback: allowNonLoopbackHttp,
     ...(token ? { token } : {}),
   };
   const homeDir = homedir();

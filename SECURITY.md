@@ -257,6 +257,8 @@ The audit log is for operator visibility and debugging. It is not tamper-proof a
 
 Do not expose the raw HTTP listener directly to the public internet. For OpenAI products on a developer Mac, prefer Secure MCP Tunnel with `chatgpt-system` as a local stdio child process. This keeps the MCP server off the public network and uses outbound connectivity from the tunnel client.
 
+The listener binds to loopback by default. A non-loopback host is rejected unless the operator explicitly supplies `--allow-non-loopback-http` or `CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP=true`. That acknowledgement does **not** add TLS, proxy authentication, or network isolation; it is only for deployments already protected by an authenticated TLS reverse proxy. Bearer authentication remains mandatory in all HTTP modes.
+
 See [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md).
 
 ## Reporting vulnerabilities

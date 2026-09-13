@@ -37,6 +37,7 @@ Server options:
   --enable-control                 Start the private local authority Unix socket.
   --control-socket <path>          Override the private Unix socket path; requires --enable-control.
   --host <host>                    HTTP bind host. Default: 127.0.0.1.
+  --allow-non-loopback-http        Acknowledge non-loopback HTTP behind an authenticated TLS reverse proxy.
   --port <number>                  HTTP port. Default: 4312.
   --token <secret>                 HTTP bearer token, minimum 16 characters.
   -h, --help                       Show this help.

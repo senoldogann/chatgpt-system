@@ -155,7 +155,7 @@ async function fixture(projectExecEnabled = true) {
     },
     browser: { enabled: false, headless: true, timeoutMs: 1_000, userDataDir: path.join(base, "browser") },
     control: { enabled: false, socketPath: path.join(base, "control.sock") },
-    http: { host: "127.0.0.1", port: 0, token: "project-check-token-0123456789" },
+    http: { host: "127.0.0.1", port: 0, allowNonLoopback: false, token: "project-check-token-0123456789" },
     limits: {
       maxReadBytes: 1024 * 1024,
       maxWriteBytes: 1024 * 1024,

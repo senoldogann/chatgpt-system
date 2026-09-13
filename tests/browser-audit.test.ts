@@ -126,7 +126,7 @@ describe("browser audit redaction", () => {
       },
       browser: { enabled: true, headless: true, timeoutMs: 2_000, userDataDir: path.join(base, "browser-profile") },
       control: { enabled: false, socketPath: path.join(base, "control.sock") },
-      http: { host: "127.0.0.1", port: 4312 },
+      http: { host: "127.0.0.1", port: 4312, allowNonLoopback: false },
       limits: {
         maxReadBytes: 1024 * 1024,
         maxWriteBytes: 1024 * 1024,

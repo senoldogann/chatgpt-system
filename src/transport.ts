@@ -9,6 +9,7 @@ import {
 } from "@modelcontextprotocol/node";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { isLoopbackHost } from "./config.js";
 import type { RuntimeServices } from "./server.js";
 import { createMcpServer } from "./server.js";
 
@@ -17,10 +18,6 @@ function tokenMatches(header: string | undefined, expected: string): boolean {
   const provided = Buffer.from(header.slice(7), "utf8");
   const wanted = Buffer.from(expected, "utf8");
   return provided.byteLength === wanted.byteLength && timingSafeEqual(provided, wanted);
-}
-
-function isLoopbackHost(host: string): boolean {
-  return host === "127.0.0.1" || host === "::1" || host === "localhost";
 }
 
 export function startStdio(runtime: RuntimeServices) {

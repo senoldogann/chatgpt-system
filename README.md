@@ -87,7 +87,7 @@ The shared runtime currently includes:
 - Admin-only `computer_run_js` behind the separate `--enable-full-host-js` gate, using a fixed runner entrypoint, stdin-only source delivery, sanitized child environment, bounded source/output/result memory, private low-level computer RPC, and per-call process isolation; Admin Owner Runtime may omit the wall-clock deadline while explicit timeout/cancellation remain authoritative;
 - no OCR, semantic target resolver, `computer.find` / `computer.exists`, stale-target recovery, or recovery ladder yet;
 - JSONL audit trail with redacted authority/process/browser/computer metadata;
-- localhost Host/Origin validation for HTTP mode;
+- localhost Host/Origin validation for HTTP mode; non-loopback HTTP is fail-closed unless `--allow-non-loopback-http` or `CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP=true` explicitly acknowledges an authenticated TLS reverse-proxy deployment;
 - Node 22 / Node 24 CI plus native macOS build/install verification.
 
 Computer Runtime v2 Slice 4 keeps the Slice 3 native physical-input layer deterministic while adding a separate owner-trust full-host JavaScript boundary. `computer_run_js` executes as the current macOS user with normal Node.js APIs; it is not root-confined and is not an OS sandbox. Source is delivered only over stdin to a fixed child entrypoint, the daemon strips its secret-bearing environment before spawn, and ordinary descendants are terminated through the owned POSIX process group on completion, timeout, cancellation, takeover, or shutdown. Deliberately detached or daemonized descendants can escape that process group and are not claimed as sandbox-contained. Slice 5 semantic target resolution, OCR fallback, stale-target recovery, and the recovery ladder remain absent.

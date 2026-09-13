@@ -67,6 +67,8 @@ chatgpt-system shared runtime
 
 ChatGPT Web is the canonical first acceptance surface. Desktop uses the same installed plugin/backend. Normal Chat and Work can route product safety differently, so actual MCP calls are the evidence that matters.
 
+Direct HTTP is not required for the recommended Secure MCP Tunnel flow. If an operator deliberately binds `chatgpt-system http` to a non-loopback host, startup is fail-closed unless `--allow-non-loopback-http` or `CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP=true` is supplied. The acknowledgement assumes an authenticated TLS reverse proxy is already in front of the listener; it does not provide TLS itself, and the `chatgpt-system` bearer token remains mandatory.
+
 ## 1. Prerequisites
 
 - ChatGPT Developer Mode enabled.
