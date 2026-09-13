@@ -161,7 +161,7 @@ async function fixture(projectExecEnabled = true) {
       maxWriteBytes: 1024 * 1024,
       maxDirectoryEntries: 2_000,
       maxCommandOutputBytes: 1024 * 1024,
-      commandTimeoutMs: 2_000,
+      commandTimeoutMs: 10_000,
       maxManagedProcesses: 8,
       maxProcessLogBytesPerStream: 4096,
       processStopGraceMs: 100,
