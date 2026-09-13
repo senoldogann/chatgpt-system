@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-13T22:20+03:00
-Status: **implementation preflight GREEN after isolated baseline remediation; Task 1 is next.**
+Last updated: 2026-09-13T22:48+03:00
+Status: **Task 1 GREEN and committed; Task 2 Keychain unattended path is next.**
 
 This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then read the active spec and plan.
 
@@ -26,7 +26,7 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 - Project Continuity alias: `chatgpt-system-desktop`.
 - Active design spec: `docs/superpowers/specs/2026-09-13-owner-workstation-verified-project-session-design.md`.
 - Active implementation plan: `docs/superpowers/plans/2026-09-13-owner-workstation-verified-project-session.md`.
-- Planned feature implementation has not started; only baseline remediation is in progress.
+- Task 1 Owner Workstation preset is implemented and committed at `31ec3d2`; Task 2 has not started.
 
 ## Completed
 
@@ -35,6 +35,7 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 - Superpowers-managed implementation worktree created from the exact planning commit.
 - `npm ci` completed with 0 reported vulnerabilities.
 - Focused baseline regression tests, the full Node/TypeScript gate, and the macOS Computer Runtime suite are GREEN after minimal remediation.
+- Task 1 Owner Workstation preset completed and committed at `31ec3d2`.
 
 ## Current state
 
@@ -43,7 +44,7 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 - `tests/terminal-session-supervisor.test.ts` failed under the harness `TERM=dumb`; `sanitizedTerminalEnvironment()` preserved that value even though `NodePtyBackend` advertises `xterm-256color`.
 - Focused control proved the terminal suite passes with `TERM=xterm-256color` and fails with `TERM=dumb`.
 - Minimal remediation restores the required handoff structure and pins the spawned PTY environment to the backend's declared terminal type.
-- No Owner Workstation feature code has been implemented yet.
+- Task 1 implemented the explicit `--owner-workstation` preset as a pure config transformation and single tunnel flag; secure defaults and Browser independence remain intact.
 
 Approved design decisions remain:
 
@@ -86,10 +87,13 @@ Execution must start with Superpowers `using-git-worktrees`, creating isolated b
 - Focused baseline regression: `2` files and `9/9` tests PASS.
 - `npm run check`: TypeScript build PASS; `107` Vitest files passed, `1` intentionally skipped; `645` tests passed, `2` intentionally skipped.
 - `npm run test:computer:macos`: Swift build PASS; `164/164` tests PASS.
+- Task 1 RED evidence: 4 expected failures for unknown/missing `--owner-workstation` behavior.
+- Task 1 focused GREEN: `tests/cli-command.test.ts`, `tests/owner-runtime-config.test.ts`, and `tests/setup-chatgpt-tunnel.test.ts` = `53/53` PASS.
+- Task 1 TypeScript build: PASS.
 
 ## Next exact step
 
-Commit the verified baseline remediation using only `docs/PROJECT_STATE.md` and `src/terminal-session-supervisor.ts`, checkpoint the resulting exact HEAD, then generate the Task 1 SDD brief and dispatch its fresh TDD implementer. Do not push or open a PR.
+Execute Task 2 from the approved implementation plan in the same managed worktree: write RED tests for the dedicated Keychain helper `read` path and LaunchAgent `--keychain-helper` wiring, run the focused tests to confirm expected failure, then implement only the minimal Swift/helper/setup/runner changes needed for GREEN. Do not push or open a PR.
 
 ## Invariants
 
@@ -103,5 +107,5 @@ Commit the verified baseline remediation using only `docs/PROJECT_STATE.md` and 
 ## Blockers / uncertainties
 
 - No baseline blocker remains after the focused, full Node/TypeScript, and native macOS gates passed.
-- No planned feature implementation has begun; baseline remediation is separate from Tasks 1-7.
+- Task 1 is complete and committed; Tasks 2-7 remain.
 - `origin/feat/computer-use-bridge` remains intentionally untouched.
