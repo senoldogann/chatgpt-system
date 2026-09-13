@@ -1,16 +1,16 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AuditLogger } from "../src/audit.js";
 import { OwnerShellService } from "../src/owner-shell-service.js";
 import { OwnerShellSupervisor } from "../src/owner-shell-supervisor.js";
 import { PathPolicy } from "../src/policy.js";
+import { executableTestTemp } from "./test-temp.js";
 
 const cleanups: string[] = [];
 
 async function fixture(options: { admin: boolean; enabled: boolean; retainedBytes?: number }) {
-  const root = await mkdtemp(path.join(tmpdir(), "chatgpt-system-owner-shell-"));
+  const root = await executableTestTemp("chatgpt-system-owner-shell-");
   cleanups.push(root);
   const supervisor = new OwnerShellSupervisor({
     maxRetainedBytesPerStream: options.retainedBytes ?? 4096,
@@ -110,7 +110,7 @@ describe("OwnerShellService", () => {
   });
 
   it("rejects invalid or oversized scripts before execution", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "chatgpt-system-owner-shell-limit-"));
+    const root = await executableTestTemp("chatgpt-system-owner-shell-limit-");
     cleanups.push(root);
     const supervisor = new OwnerShellSupervisor({ maxRetainedBytesPerStream: 128, processStopGraceMs: 30 });
     const service = new OwnerShellService(

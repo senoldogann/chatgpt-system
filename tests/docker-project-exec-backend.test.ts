@@ -1,8 +1,8 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DockerProjectExecBackend } from "../src/docker-project-exec-backend.js";
+import { executableTestTemp } from "./test-temp.js";
 
 const cleanups: string[] = [];
 
@@ -14,7 +14,7 @@ afterEach(async () => {
 type FakeDockerMode = "normal" | "image-missing";
 
 async function fakeDockerFixture(endpoint: string, mode: FakeDockerMode): Promise<{ base: string; executable: string; logFile: string }> {
-  const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-fake-docker-"));
+  const base = await executableTestTemp("chatgpt-system-fake-docker-");
   cleanups.push(base);
   const executable = path.join(base, "docker-fixture.mjs");
   const logFile = path.join(base, "calls.jsonl");
@@ -176,7 +176,7 @@ describe("DockerProjectExecBackend process lifecycle", () => {
   });
 
   it("fails closed when the Docker executable is unavailable", async () => {
-    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-missing-docker-"));
+    const base = await executableTestTemp("chatgpt-system-missing-docker-");
     cleanups.push(base);
     const backend = new DockerProjectExecBackend({
       maxOutputBytes: 65_536,

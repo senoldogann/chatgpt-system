@@ -17,6 +17,7 @@ import { ProcessService } from "../src/process-service.js";
 import { createRuntimeServices } from "../src/server.js";
 import { describeSystemEnvironment, prettyOperatingSystemName } from "../src/system-environment.js";
 import { startHttp } from "../src/transport.js";
+import { executableTestTemp } from "./test-temp.js";
 
 const cleanups: string[] = [];
 const servers: ReturnType<typeof startHttp>[] = [];
@@ -35,7 +36,7 @@ async function makeExecutable(directory: string, name: string, body = "echo fake
 }
 
 async function tempHome(): Promise<string> {
-  const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-env-home-"));
+  const base = await executableTestTemp("chatgpt-system-env-home-");
   cleanups.push(base);
   return base;
 }
@@ -77,7 +78,7 @@ function serviceConfig(root: string, base: string, commands: string[], commandTi
 
 describe("executable resolution", () => {
   it("resolves a basename through PATH entries in order", async () => {
-    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-env-path-"));
+    const base = await executableTestTemp("chatgpt-system-env-path-");
     cleanups.push(base);
     const first = path.join(base, "first");
     const second = path.join(base, "second");
@@ -202,7 +203,7 @@ describe("terminal_run resolution and error ergonomics", () => {
     await mkdir(localBin, { recursive: true });
     await makeExecutable(localBin, "uv", "echo 'uv 0.0.0-test'");
 
-    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-env-run-"));
+    const base = await executableTestTemp("chatgpt-system-env-run-");
     cleanups.push(base);
     const root = path.join(base, "root");
     await mkdir(root);
