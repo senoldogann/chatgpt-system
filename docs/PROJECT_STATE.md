@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-13T06:45+03:00
-Status: Final v1 hardening implementation is locally complete and pre-state verified on the Desktop checkout. A docs/state commit and fresh exact-head verification remain before publication, hosted CI, merge, and v1 closure.
+Last updated: 2026-09-13T15:31+03:00
+Status: Final v1 hardening implementation is locally complete and verified on the Desktop checkout. The final state commit is being prepared; one fresh exact-head verification remains before publication, hosted CI, merge, cleanup, and v1 closure.
 
 This file is a handoff cache, not the sole source of truth. A resumed agent must reconcile it against Git/worktree reality and the latest Project Continuity checkpoint before editing.
 
@@ -13,7 +13,7 @@ Finish the **final v1 hardening/release**: publish the locally merged Owner Runt
 
 - Authoritative development checkout: `/Users/dogan/Desktop/chatgpt-system`.
 - Active branch: `fix/final-hardening-release`.
-- Pre-state verified feature HEAD: `6e6168fe1f492383f973220d0c38a5b014a1ffed`.
+- Current pre-state verified feature HEAD: `6b2b94f` (`test: stabilize git-heavy integration timeouts`).
 - Desktop local `main`: `5fd7262d7af98f5f1315d38f065ea57b2ad5f5cf` (Owner Runtime Phase 3 locally merged).
 - GitHub `origin/main`: `7aece8f5cb1b4397de04704a41b95626a0b8e887` (Phase 2 published baseline; Phase 3 is not yet remote).
 - `/Users/dogan/chatgpt-system` is retained only as an untouched safety copy and is no longer an active development checkout.
@@ -37,6 +37,8 @@ Finish the **final v1 hardening/release**: publish the locally merged Owner Runt
 - `00362e6` — Browser diagnostic acquisition/retention bounds.
 - `b3da960` — Computer native-helper forced shutdown escalation.
 - `6e6168f` — non-loopback HTTP explicit opt-in/fail-closed startup guard.
+- `e9031df` — final release architecture/state handoff plus project-wide local-first/branch-cleanup/repo-cleanliness rules in `AGENTS.md`.
+- `6b2b94f` — release-harness stabilization for two Git-heavy integration tests; only Vitest runner budgets changed, not product/runtime timeouts.
 
 ## Current state
 
@@ -51,18 +53,18 @@ No authority profile, execution surface, native protocol method, root capability
 
 ## Verification
 
-Pre-state evidence on `6e6168fe1f492383f973220d0c38a5b014a1ffed`, run from `/Users/dogan/Desktop/chatgpt-system`:
+Pre-state evidence on `6b2b94f`, run from `/Users/dogan/Desktop/chatgpt-system`:
 
-- `npm run check`: PASS on the fresh rerun — `107` passing test files + `1` intentional skipped file; `643/643` tests PASS + `2` intentional/environment-gated skips; TypeScript build included and PASS.
-- One preceding cold/full-suite run had a single 5-second timeout in the first `task-state-mcp` integration test. The same suite then passed in isolation (first test `2.519s`) and the immediate full rerun passed (same test `4.752s`) with no production/test-timeout change, confirming load/cold-start contention rather than a product regression.
+- `npm run check`: PASS — `107` passing test files + `1` intentional skipped file; `643/643` tests PASS + `2` intentional/environment-gated skips; TypeScript build included and PASS.
+- Release-harness root-cause investigation showed `task-state-mcp` and `project-check-mcp` are real Git/MCP integration tests whose runner budgets were too tight under full parallel suite load. Isolated runs were healthy; only those two Vitest runner budgets were raised to 15s/30s. Product command/runtime timeouts and assertions were not changed. The subsequent full suite passed.
 - `npm audit --omit=dev`: `0` vulnerabilities.
-- Owner long-run acceptance with `CHATGPT_SYSTEM_LONG_OWNER_ACCEPTANCE=1`: `3/3` PASS; no-deadline Owner JavaScript ran `31.299s`, beyond the legacy 30-second ceiling.
+- Owner long-run acceptance with `CHATGPT_SYSTEM_LONG_OWNER_ACCEPTANCE=1`: `3/3` PASS; no-deadline Owner JavaScript ran `31.360s`, beyond the legacy 30-second ceiling.
 - Real PTY smoke: `1/1` PASS.
 - Swift macOS Computer Runtime: `164/164` PASS.
 - `git diff --check origin/main...HEAD`: PASS.
-- Feature branch was clean before this docs/state edit.
+- `git status --short`: clean before this state edit.
 
-Node/TypeScript and Swift were deliberately run sequentially. Earlier concurrent cold builds caused scheduler/resource-contention test timeouts and are not used as release evidence.
+Node/TypeScript and Swift were deliberately run sequentially. Concurrent cold builds are not used as release evidence.
 
 ## Hosted acceptance state
 
@@ -73,8 +75,8 @@ Node/TypeScript and Swift were deliberately run sequentially. Earlier concurrent
 
 ## Next exact step
 
-1. Run docs contract tests, placeholder scan, and `git diff --check` for this architecture/state update.
-2. Commit only the final architecture/state handoff.
+1. Run docs contract tests and `git diff --check` for this final state update.
+2. Commit only `docs/PROJECT_STATE.md`.
 3. Because HEAD changes, rerun the complete release gate sequentially on that exact successor SHA: `npm run check`; production audit; Owner >30s acceptance; real PTY; Swift; branch diff-check; clean status.
 4. Run final branch-scope/security review: no authority widening, new execution surface, bearer-auth weakening, native protocol/TCC identity change, or unrelated dependency/lockfile drift.
 5. Checkpoint Project Continuity against the exact verified Desktop head.
