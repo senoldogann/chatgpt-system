@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-14T01:26+03:00
-Status: **Computer-Use-first real-Chrome routing slice is active; implementation is locally GREEN and real-Mac acceptance is next.**
+Last updated: 2026-09-14T01:35+03:00
+Status: **Computer-Use-first real-Chrome routing slice is locally GREEN; real-Mac acceptance passed and exact-state publication is next.**
 
 This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then continue from the exact next step below.
 
@@ -42,6 +42,10 @@ Historical guidance also explained the misrouting: the integration runbook said 
 - Focused GREEN: `tests/browser-mcp.test.ts`, `tests/computer-mcp.test.ts`, `tests/chatgpt-integration-docs.test.ts` = `11/11` PASS.
 - `git diff --check`: PASS.
 - Full branch-local `npm run check`: TypeScript build PASS; `113` test files PASS + `1` intentional skip; `691` tests PASS + `2` intentional skips.
+- Live daily-driver was rebuilt/restarted from exact feature commit `97a3758f469d3c2e559815720d7c80b4174bdbf4`; new MCP routing descriptions are active locally.
+- Real-Mac acceptance: `computer_open_app(bundleIdentifier="com.google.Chrome")` returned frontmost `Google Chrome` with exact bundle `com.google.Chrome`; fresh Computer Runtime observation confirmed the normal Chrome window/toolbars.
+- Reversible physical acceptance clicked the observed address bar through `computer_run` using a fresh semantic/index target, then sent `Escape`; final active window remained real Google Chrome. No CAPTCHA/anti-bot interaction was attempted.
+- Content-redacted audit window from acceptance start recorded `computer.open_app=1`, `computer.run=2`, total `computer.*=3`, and **`browser.*=0`**.
 - No remote publication has occurred for this slice.
 
 ## Completed
@@ -52,11 +56,12 @@ Historical guidance also explained the misrouting: the integration runbook said 
 
 ## Next exact step
 
-1. Commit the current explicit routing metadata/docs/tests on `feat/computer-use-first-real-chrome` using explicit-path staging.
-2. Keep the managed worktree as evidence but free the branch name, then move the authoritative Continuity checkout to the exact feature commit.
-3. Build/restart the daily-driver tunnel on that exact feature build so ChatGPT sees the new MCP descriptions.
-4. Run harmless real-Mac acceptance through **Computer Runtime only**: open/focus `com.google.Chrome`, confirm the frontmost bundle, perform observation/screenshot plus a reversible physical mouse/keyboard interaction, and verify audit operations during the acceptance window contain `computer.*` but no `browser.*`.
-5. If real acceptance is GREEN, run full exact-HEAD host verification, fresh `project_resume`, Linux `project_check run/report`, typed publication, PR/exact-head hosted CI, merge, main sync, proven-merged branch/worktree cleanup, and a final completed Continuity checkpoint.
+1. Commit this real-Mac acceptance checkpoint on `feat/computer-use-first-real-chrome` with explicit-path staging.
+2. Run fresh full host `npm run check` and production audit on the exact final HEAD.
+3. Checkpoint Continuity, take a fresh `project_resume`, then require Linux `project_check run` + independent `report` to return `PASS` for the same clean HEAD/digest.
+4. Publish only through typed dual-authority `git_push`, open a PR, verify exact-head Node 22 / Node 24 / macOS native CI, and merge only when GREEN/CLEAN.
+5. Fast-forward local `main`, verify post-merge tests, remove only proven-merged feature branch/worktree state, preserve `origin/feat/computer-use-bridge`, and mark Continuity completed.
+6. ChatGPT/OpenAI app must use **Refresh** after the tunnel restart so the model sees the new routing descriptions; repeat the user's original-style Web prompt after Refresh as the final product-side acceptance.
 
 ## Invariants
 
@@ -71,6 +76,6 @@ Historical guidance also explained the misrouting: the integration runbook said 
 
 ## Blockers / uncertainties
 
-- No local code/test blocker remains before real-Mac acceptance.
-- ChatGPT must refresh/reload the changed MCP tool descriptions after the tunnel restarts.
+- No local code/test or real-Mac routing blocker remains before publication.
+- ChatGPT must Refresh/reload the changed MCP tool descriptions after the completed tunnel restart; local MCP acceptance cannot prove the ChatGPT Web model has reloaded them until that Refresh occurs.
 - Final confidence requires an actual ChatGPT Web repeat of the user's original style of Computer Use prompt; local acceptance can prove the real Chrome Computer Runtime path and metadata, but product-side model routing remains controlled by ChatGPT.
