@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-13T18:15+03:00
-Status: Final v1 hardening, release-harness stabilization, and local checkout cleanup are complete on the Desktop checkout. One final state commit + fresh exact-head verification remain before publication, hosted CI, merge, branch cleanup, and v1 closure.
+Last updated: 2026-09-13T18:46+03:00
+Status: Final v1 hardening is complete locally. PR #41 exposed one macOS success-path runner close/signal race; the race is fixed locally with regression coverage. Remote watcher timeouts and Vitest integration-runner timeouts are now handled by durable project-wide rules. One state commit + fresh exact-head gate remain before updating PR #41, hosted CI, merge, cleanup, and v1 closure.
 
 This file is a handoff cache, not the sole source of truth. A resumed agent must reconcile it against Git/worktree reality and the latest Project Continuity checkpoint before editing.
 
@@ -13,7 +13,7 @@ Finish the **final v1 hardening/release**: publish the locally merged Owner Runt
 
 - Authoritative development checkout: `/Users/dogan/Desktop/chatgpt-system`.
 - Active branch: `fix/final-hardening-release`.
-- Current candidate feature HEAD: `8e56440f1fda3356a37df68971533f93d89cc057` (`docs: finalize release evidence`).
+- Current pre-state feature HEAD: `2dccbb3` (`test: harden integration runner budgets`).
 - Desktop local `main`: `5fd7262d7af98f5f1315d38f065ea57b2ad5f5cf` (Owner Runtime Phase 3 locally merged).
 - GitHub `origin/main`: `7aece8f5cb1b4397de04704a41b95626a0b8e887` (Phase 2 published baseline; Phase 3 is not yet remote).
 - The old `/Users/dogan/chatgpt-system` safety clone and all of its historical `/private/tmp`/managed worktrees have been removed after confirming no active process depended on them. `/Users/dogan/Desktop/chatgpt-system` is the only remaining project checkout.
@@ -40,6 +40,9 @@ Finish the **final v1 hardening/release**: publish the locally merged Owner Runt
 - `e9031df` — final release architecture/state handoff plus project-wide local-first/branch-cleanup/repo-cleanliness rules in `AGENTS.md`.
 - `6f4de6a` — repo-level Vitest scheduler stabilization: full suite now runs with `--maxWorkers=25%`; temporary per-test timeout widening was reverted, so product/test semantic timeout contracts remain unchanged.
 - `8e56440` — final release evidence handoff before publication.
+- `55c4189` — Desktop cleanup evidence; first PR #41 published head.
+- `05dc036` — preserve completed Computer JS results when process-group signaling races with observed runner close; real cleanup failures remain fatal.
+- `2dccbb3` — project-wide CI polling rule plus Vitest `--testTimeout=30000` runner budget; product/runtime timeout contracts remain unchanged.
 
 ## Current state
 
@@ -56,11 +59,13 @@ No authority profile, execution surface, native protocol method, root capability
 
 Current pre-final evidence from `/Users/dogan/Desktop/chatgpt-system`:
 
-- TypeScript build: PASS.
-- Full Vitest suite using the repository contract `--maxWorkers=25%`: `107` passing test files + `1` intentional skipped file; `643/643` tests PASS + `2` intentional/environment-gated skips.
-- Root cause for the earlier Git/process/PTTY integration timeouts was repo-level worker contention at `--maxWorkers=50%`; the permanent harness contract is 25% and temporary per-test timeout widening was reverted.
-- One later `computer-js-integration` run produced a single generic `COMPUTER_JS_FAILED` after successful user-code completion. It passed immediately in isolation. Temporary env-gated signal diagnostics were added only to the local worktree, then five consecutive full-suite runs all passed with no signal error logged; the diagnostics were reverted completely and no production fix was made for a non-reproducible transient.
-- Prior release gates on the same hardening tree: `npm audit --omit=dev` = `0` vulnerabilities; Owner >30s acceptance `3/3` PASS; real PTY `1/1` PASS; Swift macOS Computer Runtime `164/164` PASS; branch diff-check PASS.
+- TypeScript build: PASS on the current race-fix tree.
+- Full Vitest suite using `--maxWorkers=25% --testTimeout=30000`: `107` passing test files + `1` intentional skipped file; `645/645` tests PASS + `2` intentional/environment-gated skips.
+- The 25% worker contract remains the scheduler-contention control. The repository-wide 30-second Vitest runner budget replaces the unsuitable default 5-second budget for real Git/MCP/process integration tests; product/runtime timeout contracts are unchanged.
+- PR #41 first published head `55c4189...`: hosted Node 22 and Node 24 passed. macOS-native initially failed after the 31-second Owner JavaScript completed, at `ComputerJsRunnerSupervisor.finishSuccess()` cleanup. The exact same hosted macOS job rerun passed fully, confirming a close/signal race rather than an implicit deadline failure.
+- RED/GREEN regression coverage now proves that a process-group signal error is tolerated only when runner close is observed within the cleanup grace window; if the runner/descendant remains open, cleanup still fails closed. Focused supervisor suite: `11/11` PASS.
+- Local Owner >30s acceptance after the race fix: `3/3` PASS; long run `31.317s`.
+- Prior unchanged release gates: `npm audit --omit=dev` = `0` vulnerabilities; real PTY `1/1` PASS; Swift macOS Computer Runtime `164/164` PASS; branch diff-check PASS.
 - Active process inspection confirms the daily-driver runner, tunnel client, and MCP daemon execute from `/Users/dogan/Desktop/chatgpt-system`; the LaunchAgent was reinstalled from Desktop before deleting the old clone/worktrees.
 - Home checkout scan found only `/Users/dogan/Desktop/chatgpt-system` after cleanup.
 
@@ -68,21 +73,21 @@ The final publication claim will use a fresh clean exact-head gate after this st
 
 ## Hosted acceptance state
 
-- `fix/final-hardening-release` is not yet published to GitHub.
-- No final-release PR or hosted-CI claim exists yet.
-- Because `origin/main` is still `7aece8f5...`, the final PR will intentionally contain both the already-local Phase 3 merge and this final hardening sprint.
-- Hosted evidence must bind to the exact published PR head and require Node 22, Node 24, and macOS-native success plus a clean merge state.
+- PR #41 (`fix/final-hardening-release` -> `main`) is open. Its first published head was `55c41895b2f62e8a63381c4f4875105f3d149564`.
+- On that exact head, Node 22 and Node 24 passed. macOS-native failed once in the success-path close/signal race and then passed completely on an exact-head rerun.
+- Local commits `05dc036` and `2dccbb3` supersede that published head and are not yet pushed. PR #41 must be updated only after the successor exact-head local release gate passes.
+- Because `origin/main` is still `7aece8f5...`, PR #41 intentionally contains both the already-local Phase 3 merge and the final hardening sprint.
+- Hosted evidence after the update must bind to the new exact PR head and require Node 22, Node 24, and macOS-native success plus a clean merge state.
 
 ## Next exact step
 
-1. Run docs contract tests and `git diff --check` for this final state update, then commit only `docs/PROJECT_STATE.md`.
-2. Rerun the complete release gate sequentially on that exact successor SHA: TypeScript build + full Node suite; production audit; Owner >30s acceptance; real PTY; Swift; branch diff-check; clean status.
-3. Run final branch-scope/security review: no authority widening, new execution surface, bearer-auth weakening, native protocol/TCC identity change, or unrelated dependency/lockfile drift.
-4. Checkpoint Project Continuity against the exact verified Desktop head.
-5. Publish only `fix/final-hardening-release`, open one PR to GitHub `main`, and verify remote head/base/server-side diff.
-6. Require exact-head hosted Node 22, Node 24, and macOS-native CI success plus clean merge state.
-7. Squash-merge only the verified PR head, synchronize Desktop `main`, rerun the complete local release gate sequentially on the merge commit, and require hosted `main` CI success on the same merge commit.
-8. Delete the merged feature branch locally/remotely, verify only clean `main` remains, checkpoint `chatgpt-system-desktop` as `completed`, and declare v1 complete.
+1. Run docs contract tests and `git diff --check` for this state update, then commit only `docs/PROJECT_STATE.md`.
+2. Run the complete release gate sequentially on that exact successor SHA: TypeScript build + full Node suite; production audit; Owner >30s acceptance; real PTY; Swift; branch diff-check; clean status. Long commands use managed-process status polling; hosted status uses one-shot queries, never blocking watchers.
+3. Run final branch-scope/security review and checkpoint Project Continuity against the exact verified Desktop head.
+4. Push the verified successor to the existing PR #41 and verify remote head/base/server-side diff.
+5. Require exact-head hosted Node 22, Node 24, and macOS-native CI success plus clean merge state using one-shot polling.
+6. Squash-merge only the verified PR head, synchronize Desktop `main`, rerun the complete local release gate sequentially on the merge commit, and require hosted `main` CI success on the same merge commit.
+7. Delete the merged feature branch locally/remotely, verify only clean `main` remains, checkpoint `chatgpt-system-desktop` as `completed`, and declare v1 complete.
 
 ## Invariants
 
@@ -100,4 +105,4 @@ The final publication claim will use a fresh clean exact-head gate after this st
 ## Blockers / uncertainties
 
 - No known implementation blocker remains.
-- Hosted CI is the remaining external release gate after the final local exact-head verification.
+- No implementation blocker remains. The remaining external gate is hosted CI on the successor PR head after the final exact-head local verification.
