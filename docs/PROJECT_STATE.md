@@ -1,6 +1,6 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-14T00:08+03:00
+Last updated: 2026-09-14T00:32+03:00
 Status: **Tasks 1-7 complete; bounded follow-up fixes dynamic-project UX and Project Exec portability/timeout before final exact-state publication.**
 
 This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then read the active spec and plan.
@@ -127,10 +127,14 @@ Execution must start with Superpowers `using-git-worktrees`, creating isolated b
 - `@rolldown/binding-wasm32-wasi@1.2.8` is pinned as a dev dependency so Vitest can start inside Linux Project Exec even when host `node_modules` was installed on macOS.
 - Follow-up RED: 6 expected failures covered missing root semantics, 120-second preset budget, and WASI fallback. Focused GREEN after implementation: system environment `11/11`, authority catalog `2/2`, Owner config `6/6`, HTTP `3/3`, Project Exec portability `4/4`, CLI `17/17`.
 - Follow-up full host gate: TypeScript build PASS; `112` Vitest files PASS + `1` skip; `689` tests PASS + `2` skips.
+- Sandbox executable-fixture root cause was measured directly: `/tmp` execution returns `EACCES` inside Project Exec while `/workspace/node_modules/.cache/chatgpt-system-test-tmp` executes normally. Production sandbox flags were not weakened.
+- Portable executable fixture helper committed at `bb0af49`; the three affected suites pass `24/24` on both macOS host and Linux Project Exec.
+- ChatGPT Web custom-app recovery contract added: `This conversation does not support developer MCPs` is treated as product-surface/tool-routing unavailability, never as proof the local daemon failed. Agents must not claim local changes or substitute an unmounted container; use supported standard text chat/app selection or `@mention`, Refresh changed actions when needed, then `project_resume`. Agent mode/custom-app and Deep Research read/fetch limitations are documented from current OpenAI product guidance.
+- Recovery metadata/docs focused GREEN: `14/14` tests PASS. No keyword-filter evasion behavior was added.
 
 ## Next exact step
 
-Commit the bounded follow-up, rerun the full host gate on the new exact HEAD, replace the existing tunnel profile with the same tunnel ID using `--owner-workstation --enable-browser --force`, reinstall/restart the daily driver, verify live `system_capabilities` shows Project Exec enabled and `limits.commandTimeoutMs=120000`, then obtain a fresh `project_resume` and require `project_check run/report` PASS for the exact clean HEAD. If all local gates are green, use the typed dual-authority `git_push`, create/verify the exact-head PR, merge only after hosted checks pass, sync local `main`, and clean only proven-merged implementation branch/worktree state. Preserve `origin/feat/computer-use-bridge`.
+Commit the ChatGPT Web custom-app recovery contract, then run fresh `npm run check` and production audit on the resulting exact HEAD. Restart the daily driver once more so the updated tool descriptions are live, checkpoint Continuity, obtain a fresh `project_resume`, and require Linux `project_check run/report` PASS for that exact clean HEAD. With all local gates green, proceed through typed dual-authority `git_push`, create the PR, require exact-head hosted checks, merge, sync local `main`, and remove only proven-merged implementation branch/worktree state. Preserve `origin/feat/computer-use-bridge`.
 
 ## Invariants
 

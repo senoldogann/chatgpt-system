@@ -322,6 +322,20 @@ npm run setup:chatgpt -- \
 
 The generated stdio target includes the private control socket and only the explicit feature gates selected during setup. The configured bootstrap root is not a permanent repository allowlist: `session_authority_start(profile="project", projectRoots=["/absolute/other-repo"])` may open another exact project directory without tunnel reconfiguration, except that `/` and the entire home directory remain denied. For durable handoff, call `project_register` once and `project_resume` in later chats.
 
+
+### ChatGPT Web custom-app availability recovery
+
+If ChatGPT returns `This conversation does not support developer MCPs`, treat it as a **product surface / tool routing availability** problem, do not treat it as daemon failure or tunnel failure. Do not invent a local-host fallback and do not claim local changes, tests, or Git operations that were not actually performed.
+
+Recovery flow:
+
+1. Return to a supported **standard text chat** surface. Agent mode does not use custom apps; Deep Research can use custom apps only for read/fetch actions, not write/modify actions.
+2. Select the custom app again from the tools/apps menu or `@mention` it on the message that needs new local data or an action.
+3. If the MCP server tool/action definitions changed, use **Refresh** in the app configuration so ChatGPT reloads the current actions.
+4. Once developer MCP tools are available again, call `project_resume` for the exact registered alias and reconcile Git/worktree reality before continuing.
+
+Stopping and continuing the same chat is not itself proof that the custom app remains available on the next message. The agent must use actual MCP tool availability as evidence. Safety or product-surface routing must never be worked around by keyword substitution or by pretending container access is equivalent to the user's Mac.
+
 ## 6. Run the tunnel
 
 For manual acceptance:
