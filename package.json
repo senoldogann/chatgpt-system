@@ -31,7 +31,8 @@
     "daily-driver:uninstall": "node scripts/setup-daily-driver.mjs uninstall",
     "test": "vitest run --maxWorkers=25% --testTimeout=30000",
     "check": "npm run build && npm test",
-    "setup:computer:macos": "node scripts/setup-macos-computer-runtime.mjs"
+    "setup:computer:macos": "node scripts/setup-macos-computer-runtime.mjs",
+    "owner-workstation:status": "npm run build && node scripts/owner-workstation-status.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/node": "^2.0.0",
