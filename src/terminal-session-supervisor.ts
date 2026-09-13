@@ -89,7 +89,7 @@ function sanitizedTerminalEnvironment(): Record<string, string> {
   for (const [key, value] of Object.entries(source)) {
     if (value !== undefined) env[key] = value;
   }
-  env.TERM ??= "xterm-256color";
+  env.TERM = "xterm-256color";
   return env;
 }
 

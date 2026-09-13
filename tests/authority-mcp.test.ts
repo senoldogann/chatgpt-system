@@ -248,9 +248,18 @@ describe("session authority MCP tools", () => {
 
       const pushSchema = byName.get("git_push")?.inputSchema as {
         properties?: Record<string, unknown>;
+        required?: string[];
         additionalProperties?: boolean;
       } | undefined;
-      expect(Object.keys(pushSchema?.properties ?? {}).sort()).toEqual(["authorityLeaseId", "cwd"]);
+      expect(Object.keys(pushSchema?.properties ?? {}).sort()).toEqual([
+        "authorityLeaseId",
+        "cwd",
+        "projectAuthorityLeaseId",
+      ]);
+      expect(pushSchema?.required).toEqual(expect.arrayContaining([
+        "authorityLeaseId",
+        "projectAuthorityLeaseId",
+      ]));
       expect(pushSchema?.additionalProperties).toBe(false);
 
       const noLease = await client.callTool({ name: "fs_read", arguments: { path: "fixture.txt" } });
@@ -291,10 +300,10 @@ describe("session authority MCP tools", () => {
 
       const pushDenied = await client.callTool({
         name: "git_push",
-        arguments: { authorityLeaseId: leaseId, cwd: root },
+        arguments: { authorityLeaseId: leaseId, projectAuthorityLeaseId: leaseId, cwd: root },
       });
       expect(pushDenied.isError).toBe(true);
-      expect(textContent(pushDenied)).toContain("POLICY_DENIED");
+      expect(textContent(pushDenied)).toContain("AUTHORITY_DENIED");
     } finally {
       await transport.terminateSession();
       await client.close();

@@ -68,3 +68,14 @@ describe("Docker project execution policy", () => {
     })).toThrow(/mount syntax/i);
   });
 });
+
+
+describe("Project Exec dependency portability", () => {
+  it("keeps a cross-platform Rolldown WASI fallback for Linux sandbox checks", async () => {
+    const packageJson = JSON.parse(await (await import("node:fs/promises")).readFile(
+      new URL("../package.json", import.meta.url),
+      "utf8",
+    ));
+    expect(packageJson.devDependencies["@rolldown/binding-wasm32-wasi"]).toBe("1.2.8");
+  });
+});

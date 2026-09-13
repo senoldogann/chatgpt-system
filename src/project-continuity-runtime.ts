@@ -1,6 +1,7 @@
 import type { AuthorityManager } from "./authority.js";
 import { ContinuityGitInspector } from "./continuity-git-inspector.js";
 import { ContinuityStore } from "./continuity-store.js";
+import { ContinuityResumeRegistry } from "./continuity-resume-registry.js";
 import { ProjectContinuityService } from "./project-continuity-service.js";
 
 export interface ProjectContinuityRuntimeConfig {
@@ -19,11 +20,13 @@ export interface ProjectContinuityRuntimeOptions {
   homeDir: string;
   continuityStore?: ContinuityStore;
   continuityService?: ProjectContinuityService;
+  continuityResumeRegistry?: ContinuityResumeRegistry;
 }
 
 export interface ProjectContinuityRuntime {
   continuityStore: ContinuityStore;
   continuity: ProjectContinuityService;
+  continuityResumeRegistry: ContinuityResumeRegistry;
 }
 
 export function createProjectContinuityRuntime(
@@ -37,6 +40,9 @@ export function createProjectContinuityRuntime(
 
   const continuityStore = options.continuityStore
     ?? new ContinuityStore({ databasePath: config.continuity.databasePath });
+  const continuityResumeRegistry = options.continuityResumeRegistry
+    ?? options.continuityService?.resumeRegistry
+    ?? new ContinuityResumeRegistry();
   const continuity = options.continuityService
     ?? new ProjectContinuityService({
       store: continuityStore,
@@ -48,7 +54,8 @@ export function createProjectContinuityRuntime(
       authority,
       homeDir: options.homeDir,
       maxResumeChars: config.continuity.maxResumeChars,
+      resumeRegistry: continuityResumeRegistry,
     });
 
-  return { continuityStore, continuity };
+  return { continuityStore, continuity, continuityResumeRegistry };
 }

@@ -83,6 +83,52 @@ export class WorktreeDirtyError extends AppError {
   }
 }
 
+export class ProjectResumeRequiredError extends AppError {
+  constructor(message = "An active project_resume context is required for publication.") {
+    super(message, "PROJECT_RESUME_REQUIRED", { retryable: true });
+  }
+}
+
+export class LocalVerificationRequiredError extends AppError {
+  constructor(overallStatus: string) {
+    super(
+      `Fresh passing local project verification is required before publication. Current status: ${overallStatus}.`,
+      "LOCAL_VERIFICATION_REQUIRED",
+      { overallStatus, retryable: true },
+    );
+  }
+}
+
+export class LocalVerificationStaleError extends AppError {
+  constructor() {
+    super(
+      "Local project verification is stale for the state being published.",
+      "LOCAL_VERIFICATION_STALE",
+      { retryable: true },
+    );
+  }
+}
+
+export class WorktreeNotCleanError extends AppError {
+  constructor() {
+    super(
+      "The project worktree must be clean before publication.",
+      "WORKTREE_NOT_CLEAN",
+      { retryable: true },
+    );
+  }
+}
+
+export class MainPushDeniedError extends AppError {
+  constructor() {
+    super(
+      "Typed project publication may not push the main branch.",
+      "MAIN_PUSH_DENIED",
+      { retryable: false },
+    );
+  }
+}
+
 export class VerificationRequiredError extends AppError {
   constructor(overallStatus: string) {
     super(

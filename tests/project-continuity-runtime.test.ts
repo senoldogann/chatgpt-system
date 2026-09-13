@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthorityManager } from "../src/authority.js";
 import { ContinuityGitInspector } from "../src/continuity-git-inspector.js";
 import { ContinuityStore } from "../src/continuity-store.js";
+import { ContinuityResumeRegistry } from "../src/continuity-resume-registry.js";
 import { ProjectContinuityService } from "../src/project-continuity-service.js";
 import { createProjectContinuityRuntime } from "../src/project-continuity-runtime.js";
 import { loadConfig } from "../src/config.js";
@@ -49,6 +50,8 @@ describe("createProjectContinuityRuntime", () => {
 
     expect(runtime.continuityStore).toBeInstanceOf(ContinuityStore);
     expect(runtime.continuity).toBeInstanceOf(ProjectContinuityService);
+    expect(runtime.continuityResumeRegistry).toBeInstanceOf(ContinuityResumeRegistry);
+    expect(runtime.continuity.resumeRegistry).toBe(runtime.continuityResumeRegistry);
     expect((await stat(test.config.continuity.databasePath)).isFile()).toBe(true);
     expect(() => runtime.continuityStore.getByAlias("missing")).toThrowError(
       expect.objectContaining({ code: "CONTINUITY_NOT_FOUND" }),
@@ -106,6 +109,7 @@ describe("createProjectContinuityRuntime", () => {
 
     expect(runtime.continuityStore).toBe(injectedStore);
     expect(runtime.continuity).toBe(injectedService);
+    expect(runtime.continuityResumeRegistry).toBe(injectedService.resumeRegistry);
     await expect(stat(test.config.continuity.databasePath)).rejects.toMatchObject({ code: "ENOENT" });
     injectedStore.close();
   });

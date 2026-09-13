@@ -23,6 +23,24 @@ describe("CLI command routing", () => {
     });
   });
 
+  it("expands owner-workstation without enabling browser", () => {
+    expect(parseCliCommand(["stdio", "--owner-workstation"])).toEqual({
+      kind: "server",
+      mode: "stdio",
+      help: false,
+      overrides: {
+        ownerWorkstationEnabled: true,
+        personalAdminEnabled: true,
+        ownerRuntimeEnabled: true,
+        terminalEnabled: true,
+        projectExecEnabled: true,
+        computerUseEnabled: true,
+        fullHostJsEnabled: true,
+        commandTimeoutMs: 120_000,
+      },
+    });
+  });
+
   it("parses Owner Runtime only as an explicit Personal Admin server capability", () => {
     expect(parseCliCommand([
       "stdio",

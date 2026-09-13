@@ -13,6 +13,7 @@ export const CONTINUITY_MAX_RESUME_CHARS = 12_000;
 export const CONTINUITY_MAX_TRACKED_PATHS = 100;
 export const CONTINUITY_REMOTE_TIMEOUT_MS = 10_000;
 export const OWNER_SHELL_MAX_SCRIPT_BYTES = 262_144;
+export const OWNER_WORKSTATION_COMMAND_TIMEOUT_MS = 120_000;
 export const OWNER_TERMINAL_MAX_SESSIONS = 32;
 export const OWNER_TERMINAL_MAX_OUTPUT_BYTES = 262_144;
 export const OWNER_TERMINAL_MAX_INPUT_BYTES = 65_536;
@@ -105,6 +106,8 @@ export interface ConfigOverrides {
   roots?: string[];
   auditFile?: string;
   terminalEnabled?: boolean;
+  ownerWorkstationEnabled?: boolean;
+  commandTimeoutMs?: number;
   projectExecEnabled?: boolean;
   personalAdminEnabled?: boolean;
   ownerRuntimeEnabled?: boolean;
@@ -125,6 +128,21 @@ export interface ConfigOverrides {
   port?: number;
   token?: string;
   allowNonLoopbackHttp?: boolean;
+}
+
+export function applyOwnerWorkstationPreset(overrides: ConfigOverrides): ConfigOverrides {
+  if (overrides.ownerWorkstationEnabled !== true) return { ...overrides };
+  return {
+    ...overrides,
+    ownerWorkstationEnabled: true,
+    personalAdminEnabled: true,
+    ownerRuntimeEnabled: true,
+    terminalEnabled: true,
+    projectExecEnabled: true,
+    computerUseEnabled: true,
+    fullHostJsEnabled: true,
+    commandTimeoutMs: overrides.commandTimeoutMs ?? OWNER_WORKSTATION_COMMAND_TIMEOUT_MS,
+  };
 }
 
 const EnvSchema = z.object({
@@ -238,40 +256,41 @@ export function resolveContinuityDatabasePath(value: string | undefined, homeDir
 }
 
 export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppConfig> {
+  const effectiveOverrides = applyOwnerWorkstationPreset(overrides);
   const env = EnvSchema.parse(process.env);
-  const requestedRoots = overrides.roots ?? splitRoots(env.CHATGPT_SYSTEM_ROOTS) ?? [process.cwd()];
+  const requestedRoots = effectiveOverrides.roots ?? splitRoots(env.CHATGPT_SYSTEM_ROOTS) ?? [process.cwd()];
   const canonicalRoots = await Promise.all(requestedRoots.map(async (root) => realpath(path.resolve(root))));
   const roots = [...new Set(canonicalRoots)];
 
   if (roots.length === 0) throw new Error("At least one filesystem root is required.");
 
-  const token = overrides.token ?? env.CHATGPT_SYSTEM_HTTP_TOKEN;
-  const httpHost = overrides.host ?? env.CHATGPT_SYSTEM_HTTP_HOST ?? "127.0.0.1";
-  const allowNonLoopbackHttp = overrides.allowNonLoopbackHttp
+  const token = effectiveOverrides.token ?? env.CHATGPT_SYSTEM_HTTP_TOKEN;
+  const httpHost = effectiveOverrides.host ?? env.CHATGPT_SYSTEM_HTTP_HOST ?? "127.0.0.1";
+  const allowNonLoopbackHttp = effectiveOverrides.allowNonLoopbackHttp
     ?? enabled(env.CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP);
   if (!isLoopbackHost(httpHost) && !allowNonLoopbackHttp) {
     throw new Error("Non-loopback HTTP bind requires --allow-non-loopback-http or CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP=true.");
   }
   const http = {
     host: httpHost,
-    port: overrides.port ?? env.CHATGPT_SYSTEM_HTTP_PORT ?? 4312,
+    port: effectiveOverrides.port ?? env.CHATGPT_SYSTEM_HTTP_PORT ?? 4312,
     allowNonLoopback: allowNonLoopbackHttp,
     ...(token ? { token } : {}),
   };
   const homeDir = homedir();
   const controlSocketPath = resolveControlSocketPath(
-    overrides.controlSocketPath ?? env.CHATGPT_SYSTEM_CONTROL_SOCKET,
+    effectiveOverrides.controlSocketPath ?? env.CHATGPT_SYSTEM_CONTROL_SOCKET,
     homeDir,
   );
   const browserUserDataDir = resolveBrowserUserDataDir(
-    overrides.browserUserDataDir ?? env.CHATGPT_SYSTEM_BROWSER_USER_DATA_DIR,
+    effectiveOverrides.browserUserDataDir ?? env.CHATGPT_SYSTEM_BROWSER_USER_DATA_DIR,
     homeDir,
   );
-  const browserEnabled = overrides.browserEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_BROWSER);
-  const browserHeadless = overrides.browserHeadless ?? enabled(env.CHATGPT_SYSTEM_BROWSER_HEADLESS);
-  const browserExistingChrome = overrides.browserExistingChrome ?? enabled(env.CHATGPT_SYSTEM_BROWSER_EXISTING_CHROME);
+  const browserEnabled = effectiveOverrides.browserEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_BROWSER);
+  const browserHeadless = effectiveOverrides.browserHeadless ?? enabled(env.CHATGPT_SYSTEM_BROWSER_HEADLESS);
+  const browserExistingChrome = effectiveOverrides.browserExistingChrome ?? enabled(env.CHATGPT_SYSTEM_BROWSER_EXISTING_CHROME);
   const browserExistingChromeUserDataDirInput =
-    overrides.browserExistingChromeUserDataDir ?? env.CHATGPT_SYSTEM_BROWSER_EXISTING_CHROME_USER_DATA_DIR;
+    effectiveOverrides.browserExistingChromeUserDataDir ?? env.CHATGPT_SYSTEM_BROWSER_EXISTING_CHROME_USER_DATA_DIR;
 
   if (browserExistingChrome && !browserEnabled) {
     throw new Error("Existing Chrome mode requires --enable-browser.");
@@ -294,12 +313,12 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     : null;
 
   const continuityDatabasePath = resolveContinuityDatabasePath(
-    overrides.continuityDatabasePath ?? env.CHATGPT_SYSTEM_CONTINUITY_DATABASE,
+    effectiveOverrides.continuityDatabasePath ?? env.CHATGPT_SYSTEM_CONTINUITY_DATABASE,
     homeDir,
   );
-  const personalAdminEnabled = overrides.personalAdminEnabled ?? enabled(env.CHATGPT_SYSTEM_PERSONAL_ADMIN);
-  const ownerRuntimeEnabled = overrides.ownerRuntimeEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_OWNER_RUNTIME);
-  const ownerShellPathInput = overrides.ownerShellPath
+  const personalAdminEnabled = effectiveOverrides.personalAdminEnabled ?? enabled(env.CHATGPT_SYSTEM_PERSONAL_ADMIN);
+  const ownerRuntimeEnabled = effectiveOverrides.ownerRuntimeEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_OWNER_RUNTIME);
+  const ownerShellPathInput = effectiveOverrides.ownerShellPath
     ?? env.CHATGPT_SYSTEM_OWNER_SHELL_PATH
     ?? defaultOwnerShellPath();
   let ownerShellPath = ownerShellPathInput;
@@ -313,14 +332,14 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
   const config: AppConfig = {
     roots,
     auditFile: path.resolve(
-      overrides.auditFile ?? env.CHATGPT_SYSTEM_AUDIT_FILE ?? path.join(homeDir, ".chatgpt-system", "audit.jsonl"),
+      effectiveOverrides.auditFile ?? env.CHATGPT_SYSTEM_AUDIT_FILE ?? path.join(homeDir, ".chatgpt-system", "audit.jsonl"),
     ),
     terminal: {
-      enabled: overrides.terminalEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_TERMINAL),
-      commands: [...new Set(overrides.commands ?? splitCsv(env.CHATGPT_SYSTEM_ALLOW_COMMANDS) ?? DEFAULT_COMMANDS)],
+      enabled: effectiveOverrides.terminalEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_TERMINAL),
+      commands: [...new Set(effectiveOverrides.commands ?? splitCsv(env.CHATGPT_SYSTEM_ALLOW_COMMANDS) ?? DEFAULT_COMMANDS)],
     },
     projectExec: {
-      enabled: overrides.projectExecEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC),
+      enabled: effectiveOverrides.projectExecEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC),
     },
     personalAdmin: {
       enabled: personalAdminEnabled,
@@ -334,8 +353,8 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       maxTerminalInputBytes: OWNER_TERMINAL_MAX_INPUT_BYTES,
     },
     computerUse: {
-      enabled: overrides.computerUseEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_COMPUTER_USE),
-      fullHostJsEnabled: overrides.fullHostJsEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_FULL_HOST_JS),
+      enabled: effectiveOverrides.computerUseEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_COMPUTER_USE),
+      fullHostJsEnabled: effectiveOverrides.fullHostJsEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_FULL_HOST_JS),
       hostBundlePath: path.join(homeDir, ".chatgpt-system", "ChatGPTSystemComputerRuntime.app"),
       requestTimeoutMs: env.CHATGPT_SYSTEM_COMPUTER_REQUEST_TIMEOUT_MS ?? 10_000,
       maxObservationElements: env.CHATGPT_SYSTEM_COMPUTER_MAX_OBSERVATION_ELEMENTS ?? 500,
@@ -358,12 +377,12 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       enabled: browserEnabled,
       connectionMode: browserConnectionMode,
       headless: browserHeadless,
-      timeoutMs: overrides.browserTimeoutMs ?? env.CHATGPT_SYSTEM_BROWSER_TIMEOUT_MS ?? 10_000,
+      timeoutMs: effectiveOverrides.browserTimeoutMs ?? env.CHATGPT_SYSTEM_BROWSER_TIMEOUT_MS ?? 10_000,
       userDataDir: browserUserDataDir,
       existingChromeUserDataDir,
     },
     control: {
-      enabled: overrides.controlEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_CONTROL),
+      enabled: effectiveOverrides.controlEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_CONTROL),
       socketPath: controlSocketPath,
     },
     http,
@@ -372,7 +391,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       maxWriteBytes: env.CHATGPT_SYSTEM_MAX_WRITE_BYTES ?? 2_097_152,
       maxDirectoryEntries: env.CHATGPT_SYSTEM_MAX_DIRECTORY_ENTRIES ?? 2_000,
       maxCommandOutputBytes: env.CHATGPT_SYSTEM_MAX_COMMAND_OUTPUT_BYTES ?? 1_048_576,
-      commandTimeoutMs: env.CHATGPT_SYSTEM_COMMAND_TIMEOUT_MS ?? 60_000,
+      commandTimeoutMs: effectiveOverrides.commandTimeoutMs ?? env.CHATGPT_SYSTEM_COMMAND_TIMEOUT_MS ?? 60_000,
       maxManagedProcesses: env.CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES ?? 32,
       maxProcessLogBytesPerStream: env.CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM ?? 131_072,
       processStopGraceMs: env.CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS ?? 3_000,

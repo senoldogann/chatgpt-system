@@ -12,6 +12,12 @@ export interface SystemEnvironment {
   arch: string;
   pathEntries: string[];
   roots: string[];
+  projectAuthority: {
+    bootstrapRootsAreDefaultsOnly: true;
+    dynamicProjectRootsSupported: true;
+    forbiddenBroadRoots: ["filesystem-root", "home-directory"];
+    recommendedOpenFlow: ["session_authority_start", "project_register", "project_resume"];
+  };
   terminal: {
     enabled: boolean;
   };
@@ -43,6 +49,12 @@ export async function describeSystemEnvironment(config: AppConfig): Promise<Syst
     arch: arch(),
     pathEntries: resolutionSearchDirs(process.env.PATH, homedir()),
     roots: [...config.roots],
+    projectAuthority: {
+      bootstrapRootsAreDefaultsOnly: true,
+      dynamicProjectRootsSupported: true,
+      forbiddenBroadRoots: ["filesystem-root", "home-directory"],
+      recommendedOpenFlow: ["session_authority_start", "project_register", "project_resume"],
+    },
     terminal: {
       enabled: config.terminal.enabled,
     },

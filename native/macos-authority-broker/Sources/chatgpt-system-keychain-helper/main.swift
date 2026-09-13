@@ -11,43 +11,79 @@ private func fail(_ message: String, status: OSStatus? = nil) -> Never {
     exit(1)
 }
 
+private func validatedName(_ value: String, label: String) -> String {
+    let count = value.utf8.count
+    guard count >= 1 && count <= 256 else {
+        fail("\(label) must contain 1-256 UTF-8 bytes")
+    }
+    return value
+}
+
 let arguments = CommandLine.arguments
-
-guard arguments.count == 4, arguments[1] == "store" else {
-    fail("Usage: chatgpt-system-keychain-helper store <account> <service>")
+guard arguments.count == 4 else {
+    fail("Usage: chatgpt-system-keychain-helper <store|read|delete> <account> <service>")
 }
 
-let account = arguments[2]
-let service = arguments[3]
-let credential = FileHandle.standardInput.readDataToEndOfFile()
-
-guard !credential.isEmpty else {
-    fail("Credential stdin must not be empty")
-}
-
-let query: [CFString: Any] = [
+let operation = arguments[1]
+let account = validatedName(arguments[2], label: "Account")
+let service = validatedName(arguments[3], label: "Service")
+let baseQuery: [CFString: Any] = [
     kSecClass: kSecClassGenericPassword,
     kSecAttrAccount: account,
     kSecAttrService: service,
 ]
 
-let updateStatus = SecItemUpdate(
-    query as CFDictionary,
-    [kSecValueData: credential] as CFDictionary
-)
+switch operation {
+case "store":
+    let credential = FileHandle.standardInput.readDataToEndOfFile()
+    guard !credential.isEmpty else {
+        fail("Credential stdin must not be empty")
+    }
 
-if updateStatus == errSecSuccess {
-    exit(0)
-}
+    var updateQuery = baseQuery
+    updateQuery[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
+    let updateStatus = SecItemUpdate(
+        updateQuery as CFDictionary,
+        [kSecValueData: credential] as CFDictionary
+    )
 
-if updateStatus != errSecItemNotFound {
-    fail("Unable to update Keychain item", status: updateStatus)
-}
+    if updateStatus == errSecSuccess {
+        exit(0)
+    }
+    if updateStatus != errSecItemNotFound {
+        fail("Unable to update Keychain item", status: updateStatus)
+    }
 
-var newItem = query
-newItem[kSecValueData] = credential
-let addStatus = SecItemAdd(newItem as CFDictionary, nil)
+    var newItem = baseQuery
+    newItem[kSecValueData] = credential
+    let addStatus = SecItemAdd(newItem as CFDictionary, nil)
+    guard addStatus == errSecSuccess else {
+        fail("Unable to add Keychain item", status: addStatus)
+    }
 
-guard addStatus == errSecSuccess else {
-    fail("Unable to add Keychain item", status: addStatus)
+case "read":
+    var readQuery = baseQuery
+    readQuery[kSecReturnData] = true
+    readQuery[kSecMatchLimit] = kSecMatchLimitOne
+    readQuery[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
+    var item: CFTypeRef?
+    let status = SecItemCopyMatching(readQuery as CFDictionary, &item)
+    guard status == errSecSuccess else {
+        fail("Unable to read Keychain item", status: status)
+    }
+    guard let data = item as? Data, !data.isEmpty else {
+        fail("Keychain item did not contain credential data")
+    }
+    FileHandle.standardOutput.write(data)
+
+case "delete":
+    var deleteQuery = baseQuery
+    deleteQuery[kSecUseAuthenticationUI] = kSecUseAuthenticationUIFail
+    let status = SecItemDelete(deleteQuery as CFDictionary)
+    guard status == errSecSuccess || status == errSecItemNotFound else {
+        fail("Unable to delete Keychain item", status: status)
+    }
+
+default:
+    fail("Usage: chatgpt-system-keychain-helper <store|read|delete> <account> <service>")
 }

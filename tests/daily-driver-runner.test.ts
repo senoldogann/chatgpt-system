@@ -32,28 +32,40 @@ describe("daily-driver tunnel runner", () => {
       "--tunnel-client", "/opt/homebrew/bin/tunnel-client",
       "--profile", "chatgpt-system",
       "--log-dir", "/tmp/chatgpt-system-logs",
+      "--keychain-helper", "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
     ])).toEqual({
       tunnelClientPath: "/opt/homebrew/bin/tunnel-client",
       profile: "chatgpt-system",
       logDir: "/tmp/chatgpt-system-logs",
+      keychainHelperPath: "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
     });
   });
 
-  it("reads the fixed Keychain item without placing a secret in argv", () => {
+  it("reads the fixed Keychain item through the dedicated helper without placing a secret in argv", () => {
     const calls: Array<{ command: string; args: string[] }> = [];
+    const helperPath = "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper";
     const value = readControlPlaneKey({
+      helperPath,
       spawnSync: (command: string, args: string[]) => {
         calls.push({ command, args });
-        return { status: 0, stdout: "sentinel-secret\n", stderr: "" };
+        return { status: 0, stdout: "sentinel-secret\n", stderr: "ignored-detail" };
       },
     });
 
     expect(value).toBe("sentinel-secret");
     expect(calls).toEqual([{
-      command: "/usr/bin/security",
-      args: ["find-generic-password", "-w", "-a", KEYCHAIN_ACCOUNT, "-s", KEYCHAIN_SERVICE],
+      command: helperPath,
+      args: ["read", KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE],
     }]);
+    expect(calls[0]?.command).not.toBe("/usr/bin/security");
     expect(JSON.stringify(calls)).not.toContain("sentinel-secret");
+  });
+
+  it("does not expose helper stderr when a Keychain read fails", () => {
+    expect(() => readControlPlaneKey({
+      helperPath: "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
+      spawnSync: () => ({ status: 1, stdout: "", stderr: "sensitive-keychain-detail" }),
+    })).toThrow("Unable to read the daily-driver tunnel credential from macOS Keychain.");
   });
 
   it("retains only the newest bounded log tail", async () => {
@@ -97,6 +109,7 @@ describe("daily-driver tunnel runner", () => {
         "--tunnel-client", "/opt/homebrew/bin/tunnel-client",
         "--profile", "chatgpt-system",
         "--log-dir", base,
+        "--keychain-helper", "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
       ],
       environment: { PATH: "/usr/bin:/bin" },
       readKey: () => "sentinel-secret",

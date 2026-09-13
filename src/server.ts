@@ -34,15 +34,17 @@ import { NodePtyBackend } from "./terminal-pty-backend.js";
 import { TerminalSessionSupervisor } from "./terminal-session-supervisor.js";
 import { registerTerminalSessionTools } from "./terminal-session-tool-registration.js";
 import { registerOwnerShellTool } from "./owner-shell-tool-registration.js";
+import { createProjectCheckService } from "./project-check-factory.js";
 import { registerProjectCheckTool } from "./project-check-tool-registration.js";
 import { registerProjectExecTool } from "./project-exec-tool-registration.js";
+import { ProjectPublishGate } from "./project-publish-gate.js";
 import { createProjectContinuityRuntime, type ProjectContinuityRuntime } from "./project-continuity-runtime.js";
 import { registerProjectContinuityTools } from "./project-continuity-tool-registration.js";
 import { registerTaskStateTool } from "./task-state-tool-registration.js";
 import type { ProjectExecBackend } from "./project-exec-types.js";
 import { createScopedRuntime } from "./scoped-runtime.js";
 import { describeSystemEnvironment } from "./system-environment.js";
-import { errorPayload, PolicyError } from "./errors.js";
+import { AuthorityDeniedError, errorPayload, PolicyError } from "./errors.js";
 import {
   authorityEndOutputSchema,
   authorityLeaseOutputSchema,
@@ -253,13 +255,19 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "system_capabilities",
     {
-      description: "Show bootstrap filesystem roots, safety limits, audit path, and startup terminal configuration. Session leases can grant broader scoped authority.",
+      description: "Show bootstrap filesystem roots, safety limits, audit path, and startup terminal configuration. Bootstrap roots are defaults only: Project leases may target other explicit project directories outside bootstrap roots, while filesystem root and the entire home directory remain forbidden for Project authority. If ChatGPT reports 'This conversation does not support developer MCPs', treat that as developer MCP product-surface/tool-routing unavailability, do not treat it as daemon failure; do not claim local changes, and project_resume after the app tools are available again.",
       inputSchema: z.object({}),
       outputSchema: systemCapabilitiesOutputSchema,
       annotations: readAnnotations,
     },
     async () => safeCall(async () => ({
       roots: runtime.config.roots,
+      projectAuthority: {
+        bootstrapRootsAreDefaultsOnly: true as const,
+        dynamicProjectRootsSupported: true as const,
+        forbiddenBroadRoots: ["filesystem-root", "home-directory"] as const,
+        recommendedOpenFlow: ["session_authority_start", "project_register", "project_resume"] as const,
+      },
       auditFile: runtime.config.auditFile,
       terminal: runtime.config.terminal,
       personalAdmin: {
@@ -297,7 +305,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "system_environment",
     {
-      description: "Describe the local runtime environment without running terminal commands: operating system, architecture, effective executable search path, roots, and allowlisted executable resolution (allowed vs available). Read-only; exposes no secret values.",
+      description: "Describe the local runtime environment without running terminal commands. Bootstrap roots are defaults only; Project leases may target other explicit project directories outside bootstrap roots. If ChatGPT reports 'This conversation does not support developer MCPs', treat that as developer MCP product-surface/tool-routing unavailability, do not treat it as daemon failure; do not claim local changes, and project_resume after the app tools are available again. Read-only; exposes no secret values.",
       inputSchema: z.object({}),
       outputSchema: systemEnvironmentOutputSchema,
       annotations: readAnnotations,
@@ -309,8 +317,8 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     "session_authority_start",
     {
       description: personalAdminEnabled
-        ? "Start a Project lease or, in explicit Personal Admin mode, a short-lived Admin lease for normal daily-driver work. User authority remains locally approved."
-        : "Start a direct Project authority lease for explicit project roots. User/Admin leases are created locally on the Mac with chatgpt-system authorize and then supplied to existing lease-aware tools.",
+        ? "Start a Project lease for explicit project roots, including project directories outside bootstrap roots, or in Personal Admin mode a short-lived Admin lease. For a new project: start the exact Project lease, project_register once for continuity, then use project_resume in later chats. Filesystem root and the entire home directory are refused for Project authority."
+        : "Start a direct Project authority lease for explicit project roots, including project directories outside bootstrap roots. For a new project: start the exact Project lease, project_register once for continuity, then use project_resume in later chats. Filesystem root and the entire home directory are refused; User/Admin leases remain locally approved.",
       inputSchema: authorityStartInputSchema,
       outputSchema: authorityLeaseOutputSchema,
       annotations: sessionStartAnnotations,
@@ -586,15 +594,35 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "git_push",
     {
-      description: "Push only the current validated branch to the existing credential-free GitHub origin. Requires an Admin authority lease; force, remote, refspec, and arbitrary Git arguments are not exposed.",
+      description: "Push only a clean, fresh locally verified non-main branch from the exact active project_resume worktree to the existing credential-free GitHub origin. Requires active Admin and resumed Project authority leases; force, remote, refspec, branch, head, and verification overrides are not exposed.",
       inputSchema: z.object({
         ...authorityLeaseField,
+        projectAuthorityLeaseId: z.string().min(40),
         cwd: z.string().default("."),
       }).strict(),
       outputSchema: gitResultOutputSchema,
       annotations: gitRemoteMutationAnnotations,
     },
-    async ({ authorityLeaseId, cwd }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.push(cwd)),
+    async ({ authorityLeaseId, projectAuthorityLeaseId, cwd }) => safeCall(async () => {
+      const adminAuthority = runtime.authority.resolve(authorityLeaseId);
+      if (adminAuthority.profile !== "admin") {
+        throw new AuthorityDeniedError("Git push requires an active Admin authority lease.");
+      }
+      const projectAuthority = runtime.authority.resolve(projectAuthorityLeaseId);
+      if (projectAuthority.profile !== "project") {
+        throw new AuthorityDeniedError("Git push requires an active Project authority lease created by project_resume.");
+      }
+      const resumeContext = await runtime.continuity.revalidateResumeContext(projectAuthorityLeaseId);
+      const adminScoped = createScopedRuntime(runtime, adminAuthority);
+      const projectScoped = createScopedRuntime(runtime, projectAuthority);
+      const projectCheck = createProjectCheckService(runtime, projectAuthorityLeaseId);
+      const gate = new ProjectPublishGate({
+        projectGit: projectScoped.git,
+        adminGit: adminScoped.git,
+        projectCheck,
+      });
+      return gate.push({ cwd, resumeContext });
+    }),
   );
 
   registerOwnerShellTool(server, runtime);

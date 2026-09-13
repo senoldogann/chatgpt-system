@@ -17,6 +17,7 @@ import { ProcessService } from "../src/process-service.js";
 import { createRuntimeServices } from "../src/server.js";
 import { describeSystemEnvironment, prettyOperatingSystemName } from "../src/system-environment.js";
 import { startHttp } from "../src/transport.js";
+import { executableTestTemp } from "./test-temp.js";
 
 const cleanups: string[] = [];
 const servers: ReturnType<typeof startHttp>[] = [];
@@ -35,7 +36,7 @@ async function makeExecutable(directory: string, name: string, body = "echo fake
 }
 
 async function tempHome(): Promise<string> {
-  const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-env-home-"));
+  const base = await executableTestTemp("chatgpt-system-env-home-");
   cleanups.push(base);
   return base;
 }
@@ -77,7 +78,7 @@ function serviceConfig(root: string, base: string, commands: string[], commandTi
 
 describe("executable resolution", () => {
   it("resolves a basename through PATH entries in order", async () => {
-    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-env-path-"));
+    const base = await executableTestTemp("chatgpt-system-env-path-");
     cleanups.push(base);
     const first = path.join(base, "first");
     const second = path.join(base, "second");
@@ -170,6 +171,12 @@ describe("describeSystemEnvironment", () => {
     expect(environment.arch).toBe(arch());
     expect(environment.os).toBe(prettyOperatingSystemName(platform()));
     expect(environment.roots).toEqual([root]);
+    expect(environment.projectAuthority).toEqual({
+      bootstrapRootsAreDefaultsOnly: true,
+      dynamicProjectRootsSupported: true,
+      forbiddenBroadRoots: ["filesystem-root", "home-directory"],
+      recommendedOpenFlow: ["session_authority_start", "project_register", "project_resume"],
+    });
     expect(environment.terminal).toEqual({ enabled: true });
     expect(environment.ownerRuntime).toEqual({ enabled: true });
     expect(environment.computerUse).toEqual({ enabled: true, fullHostJsEnabled: true });
@@ -184,7 +191,7 @@ describe("describeSystemEnvironment", () => {
     });
     expect(JSON.stringify(environment)).not.toContain("canary-secret-value-12345");
     expect(Object.keys(environment).sort()).toEqual(
-      ["arch", "computerUse", "executables", "os", "ownerRuntime", "pathEntries", "platform", "roots", "terminal"],
+      ["arch", "computerUse", "executables", "os", "ownerRuntime", "pathEntries", "platform", "projectAuthority", "roots", "terminal"],
     );
   });
 });
@@ -196,7 +203,7 @@ describe("terminal_run resolution and error ergonomics", () => {
     await mkdir(localBin, { recursive: true });
     await makeExecutable(localBin, "uv", "echo 'uv 0.0.0-test'");
 
-    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-env-run-"));
+    const base = await executableTestTemp("chatgpt-system-env-run-");
     cleanups.push(base);
     const root = path.join(base, "root");
     await mkdir(root);
@@ -322,6 +329,11 @@ describe("system_environment MCP tool", () => {
       const tool = tools.find((item) => item.name === "system_environment");
       expect(tool).toBeDefined();
       expect(tool?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+      expect(tool?.description).toMatch(/bootstrap roots.*defaults only/i);
+      expect(tool?.description).toMatch(/outside.*bootstrap roots/i);
+      expect(tool?.description).toMatch(/developer MCP/i);
+      expect(tool?.description).toMatch(/do not.*daemon/i);
+      expect(tool?.description).toMatch(/project_resume/i);
       expect(tool?.outputSchema).toMatchObject({ type: "object" });
 
       const result = await client.callTool({ name: "system_environment", arguments: {} });
@@ -330,6 +342,12 @@ describe("system_environment MCP tool", () => {
         platform: platform(),
         arch: arch(),
         roots: [root],
+        projectAuthority: {
+          bootstrapRootsAreDefaultsOnly: true,
+          dynamicProjectRootsSupported: true,
+          forbiddenBroadRoots: ["filesystem-root", "home-directory"],
+          recommendedOpenFlow: ["session_authority_start", "project_register", "project_resume"],
+        },
         terminal: { enabled: false },
         ownerRuntime: { enabled: true },
         computerUse: { enabled: true, fullHostJsEnabled: true },

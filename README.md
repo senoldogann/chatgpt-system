@@ -241,23 +241,19 @@ Create the fixed Project execution image first if you want Project leases to run
 npm run setup:project-exec
 ```
 
-Create the tunnel in OpenAI Platform, then configure the local profile. For the full daily-driver capability set including Project execution and browser:
+Create the tunnel in OpenAI Platform, then configure the local profile. On one trusted private Mac, the explicit Owner Workstation preset composes the daily-driver capability set in one opt-in:
 
 ```bash
 npm run setup:chatgpt -- \
   --root /absolute/path/to/disposable-test-project \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
-  --enable-terminal \
-  --enable-project-exec \
-  --personal-admin \
-  --enable-owner-runtime \
-  --enable-browser \
-  --enable-computer-use \
-  --enable-full-host-js \
+  --owner-workstation \
   --doctor
 ```
 
-The generated tunnel child command always enables the private local authority control socket. `--enable-terminal`, `--enable-project-exec`, `--personal-admin`, `--enable-owner-runtime`, `--enable-browser`, `--enable-computer-use`, and `--enable-full-host-js` are separate explicit trust decisions. `--enable-owner-runtime` requires `--personal-admin` and enables the Admin-only unrestricted `shell_run` plus persistent `terminal_session_*` PTY surfaces; it does not widen Project/User authority or change `terminal_run`. `--enable-project-exec` does not enable host terminal access; it only enables the Project-only Docker sandbox. Full-host JavaScript cannot be enabled without Computer Runtime; omitting any gate preserves the corresponding secure default.
+`--owner-workstation` enables Personal Admin, Owner Runtime, structured host terminal/PTY capability, local Docker Project Exec, Computer Use, and full-host JavaScript. It is still current-user authority, **not root** and not an OS sandbox. macOS sudo, TCC, SIP, FileVault/login, and Keychain authentication boundaries remain authoritative. Browser Runtime stays independent and is never enabled by this preset; add `--enable-browser` separately only when the Playwright layer is intentionally wanted. The individual capability flags remain available for narrower configurations: `--enable-terminal`, `--enable-project-exec`, `--personal-admin`, `--enable-owner-runtime`, `--enable-computer-use`, and `--enable-full-host-js`. Omitting the preset preserves the secure defaults.
+
+The configured `--root` is a **bootstrap/default root**, not a permanent "only this project" restriction. A Project lease may target another explicit repository path outside the bootstrap root with `session_authority_start(profile="project", projectRoots=[...])`; `/` and the entire home directory remain forbidden Project roots. For a new project, the recommended flow is: open the exact Project lease, `project_register` it once for continuity, then use `project_resume` in later chats. Reconfiguring the tunnel is not required for each repository.
 
 Headless browser mode is optional:
 
@@ -282,10 +278,7 @@ If the `chatgpt-system` tunnel profile already exists and its child command is s
 npm run setup:chatgpt -- \
   --root /absolute/path/to/disposable-test-project \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
-  --enable-terminal \
-  --personal-admin \
-  --enable-owner-runtime \
-  --enable-browser \
+  --owner-workstation \
   --force \
   --doctor
 ```
@@ -299,6 +292,19 @@ tunnel-client run --profile chatgpt-system
 ```
 
 ChatGPT Web is the canonical first acceptance surface. Desktop uses the same installed plugin/backend. Normal Chat and Work may route product safety differently, so actual MCP calls are the acceptance evidence that matters.
+
+### ChatGPT Web custom-app availability recovery
+
+If ChatGPT returns `This conversation does not support developer MCPs`, treat it as a **product surface / tool routing availability** problem, do not treat it as daemon failure or tunnel failure. Do not invent a local-host fallback and do not claim local changes, tests, or Git operations that were not actually performed.
+
+Recovery flow:
+
+1. Return to a supported **standard text chat** surface. Agent mode does not use custom apps; Deep Research can use custom apps only for read/fetch actions, not write/modify actions.
+2. Select the custom app again from the tools/apps menu or `@mention` it on the message that needs new local data or an action.
+3. If the MCP server tool/action definitions changed, use **Refresh** in the app configuration so ChatGPT reloads the current actions.
+4. Once developer MCP tools are available again, call `project_resume` for the exact registered alias and reconcile Git/worktree reality before continuing.
+
+Stopping and continuing the same chat is not itself proof that the custom app remains available on the next message. The agent must use actual MCP tool availability as evidence. Safety or product-surface routing must never be worked around by keyword substitution or by pretending container access is equivalent to the user's Mac.
 
 See [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md) for the full runbook.
 
@@ -316,10 +322,11 @@ Maintenance commands:
 
 ```bash
 npm run daily-driver:status
+npm run owner-workstation:status
 npm run daily-driver:uninstall
 ```
 
-The LaunchAgent runs as the logged-in user. The tunnel credential is not written to the plist, repository, audit log, runner logs, or spawned command argv.
+The LaunchAgent runs as the logged-in user. The dedicated `chatgpt-system-keychain-helper` owns app-specific Keychain store/read/delete operations; runtime reads fail closed rather than opening authentication UI. The tunnel credential is not written to the plist, repository, audit log, runner logs, or spawned command argv. `owner-workstation:status` is passive: it reports stable Computer Runtime identity, Accessibility/Screen Recording/event permission booleans, and non-interactive credential readability without changing TCC or Keychain policy.
 
 ## Authority privilege ladder
 
@@ -342,7 +349,7 @@ session_authority_start({
 })
 ```
 
-It supports filesystem and built-in Git tools inside selected roots. When the independent Project execution gate is enabled, the same Project lease can also call `project_exec` inside those roots without gaining host-terminal authority. `/` and the entire user home directory are rejected as Project roots.
+It supports filesystem and built-in Git tools inside selected roots. These exact Project roots may be outside the tunnel's bootstrap/default root; a new tunnel profile is not required for another repository. When the independent Project execution gate is enabled, the same Project lease can also call `project_exec` inside those roots without gaining host-terminal authority. `/` and the entire user home directory are rejected as Project roots. Register the repository once with `project_register` when continuity is wanted, then use `project_resume` in later chats.
 
 ### User/Admin local authorization
 
@@ -441,7 +448,7 @@ git_merge_branch
 git_push
 ```
 
-`git_push` is Admin-only and pushes only the validated current branch to the existing credential-free GitHub `origin`. Remote/refspec/force input is not exposed.
+`git_push` is a dual-authority publication gate. `authorityLeaseId` must be an active Admin lease and `projectAuthorityLeaseId` must be the exact active Project lease returned by `project_resume` for the registered worktree. Publication is denied on `main`, on a dirty tree, when resumed worktree identity no longer matches, or unless `project_check` reports a fresh `PASS` for the exact current `HEAD` + `workingTreeDigest`. The final Git refspec uses that verified commit SHA and the validated current branch; remote/refspec/force/branch/head verification overrides are not exposed to MCP callers.
 
 ### Sandboxed Project execution
 

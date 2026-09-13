@@ -12,6 +12,7 @@ import {
   type ResumePackageInput,
 } from "./continuity-resume-package.js";
 import type { ContinuityGitInspector } from "./continuity-git-inspector.js";
+import { ContinuityResumeRegistry, type ContinuityResumeContext } from "./continuity-resume-registry.js";
 import type { ContinuityStore } from "./continuity-store.js";
 import type {
   ContinuityDecision,
@@ -22,7 +23,7 @@ import type {
   StoredProject,
   StoredWorktreeIdentity,
 } from "./continuity-types.js";
-import { AuthorityDeniedError, AuthorityRequiredError } from "./errors.js";
+import { AuthorityDeniedError, AuthorityRequiredError, ProjectResumeRequiredError } from "./errors.js";
 
 export interface ProjectRegisterInput {
   alias: string;
@@ -79,6 +80,7 @@ export interface ProjectContinuityServiceOptions {
   authority: AuthorityManager;
   homeDir: string;
   maxResumeChars: number;
+  resumeRegistry?: ContinuityResumeRegistry;
   packageBuilder?: (input: ResumePackageInput, maxChars: number) => ReturnType<typeof buildResumePackage>;
 }
 
@@ -113,6 +115,7 @@ export class ProjectContinuityService {
   private readonly homeDir: string;
   private readonly maxResumeChars: number;
   private readonly packageBuilder: (input: ResumePackageInput, maxChars: number) => ReturnType<typeof buildResumePackage>;
+  readonly resumeRegistry: ContinuityResumeRegistry;
 
   constructor(options: ProjectContinuityServiceOptions) {
     this.store = options.store;
@@ -120,6 +123,7 @@ export class ProjectContinuityService {
     this.authority = options.authority;
     this.homeDir = options.homeDir;
     this.maxResumeChars = options.maxResumeChars;
+    this.resumeRegistry = options.resumeRegistry ?? new ContinuityResumeRegistry();
     this.packageBuilder = options.packageBuilder ?? buildResumePackage;
   }
 
@@ -222,6 +226,15 @@ export class ProjectContinuityService {
         inspection.published,
         inspection.local.checkedAt,
       );
+      this.resumeRegistry.register(authorityLease.leaseId, {
+        projectId: project.id,
+        alias: project.alias,
+        recordVersion: project.currentRecord.recordVersion,
+        canonicalWorktree: project.worktree.canonicalPath,
+        repositoryRoot: project.worktree.repositoryRoot,
+        repositoryIdentity: project.worktree.repositoryIdentity,
+        expiresAt: authorityLease.expiresAt,
+      });
       return {
         projectId: project.id,
         alias: project.alias,
@@ -247,6 +260,25 @@ export class ProjectContinuityService {
       }
       throw error;
     }
+  }
+
+  async revalidateResumeContext(authorityLeaseId: string): Promise<ContinuityResumeContext> {
+    const context = this.resumeRegistry.require(authorityLeaseId);
+    const stored = this.store.getByAlias(context.alias);
+    this.requireRegisteredProjectLease(authorityLeaseId, stored.roots);
+    if (stored.id !== context.projectId
+      || stored.currentRecord.recordVersion !== context.recordVersion
+      || stored.worktree.canonicalPath !== context.canonicalWorktree
+      || stored.worktree.repositoryRoot !== context.repositoryRoot
+      || stored.worktree.repositoryIdentity !== context.repositoryIdentity) {
+      throw new ProjectResumeRequiredError("The resumed project context no longer matches the registered project state.");
+    }
+    await this.inspector.verifyIdentity(
+      stored.worktree.canonicalPath,
+      stored.worktree,
+      stored.publishedState,
+    );
+    return { ...context };
   }
 
   private requireRegisteredProjectLease(leaseId: string, storedRoots: string[]): void {
