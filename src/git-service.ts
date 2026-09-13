@@ -3,14 +3,19 @@ import { lstat } from "node:fs/promises";
 import path from "node:path";
 import { AuditLogger } from "./audit.js";
 import type { AppConfig } from "./config.js";
-import { PolicyError } from "./errors.js";
+import { LocalVerificationStaleError, PolicyError } from "./errors.js";
 import { PathPolicy } from "./policy.js";
 
-interface GitResult {
+export interface GitResult {
   cwd: string;
   exitCode: number;
   stdout: string;
   stderr: string;
+}
+
+export interface VerifiedGitPush {
+  branch: string;
+  head: string;
 }
 
 export interface GitServiceOptions {
@@ -22,6 +27,7 @@ const SAFE_BRANCH_COMPONENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const GITHUB_HTTPS_REMOTE = /^https:\/\/github\.com\/[^/\s]+\/[^/\s]+(?:\.git)?$/;
 const GITHUB_SSH_REMOTE = /^git@github\.com:[^/\s]+\/[^/\s]+(?:\.git)?$/;
 const GITHUB_SSH_URL_REMOTE = /^ssh:\/\/git@github\.com\/[^/\s]+\/[^/\s]+(?:\.git)?$/;
+const GIT_OBJECT_ID = /^[a-f0-9]{40,64}$/i;
 
 export function validateBranchName(branch: string): string {
   if (branch.length < 1 || branch.length > 200 || branch !== branch.trim() || branch === "HEAD") {
@@ -317,7 +323,7 @@ export class GitService {
     );
   }
 
-  async push(cwd = "."): Promise<GitResult> {
+  async push(cwd = ".", expected?: VerifiedGitPush): Promise<GitResult> {
     if (!this.remoteWriteEnabled) {
       throw new PolicyError("Git push requires an Admin authority lease.");
     }
@@ -333,6 +339,24 @@ export class GitService {
     }
     const branch = validateBranchName(branchResult.stdout.trim());
 
+    let source = branch;
+    if (expected !== undefined) {
+      const expectedBranch = validateBranchName(expected.branch);
+      if (!GIT_OBJECT_ID.test(expected.head) || branch !== expectedBranch) {
+        throw new LocalVerificationStaleError();
+      }
+      const headResult = await this.run(
+        cwd,
+        ["rev-parse", "HEAD"],
+        "git.read",
+        { operation: "head_lookup" },
+      );
+      if (headResult.exitCode !== 0 || headResult.stdout.trim() !== expected.head) {
+        throw new LocalVerificationStaleError();
+      }
+      source = expected.head;
+    }
+
     const remoteResult = await this.run(
       cwd,
       ["remote", "get-url", "--push", "origin"],
@@ -346,9 +370,9 @@ export class GitService {
 
     return this.run(
       cwd,
-      ["push", "--porcelain", "origin", `${branch}:refs/heads/${branch}`],
+      ["push", "--porcelain", "origin", `${source}:refs/heads/${branch}`],
       "git.remote_write",
-      { operation: "push_current_branch" },
+      { operation: expected === undefined ? "push_current_branch" : "push_verified_head" },
     );
   }
 }

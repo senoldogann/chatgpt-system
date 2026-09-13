@@ -96,6 +96,17 @@ describe("typed Git mutations", () => {
     await expect(service.push(".")).rejects.toMatchObject({ code: "POLICY_DENIED" });
   });
 
+  it("rejects an exact-state push when the verified HEAD or branch no longer matches", async () => {
+    const { repo, service } = await fixture(true, true);
+    await service.createBranch(".", "feat/exact-state");
+    const head = git(repo, ["rev-parse", "HEAD"]);
+
+    await expect(service.push(".", { branch: "feat/exact-state", head: "f".repeat(40) }))
+      .rejects.toMatchObject({ code: "LOCAL_VERIFICATION_STALE" });
+    await expect(service.push(".", { branch: "feat/other", head }))
+      .rejects.toMatchObject({ code: "LOCAL_VERIFICATION_STALE" });
+  });
+
   it("pushes only the current validated branch to origin when remote writes are enabled", async () => {
     const { repo, remote, service } = await fixture(true, true);
     await service.createBranch(".", "feat/remote-write");
@@ -103,7 +114,8 @@ describe("typed Git mutations", () => {
     await service.stagePaths(".", ["remote.txt"]);
     await service.commit(".", "feat: remote write");
 
-    const pushed = await service.push(".");
+    const head = git(repo, ["rev-parse", "HEAD"]);
+    const pushed = await service.push(".", { branch: "feat/remote-write", head });
     expect(pushed.exitCode).toBe(0);
     expect(git(remote, ["show", "refs/heads/feat/remote-write:remote.txt"])).toBe("remote");
   });
