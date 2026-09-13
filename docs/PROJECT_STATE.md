@@ -1,81 +1,84 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-14T01:35+03:00
-Status: **Computer-Use-first real-Chrome routing slice is locally GREEN; real-Mac acceptance passed and exact-state publication is next.**
+Last updated: 2026-09-14T01:49+03:00
+Status: **Computer-Use-first real-Chrome routing local engineering is complete; final ChatGPT Web product-side acceptance is pending Refresh + repeat.**
 
 This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then continue from the exact next step below.
 
 ## Current goal
 
-When the user explicitly asks for **Computer Use**, physical mouse/keyboard interaction, real Google Chrome, or normal macOS application control, ChatGPT must prefer the `computer_*` surface and operate the real macOS application. Browser Runtime remains available for semantic Playwright automation when Computer Use is not requested or Playwright is explicitly desired.
+Keep the merged Computer-Use-first routing stable and complete the remaining product-side acceptance in ChatGPT Web.
 
-For real Google Chrome, the canonical Computer Runtime target is bundle identifier `com.google.Chrome`. Chrome for Testing / managed Playwright Chromium must not satisfy an explicit real-Chrome Computer Use request.
+When a user explicitly asks for **Computer Use**, physical mouse/keyboard interaction, real Google Chrome, or normal macOS application control, the agent-facing MCP contract now directs the task to `computer_*` tools. For real Google Chrome the canonical bundle identifier is `com.google.Chrome`. Browser Runtime remains available for semantic Playwright automation when Computer Use is not requested or Playwright is explicitly desired.
 
 ## Active workspace
 
 - Authoritative checkout / Continuity worktree: `/Users/dogan/Desktop/chatgpt-system`.
-- Continuity alias: `chatgpt-system-desktop`.
-- Authoritative checkout is still clean `main` at `54c4e58804f266386fae15be847b012bc7a8f7cd`.
-- Managed implementation worktree ID: `519b7494-ba73-4e75-a2de-68bf0ade6ab9`.
-- Managed worktree path: `/Users/dogan/.chatgpt-system/worktrees/e4eaca835975a22d75cc3e7778bb895500595d13b544a96d350c557d9edad976/519b7494-ba73-4e75-a2de-68bf0ade6ab9`.
-- Active branch: `feat/computer-use-first-real-chrome`.
+- Project Continuity alias: `chatgpt-system-desktop`.
+- Primary implementation PR: `#46`.
+- Primary feature head: `8ac9de7ee64ce09c0d03c8eae1aebe8e5486b0f8`.
+- Primary squash merge result: `c106c760c8d041f35ab6f2e5f548ffab31006f39`.
+- Primary feature branch `feat/computer-use-first-real-chrome` was deleted locally and remotely only after exact merge verification.
+- Managed implementation worktree `519b7494-ba73-4e75-a2de-68bf0ade6ab9` was verified same-repository and clean, then removed without `--force`.
 - `origin/feat/computer-use-bridge` remains intentionally retained at `aca2507210c356fd6d2bc89bb86a1f1dc01719c0`; do not delete or rewrite it without separate classification.
-
-## Why this slice exists
-
-The user ran an explicit prompt asking `@chatgpt-system-local` to use **computer use** for web research and then create a Notes summary. Screenshots showed Google Chrome for Testing instead of the user's normal Google Chrome. Redacted audit metadata independently confirmed the routing failure: the research phase repeatedly used `browser.new_tab`, `browser.navigate`, and `browser.snapshot`; `computer.open_app` appeared only later for the native Notes phase.
-
-Historical guidance also explained the misrouting: the integration runbook said ordinary web semantics should prefer Browser Runtime, while `browser_*` descriptions did not defer an explicit Computer Use request.
+- A docs-only closure PR may temporarily advance `main` beyond the primary merge SHA above; it contains no runtime implementation change.
 
 ## Current state
 
-- Every `browser_*` MCP description now identifies itself as semantic Playwright Browser Runtime and explicitly tells the agent not to use it when the user asks for Computer Use, physical mouse/keyboard interaction, or real Google Chrome/macOS app control; it points to `computer_*` instead.
-- `computer_health`, `computer_open_app` / `computer_focus_app`, and `computer_run` now expose the inverse routing guidance to the model.
-- Real Google Chrome is identified by exact bundle ID `com.google.Chrome`; metadata explicitly says not to substitute `browser_*` Playwright automation.
-- README and `docs/CHATGPT_INTEGRATION.md` now make user intent authoritative over the generic web-semantic preference.
-- Existing-Chrome CDP attach remains Browser Runtime and therefore does not count as physical Computer Use.
-- No Browser/Computer runtime schema, authority boundary, TCC policy, or product-safety bypass was added.
+- Every `browser_*` MCP description identifies itself as semantic Playwright Browser Runtime and explicitly defers explicit Computer Use / physical desktop / real-Chrome intent to `computer_*`.
+- Computer Runtime entry-point metadata tells the model to use Computer Runtime for explicit Computer Use and to target real Chrome with `com.google.Chrome` rather than Chrome for Testing / managed Playwright Chromium.
+- README and `docs/CHATGPT_INTEGRATION.md` encode the same user-intent-first routing rule.
+- Existing-Chrome CDP attach remains Browser Runtime and does not satisfy a request for physical Computer Use.
+- Browser Runtime was not removed and no Browser/Computer authority, TCC, SIP, Keychain, sudo/root, or product-safety boundary was weakened.
+- The daily-driver tunnel was rebuilt/restarted from the feature implementation before publication, so the local runtime contains the new routing metadata. ChatGPT product UI still needs its own app/tool catalog Refresh to prove it has reloaded that metadata.
 
 ## Verification
 
-- TDD RED proved the previous browser/computer descriptions and docs lacked the routing contract.
-- Focused GREEN: `tests/browser-mcp.test.ts`, `tests/computer-mcp.test.ts`, `tests/chatgpt-integration-docs.test.ts` = `11/11` PASS.
-- `git diff --check`: PASS.
-- Full branch-local `npm run check`: TypeScript build PASS; `113` test files PASS + `1` intentional skip; `691` tests PASS + `2` intentional skips.
-- Live daily-driver was rebuilt/restarted from exact feature commit `97a3758f469d3c2e559815720d7c80b4174bdbf4`; new MCP routing descriptions are active locally.
-- Real-Mac acceptance: `computer_open_app(bundleIdentifier="com.google.Chrome")` returned frontmost `Google Chrome` with exact bundle `com.google.Chrome`; fresh Computer Runtime observation confirmed the normal Chrome window/toolbars.
-- Reversible physical acceptance clicked the observed address bar through `computer_run` using a fresh semantic/index target, then sent `Escape`; final active window remained real Google Chrome. No CAPTCHA/anti-bot interaction was attempted.
-- Content-redacted audit window from acceptance start recorded `computer.open_app=1`, `computer.run=2`, total `computer.*=3`, and **`browser.*=0`**.
-- No remote publication has occurred for this slice.
+- TDD RED demonstrated that the previous Browser/Computer tool descriptions and integration docs lacked the explicit routing contract.
+- Focused routing GREEN: `tests/browser-mcp.test.ts`, `tests/computer-mcp.test.ts`, and `tests/chatgpt-integration-docs.test.ts` = `11/11` PASS.
+- Real-Mac acceptance opened/focused exact bundle `com.google.Chrome`; Computer Runtime observation reported frontmost `Google Chrome` with `bundleIdentifier=com.google.Chrome`.
+- Reversible physical acceptance used `computer_run` to click the observed address bar and send `Escape`; final active window remained real Google Chrome. No CAPTCHA/anti-bot interaction was attempted.
+- Content-redacted acceptance audit recorded `computer.open_app=1`, `computer.run=2`, total `computer.*=3`, and **`browser.*=0`**.
+- Exact primary feature HEAD host `npm run check`: TypeScript build PASS; `113` test files PASS + `1` intentional skip; `691` tests PASS + `2` intentional skips.
+- Exact primary feature HEAD Linux `project_check run` + independent `report`: PASS on the same clean HEAD + working-tree digest with `stateChangedDuringRun=false`.
+- `npm audit --omit=dev`: `0` vulnerabilities.
+- PR #46 exact-head hosted CI: Node 22 SUCCESS x2, Node 24 SUCCESS x2, macOS native SUCCESS x2; merge state was `CLEAN` before merge.
+- PR #46 merged exact head `8ac9de7ee64ce09c0d03c8eae1aebe8e5486b0f8` to squash commit `c106c760c8d041f35ab6f2e5f548ffab31006f39`.
+- Post-merge local `main` `npm run check`: TypeScript build PASS; `113` test files PASS + `1` intentional skip; `691` tests PASS + `2` intentional skips.
+- Post-merge `npm audit --omit=dev`: `0` vulnerabilities.
+- Cleanup verification: primary local/remote feature refs absent, managed implementation worktree removed, and `origin/feat/computer-use-bridge` preserved at `aca2507210c356fd6d2bc89bb86a1f1dc01719c0`.
 
 ## Completed
 
-- Owner Workstation + Verified Project Session implementation PR #44 merged and was cleaned up.
-- Closure/PTY synchronization follow-up PR #45 merged to `54c4e58804f266386fae15be847b012bc7a8f7cd`; local `main` was synchronized and post-merge full tests passed.
-- Dynamic Project roots, unattended Keychain/TCC readiness, dual-authority `git_push`, Linux Project Exec portability, ChatGPT developer-MCP recovery guidance, and the 120s Owner Workstation command budget remain part of the merged baseline.
+- Diagnosed the original failure from both screenshot evidence and redacted local audit: explicit Computer Use web research had been routed to `browser.new_tab` / `browser.navigate` / `browser.snapshot`, producing Chrome for Testing, while Computer Runtime was used only later for Notes.
+- Changed agent-facing routing metadata and runbook guidance so explicit Computer Use intent outranks the generic semantic-web preference.
+- Standardized real Google Chrome targeting on `com.google.Chrome`.
+- Kept Browser Runtime and Existing-Chrome attach as separate semantic automation capabilities.
+- Verified the physical real-Chrome path locally with no `browser.*` operations in the acceptance window.
+- Published through the verified dual-authority/local-first lifecycle, merged PR #46 after exact-head hosted CI, synchronized local `main`, reran the complete test suite, and cleaned only proven-merged primary feature state.
 
 ## Next exact step
 
-1. Commit this real-Mac acceptance checkpoint on `feat/computer-use-first-real-chrome` with explicit-path staging.
-2. Run fresh full host `npm run check` and production audit on the exact final HEAD.
-3. Checkpoint Continuity, take a fresh `project_resume`, then require Linux `project_check run` + independent `report` to return `PASS` for the same clean HEAD/digest.
-4. Publish only through typed dual-authority `git_push`, open a PR, verify exact-head Node 22 / Node 24 / macOS native CI, and merge only when GREEN/CLEAN.
-5. Fast-forward local `main`, verify post-merge tests, remove only proven-merged feature branch/worktree state, preserve `origin/feat/computer-use-bridge`, and mark Continuity completed.
-6. ChatGPT/OpenAI app must use **Refresh** after the tunnel restart so the model sees the new routing descriptions; repeat the user's original-style Web prompt after Refresh as the final product-side acceptance.
+1. In the ChatGPT/OpenAI app, **Refresh** the `chatgpt-system` custom app/plugin so the current MCP tool descriptions are reloaded after the tunnel restart.
+2. In a standard ChatGPT Web text chat with the custom app selected, repeat an explicit Computer Use request equivalent to: `@chatgpt-system-local computer use kullanarak owner rolünde benim için web'de latest AI news araştır ve Notlar uygulamasında bir özet çıkar.`
+3. Acceptance criterion: web navigation must use the real Google Chrome app through `computer_*` / physical Computer Runtime behavior, not Chrome for Testing / `browser_*`; Notes should also use Computer Runtime/native app control.
+4. If that product-side repeat passes, record it in Continuity as final product acceptance. No new implementation is required.
+5. If ChatGPT Web still chooses `browser_*` after Refresh for an explicit Computer Use prompt, stop and create a separate design/spec for a stronger explicit routing/session gate; do not add keyword hacks or remove Browser Runtime reflexively.
 
 ## Invariants
 
 - Git/worktree reality outranks Continuity, this handoff file, and older chat context.
-- Never reset/clean/revert/delete unfamiliar work.
+- Never reset, clean, revert, overwrite, or delete another agent's unfamiliar work.
 - Development does not happen on `main`.
+- Local verification must be fresh for the exact state being published.
 - Explicit Computer Use intent must not be silently reinterpreted as Playwright automation.
-- Browser Runtime remains available; this slice changes routing guidance, not its authority or safety model.
-- The local MCP does not receive the original natural-language prompt as a trusted server-side routing field, so metadata steering is not cryptographic enforcement. If ChatGPT Web still violates the contract after Refresh, stop and design a heavier explicit routing/session gate rather than adding keyword hacks.
-- macOS TCC/SIP/FileVault/login/Keychain/sudo/root boundaries remain authoritative.
-- `origin/feat/computer-use-bridge` remains preserved until separately classified.
+- Browser Runtime remains a separate capability and is not a substitute for physical Computer Use when the user explicitly requests the latter.
+- macOS TCC, SIP, FileVault/login, Keychain authentication, and sudo/root boundaries remain authoritative.
+- ChatGPT product-surface/tool-routing restrictions are not bypassed by keyword changes or local fallbacks.
+- `origin/feat/computer-use-bridge` remains intentionally preserved until separately classified.
 
 ## Blockers / uncertainties
 
-- No local code/test or real-Mac routing blocker remains before publication.
-- ChatGPT must Refresh/reload the changed MCP tool descriptions after the completed tunnel restart; local MCP acceptance cannot prove the ChatGPT Web model has reloaded them until that Refresh occurs.
-- Final confidence requires an actual ChatGPT Web repeat of the user's original style of Computer Use prompt; local acceptance can prove the real Chrome Computer Runtime path and metadata, but product-side model routing remains controlled by ChatGPT.
+- No local implementation, test, merge, or cleanup blocker remains for this routing slice.
+- Final product-side acceptance is pending because only the ChatGPT/OpenAI UI can Refresh/reload the developer MCP tool catalog and demonstrate the model's subsequent routing choice.
+- MCP metadata steering is strong guidance, not cryptographic intent enforcement. If the refreshed Web product still violates the explicit Computer Use routing contract, the next work is a separately designed explicit routing/session mechanism.
