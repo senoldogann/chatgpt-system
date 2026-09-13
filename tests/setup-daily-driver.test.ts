@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   LAUNCH_AGENT_LABEL,
@@ -6,7 +9,10 @@ import {
   buildLaunchAgent,
   buildLaunchctlCommands,
   buildRestartSubmitInvocation,
+  keychainDeleteInvocation,
+  keychainReadInvocation,
   keychainStoreInvocation,
+  installKeychainHelper,
   planControlPlaneCredential,
   runRestartHelper,
   storeControlPlaneKey,
@@ -21,6 +27,7 @@ describe("macOS daily-driver setup", () => {
       tunnelClientPath: "/opt/homebrew/bin/tunnel-client",
       profile: "chatgpt-system",
       logDir: "/Users/test/.chatgpt-system/daily-driver",
+      keychainHelperPath: "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
     });
 
     expect(plist).toContain(LAUNCH_AGENT_LABEL);
@@ -30,6 +37,8 @@ describe("macOS daily-driver setup", () => {
     expect(plist).toContain("<string>Background</string>");
     expect(plist).toContain("/opt/homebrew/bin/node");
     expect(plist).toContain("/opt/homebrew/bin/tunnel-client");
+    expect(plist).toContain("--keychain-helper");
+    expect(plist).toContain("/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper");
     expect(plist).toContain("<key>EnvironmentVariables</key>");
     expect(plist).toContain("<key>PATH</key>");
     expect(plist).toContain("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin");
@@ -37,24 +46,27 @@ describe("macOS daily-driver setup", () => {
     expect(plist).not.toContain(sentinel);
   });
 
-  it("reuses an existing Keychain credential when reinstalling without CONTROL_PLANE_API_KEY", () => {
+  it("reuses an existing Keychain credential through the dedicated helper", () => {
     const calls: Array<{ command: string; args: string[] }> = [];
+    const helperPath = "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper";
     const action = planControlPlaneCredential(undefined, {
+      helperPath,
       spawnSync: (command: string, args: string[]) => {
         calls.push({ command, args });
-        return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "existing-secret", stderr: "" };
       },
     });
 
     expect(action).toBe("reuse");
     expect(calls).toEqual([{
-      command: "/usr/bin/security",
-      args: ["find-generic-password", "-a", "chatgpt-system", "-s", "chatgpt-system-control-plane"],
+      command: helperPath,
+      args: ["read", "chatgpt-system", "chatgpt-system-control-plane"],
     }]);
   });
 
   it("still requires CONTROL_PLANE_API_KEY when no Keychain credential exists", () => {
     expect(() => planControlPlaneCredential(undefined, {
+      helperPath: "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
       spawnSync: () => ({ status: 44, stdout: "", stderr: "not found" }),
     })).toThrow(/CONTROL_PLANE_API_KEY/i);
   });
@@ -66,6 +78,7 @@ describe("macOS daily-driver setup", () => {
       tunnelClientPath: "/opt/homebrew/bin/tunnel-client",
       profile: "chatgpt-system",
       logDir: "/tmp/logs",
+      keychainHelperPath: "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
     })).toThrow(/absolute/i);
 
     expect(() => buildLaunchAgent({
@@ -74,6 +87,7 @@ describe("macOS daily-driver setup", () => {
       tunnelClientPath: "tunnel-client",
       profile: "chatgpt-system",
       logDir: "/tmp/logs",
+      keychainHelperPath: "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
     })).toThrow(/absolute/i);
   });
 
@@ -97,6 +111,35 @@ describe("macOS daily-driver setup", () => {
     expect(calls[0]?.command).toBe(helperPath);
     expect(JSON.stringify(calls[0]?.args)).not.toContain("sentinel-secret");
     expect(calls[0]?.options).toMatchObject({ input: "sentinel-secret" });
+  });
+
+  it("installs the built Keychain helper at a private executable path", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-keychain-install-"));
+    try {
+      const source = path.join(base, "build", "chatgpt-system-keychain-helper");
+      const destination = path.join(base, ".chatgpt-system", "bin", "chatgpt-system-keychain-helper");
+      await mkdir(path.dirname(source), { recursive: true });
+      await writeFile(source, "fixture-helper", { encoding: "utf8", mode: 0o755 });
+
+      await installKeychainHelper(source, destination);
+
+      expect(await readFile(destination, "utf8")).toBe("fixture-helper");
+      expect((await stat(destination)).mode & 0o777).toBe(0o700);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it("constructs dedicated read and idempotent delete helper invocations", () => {
+    const helperPath = "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper";
+    expect(keychainReadInvocation(helperPath)).toEqual({
+      command: helperPath,
+      args: ["read", "chatgpt-system", "chatgpt-system-control-plane"],
+    });
+    expect(keychainDeleteInvocation(helperPath)).toEqual({
+      command: helperPath,
+      args: ["delete", "chatgpt-system", "chatgpt-system-control-plane"],
+    });
   });
 
   it("constructs deterministic user-scoped launchctl commands", () => {

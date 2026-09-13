@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
-import { access, mkdir, realpath, rename, unlink, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, mkdir, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,7 +11,6 @@ import { KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE } from "./daily-driver-runner.mjs";
 export const LAUNCH_AGENT_LABEL = "com.senoldogann.chatgpt-system.daily-driver";
 export const RESTART_HELPER_LABEL = `${LAUNCH_AGENT_LABEL}.restart-helper`;
 const LAUNCHCTL = "/bin/launchctl";
-const SECURITY = "/usr/bin/security";
 const SWIFT = "/usr/bin/swift";
 const LAUNCH_AGENT_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
@@ -41,6 +40,7 @@ export function buildLaunchAgent(options) {
   const runnerPath = requireAbsolute(options.runnerPath, "Runner path");
   const tunnelClientPath = requireAbsolute(options.tunnelClientPath, "tunnel-client path");
   const logDir = requireAbsolute(options.logDir, "Log directory");
+  const keychainHelperPath = requireAbsolute(options.keychainHelperPath, "Keychain helper path");
   const profile = validateProfile(options.profile);
   const args = [
     nodePath,
@@ -48,6 +48,7 @@ export function buildLaunchAgent(options) {
     "--tunnel-client", tunnelClientPath,
     "--profile", profile,
     "--log-dir", logDir,
+    "--keychain-helper", keychainHelperPath,
   ];
 
   const argumentXml = args.map((value) => `      <string>${xmlEscape(value)}</string>`).join("\n");
@@ -99,6 +100,26 @@ export function keychainStoreInvocation(helperPath) {
   return { command, args: ["store", KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE] };
 }
 
+export function keychainReadInvocation(helperPath) {
+  const command = requireAbsolute(helperPath, "Keychain helper path");
+  return { command, args: ["read", KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE] };
+}
+
+export function keychainDeleteInvocation(helperPath) {
+  const command = requireAbsolute(helperPath, "Keychain helper path");
+  return { command, args: ["delete", KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE] };
+}
+
+export async function installKeychainHelper(sourcePath, destinationPath) {
+  const source = requireAbsolute(sourcePath, "Keychain helper build path");
+  const destination = requireAbsolute(destinationPath, "Installed Keychain helper path");
+  await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+  const temporary = `${destination}.tmp-${process.pid}`;
+  await copyFile(source, temporary);
+  await chmod(temporary, 0o700);
+  await rename(temporary, destination);
+}
+
 export function storeControlPlaneKey(key, options = {}) {
   if (!key) throw new Error("CONTROL_PLANE_API_KEY is required for daily-driver installation.");
   const spawnSyncImpl = options.spawnSync ?? spawnSync;
@@ -117,11 +138,8 @@ export function storeControlPlaneKey(key, options = {}) {
 export function planControlPlaneCredential(key, options = {}) {
   if (key) return "store";
   const spawnSyncImpl = options.spawnSync ?? spawnSync;
-  const result = spawnSyncImpl(SECURITY, [
-    "find-generic-password",
-    "-a", KEYCHAIN_ACCOUNT,
-    "-s", KEYCHAIN_SERVICE,
-  ], {
+  const invocation = keychainReadInvocation(options.helperPath);
+  const result = spawnSyncImpl(invocation.command, invocation.args, {
     shell: false,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -269,31 +287,33 @@ function pathsFor(homeDir) {
   const launchAgentsDir = path.join(homeDir, "Library", "LaunchAgents");
   const plistPath = path.join(launchAgentsDir, `${LAUNCH_AGENT_LABEL}.plist`);
   const logDir = path.join(homeDir, ".chatgpt-system", "daily-driver");
-  return { launchAgentsDir, plistPath, logDir };
+  const keychainHelperPath = path.join(homeDir, ".chatgpt-system", "bin", "chatgpt-system-keychain-helper");
+  return { launchAgentsDir, plistPath, logDir, keychainHelperPath };
 }
 
 async function install(profile, context) {
   if (process.platform !== "darwin") throw new Error("Daily-driver LaunchAgent installation is supported only on macOS.");
   const key = context.environment.CONTROL_PLANE_API_KEY;
-  const credentialAction = planControlPlaneCredential(key);
-
   const tunnelClientPath = await resolveExecutable("tunnel-client", context.environment);
   const runnerPath = path.join(context.repoDir, "scripts", "daily-driver-runner.mjs");
   await access(runnerPath, fsConstants.R_OK);
-  const { plistPath, logDir } = pathsFor(context.homeDir);
+  const { plistPath, logDir, keychainHelperPath } = pathsFor(context.homeDir);
+  const keychainHelper = keychainHelperBuildInvocation(context.repoDir);
+  assertSuccess(runCommand(keychainHelper.command, keychainHelper.args), "Keychain helper build");
+  await installKeychainHelper(keychainHelper.helperPath, keychainHelperPath);
+  const credentialAction = planControlPlaneCredential(key, { helperPath: keychainHelperPath });
   const plist = buildLaunchAgent({
     nodePath: process.execPath,
     runnerPath,
     tunnelClientPath,
     profile,
     logDir,
+    keychainHelperPath,
   });
-  const keychainHelper = keychainHelperBuildInvocation(context.repoDir);
 
   await mkdir(logDir, { recursive: true, mode: 0o700 });
   if (credentialAction === "store") {
-    assertSuccess(runCommand(keychainHelper.command, keychainHelper.args), "Keychain helper build");
-    storeControlPlaneKey(key, { helperPath: keychainHelper.helperPath });
+    storeControlPlaneKey(key, { helperPath: keychainHelperPath });
   }
   await writePlistAtomic(plistPath, plist);
   const activation = activateLaunchAgent({
@@ -326,7 +346,7 @@ async function status(profile, context) {
 
 async function uninstall(profile, context) {
   void profile;
-  const { plistPath } = pathsFor(context.homeDir);
+  const { plistPath, keychainHelperPath } = pathsFor(context.homeDir);
   const commands = buildLaunchctlCommands({ uid: context.uid, plistPath });
   runCommand(LAUNCHCTL, commands.bootout);
   try {
@@ -334,7 +354,8 @@ async function uninstall(profile, context) {
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
   }
-  runCommand(SECURITY, ["delete-generic-password", "-a", KEYCHAIN_ACCOUNT, "-s", KEYCHAIN_SERVICE]);
+  const deleteInvocation = keychainDeleteInvocation(keychainHelperPath);
+  assertSuccess(runCommand(deleteInvocation.command, deleteInvocation.args), "Keychain credential delete");
   console.log(`Daily driver uninstalled: ${LAUNCH_AGENT_LABEL}`);
 }
 

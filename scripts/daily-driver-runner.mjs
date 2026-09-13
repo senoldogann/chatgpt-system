@@ -19,10 +19,11 @@ export function parseRunnerArgs(argv) {
   let tunnelClientPath;
   let profile;
   let logDir;
+  let keychainHelperPath;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (!["--tunnel-client", "--profile", "--log-dir"].includes(arg)) {
+    if (!["--tunnel-client", "--profile", "--log-dir", "--keychain-helper"].includes(arg)) {
       throw new Error(`Unknown daily-driver runner option: ${arg}`);
     }
     const value = takeValue(argv, index, arg);
@@ -30,6 +31,7 @@ export function parseRunnerArgs(argv) {
     if (arg === "--tunnel-client") tunnelClientPath = value;
     if (arg === "--profile") profile = value;
     if (arg === "--log-dir") logDir = value;
+    if (arg === "--keychain-helper") keychainHelperPath = value;
   }
 
   if (!tunnelClientPath || !path.isAbsolute(tunnelClientPath)) {
@@ -41,23 +43,26 @@ export function parseRunnerArgs(argv) {
   if (!logDir || !path.isAbsolute(logDir)) {
     throw new Error("--log-dir must be an absolute path.");
   }
+  if (!keychainHelperPath || !path.isAbsolute(keychainHelperPath)) {
+    throw new Error("--keychain-helper must be an absolute executable path.");
+  }
 
   return {
     tunnelClientPath: path.normalize(tunnelClientPath),
     profile,
     logDir: path.normalize(logDir),
+    keychainHelperPath: path.normalize(keychainHelperPath),
   };
 }
 
 export function readControlPlaneKey(options = {}) {
   const spawnSyncImpl = options.spawnSync ?? spawnSync;
-  const command = "/usr/bin/security";
-  const args = [
-    "find-generic-password",
-    "-w",
-    "-a", KEYCHAIN_ACCOUNT,
-    "-s", KEYCHAIN_SERVICE,
-  ];
+  const helperPath = options.helperPath;
+  if (!helperPath || !path.isAbsolute(helperPath)) {
+    throw new Error("Keychain helper path must be absolute.");
+  }
+  const command = path.normalize(helperPath);
+  const args = ["read", KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE];
   const result = spawnSyncImpl(command, args, {
     shell: false,
     encoding: "utf8",
@@ -93,10 +98,10 @@ export async function appendBoundedLog(file, chunk, maxBytes = MAX_LOG_BYTES) {
 export async function runDailyDriver(options = {}) {
   const argv = options.argv ?? process.argv.slice(2);
   const environment = options.environment ?? process.env;
-  const readKey = options.readKey ?? (() => readControlPlaneKey());
   const spawnProcess = options.spawnProcess ?? spawn;
   const installSignalHandlers = options.installSignalHandlers ?? true;
   const config = parseRunnerArgs(argv);
+  const readKey = options.readKey ?? (() => readControlPlaneKey({ helperPath: config.keychainHelperPath }));
 
   await mkdir(config.logDir, { recursive: true, mode: 0o700 });
   const controlPlaneKey = readKey();
