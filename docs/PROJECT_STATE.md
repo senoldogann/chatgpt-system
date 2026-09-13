@@ -1,7 +1,7 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-13T23:30+03:00
-Status: **Tasks 1-6 complete; Task 7 local acceptance GREEN through real unattended readiness; final docs commit and freshness rerun are next.**
+Last updated: 2026-09-13T23:34+03:00
+Status: **Tasks 1-7 implementation/local acceptance complete; final exact-state verification is next, with publication awaiting explicit user authorization.**
 
 This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then read the active spec and plan.
 
@@ -16,10 +16,9 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 
 ## Active workspace
 
-- Authoritative checkout: `/Users/dogan/Desktop/chatgpt-system`.
-- Planning checkout: `/Users/dogan/Desktop/chatgpt-system` on `design/owner-workstation-verified-project-session` at `a90fdc5f3a2b99ac7bbf85be3f45206a3d2fdafc`, clean before worktree creation.
-- Active implementation branch: `feat/owner-workstation-verified-project-session`.
-- Active managed worktree: `/Users/dogan/.chatgpt-system/worktrees/e4eaca835975a22d75cc3e7778bb895500595d13b544a96d350c557d9edad976/71bcabad-7ca8-4a45-8788-fc44ff0e2fcf`.
+- Authoritative registered checkout: `/Users/dogan/Desktop/chatgpt-system`, now on `feat/owner-workstation-verified-project-session`.
+- Active implementation/publication branch: `feat/owner-workstation-verified-project-session`.
+- Preserved managed implementation worktree: `/Users/dogan/.chatgpt-system/worktrees/e4eaca835975a22d75cc3e7778bb895500595d13b544a96d350c557d9edad976/71bcabad-7ca8-4a45-8788-fc44ff0e2fcf`, detached at `eb05294a81f63fcf9b83ae35ae21f9e5667784ea` so the branch can be checked out at the registered publication worktree without deleting the isolated worktree before merge.
 - Managed worktree ID: `71bcabad-7ca8-4a45-8788-fc44ff0e2fcf`.
 - Implementation worktree started from exact planning HEAD `a90fdc5f3a2b99ac7bbf85be3f45206a3d2fdafc`.
 - Branch base: clean synchronized `main` at `57e7a9ebc3bb3be555b6bab3a228b40d833425f1`.
@@ -32,7 +31,7 @@ Implement the approved Owner Workstation + Verified Project Session slice:
 - Task 4 Continuity resume registry is committed at `5d1e273`.
 - Task 5 freshness-bound publish gate is committed at `ce2a99f`.
 - Task 6 dual-authority MCP publication wiring is committed at `e02f85b`.
-- Current implementation HEAD before final docs commit: `e02f85b5d6e64cac1d8d684d302f7c6282e8b7e7`.
+- Final workflow/docs commit before this state-only transition checkpoint: `eb05294a81f63fcf9b83ae35ae21f9e5667784ea`.
 
 ## Completed
 
@@ -119,10 +118,12 @@ Execution must start with Superpowers `using-git-worktrees`, creating isolated b
 - Real daily-driver acceptance: LaunchAgent reinstall PASS; existing app-owned Keychain credential reused non-interactively; no API key written to the LaunchAgent plist.
 - Real `owner-workstation:status`: `ready=true`; Computer Runtime availability/stable TCC identity/bundle/signature all true; Accessibility, Screen Recording, event-listen, and event-post all true; credential readable non-interactively=true.
 - The first combined focused run exposed only docs-contract drift plus an integration timeout budget under parallel load; both were corrected without weakening security behavior, then the full focused gate passed.
+- Final workflow/docs commit: `eb05294` (`docs: finalize owner workstation workflow`).
+- Publication worktree transition: the clean managed worktree was detached at `eb05294`; the authoritative registered checkout was switched to the feature branch at the same exact commit; a fresh `project_resume` revalidated the registered worktree identity and observed a clean tree with the feature branch unpublished.
 
 ## Next exact step
 
-Commit the final Task 7 docs/state and bounded MCP integration timeout adjustment, then rerun `npm run check` because the commit changes `HEAD`. If fresh verification remains GREEN, detach the now-clean managed implementation worktree to free the feature branch, switch the authoritative registered checkout `/Users/dogan/Desktop/chatgpt-system` to `feat/owner-workstation-verified-project-session`, resume `chatgpt-system-desktop`, checkpoint the exact final branch/HEAD, and produce fresh `project_check run/report` evidence. Stop before `git_push` unless the user explicitly authorizes push/PR.
+Commit this state-only publication-preparation checkpoint, then run `npm run check` on the resulting exact final HEAD. If PASS, checkpoint Project Continuity with the final local verification evidence, obtain a fresh `project_resume` lease for that record version, run `project_check` `run` + `report` on `/Users/dogan/Desktop/chatgpt-system`, and require `overallStatus=PASS` for the exact final `HEAD` + clean-tree digest. Then stop before typed `git_push` until the user explicitly authorizes push/PR.
 
 ## Invariants
 
@@ -136,5 +137,5 @@ Commit the final Task 7 docs/state and bounded MCP integration timeout adjustmen
 ## Blockers / uncertainties
 
 - No baseline blocker remains after the focused, full Node/TypeScript, and native macOS gates passed.
-- Tasks 1-6 are complete and committed. Task 7 local acceptance is GREEN; final docs commit/freshness rerun and registered-checkout publication preparation remain.
+- Tasks 1-7 implementation and local acceptance are complete. Final exact-state `npm run check` + Continuity/`project_check` evidence remain before publication; push/PR still requires explicit user authorization.
 - `origin/feat/computer-use-bridge` remains intentionally untouched.
