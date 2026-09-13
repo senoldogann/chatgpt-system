@@ -83,6 +83,12 @@ export class WorktreeDirtyError extends AppError {
   }
 }
 
+export class ProjectResumeRequiredError extends AppError {
+  constructor(message = "An active project_resume context is required for publication.") {
+    super(message, "PROJECT_RESUME_REQUIRED", { retryable: true });
+  }
+}
+
 export class VerificationRequiredError extends AppError {
   constructor(overallStatus: string) {
     super(

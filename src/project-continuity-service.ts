@@ -12,6 +12,7 @@ import {
   type ResumePackageInput,
 } from "./continuity-resume-package.js";
 import type { ContinuityGitInspector } from "./continuity-git-inspector.js";
+import { ContinuityResumeRegistry } from "./continuity-resume-registry.js";
 import type { ContinuityStore } from "./continuity-store.js";
 import type {
   ContinuityDecision,
@@ -79,6 +80,7 @@ export interface ProjectContinuityServiceOptions {
   authority: AuthorityManager;
   homeDir: string;
   maxResumeChars: number;
+  resumeRegistry?: ContinuityResumeRegistry;
   packageBuilder?: (input: ResumePackageInput, maxChars: number) => ReturnType<typeof buildResumePackage>;
 }
 
@@ -113,6 +115,7 @@ export class ProjectContinuityService {
   private readonly homeDir: string;
   private readonly maxResumeChars: number;
   private readonly packageBuilder: (input: ResumePackageInput, maxChars: number) => ReturnType<typeof buildResumePackage>;
+  readonly resumeRegistry: ContinuityResumeRegistry;
 
   constructor(options: ProjectContinuityServiceOptions) {
     this.store = options.store;
@@ -120,6 +123,7 @@ export class ProjectContinuityService {
     this.authority = options.authority;
     this.homeDir = options.homeDir;
     this.maxResumeChars = options.maxResumeChars;
+    this.resumeRegistry = options.resumeRegistry ?? new ContinuityResumeRegistry();
     this.packageBuilder = options.packageBuilder ?? buildResumePackage;
   }
 
@@ -222,6 +226,15 @@ export class ProjectContinuityService {
         inspection.published,
         inspection.local.checkedAt,
       );
+      this.resumeRegistry.register(authorityLease.leaseId, {
+        projectId: project.id,
+        alias: project.alias,
+        recordVersion: project.currentRecord.recordVersion,
+        canonicalWorktree: project.worktree.canonicalPath,
+        repositoryRoot: project.worktree.repositoryRoot,
+        repositoryIdentity: project.worktree.repositoryIdentity,
+        expiresAt: authorityLease.expiresAt,
+      });
       return {
         projectId: project.id,
         alias: project.alias,

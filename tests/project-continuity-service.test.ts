@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AuthorityManager } from "../src/authority.js";
 import { ContinuityGitInspector } from "../src/continuity-git-inspector.js";
 import { ContinuityStore } from "../src/continuity-store.js";
+import { ContinuityResumeRegistry } from "../src/continuity-resume-registry.js";
 import { ProjectContinuityService } from "../src/project-continuity-service.js";
 
 const execFileAsync = promisify(execFile);
@@ -42,6 +43,7 @@ interface ServiceFixture {
   service: ProjectContinuityService;
   authority: TrackingAuthorityManager;
   authorityStarts: { count: number };
+  resumeRegistry: ContinuityResumeRegistry;
 }
 
 async function createFixture(): Promise<ServiceFixture> {
@@ -80,12 +82,14 @@ async function createFixture(): Promise<ServiceFixture> {
     remoteVerificationTimeoutMs: 2_000,
     maxCommandOutputBytes: 1_048_576,
   });
+  const resumeRegistry = new ContinuityResumeRegistry();
   const service = new ProjectContinuityService({
     store,
     inspector,
     authority,
     homeDir: home,
     maxResumeChars: 12_000,
+    resumeRegistry,
   });
 
   return {
@@ -101,6 +105,7 @@ async function createFixture(): Promise<ServiceFixture> {
     service,
     authority,
     authorityStarts,
+    resumeRegistry,
   };
 }
 
@@ -279,6 +284,21 @@ describe("ProjectContinuityService registration", () => {
       first.authorityLease.leaseId,
       second.authorityLease.leaseId,
     ]);
+    expect(fixture.resumeRegistry.require(first.authorityLease.leaseId)).toMatchObject({
+      projectId: first.projectId,
+      alias: first.alias,
+      recordVersion: first.recordVersion,
+      canonicalWorktree: await realpath(fixture.worktree),
+      repositoryRoot: fixture.store.getByAlias("project-x").worktree.repositoryRoot,
+      repositoryIdentity: fixture.store.getByAlias("project-x").worktree.repositoryIdentity,
+      expiresAt: first.authorityLease.expiresAt,
+    });
+
+    const genericLease = await fixture.authority.start({ profile: "project", projectRoots: [fixture.projectRoot] });
+    expect(() => fixture.resumeRegistry.require(genericLease.leaseId)).toThrowError(
+      expect.objectContaining({ code: "PROJECT_RESUME_REQUIRED" }),
+    );
+    fixture.authority.end(genericLease.leaseId);
 
     fixture.authority.end(first.authorityLease.leaseId);
     fixture.authority.end(second.authorityLease.leaseId);
@@ -307,6 +327,9 @@ describe("ProjectContinuityService registration", () => {
     expect(failedLeaseId).toBeDefined();
     expect(() => fixture.authority.status(failedLeaseId!)).toThrowError(
       expect.objectContaining({ code: "AUTHORITY_REQUIRED" }),
+    );
+    expect(() => fixture.resumeRegistry.require(failedLeaseId!)).toThrowError(
+      expect.objectContaining({ code: "PROJECT_RESUME_REQUIRED" }),
     );
     fixture.store.close();
   });
