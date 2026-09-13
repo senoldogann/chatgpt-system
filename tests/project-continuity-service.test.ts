@@ -293,6 +293,10 @@ describe("ProjectContinuityService registration", () => {
       repositoryIdentity: fixture.store.getByAlias("project-x").worktree.repositoryIdentity,
       expiresAt: first.authorityLease.expiresAt,
     });
+    await expect(fixture.service.revalidateResumeContext(first.authorityLease.leaseId)).resolves.toMatchObject({
+      projectId: first.projectId,
+      canonicalWorktree: await realpath(fixture.worktree),
+    });
 
     const genericLease = await fixture.authority.start({ profile: "project", projectRoots: [fixture.projectRoot] });
     expect(() => fixture.resumeRegistry.require(genericLease.leaseId)).toThrowError(
@@ -301,7 +305,25 @@ describe("ProjectContinuityService registration", () => {
     fixture.authority.end(genericLease.leaseId);
 
     fixture.authority.end(first.authorityLease.leaseId);
+    await expect(fixture.service.revalidateResumeContext(first.authorityLease.leaseId)).rejects.toMatchObject({
+      code: "AUTHORITY_REQUIRED",
+    });
     fixture.authority.end(second.authorityLease.leaseId);
+    fixture.store.close();
+  });
+
+  it("rejects publication provenance when the resumed worktree identity is replaced at the same path", async () => {
+    const fixture = await createFixture();
+    await fixture.service.register(registrationInput(fixture));
+    const resumed = await fixture.service.resume({ alias: "project-x", requestedTtlSeconds: 120 });
+
+    await git(fixture.repository, ["worktree", "remove", "--force", fixture.worktree]);
+    await git(fixture.repository, ["worktree", "add", "-b", "feature/resume-replacement", fixture.worktree]);
+
+    await expect(fixture.service.revalidateResumeContext(resumed.authorityLease.leaseId)).rejects.toMatchObject({
+      code: "CONTINUITY_WORKTREE_MISMATCH",
+    });
+    fixture.authority.end(resumed.authorityLease.leaseId);
     fixture.store.close();
   });
 

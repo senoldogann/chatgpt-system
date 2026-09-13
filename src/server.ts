@@ -34,15 +34,17 @@ import { NodePtyBackend } from "./terminal-pty-backend.js";
 import { TerminalSessionSupervisor } from "./terminal-session-supervisor.js";
 import { registerTerminalSessionTools } from "./terminal-session-tool-registration.js";
 import { registerOwnerShellTool } from "./owner-shell-tool-registration.js";
+import { createProjectCheckService } from "./project-check-factory.js";
 import { registerProjectCheckTool } from "./project-check-tool-registration.js";
 import { registerProjectExecTool } from "./project-exec-tool-registration.js";
+import { ProjectPublishGate } from "./project-publish-gate.js";
 import { createProjectContinuityRuntime, type ProjectContinuityRuntime } from "./project-continuity-runtime.js";
 import { registerProjectContinuityTools } from "./project-continuity-tool-registration.js";
 import { registerTaskStateTool } from "./task-state-tool-registration.js";
 import type { ProjectExecBackend } from "./project-exec-types.js";
 import { createScopedRuntime } from "./scoped-runtime.js";
 import { describeSystemEnvironment } from "./system-environment.js";
-import { errorPayload, PolicyError } from "./errors.js";
+import { AuthorityDeniedError, errorPayload, PolicyError } from "./errors.js";
 import {
   authorityEndOutputSchema,
   authorityLeaseOutputSchema,
@@ -586,15 +588,35 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "git_push",
     {
-      description: "Push only the current validated branch to the existing credential-free GitHub origin. Requires an Admin authority lease; force, remote, refspec, and arbitrary Git arguments are not exposed.",
+      description: "Push only a clean, fresh locally verified non-main branch from the exact active project_resume worktree to the existing credential-free GitHub origin. Requires active Admin and resumed Project authority leases; force, remote, refspec, branch, head, and verification overrides are not exposed.",
       inputSchema: z.object({
         ...authorityLeaseField,
+        projectAuthorityLeaseId: z.string().min(40),
         cwd: z.string().default("."),
       }).strict(),
       outputSchema: gitResultOutputSchema,
       annotations: gitRemoteMutationAnnotations,
     },
-    async ({ authorityLeaseId, cwd }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.push(cwd)),
+    async ({ authorityLeaseId, projectAuthorityLeaseId, cwd }) => safeCall(async () => {
+      const adminAuthority = runtime.authority.resolve(authorityLeaseId);
+      if (adminAuthority.profile !== "admin") {
+        throw new AuthorityDeniedError("Git push requires an active Admin authority lease.");
+      }
+      const projectAuthority = runtime.authority.resolve(projectAuthorityLeaseId);
+      if (projectAuthority.profile !== "project") {
+        throw new AuthorityDeniedError("Git push requires an active Project authority lease created by project_resume.");
+      }
+      const resumeContext = await runtime.continuity.revalidateResumeContext(projectAuthorityLeaseId);
+      const adminScoped = createScopedRuntime(runtime, adminAuthority);
+      const projectScoped = createScopedRuntime(runtime, projectAuthority);
+      const projectCheck = createProjectCheckService(runtime, projectAuthorityLeaseId);
+      const gate = new ProjectPublishGate({
+        projectGit: projectScoped.git,
+        adminGit: adminScoped.git,
+        projectCheck,
+      });
+      return gate.push({ cwd, resumeContext });
+    }),
   );
 
   registerOwnerShellTool(server, runtime);
