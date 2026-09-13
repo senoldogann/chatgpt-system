@@ -136,9 +136,25 @@ class FakeContext {
   async close(): Promise<void> { this.closeCalls += 1; }
 }
 
-function makeBackend(page = new FakePage()): { context: FakeContext; page: FakePage; backend: PlaywrightBrowserBackend } {
+type BackendDiagnosticOptions = {
+  maxDiagnosticMessageChars?: number;
+  maxDiagnosticUrlChars?: number;
+};
+
+function makeBackend(
+  page = new FakePage(),
+  options: BackendDiagnosticOptions = {},
+): { context: FakeContext; page: FakePage; backend: PlaywrightBrowserBackend } {
   const context = new FakeContext([page]);
-  const backend = new PlaywrightBrowserBackend(context as unknown as BrowserContext, { timeoutMs: 4_000, maxDiagnosticEntries: 2 });
+  const Constructor = PlaywrightBrowserBackend as unknown as new (
+    context: BrowserContext,
+    options: { timeoutMs: number; maxDiagnosticEntries: number } & BackendDiagnosticOptions,
+  ) => PlaywrightBrowserBackend;
+  const backend = new Constructor(context as unknown as BrowserContext, {
+    timeoutMs: 4_000,
+    maxDiagnosticEntries: 2,
+    ...options,
+  });
   return { context, page, backend };
 }
 
@@ -369,6 +385,57 @@ describe("PlaywrightBrowserBackend", () => {
       truncated: true,
     });
     expect((await backend.networkErrors(pageId)).entries.map((entry) => entry.method)).toEqual(["POST", "DELETE"]);
+  });
+
+  it("bounds remote diagnostic strings before retaining them in backend memory", async () => {
+    const { page, backend } = makeBackend(new FakePage(), {
+      maxDiagnosticMessageChars: 8,
+      maxDiagnosticUrlChars: 32,
+    });
+    const pageId = (await backend.tabs())[0]!.pageId;
+    const longText = "diagnostic-".repeat(20);
+    const longUrl = `https://example.com/${"path/".repeat(20)}?secret=${"x".repeat(80)}`;
+
+    page.emit("console", {
+      type: () => "error",
+      text: () => longText,
+      location: () => ({ url: longUrl, lineNumber: 2, columnNumber: 3 }),
+    });
+    page.emit("requestfailed", {
+      method: () => "GET",
+      url: () => longUrl,
+      failure: () => ({ errorText: longText }),
+      resourceType: () => "fetch",
+      isNavigationRequest: () => false,
+      frame: () => ({ url: () => longUrl }),
+    });
+    const responseRequest = {
+      method: () => "POST",
+      resourceType: () => "xhr",
+      isNavigationRequest: () => false,
+      frame: () => ({ url: () => longUrl }),
+    };
+    page.emit("response", {
+      status: () => 500,
+      url: () => longUrl,
+      request: () => responseRequest,
+    });
+
+    const consoleResult = await backend.consoleErrors(pageId);
+    const networkResult = await backend.networkErrors(pageId);
+
+    expect(consoleResult.entries[0]!.message.length).toBeLessThanOrEqual(8);
+    expect(consoleResult.entries[0]!.runtimeSource!.url.length).toBeLessThanOrEqual(32);
+    expect(networkResult.entries).toHaveLength(2);
+
+    const failed = networkResult.entries[0]!;
+    expect(failed.url.length).toBeLessThanOrEqual(32);
+    expect(failed.failure!.length).toBeLessThanOrEqual(8);
+    expect(failed.initiator!.url.length).toBeLessThanOrEqual(32);
+
+    const response = networkResult.entries[1]!;
+    expect(response.url.length).toBeLessThanOrEqual(32);
+    expect(response.initiator!.url.length).toBeLessThanOrEqual(32);
   });
 
   it("registers popups from the context and clears everything on close", async () => {
