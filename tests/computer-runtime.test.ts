@@ -203,9 +203,52 @@ describe("ComputerRuntime direct operations", () => {
 
   it("re-checks screenshot decoded byte limits before returning content", async () => {
     const { native, runtime: subject } = runtime(undefined, { maxScreenshotBytes: 4 });
-    native.responder = () => ({ pngBase64: Buffer.from("12345").toString("base64"), width: 1, height: 1 });
+    native.responder = () => ({
+      pngBase64: Buffer.from("12345").toString("base64"),
+      width: 1,
+      height: 1,
+      captureKind: "display",
+      screenBounds: { x: 0, y: 0, width: 1, height: 1 },
+      scaleX: 1,
+      scaleY: 1,
+    });
 
     await expect(subject.screenshot()).rejects.toMatchObject({ code: "COMPUTER_OUTPUT_LIMIT" });
+  });
+
+  it("requires screenshot screen-space metadata with positive finite scales", async () => {
+    const { native, runtime: subject } = runtime();
+    const pngBase64 = Buffer.from("png").toString("base64");
+
+    native.responder = () => ({ pngBase64, width: 1710, height: 1112 });
+    await expect(subject.screenshot()).rejects.toMatchObject({ code: "COMPUTER_PROTOCOL_INVALID" });
+
+    native.responder = () => ({
+      pngBase64,
+      width: 1710,
+      height: 1112,
+      captureKind: "display",
+      screenBounds: { x: -855, y: 40, width: 855, height: 556 },
+      scaleX: 0,
+      scaleY: 0.5,
+    });
+    await expect(subject.screenshot()).rejects.toMatchObject({ code: "COMPUTER_PROTOCOL_INVALID" });
+
+    native.responder = () => ({
+      pngBase64,
+      width: 1710,
+      height: 1112,
+      captureKind: "display",
+      screenBounds: { x: -855, y: 40, width: 855, height: 556 },
+      scaleX: 0.5,
+      scaleY: 0.5,
+    });
+    await expect(subject.screenshot()).resolves.toMatchObject({
+      captureKind: "display",
+      screenBounds: { x: -855, y: 40, width: 855, height: 556 },
+      scaleX: 0.5,
+      scaleY: 0.5,
+    });
   });
 
   it("re-checks observation element and serialized-character limits", async () => {
@@ -683,7 +726,15 @@ describe("ComputerRuntime exclusive program session", () => {
     native.responder = (call) => {
       if (call.method === "list_apps") return [{ name: "Fixture", frontmost: true }];
       if (call.method === "active_window") return { application: { name: "Fixture", frontmost: true }, title: "Fixture" };
-      if (call.method === "screenshot") return { pngBase64: Buffer.from("png").toString("base64"), width: 1, height: 1 };
+      if (call.method === "screenshot") return {
+        pngBase64: Buffer.from("png").toString("base64"),
+        width: 1,
+        height: 1,
+        captureKind: "display",
+        screenBounds: { x: 0, y: 0, width: 1, height: 1 },
+        scaleX: 1,
+        scaleY: 1,
+      };
       if (call.method === "observe") return { snapshotId: "snap", application: { name: "Fixture", frontmost: true }, elements: [], truncated: false };
       return completedUnverifiedActionResult();
     };

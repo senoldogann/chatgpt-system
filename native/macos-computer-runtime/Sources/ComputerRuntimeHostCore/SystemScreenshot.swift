@@ -17,6 +17,38 @@ enum FocusedDisplaySelection {
         }
         return focusedDisplayID
     }
+
+    static func selectForScreenshot(
+        availableDisplayIDs: [CGDirectDisplayID],
+        focusedDisplayID: CGDirectDisplayID?,
+        mainDisplayID: CGDirectDisplayID
+    ) -> CGDirectDisplayID? {
+        if let focusedDisplayID, availableDisplayIDs.contains(focusedDisplayID) {
+            return focusedDisplayID
+        }
+        if availableDisplayIDs.contains(mainDisplayID) {
+            return mainDisplayID
+        }
+        return availableDisplayIDs.first
+    }
+}
+
+enum ScreenshotCoordinateGeometry {
+    static func scaleFactors(
+        screenBounds: ComputerBounds,
+        imageWidth: Int,
+        imageHeight: Int
+    ) -> (x: Double, y: Double)? {
+        guard imageWidth > 0, imageHeight > 0,
+              screenBounds.x.isFinite, screenBounds.y.isFinite,
+              screenBounds.width.isFinite, screenBounds.height.isFinite,
+              screenBounds.width > 0, screenBounds.height > 0
+        else { return nil }
+        let scaleX = screenBounds.width / Double(imageWidth)
+        let scaleY = screenBounds.height / Double(imageHeight)
+        guard scaleX.isFinite, scaleY.isFinite, scaleX > 0, scaleY > 0 else { return nil }
+        return (scaleX, scaleY)
+    }
 }
 
 enum WindowCaptureGeometry {
@@ -97,8 +129,14 @@ public struct SystemScreenshotCapturer: ScreenshotCapturing, ScreenImageCapturin
             throw ScreenshotCaptureError.outputLimit
         }
 
+        let focusedDisplayID = focusedDisplay.focusedDisplayID()
         let capture = try await captureImage { displays in
-            displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? displays.first
+            guard let selectedDisplayID = FocusedDisplaySelection.selectForScreenshot(
+                availableDisplayIDs: displays.map(\.displayID),
+                focusedDisplayID: focusedDisplayID,
+                mainDisplayID: CGMainDisplayID()
+            ) else { return nil }
+            return displays.first(where: { $0.displayID == selectedDisplayID })
         }
         let representation = NSBitmapImageRep(cgImage: capture.image)
         guard let png = representation.representation(using: .png, properties: [:]),
@@ -110,10 +148,21 @@ public struct SystemScreenshotCapturer: ScreenshotCapturing, ScreenImageCapturin
             throw ScreenshotCaptureError.outputLimit
         }
 
+        guard let scales = ScreenshotCoordinateGeometry.scaleFactors(
+            screenBounds: capture.screenBounds,
+            imageWidth: capture.image.width,
+            imageHeight: capture.image.height
+        ) else {
+            throw ScreenshotCaptureError.unavailable
+        }
         return ComputerScreenshot(
             pngBase64: png.base64EncodedString(),
             width: capture.image.width,
-            height: capture.image.height
+            height: capture.image.height,
+            captureKind: .display,
+            screenBounds: capture.screenBounds,
+            scaleX: scales.x,
+            scaleY: scales.y
         )
     }
 

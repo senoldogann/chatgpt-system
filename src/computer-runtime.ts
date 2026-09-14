@@ -34,12 +34,22 @@ export interface ComputerHealthResult {
   fullHostJsEnabled: boolean;
 }
 
+export interface ComputerScreenshotResult {
+  pngBase64: string;
+  width: number;
+  height: number;
+  captureKind: "display";
+  screenBounds: { x: number; y: number; width: number; height: number };
+  scaleX: number;
+  scaleY: number;
+}
+
 export interface ComputerProgramSession {
   cancel(): void;
   execute(action: ComputerAction): Promise<unknown>;
   listApps(): Promise<unknown>;
   activeWindow(): Promise<unknown>;
-  screenshot(): Promise<{ pngBase64: string; width: number; height: number }>;
+  screenshot(): Promise<ComputerScreenshotResult>;
   resolve(target: ComputerTarget, options: { retryBudget?: number }): Promise<ComputerResolvedTargetView>;
   resolveMany(targets: ComputerTarget[], options: { retryBudget?: number }): Promise<ComputerResolvedTargetView[]>;
   exists(target: ComputerTarget, options: { retryBudget?: number }): Promise<boolean>;
@@ -601,16 +611,27 @@ export class ComputerRuntime {
     return this.observe();
   }
 
-  async screenshot(): Promise<{ pngBase64: string; width: number; height: number }> {
+  async screenshot(): Promise<ComputerScreenshotResult> {
     const result = await this.read("screenshot", {});
-    if (!isRecord(result) || typeof result.pngBase64 !== "string" ||
+    if (!isRecord(result) ||
+        !hasOnlyKeys(result, ["pngBase64", "width", "height", "captureKind", "screenBounds", "scaleX", "scaleY"]) ||
+        typeof result.pngBase64 !== "string" ||
         !Number.isInteger(result.width) || !Number.isInteger(result.height) ||
-        (result.width as number) <= 0 || (result.height as number) <= 0) {
+        (result.width as number) <= 0 || (result.height as number) <= 0 ||
+        result.captureKind !== "display" ||
+        !isRecord(result.screenBounds) ||
+        !hasOnlyKeys(result.screenBounds, ["x", "y", "width", "height"]) ||
+        typeof result.screenBounds.x !== "number" || !Number.isFinite(result.screenBounds.x) ||
+        typeof result.screenBounds.y !== "number" || !Number.isFinite(result.screenBounds.y) ||
+        typeof result.screenBounds.width !== "number" || !Number.isFinite(result.screenBounds.width) || result.screenBounds.width <= 0 ||
+        typeof result.screenBounds.height !== "number" || !Number.isFinite(result.screenBounds.height) || result.screenBounds.height <= 0 ||
+        typeof result.scaleX !== "number" || !Number.isFinite(result.scaleX) || result.scaleX <= 0 ||
+        typeof result.scaleY !== "number" || !Number.isFinite(result.scaleY) || result.scaleY <= 0) {
       invalid();
     }
     let bytes: Buffer;
     try {
-      bytes = Buffer.from(result.pngBase64 as string, "base64");
+      bytes = Buffer.from(result.pngBase64, "base64");
     } catch {
       invalid();
     }
@@ -618,9 +639,18 @@ export class ComputerRuntime {
       throw new ComputerError("COMPUTER_OUTPUT_LIMIT");
     }
     return {
-      pngBase64: result.pngBase64 as string,
+      pngBase64: result.pngBase64,
       width: result.width as number,
       height: result.height as number,
+      captureKind: "display",
+      screenBounds: {
+        x: result.screenBounds.x,
+        y: result.screenBounds.y,
+        width: result.screenBounds.width,
+        height: result.screenBounds.height,
+      },
+      scaleX: result.scaleX,
+      scaleY: result.scaleY,
     };
   }
 

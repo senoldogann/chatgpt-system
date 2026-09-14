@@ -347,7 +347,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_screenshot",
     {
-      description: "Capture a bounded main-display PNG as MCP image content. Screenshot bytes are not duplicated into structured JSON.",
+      description: "Capture a bounded selected-display PNG as MCP image content with explicit macOS screen-space bounds and pixel-to-screen scale metadata. Screenshot bytes are not duplicated into structured JSON.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: computerScreenshotMetadataOutputSchema,
       annotations: computerReadAnnotations,
@@ -357,7 +357,14 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         const screenshot = await computerFor(runtime, authorityLeaseId).screenshot();
         return {
           content: [{ type: "image" as const, data: screenshot.pngBase64, mimeType: "image/png" }],
-          structuredContent: { width: screenshot.width, height: screenshot.height },
+          structuredContent: {
+            width: screenshot.width,
+            height: screenshot.height,
+            captureKind: screenshot.captureKind,
+            screenBounds: screenshot.screenBounds,
+            scaleX: screenshot.scaleX,
+            scaleY: screenshot.scaleY,
+          },
         };
       } catch (error) {
         return { ...textResult(computerErrorPayload(error)), isError: true };

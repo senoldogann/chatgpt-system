@@ -247,14 +247,34 @@ public struct ComputerObservation: Codable, Equatable, Sendable {
     }
 }
 
+public enum ComputerScreenshotCaptureKind: String, Codable, Equatable, Sendable {
+    case display
+}
+
 public struct ComputerScreenshot: Codable, Equatable, Sendable {
     public let pngBase64: String
     public let width: Int
     public let height: Int
+    public let captureKind: ComputerScreenshotCaptureKind
+    public let screenBounds: ComputerBounds
+    public let scaleX: Double
+    public let scaleY: Double
 
-    public init(pngBase64: String, width: Int, height: Int) {
+    public init(
+        pngBase64: String,
+        width: Int,
+        height: Int,
+        captureKind: ComputerScreenshotCaptureKind,
+        screenBounds: ComputerBounds,
+        scaleX: Double,
+        scaleY: Double
+    ) {
         self.pngBase64 = pngBase64
         self.width = width
         self.height = height
+        self.captureKind = captureKind
+        self.screenBounds = screenBounds
+        self.scaleX = scaleX
+        self.scaleY = scaleY
     }
 }

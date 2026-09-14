@@ -66,7 +66,15 @@ class FakeComputerRuntime {
           },
         };
       case "screenshot":
-        return { pngBase64: "iVBORw0KGgo=", width: 2, height: 3 };
+        return {
+          pngBase64: "iVBORw0KGgo=",
+          width: 2,
+          height: 3,
+          captureKind: "display",
+          screenBounds: { x: -1, y: 10, width: 1, height: 1.5 },
+          scaleX: 0.5,
+          scaleY: 0.5,
+        };
       case "pointerPosition":
         return { x: 10, y: 20 };
       case "openApp":
@@ -280,6 +288,25 @@ describe("computer MCP tools", () => {
       expect(observeOutputSchema.properties?.perception?.properties?.axQuality?.enum).toEqual(["strong", "partial", "weak"]);
       expect(observeOutputSchema.properties?.perception?.properties?.recommendedTargeting?.enum).toEqual(["ax", "ocr", "visual-point"]);
       expect(observeOutputSchema.properties?.perception?.properties?.ocrCandidates?.maxItems).toBe(64);
+
+      const screenshotOutputSchema = byName.get("computer_screenshot")?.outputSchema as {
+        properties?: {
+          captureKind?: { const?: string };
+          screenBounds?: { required?: string[] };
+          scaleX?: { exclusiveMinimum?: number };
+          scaleY?: { exclusiveMinimum?: number };
+        };
+        required?: string[];
+      };
+      expect(screenshotOutputSchema.properties?.captureKind?.const).toBe("display");
+      expect(screenshotOutputSchema.required).toEqual(expect.arrayContaining([
+        "width", "height", "captureKind", "screenBounds", "scaleX", "scaleY",
+      ]));
+      expect(screenshotOutputSchema.properties?.screenBounds?.required).toEqual(expect.arrayContaining([
+        "x", "y", "width", "height",
+      ]));
+      expect(screenshotOutputSchema.properties?.scaleX?.exclusiveMinimum).toBe(0);
+      expect(screenshotOutputSchema.properties?.scaleY?.exclusiveMinimum).toBe(0);
 
       const clickOutputSchema = byName.get("computer_click")?.outputSchema as {
         properties?: {
@@ -551,7 +578,14 @@ describe("computer MCP tools", () => {
       });
       expect(screenshot.isError).not.toBe(true);
       expect(screenshot.content).toContainEqual({ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" });
-      expect(screenshot.structuredContent).toEqual({ width: 2, height: 3 });
+      expect(screenshot.structuredContent).toEqual({
+        width: 2,
+        height: 3,
+        captureKind: "display",
+        screenBounds: { x: -1, y: 10, width: 1, height: 1.5 },
+        scaleX: 0.5,
+        scaleY: 0.5,
+      });
       expect(JSON.stringify(screenshot.structuredContent)).not.toContain("pngBase64");
     } finally {
       await transport.terminateSession();
