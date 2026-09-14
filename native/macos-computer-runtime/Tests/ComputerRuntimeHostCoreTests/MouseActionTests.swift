@@ -189,7 +189,7 @@ final class MouseActionTests: XCTestCase {
 
         let result = try await harness.controller.scroll(vertical: 7, horizontal: -4, at: nil, mode: .fast)
 
-        XCTAssertEqual(result.state, "completed")
+        XCTAssertEqual(result.state, .completedUnverified)
         XCTAssertEqual(harness.sink.events, [.scroll(vertical: 7, horizontal: -4)])
     }
 

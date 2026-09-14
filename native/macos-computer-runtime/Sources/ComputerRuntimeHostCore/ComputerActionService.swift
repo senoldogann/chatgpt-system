@@ -274,7 +274,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             }
             do {
                 try await verification.waitForText(parsed.text, exact: parsed.exact, timeoutMs: parsed.timeoutMs)
-                return encodeResult(ComputerActionResult(state: "completed"), requestId: request.requestId)
+                return encodeResult(ComputerActionResult(state: .verified), requestId: request.requestId)
             } catch ComputerVerificationError.timeout {
                 return timeout(requestId: request.requestId)
             } catch is CancellationError {
@@ -304,7 +304,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             }
             do {
                 try await controller.releaseAllInputs()
-                return encodeResult(ComputerActionResult(state: "completed"), requestId: request.requestId)
+                return encodeResult(ComputerActionResult(state: .verified), requestId: request.requestId)
             } catch {
                 return actionFailed(requestId: request.requestId)
             }
@@ -399,7 +399,14 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             let baseline = try await captureVerificationBaseline(verificationSpec)
             let result = try await action()
             try await waitForVerification(verificationSpec, baseline: baseline)
-            return encodeResult(result, requestId: requestId)
+            let completion = verificationSpec == nil
+                ? result
+                : ComputerActionResult(
+                    state: .verified,
+                    pointer: result.pointer,
+                    changed: true
+                )
+            return encodeResult(completion, requestId: requestId)
         } catch let error as ComputerRecoveryError {
             await releaseInputsAfterFailedAction()
             return recoveryFailed(error, requestId: requestId)

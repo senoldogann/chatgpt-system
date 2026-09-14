@@ -223,6 +223,30 @@ final class VerificationTests: XCTestCase {
         XCTAssertEqual(digest.count, 64)
     }
 
+    func testActionWithoutVerificationReturnsCompletedUnverified() async throws {
+        let service = ComputerHostService(
+            permissions: VerificationPermissions(),
+            workspace: VerificationWorkspace(frontmostSequence: [], apps: []),
+            actions: ComputerActionService(controller: verificationController())
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "unverified-click",
+            method: "click",
+            params: .object([
+                "x": .number(10),
+                "y": .number(10),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let result = try decodeVerificationActionResult(response)
+        XCTAssertEqual(result.state, .completedUnverified)
+        XCTAssertNil(result.changed)
+    }
+
     func testActionVerifyAXChangedCapturesBaselineBeforeMutationAndWaitsAfterSuccess() async throws {
         let log = VerificationCallLog()
         let handler = RecordingVerificationHandler(log: log)
@@ -248,6 +272,9 @@ final class VerificationTests: XCTestCase {
         ))
 
         XCTAssertTrue(response.ok)
+        let result = try decodeVerificationActionResult(response)
+        XCTAssertEqual(result.state, .verified)
+        XCTAssertEqual(result.changed, true)
         let entries = log.entries
         XCTAssertEqual(entries.first, "baseline-ax")
         XCTAssertEqual(entries.last, "wait-ax:baseline-ax:50")
@@ -360,6 +387,11 @@ final class VerificationTests: XCTestCase {
             XCTAssertEqual(response.error?.code, "COMPUTER_PROTOCOL_INVALID")
         }
     }
+}
+
+private func decodeVerificationActionResult(_ response: ComputerProtocolResponse) throws -> ComputerActionResult {
+    let result = try XCTUnwrap(response.result)
+    return try JSONDecoder().decode(ComputerActionResult.self, from: JSONEncoder().encode(result))
 }
 
 private final class VerificationWorkspace: WorkspaceReading, @unchecked Sendable {

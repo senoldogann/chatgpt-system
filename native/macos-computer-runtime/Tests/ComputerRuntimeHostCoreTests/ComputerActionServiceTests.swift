@@ -61,7 +61,7 @@ final class ComputerActionServiceTests: XCTestCase {
 
         XCTAssertTrue(response.ok)
         let result = try decodeActionResult(ComputerActionResult.self, from: response)
-        XCTAssertEqual(result.state, "completed")
+        XCTAssertEqual(result.state, .completedUnverified)
         XCTAssertEqual(result.pointer, ComputerPoint(x: 100, y: 80))
         XCTAssertEqual(sink.events.last, .mouseMove(point: ComputerPoint(x: 100, y: 80), dragButton: nil))
         XCTAssertGreaterThan(sink.events.count, 1, "Default mode should be smooth fast motion, not instant teleport")

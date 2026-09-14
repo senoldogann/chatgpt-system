@@ -95,7 +95,7 @@ struct ComputerInputController: Sendable {
             try await verifyContext(contextGuard)
             try await emitMouseUpWithinLane(button, point: target, clickCount: 1)
             await lane.release()
-            return ComputerActionResult(state: "completed", pointer: target)
+            return ComputerActionResult(state: .completedUnverified, pointer: target)
         } catch {
             try? await releaseAllInputsWithinLane()
             await lane.release()
@@ -133,7 +133,7 @@ struct ComputerInputController: Sendable {
             try await verifyContext(contextGuard)
             try await emitMouseUpWithinLane(button, point: target, clickCount: 2)
             await lane.release()
-            return ComputerActionResult(state: "completed", pointer: target)
+            return ComputerActionResult(state: .completedUnverified, pointer: target)
         } catch {
             try? await releaseAllInputsWithinLane()
             await lane.release()
@@ -149,7 +149,7 @@ struct ComputerInputController: Sendable {
             let point = try pointerPosition()
             try await emitMouseDownWithinLane(button, point: point, clickCount: 1)
             await lane.release()
-            return ComputerActionResult(state: "completed", pointer: point)
+            return ComputerActionResult(state: .completedUnverified, pointer: point)
         } catch {
             try? await releaseAllInputsWithinLane()
             await lane.release()
@@ -165,7 +165,7 @@ struct ComputerInputController: Sendable {
             let point = try pointerPosition()
             try await emitMouseUpWithinLane(button, point: point, clickCount: 1)
             await lane.release()
-            return ComputerActionResult(state: "completed", pointer: point)
+            return ComputerActionResult(state: .completedUnverified, pointer: point)
         } catch {
             try? await releaseAllInputsWithinLane()
             await lane.release()
@@ -202,7 +202,7 @@ struct ComputerInputController: Sendable {
             try await verifyContext(contextGuard)
             try await emitMouseUpWithinLane(button, point: target, clickCount: 1)
             await lane.release()
-            return ComputerActionResult(state: "completed", pointer: target)
+            return ComputerActionResult(state: .completedUnverified, pointer: target)
         } catch {
             try? await releaseAllInputsWithinLane()
             await lane.release()
@@ -242,7 +242,7 @@ struct ComputerInputController: Sendable {
             }
             let current = try pointerPosition()
             await lane.release()
-            return ComputerActionResult(state: "completed", pointer: current)
+            return ComputerActionResult(state: .completedUnverified, pointer: current)
         } catch {
             try? await releaseAllInputsWithinLane()
             await lane.release()
@@ -312,7 +312,7 @@ struct ComputerInputController: Sendable {
             }
 
             await lane.release()
-            return ComputerActionResult(state: "completed")
+            return ComputerActionResult(state: .completedUnverified)
         } catch {
             try? await releaseAllInputsWithinLane()
             await lane.release()
@@ -336,7 +336,7 @@ struct ComputerInputController: Sendable {
                 try emitActionEvent(.unicode(chunk))
             }
             await lane.release()
-            return ComputerActionResult(state: "completed")
+            return ComputerActionResult(state: .completedUnverified)
         } catch {
             try? await releaseAllInputsWithinLane()
             await lane.release()
@@ -385,7 +385,7 @@ struct ComputerInputController: Sendable {
         }
 
         try await waitForPointerToSettle(near: target)
-        return ComputerActionResult(state: "completed", pointer: target)
+        return ComputerActionResult(state: .completedUnverified, pointer: target)
     }
 
     private func waitForPointerToSettle(near target: ComputerPoint) async throws {

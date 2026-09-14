@@ -86,7 +86,7 @@ class FakeComputerRuntime {
         };
       }
       default:
-        return { state: "completed" };
+        return { state: "completed_unverified" };
     }
   }
 
@@ -248,6 +248,10 @@ describe("computer MCP tools", () => {
 
       expect(byName.get("computer_observe")?.annotations).toMatchObject({ readOnlyHint: true });
       expect(byName.get("computer_click")?.annotations).toMatchObject({ readOnlyHint: false });
+      const clickOutputSchema = byName.get("computer_click")?.outputSchema as {
+        properties?: { state?: { enum?: string[] } };
+      };
+      expect(clickOutputSchema.properties?.state?.enum).toEqual(["verified", "completed_unverified"]);
 
       expect(byName.get("computer_health")?.description).toMatch(/explicitly asks for Computer Use/i);
       expect(byName.get("computer_open_app")?.description).toContain("com.google.Chrome");

@@ -45,7 +45,7 @@ final class InputControllerTests: XCTestCase {
 
         let result = try await controller.moveMouse(to: target, mode: .instant)
 
-        XCTAssertEqual(result.state, "completed")
+        XCTAssertEqual(result.state, .completedUnverified)
         XCTAssertEqual(result.pointer, target)
         XCTAssertEqual(sink.events.last, .mouseMove(point: target, dragButton: nil))
     }

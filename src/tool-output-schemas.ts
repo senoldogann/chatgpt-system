@@ -620,7 +620,7 @@ export const computerObservationOutputSchema = z.object({
 }).strict();
 
 export const computerActionResultOutputSchema = z.object({
-  state: z.string(),
+  state: z.enum(["verified", "completed_unverified"]),
   pointer: computerPointOutputSchema.optional(),
   changed: z.boolean().optional(),
 });

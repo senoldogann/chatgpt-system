@@ -39,12 +39,21 @@ public struct ComputerApplicationSelector: Codable, Equatable, Sendable {
     }
 }
 
+public enum ComputerActionCompletionState: String, Codable, Equatable, Sendable {
+    case verified
+    case completedUnverified = "completed_unverified"
+}
+
 public struct ComputerActionResult: Codable, Equatable, Sendable {
-    public let state: String
+    public let state: ComputerActionCompletionState
     public let pointer: ComputerPoint?
     public let changed: Bool?
 
-    public init(state: String, pointer: ComputerPoint? = nil, changed: Bool? = nil) {
+    public init(
+        state: ComputerActionCompletionState,
+        pointer: ComputerPoint? = nil,
+        changed: Bool? = nil
+    ) {
         self.state = state
         self.pointer = pointer
         self.changed = changed
