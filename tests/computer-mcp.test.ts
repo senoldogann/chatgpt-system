@@ -75,6 +75,8 @@ class FakeComputerRuntime {
         return { name: "Fixture", bundleIdentifier: "com.example.fixture", frontmost: true };
       case "waitUntilChanged":
         return { digest: "digest-2" };
+      case "waitForText":
+        return { state: "completed" };
       case "run": {
         const actions = (input as { actions: ComputerAction[] }).actions;
         return {
@@ -86,7 +88,10 @@ class FakeComputerRuntime {
         };
       }
       default:
-        return { state: "completed" };
+        return {
+          state: "completed_unverified",
+          verification: { kind: "none", changed: null },
+        };
     }
   }
 
@@ -275,6 +280,24 @@ describe("computer MCP tools", () => {
       expect(observeOutputSchema.properties?.perception?.properties?.axQuality?.enum).toEqual(["strong", "partial", "weak"]);
       expect(observeOutputSchema.properties?.perception?.properties?.recommendedTargeting?.enum).toEqual(["ax", "ocr", "visual-point"]);
       expect(observeOutputSchema.properties?.perception?.properties?.ocrCandidates?.maxItems).toBe(64);
+
+      const clickOutputSchema = byName.get("computer_click")?.outputSchema as {
+        properties?: {
+          state?: { enum?: string[] };
+          verification?: {
+            properties?: { kind?: { enum?: string[] } };
+            required?: string[];
+          };
+        };
+      };
+      expect(clickOutputSchema.properties?.state?.enum).toEqual(["verified", "completed_unverified"]);
+      expect(clickOutputSchema.properties?.verification?.properties?.kind?.enum).toEqual(["ax", "text", "screen-region", "none"]);
+      expect(clickOutputSchema.properties?.verification?.required).toContain("changed");
+
+      const waitForTextOutputSchema = byName.get("computer_wait_for_text")?.outputSchema as {
+        properties?: { state?: { const?: string } };
+      };
+      expect(waitForTextOutputSchema.properties?.state?.const).toBe("completed");
 
       const pressKeySchema = byName.get("computer_press_key")?.inputSchema as {
         properties?: { key?: { enum?: string[] } };

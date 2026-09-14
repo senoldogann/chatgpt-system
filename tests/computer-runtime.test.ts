@@ -7,6 +7,11 @@ import { computerRunOutputSchema } from "../src/tool-output-schemas.js";
 
 type Call = { method: ComputerNativeMethod; params: Record<string, unknown>; timeoutMs?: number };
 
+const completedUnverifiedActionResult = () => ({
+  state: "completed_unverified" as const,
+  verification: { kind: "none" as const, changed: null },
+});
+
 const config: ComputerUseConfig = {
   enabled: true,
   fullHostJsEnabled: false,
@@ -36,7 +41,7 @@ class FakeNative implements ComputerNativeRequesting {
         eventPostAuthorized: true,
       };
     }
-    return { state: "completed" };
+    return completedUnverifiedActionResult();
   };
 
   healthState() { return this.state; }
@@ -135,13 +140,30 @@ describe("ComputerRuntime direct operations", () => {
     expect(native.calls[4]?.params).toEqual({ x: 11, y: 21, button: "right", motionMode: "fast" });
   });
 
+  it("validates action-aware mutation results and rejects the legacy completed state", async () => {
+    const { native, runtime: subject } = runtime();
+    native.responder = () => ({
+      state: "verified",
+      changed: true,
+      verification: { kind: "ax", changed: true },
+    });
+    await expect(subject.click({ x: 1, y: 2 })).resolves.toEqual({
+      state: "verified",
+      changed: true,
+      verification: { kind: "ax", changed: true },
+    });
+
+    native.responder = () => ({ state: "completed" });
+    await expect(subject.click({ x: 1, y: 2 })).rejects.toMatchObject({ code: "COMPUTER_PROTOCOL_INVALID" });
+  });
+
   it("serializes direct physical mutations in one FIFO lane", async () => {
     const { native, runtime: subject } = runtime();
     let releaseMove!: () => void;
     const blocked = new Promise<void>((resolve) => { releaseMove = resolve; });
     native.responder = async (call) => {
       if (call.method === "move_mouse") await blocked;
-      return { state: "completed" };
+      return completedUnverifiedActionResult();
     };
 
     const first = subject.moveMouse({ x: 1, y: 1 });
@@ -162,12 +184,12 @@ describe("ComputerRuntime direct operations", () => {
     native.responder = async (call) => {
       if (call.method === "move_mouse") {
         await blocked;
-        return { state: "completed" };
+        return completedUnverifiedActionResult();
       }
       if (call.method === "observe") {
         return { snapshotId: "snap", application: { name: "A", frontmost: true }, elements: [], truncated: false };
       }
-      return { state: "completed" };
+      return completedUnverifiedActionResult();
     };
 
     const moving = subject.moveMouse({ x: 1, y: 1 });
@@ -254,7 +276,7 @@ describe("ComputerRuntime computer_run", () => {
     const blocked = new Promise<void>((resolve) => { releaseMove = resolve; });
     native.responder = async (call) => {
       if (call.method === "move_mouse") await blocked;
-      return { state: "completed" };
+      return completedUnverifiedActionResult();
     };
 
     const running = subject.run({
@@ -434,7 +456,7 @@ describe("ComputerRuntime computer_run", () => {
     const { native, runtime: subject } = runtime();
     native.responder = (call) => {
       if (call.method === "click") throw new ComputerError("COMPUTER_ACTION_FAILED");
-      return { state: "completed" };
+      return completedUnverifiedActionResult();
     };
 
     let caught: unknown;
@@ -483,7 +505,7 @@ describe("ComputerRuntime computer_run", () => {
         if (call.method === "pointer_position") return { x: 1, y: 2 };
         if (call.method === "active_window") return { application: { name: "A", frontmost: true }, title: "Window" };
         if (call.method === "observe") return { snapshotId: "s", application: { name: "A", frontmost: true }, elements: [], truncated: false };
-        return { state: "completed" };
+        return completedUnverifiedActionResult();
       };
       const result = await subject.run({ actions: [{ type: "pointer_position" }], finalObservation: mode });
       expect(result.state).toBe("completed");
@@ -496,7 +518,7 @@ describe("ComputerRuntime computer_run", () => {
     const { native, runtime: subject } = runtime();
     native.responder = (call) => {
       if (call.method === "observe") throw new ComputerError("COMPUTER_UNAVAILABLE");
-      return { state: "completed" };
+      return completedUnverifiedActionResult();
     };
 
     const result = await subject.run({
@@ -580,7 +602,7 @@ describe("ComputerRuntime exclusive program session", () => {
     const blocked = new Promise<void>((resolve) => { releaseMove = resolve; });
     native.responder = async (call) => {
       if (call.method === "move_mouse") await blocked;
-      return { state: "completed" };
+      return completedUnverifiedActionResult();
     };
 
     const program = subject.withExclusiveProgram(async (session) => {
@@ -603,7 +625,7 @@ describe("ComputerRuntime exclusive program session", () => {
     const blocked = new Promise<void>((resolve) => { releaseMove = resolve; });
     native.responder = async (call) => {
       if (call.method === "move_mouse") await blocked;
-      return { state: "completed" };
+      return completedUnverifiedActionResult();
     };
 
     let programResolved = false;
@@ -663,7 +685,7 @@ describe("ComputerRuntime exclusive program session", () => {
       if (call.method === "active_window") return { application: { name: "Fixture", frontmost: true }, title: "Fixture" };
       if (call.method === "screenshot") return { pngBase64: Buffer.from("png").toString("base64"), width: 1, height: 1 };
       if (call.method === "observe") return { snapshotId: "snap", application: { name: "Fixture", frontmost: true }, elements: [], truncated: false };
-      return { state: "completed" };
+      return completedUnverifiedActionResult();
     };
 
     const result = await subject.withExclusiveProgram(async (session) => ({
@@ -706,7 +728,7 @@ describe("ComputerRuntime semantic targets", () => {
           confidence: "deterministic",
         };
       }
-      return { state: "completed" };
+      return completedUnverifiedActionResult();
     };
 
     await expect(subject.resolve({ by: "role", role: "AXButton", name: "Run", exact: true }))
@@ -751,7 +773,7 @@ describe("ComputerRuntime shutdown", () => {
       healthState: () => "stopped",
       request: async (method) => {
         events.push(method);
-        return { state: "completed" };
+        return completedUnverifiedActionResult();
       },
       close: async () => { events.push("close"); },
     };
@@ -767,7 +789,7 @@ describe("ComputerRuntime shutdown", () => {
       healthState: () => "running",
       request: async (method) => {
         events.push(method);
-        return method === "pointer_position" ? { x: 1, y: 2 } : { state: "completed" };
+        return method === "pointer_position" ? { x: 1, y: 2 } : completedUnverifiedActionResult();
       },
       close: async () => { events.push("close"); },
     };
@@ -789,7 +811,7 @@ describe("ComputerRuntime shutdown", () => {
       request: async (method) => {
         events.push(method);
         if (method === "move_mouse") await blocked;
-        return { state: "completed" };
+        return completedUnverifiedActionResult();
       },
       close: async () => { events.push("close"); },
     };

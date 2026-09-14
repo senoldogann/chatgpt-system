@@ -283,7 +283,13 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             }
             do {
                 try await controller.releaseAllInputs()
-                return encodeResult(ComputerActionResult(state: "completed"), requestId: request.requestId)
+                return encodeResult(
+                    ComputerActionResult(
+                        state: "completed_unverified",
+                        verification: ComputerVerificationEvidence(kind: .none, changed: nil)
+                    ),
+                    requestId: request.requestId
+                )
             } catch {
                 return actionFailed(requestId: request.requestId)
             }
@@ -360,7 +366,27 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             let baseline = try await captureVerificationBaseline(verificationSpec)
             let result = try await action()
             try await waitForVerification(verificationSpec, baseline: baseline)
-            return encodeResult(result, requestId: requestId)
+            let outward: ComputerActionResult
+            if let verificationSpec {
+                let changed = verificationChanged(for: verificationSpec)
+                outward = ComputerActionResult(
+                    state: "verified",
+                    pointer: result.pointer,
+                    changed: changed,
+                    verification: ComputerVerificationEvidence(
+                        kind: verificationKind(for: verificationSpec),
+                        changed: changed
+                    )
+                )
+            } else {
+                outward = ComputerActionResult(
+                    state: "completed_unverified",
+                    pointer: result.pointer,
+                    changed: result.changed,
+                    verification: ComputerVerificationEvidence(kind: .none, changed: nil)
+                )
+            }
+            return encodeResult(outward, requestId: requestId)
         } catch let error as ComputerRecoveryError {
             await releaseInputsAfterFailedAction()
             return recoveryFailed(error, requestId: requestId)
@@ -386,6 +412,23 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
 
     private func releaseInputsAfterFailedAction() async {
         try? await controller.releaseAllInputs()
+    }
+
+    private func verificationKind(for spec: ActionVerificationSpec) -> ComputerVerificationKind {
+        switch spec {
+        case .axChanged: return .ax
+        case .textAppeared: return .text
+        case .screenRegionChanged: return .screenRegion
+        }
+    }
+
+    private func verificationChanged(for spec: ActionVerificationSpec) -> Bool? {
+        switch spec {
+        case .axChanged, .screenRegionChanged:
+            return true
+        case .textAppeared:
+            return nil
+        }
     }
 
     private func captureVerificationBaseline(_ spec: ActionVerificationSpec?) async throws -> String? {

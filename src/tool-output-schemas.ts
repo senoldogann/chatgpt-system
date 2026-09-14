@@ -620,10 +620,18 @@ export const computerObservationOutputSchema = z.object({
 }).strict();
 
 export const computerActionResultOutputSchema = z.object({
-  state: z.string(),
+  state: z.enum(["verified", "completed_unverified"]),
   pointer: computerPointOutputSchema.optional(),
   changed: z.boolean().optional(),
-});
+  verification: z.object({
+    kind: z.enum(["ax", "text", "screen-region", "none"]),
+    changed: z.boolean().nullable(),
+  }).strict().optional(),
+}).strict();
+
+export const computerWaitResultOutputSchema = z.object({
+  state: z.literal("completed"),
+}).strict();
 
 export const computerChangedDigestOutputSchema = z.object({
   digest: z.string(),

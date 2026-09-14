@@ -16,6 +16,7 @@ import {
   computerPointResultOutputSchema,
   computerRunOutputSchema,
   computerScreenshotMetadataOutputSchema,
+  computerWaitResultOutputSchema,
 } from "./tool-output-schemas.js";
 
 export interface ComputerToolRuntime extends ScopedRuntimeBase {
@@ -568,7 +569,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         exact: z.boolean().optional(),
         timeoutMs: verificationTimeoutSchema.optional(),
       }).strict(),
-      outputSchema: computerActionResultOutputSchema,
+      outputSchema: computerWaitResultOutputSchema,
       annotations: computerReadAnnotations,
     },
     async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).waitForText(input) as Promise<object>),

@@ -6,6 +6,7 @@ import {
 import { ComputerError, isComputerErrorCode } from "./computer-errors.js";
 import type {
   ComputerAction,
+  ComputerActionResult,
   ComputerActionEndpoint,
   ComputerActionLocation,
   ComputerFinalObservation,
@@ -280,6 +281,50 @@ function validateResolvedTargetView(value: unknown): ComputerResolvedTargetView 
     ...(value.observationId !== undefined ? { observationId: value.observationId as string | null } : {}),
     confidence: value.confidence,
   };
+}
+
+function validateActionResult(value: unknown): ComputerActionResult {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["state", "pointer", "changed", "verification"])) invalid();
+  if (value.state !== "verified" && value.state !== "completed_unverified") invalid();
+
+  let pointer: ComputerActionResult["pointer"];
+  if (value.pointer !== undefined) {
+    if (!isRecord(value.pointer) || !hasOnlyKeys(value.pointer, ["x", "y"]) ||
+        typeof value.pointer.x !== "number" || typeof value.pointer.y !== "number") invalid();
+    pointer = { x: finite(value.pointer.x), y: finite(value.pointer.y) };
+  }
+
+  if (value.changed !== undefined && typeof value.changed !== "boolean") invalid();
+
+  let verificationEvidence: ComputerActionResult["verification"];
+  if (value.verification !== undefined) {
+    if (!isRecord(value.verification) || !hasOnlyKeys(value.verification, ["kind", "changed"]) ||
+        !Object.prototype.hasOwnProperty.call(value.verification, "changed")) invalid();
+    const kind = value.verification.kind;
+    if (kind !== "ax" && kind !== "text" && kind !== "screen-region" && kind !== "none") invalid();
+    const changed = value.verification.changed;
+    if (changed !== null && typeof changed !== "boolean") invalid();
+    verificationEvidence = { kind, changed };
+  }
+
+  if (value.state === "verified") {
+    if (!verificationEvidence || verificationEvidence.kind === "none") invalid();
+  } else if (verificationEvidence && verificationEvidence.kind !== "none") {
+    invalid();
+  }
+
+  return {
+    state: value.state,
+    ...(pointer !== undefined ? { pointer } : {}),
+    ...(value.changed !== undefined ? { changed: value.changed } : {}),
+    ...(verificationEvidence !== undefined ? { verification: verificationEvidence } : {}),
+  };
+}
+
+function nativeMethodReturnsActionResult(method: ComputerNativeMethod): boolean {
+  return method === "move_mouse" || method === "click" || method === "double_click" ||
+    method === "mouse_down" || method === "mouse_up" || method === "drag" || method === "scroll" ||
+    method === "type_text" || method === "press_key" || method === "release_inputs";
 }
 
 interface PreparedComputerAction {
@@ -594,13 +639,13 @@ export class ComputerRuntime {
   async moveMouse(input: ComputerActionLocation & {
     motionMode?: PointerMotionMode | undefined;
     verify?: ComputerVerification | undefined;
-  }): Promise<unknown> {
+  }): Promise<ComputerActionResult> {
     const params = locationParams(input, this.config.maxAutomaticRetriesPerAction);
     const mode = motionMode(input.motionMode);
     const verify = verification(input.verify);
     if (mode !== undefined) params.motionMode = mode;
     if (verify !== undefined) params.verify = verify;
-    return this.physical("move_mouse", params);
+    return this.physicalAction("move_mouse", params);
   }
 
   async click(input: ComputerActionLocation & {
@@ -608,7 +653,7 @@ export class ComputerRuntime {
     button?: ComputerMouseButton | undefined;
     motionMode?: PointerMotionMode | undefined;
     verify?: ComputerVerification | undefined;
-  }): Promise<unknown> {
+  }): Promise<ComputerActionResult> {
     const count = input.count ?? 1;
     if (count !== 1 && count !== 2) invalid();
     const params = locationParams(input, this.config.maxAutomaticRetriesPerAction);
@@ -618,7 +663,7 @@ export class ComputerRuntime {
     if (button !== undefined) params.button = button;
     if (mode !== undefined) params.motionMode = mode;
     if (verify !== undefined) params.verify = verify;
-    return this.physical(count === 2 ? "double_click" : "click", params);
+    return this.physicalAction(count === 2 ? "double_click" : "click", params);
   }
 
   async drag(input: {
@@ -628,7 +673,7 @@ export class ComputerRuntime {
     button?: ComputerMouseButton | undefined;
     motionMode?: PointerMotionMode | undefined;
     verify?: ComputerVerification | undefined;
-  }): Promise<unknown> {
+  }): Promise<ComputerActionResult> {
     const from = endpointParams(input.from);
     const to = endpointParams(input.to);
     const params: Record<string, unknown> = { from: from.value, to: to.value };
@@ -643,7 +688,7 @@ export class ComputerRuntime {
     if (button !== undefined) params.button = button;
     if (mode !== undefined) params.motionMode = mode;
     if (verify !== undefined) params.verify = verify;
-    return this.physical("drag", params);
+    return this.physicalAction("drag", params);
   }
 
   async scroll(input: {
@@ -655,7 +700,7 @@ export class ComputerRuntime {
     retryBudget?: number | undefined;
     motionMode?: PointerMotionMode | undefined;
     verify?: ComputerVerification | undefined;
-  }): Promise<unknown> {
+  }): Promise<ComputerActionResult> {
     integerInRange(input.vertical, -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA);
     integerInRange(input.horizontal, -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA);
     const params: Record<string, unknown> = { vertical: input.vertical, horizontal: input.horizontal };
@@ -668,23 +713,23 @@ export class ComputerRuntime {
     const verify = verification(input.verify);
     if (mode !== undefined) params.motionMode = mode;
     if (verify !== undefined) params.verify = verify;
-    return this.physical("scroll", params);
+    return this.physicalAction("scroll", params);
   }
 
-  async typeText(input: ComputerApplicationSelector & { text: string; verify?: ComputerVerification | undefined }): Promise<unknown> {
+  async typeText(input: ComputerApplicationSelector & { text: string; verify?: ComputerVerification | undefined }): Promise<ComputerActionResult> {
     if (input.text.length > MAX_TYPED_CHARS) invalid();
     const params = selectorParams(input);
     params.text = input.text;
     const verify = verification(input.verify);
     if (verify !== undefined) params.verify = verify;
-    return this.physical("type_text", params);
+    return this.physicalAction("type_text", params);
   }
 
   async pressKey(input: ComputerApplicationSelector & {
     key: string;
     modifiers?: ComputerKeyModifier[] | undefined;
     verify?: ComputerVerification | undefined;
-  }): Promise<unknown> {
+  }): Promise<ComputerActionResult> {
     if (input.key.length === 0 || input.key.length > 128) invalid();
     const params = selectorParams(input);
     params.key = input.key;
@@ -698,7 +743,7 @@ export class ComputerRuntime {
     }
     const verify = verification(input.verify);
     if (verify !== undefined) params.verify = verify;
-    return this.physical("press_key", params);
+    return this.physicalAction("press_key", params);
   }
 
   async waitForFrontmost(input: ComputerApplicationSelector & { timeoutMs?: number | undefined }): Promise<unknown> {
@@ -722,8 +767,8 @@ export class ComputerRuntime {
     return this.read("wait_until_changed", params);
   }
 
-  async releaseInputs(): Promise<unknown> {
-    return this.physical("release_inputs", {});
+  async releaseInputs(): Promise<ComputerActionResult> {
+    return this.physicalAction("release_inputs", {});
   }
 
   async withExclusiveProgram<T>(
@@ -868,6 +913,7 @@ export class ComputerRuntime {
               );
               requireRequestActive();
               if (action.type === "observe") validateObservationOutput(result, this.config);
+              if (nativeMethodReturnsActionResult(action.method!)) validateActionResult(result);
             }
           } catch (error) {
             throw this.runFailure(error, index, action.type, completedCount, actionCount);
@@ -982,6 +1028,7 @@ export class ComputerRuntime {
       this.config.requestTimeoutMs,
     );
     if (prepared.type === "observe") return validateObservationOutput(result, this.config);
+    if (nativeMethodReturnsActionResult(prepared.method!)) return validateActionResult(result);
     return result;
   }
 
@@ -1022,6 +1069,14 @@ export class ComputerRuntime {
       this.requireEnabled();
       return this.native.request(method, params, timeoutMs);
     });
+  }
+
+  private async physicalAction(
+    method: ComputerNativeMethod,
+    params: Record<string, unknown>,
+    timeoutMs = this.config.requestTimeoutMs,
+  ): Promise<ComputerActionResult> {
+    return validateActionResult(await this.physical(method, params, timeoutMs));
   }
 
   private requireEnabled(): void {

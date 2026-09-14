@@ -49,6 +49,17 @@ export interface ComputerResolvedTargetView {
 }
 
 export type ComputerCoordinate = { x: number; y: number };
+export type ComputerActionVerificationKind = "ax" | "text" | "screen-region" | "none";
+export interface ComputerActionVerificationEvidence {
+  kind: ComputerActionVerificationKind;
+  changed: boolean | null;
+}
+export interface ComputerActionResult {
+  state: "verified" | "completed_unverified";
+  pointer?: ComputerCoordinate;
+  changed?: boolean;
+  verification?: ComputerActionVerificationEvidence;
+}
 export type ComputerSemanticLocation = {
   target: ComputerTarget;
   retryBudget?: number;
