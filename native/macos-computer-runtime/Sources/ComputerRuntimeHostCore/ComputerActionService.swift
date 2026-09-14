@@ -46,6 +46,8 @@ private struct ApplicationInputFocusGuard: InputFocusGuard {
 struct ComputerActionService: ComputerActionHandling, Sendable {
     private static let maxSelectorCharacters = 4_096
     private static let maxTypedCharacters = 16_384
+    private static let chromeBundleIdentifier = "com.google.Chrome"
+    private static let chromeAccessibilityArguments = ["--force-renderer-accessibility=complete"]
     private static let defaultFocusTimeoutMs = 1_500
     private static let focusPollIntervalMs = 20
 
@@ -475,7 +477,10 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             guard let url = applicationController.applicationURL(bundleIdentifier: bundleIdentifier) else {
                 throw ApplicationResolutionError.notFound
             }
-            return try await applicationController.openApplication(at: url)
+            let arguments = bundleIdentifier == Self.chromeBundleIdentifier
+                ? Self.chromeAccessibilityArguments
+                : []
+            return try await applicationController.openApplication(at: url, arguments: arguments)
         }
 
         return try resolveRunning(selector, using: applicationController)
