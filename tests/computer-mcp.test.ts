@@ -85,6 +85,8 @@ class FakeComputerRuntime {
         return { digest: "digest-2" };
       case "waitForText":
         return { state: "completed" };
+      case "scrollUntilVisible":
+        return { state: "target_visible", stepsUsed: 0, changed: false };
       case "run": {
         const actions = (input as { actions: ComputerAction[] }).actions;
         return {
@@ -115,6 +117,7 @@ class FakeComputerRuntime {
   async click(input: unknown) { return this.answer("click", input); }
   async drag(input: unknown) { return this.answer("drag", input); }
   async scroll(input: unknown) { return this.answer("scroll", input); }
+  async scrollUntilVisible(input: unknown) { return this.answer("scrollUntilVisible", input); }
   async typeText(input: unknown) { return this.answer("typeText", input); }
   async pressKey(input: unknown) { return this.answer("pressKey", input); }
   async waitForFrontmost(input: unknown) { return this.answer("waitForFrontmost", input); }
@@ -225,6 +228,7 @@ const expectedComputerTools = [
   "computer_click",
   "computer_drag",
   "computer_scroll",
+  "computer_scroll_until_visible",
   "computer_type_text",
   "computer_press_key",
   "computer_release_inputs",
@@ -307,6 +311,25 @@ describe("computer MCP tools", () => {
       ]));
       expect(screenshotOutputSchema.properties?.scaleX?.exclusiveMinimum).toBe(0);
       expect(screenshotOutputSchema.properties?.scaleY?.exclusiveMinimum).toBe(0);
+
+      const scrollUntilVisible = byName.get("computer_scroll_until_visible");
+      expect(scrollUntilVisible?.description).toMatch(/deterministic scroll container/i);
+      expect(scrollUntilVisible?.description).toMatch(/fresh.*observe.*needs_replan/i);
+      expect(scrollUntilVisible?.description).toMatch(/never.*blind.*raw scroll/i);
+      const boundedScrollInput = scrollUntilVisible?.inputSchema as {
+        properties?: {
+          direction?: { enum?: string[] };
+          amount?: { enum?: string[] };
+          maxSteps?: { minimum?: number; maximum?: number };
+        };
+      };
+      expect(boundedScrollInput.properties?.direction?.enum).toEqual(["up", "down", "left", "right"]);
+      expect(boundedScrollInput.properties?.amount?.enum).toEqual(["small", "page"]);
+      expect(boundedScrollInput.properties?.maxSteps).toMatchObject({ minimum: 1, maximum: 6 });
+      const boundedScrollOutput = scrollUntilVisible?.outputSchema as {
+        properties?: { state?: { enum?: string[] } };
+      };
+      expect(boundedScrollOutput.properties?.state?.enum).toEqual(["target_visible", "boundary_reached", "needs_replan"]);
 
       const clickOutputSchema = byName.get("computer_click")?.outputSchema as {
         properties?: {
@@ -562,6 +585,48 @@ describe("computer MCP tools", () => {
       });
       expect(invalid.isError).toBe(true);
       expect(fake.calls).toHaveLength(callsBeforeInvalid);
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("enforces strict bounded-scroll schema and routes a valid semantic request", async () => {
+    const { runtime, fake, client, transport } = await fixture();
+    try {
+      const admin = await runtime.authority.start({ profile: "admin" });
+      const base = {
+        authorityLeaseId: admin.leaseId,
+        target: { by: "text", text: "Refresh", exact: true },
+        within: { by: "role", role: "AXScrollArea", name: "Plugins", exact: true },
+      };
+
+      for (const argumentsValue of [
+        { ...base, direction: "down", maxSteps: 7 },
+        { ...base, direction: "diagonal", maxSteps: 2 },
+        { ...base, direction: "down", maxSteps: 2, arbitrary: true },
+      ]) {
+        const invalid = await client.callTool({ name: "computer_scroll_until_visible", arguments: argumentsValue });
+        expect(invalid.isError).toBe(true);
+      }
+      expect(fake.calls).toHaveLength(0);
+
+      const valid = await client.callTool({
+        name: "computer_scroll_until_visible",
+        arguments: { ...base, direction: "down", amount: "small", maxSteps: 4 },
+      });
+      expect(valid.isError).not.toBe(true);
+      expect(valid.structuredContent).toEqual({ state: "target_visible", stepsUsed: 0, changed: false });
+      expect(fake.calls).toContainEqual({
+        method: "scrollUntilVisible",
+        input: {
+          target: { by: "text", text: "Refresh", exact: true },
+          within: { by: "role", role: "AXScrollArea", name: "Plugins", exact: true },
+          direction: "down",
+          amount: "small",
+          maxSteps: 4,
+        },
+      });
     } finally {
       await transport.terminateSession();
       await client.close();

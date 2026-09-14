@@ -44,6 +44,9 @@ class FakeComputerBackend implements ScopedComputerBackend {
       };
     }
     if (method === "screenshot") return { pngBase64: "aQ==", width: 1, height: 1 };
+    if (method === "scrollUntilVisible") {
+      return { state: "target_visible", stepsUsed: 2, changed: true };
+    }
     if (method === "run") {
       const actionCount = (input as { actions: ComputerAction[] }).actions.length;
       return {
@@ -68,6 +71,7 @@ class FakeComputerBackend implements ScopedComputerBackend {
   async click(input: never) { return this.call("click", input); }
   async drag(input: never) { return this.call("drag", input); }
   async scroll(input: never) { return this.call("scroll", input); }
+  async scrollUntilVisible(input: never) { return this.call("scrollUntilVisible", input) as never; }
   async typeText(input: never) { return this.call("typeText", input); }
   async pressKey(input: never) { return this.call("pressKey", input); }
   async waitForFrontmost(input: never) { return this.call("waitForFrontmost", input); }
@@ -254,6 +258,31 @@ describe("ScopedComputerService policy and audit", () => {
     ]) {
       expect(log).not.toContain(forbidden);
     }
+  });
+
+  it("records bounded-scroll categorical metadata without target or page text", async () => {
+    const { auditFile, audit } = await fixture();
+    const backend = new FakeComputerBackend();
+    const service = new ScopedComputerService(backend, audit, true);
+
+    await expect(service.scrollUntilVisible({
+      target: { by: "ocrText", text: "OCR_SCROLL_TARGET_SECRET", exact: true },
+      within: { by: "role", role: "AXScrollArea", name: "PRIVATE_SCROLL_CONTAINER", exact: true },
+      direction: "down",
+      amount: "small",
+      maxSteps: 4,
+    })).resolves.toEqual({ state: "target_visible", stepsUsed: 2, changed: true });
+
+    const log = await readFile(auditFile, "utf8");
+    expect(log).toContain('"action":"computer.scroll_until_visible"');
+    expect(log).toContain('"direction":"down"');
+    expect(log).toContain('"amount":"small"');
+    expect(log).toContain('"maxSteps":4');
+    expect(log).toContain('"state":"target_visible"');
+    expect(log).toContain('"stepsUsed":2');
+    expect(log).toContain('"changed":true');
+    expect(log).not.toContain("OCR_SCROLL_TARGET_SECRET");
+    expect(log).not.toContain("PRIVATE_SCROLL_CONTAINER");
   });
 
   it("records computer.run_js without source cwd output result or runner diagnostics", async () => {

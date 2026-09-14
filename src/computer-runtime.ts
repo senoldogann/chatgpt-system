@@ -13,7 +13,13 @@ import type {
   ComputerNativeMethod,
   ComputerResolvedTargetView,
   ComputerRunResult,
+  ComputerScrollAmount,
+  ComputerScrollDirection,
+  ComputerScrollTarget,
+  ComputerScrollUntilVisibleInput,
+  ComputerScrollUntilVisibleResult,
   ComputerTarget,
+  ComputerTargetScope,
 } from "./computer-types.js";
 
 export type ComputerHostState = "disabled" | "stopped" | "running" | "unavailable";
@@ -96,6 +102,9 @@ export interface ComputerPoint {
 const MAX_SELECTOR_CHARS = 4_096;
 const MAX_TYPED_CHARS = 16_384;
 const MAX_SCROLL_DELTA = 10_000;
+const MAX_SCROLL_UNTIL_VISIBLE_STEPS = 6;
+const SMALL_SCROLL_DELTA = 3;
+const PAGE_SCROLL_DELTA = 8;
 const MOTION_MODES = new Set<PointerMotionMode>(["instant", "fast", "natural"]);
 const MOUSE_BUTTONS = new Set<ComputerMouseButton>(["left", "right", "middle"]);
 const KEY_MODIFIERS = new Set<ComputerKeyModifier>(["control", "option", "shift", "command"]);
@@ -238,6 +247,54 @@ function canonicalTarget(value: unknown): ComputerTarget {
     default:
       return invalid();
   }
+}
+
+function canonicalTargetScope(value: unknown): ComputerTargetScope {
+  if (!isRecord(value) || typeof value.by !== "string") invalid();
+  if (value.by === "index") {
+    if (!hasOnlyKeys(value, ["by", "snapshotId", "index"])) invalid();
+    const snapshotId = boundedTargetString(value.snapshotId);
+    if (!Number.isSafeInteger(value.index) || (value.index as number) < 0) invalid();
+    return { by: "index", snapshotId, index: value.index as number };
+  }
+  if (value.by === "role") {
+    if (!hasOnlyKeys(value, ["by", "role", "name", "exact"])) invalid();
+    const role = boundedTargetString(value.role);
+    const name = value.name === undefined ? undefined : boundedTargetString(value.name);
+    const exact = optionalExact(value.exact);
+    return { by: "role", role, ...(name !== undefined ? { name } : {}), ...(exact !== undefined ? { exact } : {}) };
+  }
+  return invalid();
+}
+
+function canonicalScrollTarget(value: unknown): ComputerScrollTarget {
+  const target = canonicalTarget(value);
+  if (target.by === "index" || target.by === "point") invalid();
+  return target;
+}
+
+function scopedScrollTarget(target: ComputerScrollTarget, within: ComputerTargetScope): Record<string, unknown> {
+  return { ...target, within };
+}
+
+function scrollDelta(
+  direction: ComputerScrollDirection,
+  amount: ComputerScrollAmount,
+): { vertical: number; horizontal: number } {
+  const magnitude = amount === "small" ? SMALL_SCROLL_DELTA : PAGE_SCROLL_DELTA;
+  switch (direction) {
+    case "up": return { vertical: magnitude, horizontal: 0 };
+    case "down": return { vertical: -magnitude, horizontal: 0 };
+    case "left": return { vertical: 0, horizontal: magnitude };
+    case "right": return { vertical: 0, horizontal: -magnitude };
+  }
+}
+
+function observationDigest(observation: unknown): string | undefined {
+  if (!isRecord(observation) || typeof observation.digest !== "string" || observation.digest.length === 0) {
+    return undefined;
+  }
+  return observation.digest;
 }
 
 function semanticRetryBudget(value: unknown, max: number): number {
@@ -744,6 +801,87 @@ export class ComputerRuntime {
     if (mode !== undefined) params.motionMode = mode;
     if (verify !== undefined) params.verify = verify;
     return this.physicalAction("scroll", params);
+  }
+
+  async scrollUntilVisible(input: ComputerScrollUntilVisibleInput): Promise<ComputerScrollUntilVisibleResult> {
+    this.requireEnabled();
+    const target = canonicalScrollTarget(input.target);
+    const within = canonicalTargetScope(input.within);
+    const direction = input.direction;
+    if (direction !== "up" && direction !== "down" && direction !== "left" && direction !== "right") invalid();
+    const amount = input.amount ?? "page";
+    if (amount !== "small" && amount !== "page") invalid();
+    const maxSteps = input.maxSteps ?? MAX_SCROLL_UNTIL_VISIBLE_STEPS;
+    integerInRange(maxSteps, 1, MAX_SCROLL_UNTIL_VISIBLE_STEPS);
+    const delta = scrollDelta(direction, amount);
+    const scopedTarget = scopedScrollTarget(target, within);
+
+    return this.physicalLane.run(async () => {
+      this.requireEnabled();
+      let observation = validateObservationOutput(
+        await this.native.request("observe", {}, this.config.requestTimeoutMs),
+        this.config,
+      );
+      let digest = observationDigest(observation);
+      let stepsUsed = 0;
+      let changed = false;
+
+      for (;;) {
+        this.requireEnabled();
+        const container = await this.native.request(
+          "resolve_target",
+          { target: within, retryBudget: 1 },
+          this.config.requestTimeoutMs,
+        );
+        validateResolvedTargetView(container);
+
+        try {
+          const resolved = await this.native.request(
+            "resolve_target",
+            { target: scopedTarget, retryBudget: 1 },
+            this.config.requestTimeoutMs,
+          );
+          validateResolvedTargetView(resolved);
+          return { state: "target_visible", stepsUsed, changed };
+        } catch (error) {
+          if (!(error instanceof ComputerError) || error.code !== "COMPUTER_TARGET_NOT_FOUND") throw error;
+        }
+
+        if (stepsUsed >= maxSteps || digest === undefined) {
+          return { state: "needs_replan", stepsUsed, changed };
+        }
+
+        const scrollResult = await this.native.request(
+          "scroll",
+          {
+            vertical: delta.vertical,
+            horizontal: delta.horizontal,
+            target: within,
+            retryBudget: 1,
+            motionMode: "instant",
+          },
+          this.config.requestTimeoutMs,
+        );
+        validateActionResult(scrollResult);
+        stepsUsed += 1;
+
+        const nextObservation = validateObservationOutput(
+          await this.native.request("observe", {}, this.config.requestTimeoutMs),
+          this.config,
+        );
+        const nextDigest = observationDigest(nextObservation);
+        if (nextDigest === undefined) {
+          return { state: "needs_replan", stepsUsed, changed };
+        }
+        if (nextDigest === digest) {
+          return { state: "boundary_reached", stepsUsed, changed };
+        }
+        changed = true;
+        observation = nextObservation;
+        digest = nextDigest;
+        void observation;
+      }
+    });
   }
 
   async typeText(input: ComputerApplicationSelector & { text: string; verify?: ComputerVerification | undefined }): Promise<ComputerActionResult> {

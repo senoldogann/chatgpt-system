@@ -12,6 +12,31 @@ const completedUnverifiedActionResult = () => ({
   verification: { kind: "none" as const, changed: null },
 });
 
+const scrollObservation = (digest: string) => ({
+  snapshotId: `snap-${digest}`,
+  application: { name: "Fixture", frontmost: true },
+  elements: [],
+  truncated: false,
+  digest,
+});
+
+const scrollContainer = { by: "role" as const, role: "AXScrollArea", name: "Plugins", exact: true };
+const scrollTarget = { by: "text" as const, text: "Refresh", exact: true };
+const resolvedScrollContainer = {
+  source: "ax" as const,
+  bounds: { x: 100, y: 120, width: 400, height: 500 },
+  actionPoint: { x: 300, y: 370 },
+  observationId: "scroll-container",
+  confidence: "deterministic" as const,
+};
+const resolvedScrollTarget = {
+  source: "ax" as const,
+  bounds: { x: 160, y: 520, width: 100, height: 32 },
+  actionPoint: { x: 210, y: 536 },
+  observationId: "scroll-target",
+  confidence: "deterministic" as const,
+};
+
 const config: ComputerUseConfig = {
   enabled: true,
   fullHostJsEnabled: false,
@@ -814,6 +839,144 @@ describe("ComputerRuntime semantic targets", () => {
     });
     expect(native.calls[0]?.params).not.toHaveProperty("x");
     expect(native.calls[0]?.params).not.toHaveProperty("y");
+  });
+});
+
+describe("ComputerRuntime scroll until visible", () => {
+  it("returns target_visible without scrolling when the scoped target is already visible", async () => {
+    const { native, runtime: subject } = runtime();
+    native.responder = (call) => {
+      if (call.method === "observe") return scrollObservation("d0");
+      if (call.method === "resolve_target") {
+        const target = call.params.target as Record<string, unknown>;
+        return "within" in target ? resolvedScrollTarget : resolvedScrollContainer;
+      }
+      return completedUnverifiedActionResult();
+    };
+
+    await expect(subject.scrollUntilVisible({
+      target: scrollTarget,
+      within: scrollContainer,
+      direction: "down",
+      amount: "small",
+      maxSteps: 4,
+    })).resolves.toEqual({ state: "target_visible", stepsUsed: 0, changed: false });
+    expect(native.calls.map((call) => call.method)).toEqual(["observe", "resolve_target", "resolve_target"]);
+    expect(native.calls.some((call) => call.method === "scroll")).toBe(false);
+  });
+
+  it("finds a target after two bounded semantic scrolls", async () => {
+    const { native, runtime: subject } = runtime();
+    const digests = ["d0", "d1", "d2"];
+    let observationIndex = 0;
+    let scopedAttempts = 0;
+    native.responder = (call) => {
+      if (call.method === "observe") return scrollObservation(digests[observationIndex++]!);
+      if (call.method === "resolve_target") {
+        const target = call.params.target as Record<string, unknown>;
+        if ("within" in target) {
+          scopedAttempts += 1;
+          if (scopedAttempts < 3) throw new ComputerError("COMPUTER_TARGET_NOT_FOUND");
+          return resolvedScrollTarget;
+        }
+        return resolvedScrollContainer;
+      }
+      if (call.method === "scroll") return completedUnverifiedActionResult();
+      throw new Error(`unexpected method: ${call.method}`);
+    };
+
+    await expect(subject.scrollUntilVisible({
+      target: scrollTarget,
+      within: scrollContainer,
+      direction: "down",
+      amount: "small",
+      maxSteps: 4,
+    })).resolves.toEqual({ state: "target_visible", stepsUsed: 2, changed: true });
+    const scrolls = native.calls.filter((call) => call.method === "scroll");
+    expect(scrolls).toHaveLength(2);
+    expect(scrolls[0]?.params).toMatchObject({
+      vertical: -3,
+      horizontal: 0,
+      target: scrollContainer,
+      retryBudget: 1,
+    });
+  });
+
+  it("stops at boundary after one unchanged post-scroll digest", async () => {
+    const { native, runtime: subject } = runtime();
+    native.responder = (call) => {
+      if (call.method === "observe") return scrollObservation("same");
+      if (call.method === "resolve_target") {
+        const target = call.params.target as Record<string, unknown>;
+        if ("within" in target) throw new ComputerError("COMPUTER_TARGET_NOT_FOUND");
+        return resolvedScrollContainer;
+      }
+      if (call.method === "scroll") return completedUnverifiedActionResult();
+      throw new Error(`unexpected method: ${call.method}`);
+    };
+
+    await expect(subject.scrollUntilVisible({
+      target: scrollTarget,
+      within: scrollContainer,
+      direction: "down",
+      amount: "page",
+      maxSteps: 6,
+    })).resolves.toEqual({ state: "boundary_reached", stepsUsed: 1, changed: false });
+    expect(native.calls.filter((call) => call.method === "scroll")).toHaveLength(1);
+  });
+
+  it("rejects maxSteps above six and stops with needs_replan at the requested bound", async () => {
+    const { native, runtime: subject } = runtime();
+    await expect(subject.scrollUntilVisible({
+      target: scrollTarget,
+      within: scrollContainer,
+      direction: "down",
+      maxSteps: 7,
+    })).rejects.toMatchObject({ code: "COMPUTER_PROTOCOL_INVALID" });
+    expect(native.calls).toHaveLength(0);
+
+    let digest = 0;
+    native.responder = (call) => {
+      if (call.method === "observe") return scrollObservation(`d${digest++}`);
+      if (call.method === "resolve_target") {
+        const target = call.params.target as Record<string, unknown>;
+        if ("within" in target) throw new ComputerError("COMPUTER_TARGET_NOT_FOUND");
+        return resolvedScrollContainer;
+      }
+      if (call.method === "scroll") return completedUnverifiedActionResult();
+      throw new Error(`unexpected method: ${call.method}`);
+    };
+
+    await expect(subject.scrollUntilVisible({
+      target: scrollTarget,
+      within: scrollContainer,
+      direction: "down",
+      maxSteps: 2,
+    })).resolves.toEqual({ state: "needs_replan", stepsUsed: 2, changed: true });
+    expect(native.calls.filter((call) => call.method === "scroll")).toHaveLength(2);
+  });
+
+  it("propagates a focus/native scroll failure without retrying", async () => {
+    const { native, runtime: subject } = runtime();
+    native.responder = (call) => {
+      if (call.method === "observe") return scrollObservation("d0");
+      if (call.method === "resolve_target") {
+        const target = call.params.target as Record<string, unknown>;
+        if ("within" in target) throw new ComputerError("COMPUTER_TARGET_NOT_FOUND");
+        return resolvedScrollContainer;
+      }
+      if (call.method === "scroll") throw new ComputerError("COMPUTER_FOCUS_FAILED");
+      throw new Error(`unexpected method: ${call.method}`);
+    };
+
+    await expect(subject.scrollUntilVisible({
+      target: scrollTarget,
+      within: scrollContainer,
+      direction: "down",
+      maxSteps: 6,
+    })).rejects.toMatchObject({ code: "COMPUTER_FOCUS_FAILED" });
+    expect(native.calls.filter((call) => call.method === "scroll")).toHaveLength(1);
+    expect(native.calls.filter((call) => call.method === "observe")).toHaveLength(1);
   });
 });
 

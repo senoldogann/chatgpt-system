@@ -629,6 +629,12 @@ export const computerActionResultOutputSchema = z.object({
   }).strict().optional(),
 }).strict();
 
+export const computerScrollUntilVisibleOutputSchema = z.object({
+  state: z.enum(["target_visible", "boundary_reached", "needs_replan"]),
+  stepsUsed: z.number().int().min(0).max(6),
+  changed: z.boolean(),
+}).strict();
+
 export const computerWaitResultOutputSchema = z.object({
   state: z.literal("completed"),
 }).strict();

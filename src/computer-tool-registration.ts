@@ -16,6 +16,7 @@ import {
   computerPointResultOutputSchema,
   computerRunOutputSchema,
   computerScreenshotMetadataOutputSchema,
+  computerScrollUntilVisibleOutputSchema,
   computerWaitResultOutputSchema,
 } from "./tool-output-schemas.js";
 
@@ -39,6 +40,19 @@ const computerTargetSchema = z.discriminatedUnion("by", [
   z.object({ by: z.literal("point"), x: z.number(), y: z.number() }).strict(),
 ]);
 const targetLocationFields = { target: computerTargetSchema, retryBudget: retryBudgetSchema.optional() };
+const computerTargetScopeSchema = z.union([
+  z.object({ by: z.literal("index"), snapshotId: z.string().min(1).max(4_096), index: z.number().int().nonnegative() }).strict(),
+  z.object({ by: z.literal("role"), role: z.string().min(1).max(4_096), name: z.string().min(1).max(4_096).optional(), exact: z.boolean().optional() }).strict(),
+]);
+const computerScrollTargetSchema = z.union([
+  z.object({ by: z.literal("role"), role: z.string().min(1).max(4_096), name: z.string().min(1).max(4_096).optional(), exact: z.boolean().optional() }).strict(),
+  z.object({ by: z.literal("text"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
+  z.object({ by: z.literal("label"), label: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
+  z.object({ by: z.literal("ocrText"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
+]);
+const scrollDirectionSchema = z.enum(["up", "down", "left", "right"]);
+const scrollAmountSchema = z.enum(["small", "page"]);
+const scrollMaxStepsSchema = z.number().int().min(1).max(6);
 const endpointSchema = z.union([z.object(pointFields).strict(), computerTargetSchema]);
 const motionModeSchema = z.enum(["instant", "fast", "natural"]);
 const mouseButtonSchema = z.enum(["left", "right", "middle"]);
@@ -505,6 +519,25 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       annotations: computerMutationAnnotations,
     },
     async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).scroll(compact(input) as never) as Promise<object>),
+  );
+
+  server.registerTool(
+    "computer_scroll_until_visible",
+    {
+      description: "Use only when a deterministic scroll container is known. Bounded semantic scrolling resolves the target inside that container and stops after at most six physical scrolls. Use a fresh observe before deciding how to recover from needs_replan, and never convert failure into repeated blind raw scrolling. Requires Admin authority.",
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        target: computerScrollTargetSchema,
+        within: computerTargetScopeSchema,
+        direction: scrollDirectionSchema,
+        amount: scrollAmountSchema.optional(),
+        maxSteps: scrollMaxStepsSchema.optional(),
+      }).strict(),
+      outputSchema: computerScrollUntilVisibleOutputSchema,
+      annotations: computerMutationAnnotations,
+    },
+    async ({ authorityLeaseId, ...input }) => safeCall(() =>
+      computerFor(runtime, authorityLeaseId).scrollUntilVisible(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(

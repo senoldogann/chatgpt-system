@@ -40,6 +40,33 @@ export type ComputerTarget =
   | { by: "ocrText"; text: string; exact?: boolean }
   | { by: "point"; x: number; y: number };
 
+export type ComputerTargetScope =
+  | { by: "index"; snapshotId: string; index: number }
+  | { by: "role"; role: string; name?: string; exact?: boolean };
+
+export type ComputerScrollTarget =
+  | { by: "role"; role: string; name?: string; exact?: boolean }
+  | { by: "text"; text: string; exact?: boolean }
+  | { by: "label"; label: string; exact?: boolean }
+  | { by: "ocrText"; text: string; exact?: boolean };
+
+export type ComputerScrollDirection = "up" | "down" | "left" | "right";
+export type ComputerScrollAmount = "small" | "page";
+
+export interface ComputerScrollUntilVisibleInput {
+  target: ComputerScrollTarget;
+  within: ComputerTargetScope;
+  direction: ComputerScrollDirection;
+  amount?: ComputerScrollAmount;
+  maxSteps?: number;
+}
+
+export interface ComputerScrollUntilVisibleResult {
+  state: "target_visible" | "boundary_reached" | "needs_replan";
+  stepsUsed: number;
+  changed: boolean;
+}
+
 export interface ComputerResolvedTargetView {
   source: "ax" | "ocr" | "point";
   bounds: { x: number; y: number; width: number; height: number };
