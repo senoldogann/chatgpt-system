@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { AuthorityManager } from "./authority.js";
 import { ComputerError } from "./computer-errors.js";
+import { COMPUTER_KEY_INPUT_VALUES, normalizeComputerKey } from "./computer-key.js";
 import type { ComputerAction } from "./computer-types.js";
 import { AppError } from "./errors.js";
 import { createScopedRuntime, type ScopedRuntimeBase } from "./scoped-runtime.js";
@@ -43,6 +44,11 @@ const mouseButtonSchema = z.enum(["left", "right", "middle"]);
 const modifierSchema = z.enum(["control", "option", "shift", "command"]);
 const modifiersSchema = z.array(modifierSchema).max(4).refine((values) => new Set(values).size === values.length, {
   message: "Modifiers must be unique.",
+});
+const computerKeyInputSchema = z.enum(COMPUTER_KEY_INPUT_VALUES).transform((value) => {
+  const normalized = normalizeComputerKey(value);
+  if (!normalized) throw new Error("Unreachable computer key normalization failure.");
+  return normalized;
 });
 const verificationTimeoutSchema = z.number().int().min(50).max(10_000);
 const focusTimeoutSchema = z.number().int().min(50).max(5_000);
@@ -187,7 +193,7 @@ const typeTextActionSchema = z.object({
 }).strict();
 const pressKeyActionSchema = z.object({
   type: z.literal("press_key"),
-  key: z.string().min(1).max(128),
+  key: computerKeyInputSchema,
   modifiers: modifiersSchema.optional(),
   ...selectorFields,
   verify: verificationSchema.optional(),
@@ -515,7 +521,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       description: "Press a named key with optional modifiers in the expected frontmost application. Requires Admin authority.",
       inputSchema: z.object({
         ...authorityLeaseField,
-        key: z.string().min(1).max(128),
+        key: computerKeyInputSchema,
         modifiers: modifiersSchema.optional(),
         ...selectorFields,
         verify: verificationSchema.optional(),

@@ -1,3 +1,5 @@
+import type { ComputerKeyName } from "./computer-key.js";
+
 export const COMPUTER_PROTOCOL_VERSION = 1 as const;
 export const COMPUTER_MAX_REQUEST_LINE_BYTES = 262_144;
 export const COMPUTER_MAX_RESPONSE_BYTES = 12_582_912;
@@ -84,7 +86,7 @@ export type ComputerAction =
       | ComputerActionLocation
     ))
   | { type: "type_text"; text: string; bundleIdentifier?: string; name?: string; verify?: ComputerActionVerification }
-  | { type: "press_key"; key: string; modifiers?: Array<"control" | "option" | "shift" | "command">; bundleIdentifier?: string; name?: string; verify?: ComputerActionVerification }
+  | { type: "press_key"; key: ComputerKeyName; modifiers?: Array<"control" | "option" | "shift" | "command">; bundleIdentifier?: string; name?: string; verify?: ComputerActionVerification }
   | { type: "wait"; durationMs: number }
   | { type: "wait_for_frontmost"; bundleIdentifier?: string; name?: string; timeoutMs?: number }
   | { type: "wait_for_text"; text: string; exact?: boolean; timeoutMs?: number }
