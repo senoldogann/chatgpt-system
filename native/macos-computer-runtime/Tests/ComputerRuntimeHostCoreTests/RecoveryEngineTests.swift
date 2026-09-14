@@ -129,6 +129,26 @@ final class RecoveryEngineTests: XCTestCase {
         XCTAssertEqual(modes, [.fast])
     }
 
+    func testVerifyContextRejectsChangedFocusedWindow() async throws {
+        let accessibility = FakeRecoveryAccessibility(elements: [button(index: 1, title: "Run", x: 10)])
+        let engine = makeEngine(
+            accessibility: accessibility,
+            ocr: CountingOCR(fast: [], accurate: []),
+            capture: CountingScreenCapture()
+        )
+        let resolved = try await engine.resolve(.text(text: "Run", exact: true), retryBudget: 2)
+
+        try await engine.verifyContext(resolved)
+        accessibility.windowTitle = "Different Window"
+
+        do {
+            try await engine.verifyContext(resolved)
+            XCTFail("Expected stale context")
+        } catch {
+            XCTAssertEqual(error as? ComputerRecoveryError, .staleSnapshot)
+        }
+    }
+
     func testAccessibilityPermissionLossIsTerminalAndDoesNotInvokeOcr() async {
         let permissions = FakeRecoveryPermissions(accessibility: false, screenCapture: true)
         let ocr = CountingOCR(fast: [], accurate: [])

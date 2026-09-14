@@ -51,13 +51,19 @@ struct ComputerInputController: Sendable {
 
     func moveMouse(
         to target: ComputerPoint,
-        mode: PointerMotionMode = .fast
+        mode: PointerMotionMode = .fast,
+        contextGuard: (any InputContextGuard)? = nil
     ) async throws -> ComputerActionResult {
         await lane.acquire()
         beginSafetyAction()
         defer { endSafetyAction() }
         do {
-            let result = try await moveMouseWithinLane(to: target, mode: mode, dragButton: nil)
+            let result = try await moveMouseWithinLane(
+                to: target,
+                mode: mode,
+                dragButton: nil,
+                contextGuard: contextGuard
+            )
             await lane.release()
             return result
         } catch {
@@ -70,15 +76,23 @@ struct ComputerInputController: Sendable {
     func click(
         at target: ComputerPoint,
         button: ComputerMouseButton,
-        mode: PointerMotionMode
+        mode: PointerMotionMode,
+        contextGuard: (any InputContextGuard)? = nil
     ) async throws -> ComputerActionResult {
         await lane.acquire()
         beginSafetyAction()
         defer { endSafetyAction() }
         do {
-            _ = try await moveMouseWithinLane(to: target, mode: mode, dragButton: nil)
+            _ = try await moveMouseWithinLane(
+                to: target,
+                mode: mode,
+                dragButton: nil,
+                contextGuard: contextGuard
+            )
             try verifyPointerNear(target)
+            try await verifyContext(contextGuard)
             try await emitMouseDownWithinLane(button, point: target, clickCount: 1)
+            try await verifyContext(contextGuard)
             try await emitMouseUpWithinLane(button, point: target, clickCount: 1)
             await lane.release()
             return ComputerActionResult(state: "completed", pointer: target)
@@ -92,21 +106,31 @@ struct ComputerInputController: Sendable {
     func doubleClick(
         at target: ComputerPoint,
         button: ComputerMouseButton,
-        mode: PointerMotionMode
+        mode: PointerMotionMode,
+        contextGuard: (any InputContextGuard)? = nil
     ) async throws -> ComputerActionResult {
         await lane.acquire()
         beginSafetyAction()
         defer { endSafetyAction() }
         do {
-            _ = try await moveMouseWithinLane(to: target, mode: mode, dragButton: nil)
+            _ = try await moveMouseWithinLane(
+                to: target,
+                mode: mode,
+                dragButton: nil,
+                contextGuard: contextGuard
+            )
             try verifyPointerNear(target)
+            try await verifyContext(contextGuard)
             try await emitMouseDownWithinLane(button, point: target, clickCount: 1)
+            try await verifyContext(contextGuard)
             try await emitMouseUpWithinLane(button, point: target, clickCount: 1)
             try checkSafety()
             try await sleeper.sleep(nanoseconds: Self.interClickPauseNanoseconds)
             try checkSafety()
             try Task.checkCancellation()
+            try await verifyContext(contextGuard)
             try await emitMouseDownWithinLane(button, point: target, clickCount: 2)
+            try await verifyContext(contextGuard)
             try await emitMouseUpWithinLane(button, point: target, clickCount: 2)
             await lane.release()
             return ComputerActionResult(state: "completed", pointer: target)
@@ -153,16 +177,29 @@ struct ComputerInputController: Sendable {
         from start: ComputerPoint,
         to target: ComputerPoint,
         button: ComputerMouseButton,
-        mode: PointerMotionMode
+        mode: PointerMotionMode,
+        contextGuard: (any InputContextGuard)? = nil
     ) async throws -> ComputerActionResult {
         await lane.acquire()
         beginSafetyAction()
         defer { endSafetyAction() }
         do {
-            _ = try await moveMouseWithinLane(to: start, mode: mode, dragButton: nil)
+            _ = try await moveMouseWithinLane(
+                to: start,
+                mode: mode,
+                dragButton: nil,
+                contextGuard: contextGuard
+            )
             try verifyPointerNear(start)
+            try await verifyContext(contextGuard)
             try await emitMouseDownWithinLane(button, point: start, clickCount: 1)
-            _ = try await moveMouseWithinLane(to: target, mode: mode, dragButton: button)
+            _ = try await moveMouseWithinLane(
+                to: target,
+                mode: mode,
+                dragButton: button,
+                contextGuard: contextGuard
+            )
+            try await verifyContext(contextGuard)
             try await emitMouseUpWithinLane(button, point: target, clickCount: 1)
             await lane.release()
             return ComputerActionResult(state: "completed", pointer: target)
@@ -177,7 +214,8 @@ struct ComputerInputController: Sendable {
         vertical: Int32,
         horizontal: Int32,
         at point: ComputerPoint?,
-        mode: PointerMotionMode
+        mode: PointerMotionMode,
+        contextGuard: (any InputContextGuard)? = nil
     ) async throws -> ComputerActionResult {
         guard abs(Int64(vertical)) <= Int64(Self.maxScrollDelta),
               abs(Int64(horizontal)) <= Int64(Self.maxScrollDelta)
@@ -190,9 +228,15 @@ struct ComputerInputController: Sendable {
         defer { endSafetyAction() }
         do {
             if let point {
-                _ = try await moveMouseWithinLane(to: point, mode: mode, dragButton: nil)
+                _ = try await moveMouseWithinLane(
+                    to: point,
+                    mode: mode,
+                    dragButton: nil,
+                    contextGuard: contextGuard
+                )
             }
             try Task.checkCancellation()
+            try await verifyContext(contextGuard)
             if vertical != 0 || horizontal != 0 {
                 try emitActionEvent(.scroll(vertical: vertical, horizontal: horizontal))
             }
@@ -314,9 +358,11 @@ struct ComputerInputController: Sendable {
     private func moveMouseWithinLane(
         to target: ComputerPoint,
         mode: PointerMotionMode,
-        dragButton: ComputerMouseButton?
+        dragButton: ComputerMouseButton?,
+        contextGuard: (any InputContextGuard)?
     ) async throws -> ComputerActionResult {
         try Task.checkCancellation()
+        try await verifyContext(contextGuard)
         try validate(target: target)
         let start = try pointerPosition()
         let samples = try PointerTrajectory.samples(from: start, to: target, mode: mode)
@@ -406,6 +452,13 @@ struct ComputerInputController: Sendable {
     private func verifyFocus(_ focusGuard: any InputFocusGuard) async throws {
         try checkSafety()
         try await focusGuard.verifyExpectedFrontmost()
+        try checkSafety()
+    }
+
+    private func verifyContext(_ contextGuard: (any InputContextGuard)?) async throws {
+        guard let contextGuard else { return }
+        try checkSafety()
+        try await contextGuard.verifyExpectedContext()
         try checkSafety()
     }
 

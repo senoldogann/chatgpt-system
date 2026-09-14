@@ -498,6 +498,8 @@ private actor HostFakeRecovery: ComputerRecoveryHandling {
         return targets.map { _ in resolved }
     }
 
+    func verifyContext(_ resolved: ResolvedComputerTarget) async throws {}
+
     func refreshObservation() async throws -> ComputerObservation {
         refreshObservationCallCount += 1
         return ComputerObservation(

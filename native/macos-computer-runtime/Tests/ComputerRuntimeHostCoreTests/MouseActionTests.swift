@@ -69,6 +69,30 @@ final class MouseActionTests: XCTestCase {
         XCTAssertEqual(sink.events, [.mouseMove(point: target, dragButton: nil)])
     }
 
+    func testClickRechecksSemanticContextBeforeMouseDown() async {
+        let harness = MouseHarness(point: ComputerPoint(x: 0, y: 0))
+        let target = ComputerPoint(x: 100, y: 80)
+        let guardContext = NthFailContextGuard(failOn: 2)
+
+        do {
+            _ = try await harness.controller.click(
+                at: target,
+                button: .left,
+                mode: .instant,
+                contextGuard: guardContext
+            )
+            XCTFail("Expected focus mismatch")
+        } catch {
+            XCTAssertEqual(error as? ComputerInputError, .focusMismatch)
+        }
+
+        XCTAssertEqual(harness.sink.events, [
+            .mouseMove(point: target, dragButton: nil),
+        ])
+        let contextChecks = await guardContext.callCount()
+        XCTAssertEqual(contextChecks, 2)
+    }
+
     func testDoubleClickUsesClickCountOneThenTwo() async throws {
         let harness = MouseHarness(point: ComputerPoint(x: 10, y: 10))
         let target = ComputerPoint(x: 40, y: 50)
@@ -167,6 +191,31 @@ final class MouseActionTests: XCTestCase {
 
         XCTAssertEqual(result.state, "completed")
         XCTAssertEqual(harness.sink.events, [.scroll(vertical: 7, horizontal: -4)])
+    }
+
+    func testPositionedScrollRechecksSemanticContextBeforeScrollEvent() async {
+        let harness = MouseHarness(point: ComputerPoint(x: 0, y: 0))
+        let target = ComputerPoint(x: 200, y: 100)
+        let guardContext = NthFailContextGuard(failOn: 2)
+
+        do {
+            _ = try await harness.controller.scroll(
+                vertical: -3,
+                horizontal: 0,
+                at: target,
+                mode: .instant,
+                contextGuard: guardContext
+            )
+            XCTFail("Expected focus mismatch")
+        } catch {
+            XCTAssertEqual(error as? ComputerInputError, .focusMismatch)
+        }
+
+        XCTAssertEqual(harness.sink.events, [
+            .mouseMove(point: target, dragButton: nil),
+        ])
+        let contextChecks = await guardContext.callCount()
+        XCTAssertEqual(contextChecks, 2)
     }
 
     func testScrollRejectsDeltaOutsideBoundWithoutEmitting() async {
@@ -441,6 +490,24 @@ private struct MouseHarness {
             sleeper: sleeper
         )
     }
+}
+
+private actor NthFailContextGuard: InputContextGuard {
+    private let failOn: Int
+    private var calls = 0
+
+    init(failOn: Int) {
+        self.failOn = failOn
+    }
+
+    func verifyExpectedContext() async throws {
+        calls += 1
+        if calls == failOn {
+            throw ComputerInputError.focusMismatch
+        }
+    }
+
+    func callCount() -> Int { calls }
 }
 
 private struct MousePermissions: PermissionReading {

@@ -112,6 +112,47 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
         throw ComputerRecoveryError.needsReplan
     }
 
+    func verifyContext(_ resolved: ResolvedComputerTarget) async throws {
+        guard permissions.accessibilityTrusted() else {
+            throw ComputerRecoveryError.permissionRequired
+        }
+        guard let application = applicationController.frontmostApplication() else {
+            throw ComputerRecoveryError.focusFailed
+        }
+        let appIdentity = Self.appIdentity(for: application)
+        guard appIdentity == resolved.appIdentity else {
+            throw ComputerRecoveryError.focusFailed
+        }
+
+        let activeWindow: ActiveWindowView
+        do {
+            activeWindow = try accessibility.activeWindow(for: application)
+        } catch AccessibilityReadError.permissionRequired {
+            throw ComputerRecoveryError.permissionRequired
+        } catch {
+            throw ComputerRecoveryError.unavailable
+        }
+        let windowIdentity = Self.windowIdentity(
+            appIdentity: appIdentity,
+            title: activeWindow.title
+        )
+        guard windowIdentity == resolved.windowIdentity else {
+            throw ComputerRecoveryError.staleSnapshot
+        }
+
+        let displays = try activeDisplays()
+        guard Self.topologyDigest(displays) == resolved.displayTopologyDigest else {
+            throw ComputerRecoveryError.staleSnapshot
+        }
+        guard let lastObservation,
+              lastObservation.appIdentity == resolved.appIdentity,
+              lastObservation.windowIdentity == resolved.windowIdentity,
+              lastObservation.windowGeneration == resolved.windowGeneration
+        else {
+            throw ComputerRecoveryError.staleSnapshot
+        }
+    }
+
     func resolveMany(
         _ targets: [ComputerTarget],
         retryBudget: Int = 2
