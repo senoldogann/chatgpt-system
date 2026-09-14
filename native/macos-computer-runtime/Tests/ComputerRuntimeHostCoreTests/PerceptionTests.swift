@@ -169,6 +169,45 @@ final class PerceptionTests: XCTestCase {
             ComputerBounds(x: 10, y: 20, width: 800, height: 600)
         )
     }
+
+    func testFocusedWindowBoundsPrefersExplicitFocusOverUnknownFocus() {
+        let app = ApplicationView(name: "Chrome", bundleIdentifier: "com.google.Chrome", frontmost: true)
+        let observation = ComputerObservation(
+            snapshotId: "snapshot",
+            application: app,
+            windowTitle: "Window",
+            elements: [
+                ComputerElementView(
+                    index: 0,
+                    role: "AXWindow",
+                    subrole: nil,
+                    title: "Unknown",
+                    description: nil,
+                    focused: nil,
+                    enabled: true,
+                    selected: nil,
+                    bounds: ComputerBounds(x: 1, y: 2, width: 300, height: 200)
+                ),
+                ComputerElementView(
+                    index: 1,
+                    role: "AXWindow",
+                    subrole: nil,
+                    title: "Front",
+                    description: nil,
+                    focused: true,
+                    enabled: true,
+                    selected: nil,
+                    bounds: ComputerBounds(x: 10, y: 20, width: 800, height: 600)
+                ),
+            ],
+            truncated: false
+        )
+
+        XCTAssertEqual(
+            ComputerPerception.focusedWindowBounds(in: observation),
+            ComputerBounds(x: 10, y: 20, width: 800, height: 600)
+        )
+    }
 }
 
 private func makeObservation(

@@ -33,7 +33,7 @@ struct ComputerPerception {
     }
 
     static func focusedWindowBounds(in observation: ComputerObservation) -> ComputerBounds? {
-        observation.elements.first(where: { $0.role == "AXWindow" && $0.focused != false })?.bounds
+        observation.elements.first(where: { $0.role == "AXWindow" && $0.focused == true })?.bounds
             ?? observation.elements.first(where: { $0.role == "AXWindow" })?.bounds
     }
 
