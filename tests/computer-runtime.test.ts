@@ -807,11 +807,25 @@ describe("ComputerRuntime semantic targets", () => {
       return completedUnverifiedActionResult();
     };
 
-    await expect(subject.resolve({ by: "role", role: "AXButton", name: "Run", exact: true }))
-      .resolves.toMatchObject({ source: "ax", actionPoint: { x: 50, y: 35 } });
+    await expect(subject.resolve({
+      by: "role",
+      role: "AXButton",
+      name: "Run",
+      exact: true,
+      within: { by: "role", role: "AXGroup", name: "Modal", exact: true },
+    })).resolves.toMatchObject({ source: "ax", actionPoint: { x: 50, y: 35 } });
     expect(native.calls[0]).toMatchObject({
       method: "resolve_target",
-      params: { target: { by: "role", role: "AXButton", name: "Run", exact: true }, retryBudget: 2 },
+      params: {
+        target: {
+          by: "role",
+          role: "AXButton",
+          name: "Run",
+          exact: true,
+          within: { by: "role", role: "AXGroup", name: "Modal", exact: true },
+        },
+        retryBudget: 2,
+      },
     });
   });
 
@@ -829,13 +843,29 @@ describe("ComputerRuntime semantic targets", () => {
     const { native, runtime: subject } = runtime();
 
     await subject.run({
-      actions: [{ type: "click", target: { by: "text", text: "Run", exact: true } }],
+      actions: [{
+        type: "click",
+        target: {
+          by: "text",
+          text: "Run",
+          exact: true,
+          within: { by: "index", snapshotId: "snap-run", index: 4 },
+        },
+      }],
       finalObservation: "none",
     });
 
     expect(native.calls[0]).toMatchObject({
       method: "click",
-      params: { target: { by: "text", text: "Run", exact: true }, retryBudget: 2 },
+      params: {
+        target: {
+          by: "text",
+          text: "Run",
+          exact: true,
+          within: { by: "index", snapshotId: "snap-run", index: 4 },
+        },
+        retryBudget: 2,
+      },
     });
     expect(native.calls[0]?.params).not.toHaveProperty("x");
     expect(native.calls[0]?.params).not.toHaveProperty("y");

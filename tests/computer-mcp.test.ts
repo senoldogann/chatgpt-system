@@ -19,13 +19,14 @@ const runtimes: RuntimeServices[] = [];
 class FakeComputerRuntime {
   readonly calls: Array<{ method: string; input?: unknown; options?: unknown }> = [];
   failMethod?: string;
+  failError?: ComputerError;
   rawFailure = false;
 
   private answer(method: string, input?: unknown, options?: unknown): unknown {
     this.calls.push({ method, ...(input !== undefined ? { input } : {}), ...(options !== undefined ? { options } : {}) });
     if (this.failMethod === method) {
       if (this.rawFailure) throw new Error("NATIVE_STDERR_CANARY REQUEST_ID_CANARY");
-      throw new ComputerError("COMPUTER_ACTION_FAILED");
+      throw this.failError ?? new ComputerError("COMPUTER_ACTION_FAILED");
     }
     switch (method) {
       case "health":
@@ -45,10 +46,13 @@ class FakeComputerRuntime {
           windowTitle: "Fixture",
           elements: [{
             index: 0,
+            depth: 0,
             role: "button",
             title: "Go",
             enabled: true,
             bounds: { x: 10, y: 20, width: 0, height: 0 },
+            actions: ["AXPress"],
+            scroll: { scrollable: false, axes: [] },
           }],
           truncated: false,
           digest: "digest-1",
@@ -278,6 +282,20 @@ describe("computer MCP tools", () => {
       expect(byName.get("computer_observe")?.description).toMatch(/blind.*point/i);
       const observeOutputSchema = byName.get("computer_observe")?.outputSchema as {
         properties?: {
+          elements?: {
+            items?: {
+              properties?: {
+                parentIndex?: unknown;
+                depth?: unknown;
+                actions?: { maxItems?: number };
+                scroll?: {
+                  properties?: { axes?: { items?: { enum?: string[] } } };
+                  required?: string[];
+                };
+              };
+              required?: string[];
+            };
+          };
           perception?: {
             properties?: {
               axQuality?: { enum?: string[] };
@@ -292,6 +310,21 @@ describe("computer MCP tools", () => {
       expect(observeOutputSchema.properties?.perception?.properties?.axQuality?.enum).toEqual(["strong", "partial", "weak"]);
       expect(observeOutputSchema.properties?.perception?.properties?.recommendedTargeting?.enum).toEqual(["ax", "ocr", "visual-point"]);
       expect(observeOutputSchema.properties?.perception?.properties?.ocrCandidates?.maxItems).toBe(64);
+
+      const elementSchema = observeOutputSchema.properties?.elements?.items;
+      expect(elementSchema?.properties).toHaveProperty("parentIndex");
+      expect(elementSchema?.properties).toHaveProperty("depth");
+      expect(elementSchema?.properties?.actions?.maxItems).toBe(16);
+      expect(elementSchema?.properties?.scroll?.required).toEqual(expect.arrayContaining(["scrollable", "axes"]));
+      expect(elementSchema?.properties?.scroll?.properties?.axes?.items?.enum).toEqual(["vertical", "horizontal"]);
+      expect(elementSchema?.required).toEqual(expect.arrayContaining(["index", "depth", "role", "actions", "scroll"]));
+
+      expect(byName.get("computer_observe")?.description).toMatch(/semantic AX/i);
+      expect(byName.get("computer_observe")?.description).toMatch(/scoped.*scroll/i);
+      expect(byName.get("computer_observe")?.description).toMatch(/OCR fallback/i);
+      expect(byName.get("computer_observe")?.description).toMatch(/fresh screenshot/i);
+      expect(byName.get("computer_observe")?.description).toMatch(/one.*point attempt/i);
+      expect(byName.get("computer_observe")?.description).toMatch(/unchanged.*point.*scroll/i);
 
       const screenshotOutputSchema = byName.get("computer_screenshot")?.outputSchema as {
         properties?: {
@@ -486,7 +519,15 @@ describe("computer MCP tools", () => {
           authorityLeaseId: admin.leaseId,
           finalObservation: "none",
           actions: [
-            { type: "click", target: { by: "text", text: "Run", exact: true } },
+            {
+              type: "click",
+              target: {
+                by: "text",
+                text: "Run",
+                exact: true,
+                within: { by: "role", role: "AXGroup", name: "Modal", exact: true },
+              },
+            },
           ],
         },
       });
@@ -495,7 +536,15 @@ describe("computer MCP tools", () => {
       expect(fake.calls).toContainEqual(expect.objectContaining({
         method: "run",
         input: expect.objectContaining({
-          actions: [{ type: "click", target: { by: "text", text: "Run", exact: true } }],
+          actions: [{
+            type: "click",
+            target: {
+              by: "text",
+              text: "Run",
+              exact: true,
+              within: { by: "role", role: "AXGroup", name: "Modal", exact: true },
+            },
+          }],
         }),
       }));
     } finally {
@@ -512,14 +561,29 @@ describe("computer MCP tools", () => {
         name: "computer_click",
         arguments: {
           authorityLeaseId: admin.leaseId,
-          target: { by: "role", role: "AXButton", name: "Submit", exact: true },
+          target: {
+            by: "role",
+            role: "AXButton",
+            name: "Submit",
+            exact: true,
+            within: { by: "index", snapshotId: "snap-1", index: 10 },
+          },
         },
       });
 
       expect(click.isError).not.toBe(true);
       expect(fake.calls).toContainEqual({
         method: "click",
-        input: { target: { by: "role", role: "AXButton", name: "Submit", exact: true }, count: 1 },
+        input: {
+          target: {
+            by: "role",
+            role: "AXButton",
+            name: "Submit",
+            exact: true,
+            within: { by: "index", snapshotId: "snap-1", index: 10 },
+          },
+          count: 1,
+        },
       });
     } finally {
       await transport.terminateSession();
@@ -652,6 +716,46 @@ describe("computer MCP tools", () => {
         scaleY: 0.5,
       });
       expect(JSON.stringify(screenshot.structuredContent)).not.toContain("pngBase64");
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("returns only bounded recovery evidence in MCP computer error details", async () => {
+    const { runtime, fake, client, transport } = await fixture();
+    try {
+      const admin = await runtime.authority.start({ profile: "admin" });
+      fake.failMethod = "click";
+      fake.failError = new ComputerError("COMPUTER_TARGET_AMBIGUOUS", {
+        candidateCount: 2,
+        scopeResolved: false,
+        activeScrollContainerCount: 1,
+        recommendedRecovery: "scope-target",
+        targetText: "Sensitive Missing Label",
+      });
+
+      const failed = await client.callTool({
+        name: "computer_click",
+        arguments: {
+          authorityLeaseId: admin.leaseId,
+          target: { by: "text", text: "Sensitive Missing Label", exact: true },
+        },
+      });
+
+      expect(failed.isError).toBe(true);
+      const payload = JSON.parse(textContent(failed)) as Record<string, unknown>;
+      expect(payload).toMatchObject({
+        error: "COMPUTER_TARGET_AMBIGUOUS",
+        details: {
+          candidateCount: 2,
+          scopeResolved: false,
+          activeScrollContainerCount: 1,
+          recommendedRecovery: "scope-target",
+        },
+      });
+      expect(JSON.stringify(payload)).not.toContain("Sensitive Missing Label");
+      expect((payload.details as Record<string, unknown>)).not.toHaveProperty("targetText");
     } finally {
       await transport.terminateSession();
       await client.close();

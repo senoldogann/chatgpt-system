@@ -221,24 +221,43 @@ function canonicalTarget(value: unknown): ComputerTarget {
       return { by: "index", snapshotId, index: value.index as number };
     }
     case "role": {
-      if (!hasOnlyKeys(value, ["by", "role", "name", "exact"])) invalid();
+      if (!hasOnlyKeys(value, ["by", "role", "name", "exact", "within"])) invalid();
       const role = boundedTargetString(value.role);
       const name = value.name === undefined ? undefined : boundedTargetString(value.name);
       const exact = optionalExact(value.exact);
-      return { by: "role", role, ...(name !== undefined ? { name } : {}), ...(exact !== undefined ? { exact } : {}) };
+      const within = value.within === undefined ? undefined : canonicalTargetScope(value.within);
+      return {
+        by: "role",
+        role,
+        ...(name !== undefined ? { name } : {}),
+        ...(exact !== undefined ? { exact } : {}),
+        ...(within !== undefined ? { within } : {}),
+      };
     }
     case "text":
     case "ocrText": {
-      if (!hasOnlyKeys(value, ["by", "text", "exact"])) invalid();
+      if (!hasOnlyKeys(value, ["by", "text", "exact", "within"])) invalid();
       const text = boundedTargetString(value.text);
       const exact = optionalExact(value.exact);
-      return { by: value.by, text, ...(exact !== undefined ? { exact } : {}) };
+      const within = value.within === undefined ? undefined : canonicalTargetScope(value.within);
+      return {
+        by: value.by,
+        text,
+        ...(exact !== undefined ? { exact } : {}),
+        ...(within !== undefined ? { within } : {}),
+      };
     }
     case "label": {
-      if (!hasOnlyKeys(value, ["by", "label", "exact"])) invalid();
+      if (!hasOnlyKeys(value, ["by", "label", "exact", "within"])) invalid();
       const label = boundedTargetString(value.label);
       const exact = optionalExact(value.exact);
-      return { by: "label", label, ...(exact !== undefined ? { exact } : {}) };
+      const within = value.within === undefined ? undefined : canonicalTargetScope(value.within);
+      return {
+        by: "label",
+        label,
+        ...(exact !== undefined ? { exact } : {}),
+        ...(within !== undefined ? { within } : {}),
+      };
     }
     case "point": {
       if (!hasOnlyKeys(value, ["by", "x", "y"]) || typeof value.x !== "number" || typeof value.y !== "number") invalid();
@@ -269,7 +288,7 @@ function canonicalTargetScope(value: unknown): ComputerTargetScope {
 
 function canonicalScrollTarget(value: unknown): ComputerScrollTarget {
   const target = canonicalTarget(value);
-  if (target.by === "index" || target.by === "point") invalid();
+  if (target.by === "index" || target.by === "point" || "within" in target) invalid();
   return target;
 }
 

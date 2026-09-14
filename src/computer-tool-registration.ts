@@ -31,24 +31,45 @@ const selectorFields = {
 };
 const pointFields = { x: z.number(), y: z.number() };
 const retryBudgetSchema = z.number().int().min(0).max(2);
-const computerTargetSchema = z.discriminatedUnion("by", [
-  z.object({ by: z.literal("index"), snapshotId: z.string().min(1).max(4_096), index: z.number().int().nonnegative() }).strict(),
-  z.object({ by: z.literal("role"), role: z.string().min(1).max(4_096), name: z.string().min(1).max(4_096).optional(), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("text"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("label"), label: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("ocrText"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("point"), x: z.number(), y: z.number() }).strict(),
-]);
-const targetLocationFields = { target: computerTargetSchema, retryBudget: retryBudgetSchema.optional() };
 const computerTargetScopeSchema = z.union([
   z.object({ by: z.literal("index"), snapshotId: z.string().min(1).max(4_096), index: z.number().int().nonnegative() }).strict(),
   z.object({ by: z.literal("role"), role: z.string().min(1).max(4_096), name: z.string().min(1).max(4_096).optional(), exact: z.boolean().optional() }).strict(),
 ]);
+const computerRoleTargetSchema = z.object({
+  by: z.literal("role"),
+  role: z.string().min(1).max(4_096),
+  name: z.string().min(1).max(4_096).optional(),
+  exact: z.boolean().optional(),
+});
+const computerTextTargetSchema = z.object({
+  by: z.literal("text"),
+  text: z.string().min(1).max(4_096),
+  exact: z.boolean().optional(),
+});
+const computerLabelTargetSchema = z.object({
+  by: z.literal("label"),
+  label: z.string().min(1).max(4_096),
+  exact: z.boolean().optional(),
+});
+const computerOcrTargetSchema = z.object({
+  by: z.literal("ocrText"),
+  text: z.string().min(1).max(4_096),
+  exact: z.boolean().optional(),
+});
+const computerTargetSchema = z.discriminatedUnion("by", [
+  z.object({ by: z.literal("index"), snapshotId: z.string().min(1).max(4_096), index: z.number().int().nonnegative() }).strict(),
+  computerRoleTargetSchema.extend({ within: computerTargetScopeSchema.optional() }).strict(),
+  computerTextTargetSchema.extend({ within: computerTargetScopeSchema.optional() }).strict(),
+  computerLabelTargetSchema.extend({ within: computerTargetScopeSchema.optional() }).strict(),
+  computerOcrTargetSchema.extend({ within: computerTargetScopeSchema.optional() }).strict(),
+  z.object({ by: z.literal("point"), x: z.number(), y: z.number() }).strict(),
+]);
+const targetLocationFields = { target: computerTargetSchema, retryBudget: retryBudgetSchema.optional() };
 const computerScrollTargetSchema = z.union([
-  z.object({ by: z.literal("role"), role: z.string().min(1).max(4_096), name: z.string().min(1).max(4_096).optional(), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("text"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("label"), label: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("ocrText"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
+  computerRoleTargetSchema.strict(),
+  computerTextTargetSchema.strict(),
+  computerLabelTargetSchema.strict(),
+  computerOcrTargetSchema.strict(),
 ]);
 const scrollDirectionSchema = z.enum(["up", "down", "left", "right"]);
 const scrollAmountSchema = z.enum(["small", "page"]);
@@ -283,6 +304,28 @@ function safeErrorDetails(error: ComputerError): Record<string, unknown> | undef
   const details = error.details;
   if (!details) return undefined;
   const safe: Record<string, unknown> = {};
+  const candidateCount = details.candidateCount;
+  const scopeResolved = details.scopeResolved;
+  const activeScrollContainerCount = details.activeScrollContainerCount;
+  const recommendedRecovery = details.recommendedRecovery;
+  if (
+    typeof candidateCount === "number"
+    && Number.isInteger(candidateCount)
+    && candidateCount >= 0
+    && candidateCount <= 500
+    && typeof scopeResolved === "boolean"
+    && typeof activeScrollContainerCount === "number"
+    && Number.isInteger(activeScrollContainerCount)
+    && activeScrollContainerCount >= 0
+    && activeScrollContainerCount <= 500
+    && typeof recommendedRecovery === "string"
+    && ["observe", "scope-target", "scroll", "screenshot", "none"].includes(recommendedRecovery)
+  ) {
+    safe.candidateCount = candidateCount;
+    safe.scopeResolved = scopeResolved;
+    safe.activeScrollContainerCount = activeScrollContainerCount;
+    safe.recommendedRecovery = recommendedRecovery;
+  }
   if (Number.isInteger(details.failedStepIndex)) safe.failedStepIndex = details.failedStepIndex;
   if (typeof details.failedActionType === "string" && details.failedActionType.length <= 64) {
     safe.failedActionType = details.failedActionType;
@@ -350,7 +393,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_observe",
     {
-      description: "Return the bounded accessibility/perception observation for the frontmost application. Use perception.recommendedTargeting: ax => role/text/index; ocr => prefer target.by=ocrText from returned OCR candidates; visual-point => obtain a fresh screenshot and make at most one explicit verified point attempt. Do not repeat blind point coordinates after failure. Requires Admin authority.",
+      description: "Return the bounded accessibility/perception observation for the frontmost application. Use perception.recommendedTargeting: ax => prefer semantic AX role/text/index targets, including within-scoped targets; ocr => use bounded OCR fallback with target.by=ocrText; visual-point => obtain a fresh screenshot and make at most one explicit verified point attempt. For off-screen targets inside a deterministic container, use scoped computer_scroll_until_visible rather than repeated raw scroll. Do not repeat an unchanged point or scroll attempt, and do not repeat blind point coordinates after failure; re-observe and replan instead. Requires Admin authority.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: computerObservationOutputSchema,
       annotations: computerReadAnnotations,

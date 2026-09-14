@@ -32,14 +32,6 @@ export const COMPUTER_NATIVE_METHODS = [
 
 export type ComputerNativeMethod = typeof COMPUTER_NATIVE_METHODS[number];
 
-export type ComputerTarget =
-  | { by: "index"; snapshotId: string; index: number }
-  | { by: "role"; role: string; name?: string; exact?: boolean }
-  | { by: "text"; text: string; exact?: boolean }
-  | { by: "label"; label: string; exact?: boolean }
-  | { by: "ocrText"; text: string; exact?: boolean }
-  | { by: "point"; x: number; y: number };
-
 export type ComputerTargetScope =
   | { by: "index"; snapshotId: string; index: number }
   | { by: "role"; role: string; name?: string; exact?: boolean };
@@ -49,6 +41,11 @@ export type ComputerScrollTarget =
   | { by: "text"; text: string; exact?: boolean }
   | { by: "label"; label: string; exact?: boolean }
   | { by: "ocrText"; text: string; exact?: boolean };
+
+export type ComputerTarget =
+  | { by: "index"; snapshotId: string; index: number }
+  | (ComputerScrollTarget & { within?: ComputerTargetScope })
+  | { by: "point"; x: number; y: number };
 
 export type ComputerScrollDirection = "up" | "down" | "left" | "right";
 export type ComputerScrollAmount = "small" | "page";
