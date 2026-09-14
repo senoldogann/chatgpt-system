@@ -52,6 +52,18 @@ class FakeComputerRuntime {
           }],
           truncated: false,
           digest: "digest-1",
+          perception: {
+            axQuality: "weak",
+            webContentAccessible: false,
+            ocrUsed: true,
+            recommendedTargeting: "ocr",
+            ocrCandidates: [{
+              text: "Plugins",
+              bounds: { x: 100, y: 120, width: 80, height: 24 },
+              confidence: 0.93,
+              source: "vision-fast",
+            }],
+          },
         };
       case "screenshot":
         return { pngBase64: "iVBORw0KGgo=", width: 2, height: 3 };
@@ -243,6 +255,26 @@ describe("computer MCP tools", () => {
       expect(byName.get("computer_open_app")?.description).toMatch(/do not substitute.*browser_\*/i);
       expect(byName.get("computer_run")?.description).toMatch(/physical mouse.*keyboard/i);
       expect(byName.get("computer_run")?.description).toContain("com.google.Chrome");
+      expect(byName.get("computer_observe")?.description).toMatch(/perception\.recommendedTargeting/i);
+      expect(byName.get("computer_observe")?.description).toMatch(/ocrText/);
+      expect(byName.get("computer_observe")?.description).toMatch(/visual-point/);
+      expect(byName.get("computer_observe")?.description).toMatch(/blind.*point/i);
+      const observeOutputSchema = byName.get("computer_observe")?.outputSchema as {
+        properties?: {
+          perception?: {
+            properties?: {
+              axQuality?: { enum?: string[] };
+              recommendedTargeting?: { enum?: string[] };
+              ocrCandidates?: { maxItems?: number };
+            };
+          };
+        };
+        required?: string[];
+      };
+      expect(observeOutputSchema.required).toContain("perception");
+      expect(observeOutputSchema.properties?.perception?.properties?.axQuality?.enum).toEqual(["strong", "partial", "weak"]);
+      expect(observeOutputSchema.properties?.perception?.properties?.recommendedTargeting?.enum).toEqual(["ax", "ocr", "visual-point"]);
+      expect(observeOutputSchema.properties?.perception?.properties?.ocrCandidates?.maxItems).toBe(64);
 
       const pressKeySchema = byName.get("computer_press_key")?.inputSchema as {
         properties?: { key?: { enum?: string[] } };
@@ -298,6 +330,18 @@ describe("computer MCP tools", () => {
         snapshotId: "snap-1",
         digest: "digest-1",
         elements: [{ bounds: { x: 10, y: 20, width: 0, height: 0 } }],
+        perception: {
+          axQuality: "weak",
+          webContentAccessible: false,
+          ocrUsed: true,
+          recommendedTargeting: "ocr",
+          ocrCandidates: [{
+            text: "Plugins",
+            bounds: { x: 100, y: 120, width: 80, height: 24 },
+            confidence: 0.93,
+            source: "vision-fast",
+          }],
+        },
       });
       expect(textContent(adminObserve)).toContain("snap-1");
     } finally {

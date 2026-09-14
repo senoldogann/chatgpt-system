@@ -575,6 +575,21 @@ const computerElementOutputSchema = z.object({
   bounds: computerBoundsOutputSchema.optional(),
 });
 
+const computerOcrCandidateOutputSchema = z.object({
+  text: z.string().max(512),
+  bounds: computerBoundsOutputSchema,
+  confidence: z.number().min(0).max(1).nullable(),
+  source: z.enum(["vision-fast", "vision-accurate"]),
+}).strict();
+
+const computerPerceptionOutputSchema = z.object({
+  axQuality: z.enum(["strong", "partial", "weak"]),
+  webContentAccessible: z.boolean().nullable(),
+  ocrUsed: z.boolean(),
+  recommendedTargeting: z.enum(["ax", "ocr", "visual-point"]),
+  ocrCandidates: z.array(computerOcrCandidateOutputSchema).max(64),
+}).strict();
+
 export const computerHealthOutputSchema = z.object({
   enabled: z.boolean(),
   state: z.enum(["disabled", "stopped", "running", "unavailable"]),
@@ -601,7 +616,8 @@ export const computerObservationOutputSchema = z.object({
   elements: z.array(computerElementOutputSchema),
   truncated: z.boolean(),
   digest: z.string().optional(),
-});
+  perception: computerPerceptionOutputSchema,
+}).strict();
 
 export const computerActionResultOutputSchema = z.object({
   state: z.string(),
