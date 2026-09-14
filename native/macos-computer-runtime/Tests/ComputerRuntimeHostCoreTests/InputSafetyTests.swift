@@ -235,6 +235,54 @@ final class InputSafetyTests: XCTestCase {
         }
     }
 
+    func testTakeoverDuringOCRSemanticClickStopsWithoutFallbackOrRetry() async {
+        let coordinator = InputSafetyCoordinator()
+        let pointer = SafetyPointerState(ComputerPoint(x: 20, y: 20))
+        let sink = SafetyRecordingSink(pointer: pointer)
+        sink.onEvent = { event in
+            guard case .mouseMove = event else { return }
+            coordinator.observe(.init(
+                kind: .key,
+                location: nil,
+                sourceTag: 0,
+                emergencyChord: false
+            ))
+        }
+        let controller = makeSafetyController(coordinator: coordinator, pointer: pointer, sink: sink)
+        let recovery = SafetyOCRRecovery()
+        let service = ComputerHostService(
+            permissions: SafetyPermissions(),
+            workspace: SafetyWorkspace(),
+            actions: ComputerActionService(controller: controller, recovery: recovery)
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "ocr-takeover",
+            method: "click",
+            params: .object([
+                "target": .object([
+                    "by": .string("ocrText"),
+                    "text": .string("Fixture Visual Submit"),
+                    "exact": .bool(true),
+                ]),
+                "retryBudget": .number(2),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_USER_TAKEOVER")
+        let resolveCalls = await recovery.resolveCallCount
+        XCTAssertEqual(resolveCalls, 1)
+        let held = await controller.heldInputState()
+        XCTAssertTrue(held.isEmpty)
+        XCTAssertFalse(sink.events.contains { event in
+            if case .mouseButton(_, true, _, _) = event { return true }
+            return false
+        })
+    }
+
     func testSystemMonitorTreatsBothTapDisableReasonsAsRecoveryEvents() {
         XCTAssertTrue(SystemTakeoverMonitor.shouldReenableTap(for: .tapDisabledByTimeout))
         XCTAssertTrue(SystemTakeoverMonitor.shouldReenableTap(for: .tapDisabledByUserInput))
@@ -275,6 +323,44 @@ final class InputSafetyTests: XCTestCase {
         XCTAssertNil(observed.location)
     }
 
+}
+
+private actor SafetyOCRRecovery: ComputerRecoveryHandling {
+    private(set) var resolveCallCount = 0
+
+    func resolve(_ target: ComputerTarget, retryBudget: Int) async throws -> ResolvedComputerTarget {
+        resolveCallCount += 1
+        return ResolvedComputerTarget(
+            source: .ocr,
+            bounds: ComputerBounds(x: 90, y: 90, width: 20, height: 20),
+            actionPoint: ComputerPoint(x: 100, y: 100),
+            observationId: "safety-ocr",
+            appIdentity: "com.google.Chrome",
+            windowIdentity: "window",
+            windowGeneration: "generation",
+            displayTopologyDigest: "topology",
+            confidence: .high,
+            semanticFingerprint: "fixture-ocr"
+        )
+    }
+
+    func resolveMany(_ targets: [ComputerTarget], retryBudget: Int) async throws -> [ResolvedComputerTarget] {
+        var results: [ResolvedComputerTarget] = []
+        for target in targets {
+            results.append(try await resolve(target, retryBudget: retryBudget))
+        }
+        return results
+    }
+
+    func refreshObservation() async throws -> ComputerObservation {
+        ComputerObservation(
+            snapshotId: "safety-observation",
+            application: ApplicationView(name: "Google Chrome", bundleIdentifier: "com.google.Chrome", frontmost: true),
+            windowTitle: "Fixture",
+            elements: [],
+            truncated: false
+        )
+    }
 }
 
 private enum SafetyNativeError: Error {
