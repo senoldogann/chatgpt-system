@@ -252,7 +252,8 @@ public struct ComputerHostService: Sendable {
             let resolved = try await recovery.resolve(target, retryBudget: retryBudget)
             return encodeResult(resolvedTargetView(resolved), requestId: requestId)
         } catch let error as ComputerRecoveryError {
-            return recoveryFailure(error, requestId: requestId)
+            let details = try? JSONValue.fromEncodable(await recovery.recoveryEvidence(for: target, error: error))
+            return recoveryFailure(error, details: details, requestId: requestId)
         } catch is CancellationError {
             return .failure(
                 requestId: requestId,
@@ -589,17 +590,18 @@ public struct ComputerHostService: Sendable {
 
     private func recoveryFailure(
         _ error: ComputerRecoveryError,
+        details: JSONValue? = nil,
         requestId: String
     ) -> ComputerProtocolResponse {
         switch error {
         case .invalidRetryBudget:
             return protocolInvalid(requestId: requestId)
         case .targetNotFound:
-            return .failure(requestId: requestId, code: "COMPUTER_TARGET_NOT_FOUND", message: "Computer target was not found.")
+            return .failure(requestId: requestId, code: "COMPUTER_TARGET_NOT_FOUND", message: "Computer target was not found.", details: details)
         case .targetAmbiguous:
-            return .failure(requestId: requestId, code: "COMPUTER_TARGET_AMBIGUOUS", message: "Computer target is ambiguous.")
+            return .failure(requestId: requestId, code: "COMPUTER_TARGET_AMBIGUOUS", message: "Computer target is ambiguous.", details: details)
         case .staleSnapshot:
-            return .failure(requestId: requestId, code: "COMPUTER_STALE_SNAPSHOT", message: "Computer target snapshot is stale.")
+            return .failure(requestId: requestId, code: "COMPUTER_STALE_SNAPSHOT", message: "Computer target snapshot is stale.", details: details)
         case .unsafeGeometry:
             return .failure(requestId: requestId, code: "COMPUTER_ACTION_FAILED", message: "Computer target geometry is unsafe.")
         case .focusFailed:
@@ -609,7 +611,7 @@ public struct ComputerHostService: Sendable {
         case .unavailable:
             return unavailable(requestId: requestId)
         case .needsReplan:
-            return .failure(requestId: requestId, code: "COMPUTER_NEEDS_REPLAN", message: "Computer state requires replanning.")
+            return .failure(requestId: requestId, code: "COMPUTER_NEEDS_REPLAN", message: "Computer state requires replanning.", details: details)
         }
     }
 

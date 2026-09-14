@@ -14,6 +14,21 @@ public enum ComputerRecoveryError: Error, Equatable, Sendable {
     case needsReplan
 }
 
+enum ComputerRecommendedRecovery: String, Codable, Equatable, Sendable {
+    case observe
+    case scopeTarget = "scope-target"
+    case scroll
+    case screenshot
+    case none
+}
+
+struct ComputerRecoveryEvidence: Codable, Equatable, Sendable {
+    let candidateCount: Int
+    let scopeResolved: Bool
+    let activeScrollContainerCount: Int
+    let recommendedRecovery: ComputerRecommendedRecovery
+}
+
 actor ComputerRecoveryEngine: ComputerRecoveryHandling {
     private let permissions: any PermissionReading
     private let applicationController: any ApplicationControlling
@@ -169,6 +184,64 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
 
     func refreshObservation() async throws -> ComputerObservation {
         try await freshContext().cached.observation
+    }
+
+    func recoveryEvidence(
+        for target: ComputerTarget,
+        error: ComputerRecoveryError
+    ) async -> ComputerRecoveryEvidence {
+        let context = try? compatibleCachedContext()
+        let targetEvidence = context.map { resolver.evidence(for: target, in: $0) }
+        let ocrCandidateCount = context.map { recoveryOCRCandidateCount(for: target, in: $0) } ?? 0
+        let candidateCount = max(targetEvidence?.candidateCount ?? 0, ocrCandidateCount)
+        let activeScrollContainerCount = context?.cached.observation.elements.reduce(into: 0) { count, element in
+            if element.enabled != false && element.scroll.scrollable { count += 1 }
+        } ?? 0
+        let recommendation: ComputerRecommendedRecovery
+        switch error {
+        case .targetAmbiguous:
+            recommendation = .scopeTarget
+        case .targetNotFound:
+            recommendation = targetEvidence?.scopeResolved == true && targetEvidence?.scopeScrollable == true
+                ? .scroll
+                : .screenshot
+        case .staleSnapshot:
+            recommendation = .observe
+        case .needsReplan:
+            recommendation = .screenshot
+        default:
+            recommendation = .none
+        }
+        return ComputerRecoveryEvidence(
+            candidateCount: min(candidateCount, ObservationLimits.default.maxElements),
+            scopeResolved: targetEvidence?.scopeResolved ?? false,
+            activeScrollContainerCount: min(activeScrollContainerCount, ObservationLimits.default.maxElements),
+            recommendedRecovery: recommendation
+        )
+    }
+
+    private func recoveryOCRCandidateCount(
+        for target: ComputerTarget,
+        in context: ComputerTargetResolutionContext
+    ) -> Int {
+        guard let query = Self.ocrQuery(for: target),
+              let candidates = context.cached.observation.perception?.ocrCandidates,
+              !candidates.isEmpty
+        else { return 0 }
+
+        let scopeBounds: ComputerBounds?
+        if let within = query.within {
+            guard let resolvedScope = try? resolver.resolveScope(within, in: context) else { return 0 }
+            scopeBounds = resolvedScope.bounds
+        } else {
+            scopeBounds = nil
+        }
+
+        return candidates.reduce(into: 0) { count, candidate in
+            guard Self.matchesText(candidate.text, query: query.text, exact: query.exact) else { return }
+            if let scopeBounds, !Self.contains(bounds: candidate.bounds, within: scopeBounds) { return }
+            count += 1
+        }
     }
 
     private func priorObservation(for target: ComputerTarget) -> CachedComputerObservation? {

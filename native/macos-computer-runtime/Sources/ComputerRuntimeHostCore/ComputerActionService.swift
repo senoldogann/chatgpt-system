@@ -42,6 +42,11 @@ private struct ResolvedActionPoint {
     let resolvedTarget: ResolvedComputerTarget?
 }
 
+private struct RecoveryActionFailure: Error, Sendable {
+    let error: ComputerRecoveryError
+    let evidence: ComputerRecoveryEvidence
+}
+
 private struct RecoveryInputContextGuard: InputContextGuard {
     let recovery: any ComputerRecoveryHandling
     let resolvedTargets: [ResolvedComputerTarget]
@@ -321,8 +326,13 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             return ResolvedActionPoint(point: point, resolvedTarget: nil)
         case let .target(target, retryBudget):
             guard let recovery else { throw ComputerRecoveryError.unavailable }
-            let resolved = try await recovery.resolve(target, retryBudget: retryBudget)
-            return ResolvedActionPoint(point: resolved.actionPoint, resolvedTarget: resolved)
+            do {
+                let resolved = try await recovery.resolve(target, retryBudget: retryBudget)
+                return ResolvedActionPoint(point: resolved.actionPoint, resolvedTarget: resolved)
+            } catch let error as ComputerRecoveryError {
+                let evidence = await recovery.recoveryEvidence(for: target, error: error)
+                throw RecoveryActionFailure(error: error, evidence: evidence)
+            }
         }
     }
 
@@ -387,6 +397,13 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 )
             }
             return encodeResult(outward, requestId: requestId)
+        } catch let failure as RecoveryActionFailure {
+            await releaseInputsAfterFailedAction()
+            return recoveryFailed(
+                failure.error,
+                details: recoveryDetails(failure.evidence),
+                requestId: requestId
+            )
         } catch let error as ComputerRecoveryError {
             await releaseInputsAfterFailedAction()
             return recoveryFailed(error, requestId: requestId)
@@ -1136,19 +1153,28 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
         }
     }
 
-    private func recoveryFailed(_ error: ComputerRecoveryError, requestId: String) -> ComputerProtocolResponse {
+    private func recoveryDetails(_ evidence: ComputerRecoveryEvidence) -> JSONValue? {
+        try? JSONValue.fromEncodable(evidence)
+    }
+
+    private func recoveryFailed(
+        _ error: ComputerRecoveryError,
+        details: JSONValue? = nil,
+        requestId: String
+    ) -> ComputerProtocolResponse {
         switch error {
         case .invalidRetryBudget:
             return protocolInvalid(requestId: requestId)
         case .targetNotFound:
-            return targetNotFound(requestId: requestId)
+            return targetNotFound(details: details, requestId: requestId)
         case .targetAmbiguous:
-            return targetAmbiguous(requestId: requestId)
+            return targetAmbiguous(details: details, requestId: requestId)
         case .staleSnapshot:
             return .failure(
                 requestId: requestId,
                 code: "COMPUTER_STALE_SNAPSHOT",
-                message: "Computer target snapshot is stale."
+                message: "Computer target snapshot is stale.",
+                details: details
             )
         case .unsafeGeometry, .unavailable:
             return actionFailed(requestId: requestId)
@@ -1164,7 +1190,8 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             return .failure(
                 requestId: requestId,
                 code: "COMPUTER_NEEDS_REPLAN",
-                message: "Computer state requires replanning."
+                message: "Computer state requires replanning.",
+                details: details
             )
         }
     }
@@ -1177,19 +1204,27 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
         )
     }
 
-    private func targetNotFound(requestId: String) -> ComputerProtocolResponse {
+    private func targetNotFound(
+        details: JSONValue? = nil,
+        requestId: String
+    ) -> ComputerProtocolResponse {
         .failure(
             requestId: requestId,
             code: "COMPUTER_TARGET_NOT_FOUND",
-            message: "Computer target was not found."
+            message: "Computer target was not found.",
+            details: details
         )
     }
 
-    private func targetAmbiguous(requestId: String) -> ComputerProtocolResponse {
+    private func targetAmbiguous(
+        details: JSONValue? = nil,
+        requestId: String
+    ) -> ComputerProtocolResponse {
         .failure(
             requestId: requestId,
             code: "COMPUTER_TARGET_AMBIGUOUS",
-            message: "Computer target is ambiguous."
+            message: "Computer target is ambiguous.",
+            details: details
         )
     }
 

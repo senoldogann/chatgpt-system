@@ -288,11 +288,7 @@ final class HostServiceTests: XCTestCase {
 
     func testRecoveryErrorsMapToStableProtocolCodesWithoutNativeDetails() async {
         let cases: [(ComputerRecoveryError, String)] = [
-            (.targetNotFound, "COMPUTER_TARGET_NOT_FOUND"),
-            (.targetAmbiguous, "COMPUTER_TARGET_AMBIGUOUS"),
-            (.staleSnapshot, "COMPUTER_STALE_SNAPSHOT"),
             (.focusFailed, "COMPUTER_FOCUS_FAILED"),
-            (.needsReplan, "COMPUTER_NEEDS_REPLAN"),
             (.permissionRequired, "COMPUTER_PERMISSION_REQUIRED"),
         ]
 
@@ -318,6 +314,44 @@ final class HostServiceTests: XCTestCase {
             XCTAssertFalse(response.error?.message.localizedCaseInsensitiveContains("vision") ?? true)
             XCTAssertFalse(response.error?.message.localizedCaseInsensitiveContains("ax") ?? true)
         }
+    }
+
+    func testRecoveryTargetErrorsExposeBoundedNonSensitiveEvidence() async throws {
+        let evidence = ComputerRecoveryEvidence(
+            candidateCount: 0,
+            scopeResolved: true,
+            activeScrollContainerCount: 1,
+            recommendedRecovery: .scroll
+        )
+        let recovery = HostFakeRecovery(
+            resolved: nil,
+            error: .targetNotFound,
+            evidence: evidence
+        )
+        let service = ComputerHostService(
+            permissions: HostFakePermissions(accessibilityTrusted: true, screenCaptureAuthorized: true),
+            workspace: HostFakeWorkspace(),
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "bounded-recovery-evidence",
+            method: "resolve_target",
+            params: .object([
+                "target": .object([
+                    "by": .string("text"),
+                    "text": .string("Sensitive Missing Label"),
+                    "exact": .bool(true),
+                ]),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_TARGET_NOT_FOUND")
+        XCTAssertEqual(response.error?.details, try JSONValue.fromEncodable(evidence))
+        let encoded = try JSONEncoder().encode(response)
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("Sensitive Missing Label"))
     }
 
     func testExecutableRespondsToMultipleFramesBeforePersistentStdinCloses() throws {
@@ -474,14 +508,16 @@ private actor HostFakeRecovery: ComputerRecoveryHandling {
 
     let resolved: ResolvedComputerTarget?
     let error: ComputerRecoveryError?
+    let evidence: ComputerRecoveryEvidence?
     private(set) var lastResolveCall: ResolveCall?
     private(set) var lastResolveManyCall: ResolveManyCall?
     private(set) var resolveCallCount = 0
     private(set) var refreshObservationCallCount = 0
 
-    init(resolved: ResolvedComputerTarget?, error: ComputerRecoveryError?) {
+    init(resolved: ResolvedComputerTarget?, error: ComputerRecoveryError?, evidence: ComputerRecoveryEvidence? = nil) {
         self.resolved = resolved
         self.error = error
+        self.evidence = evidence
     }
 
     func resolve(_ target: ComputerTarget, retryBudget: Int) async throws -> ResolvedComputerTarget {
@@ -496,6 +532,15 @@ private actor HostFakeRecovery: ComputerRecoveryHandling {
         if let error { throw error }
         guard let resolved else { return [] }
         return targets.map { _ in resolved }
+    }
+
+    func recoveryEvidence(for target: ComputerTarget, error: ComputerRecoveryError) async -> ComputerRecoveryEvidence {
+        evidence ?? ComputerRecoveryEvidence(
+            candidateCount: 0,
+            scopeResolved: false,
+            activeScrollContainerCount: 0,
+            recommendedRecovery: .none
+        )
     }
 
     func verifyContext(_ resolved: ResolvedComputerTarget) async throws {}

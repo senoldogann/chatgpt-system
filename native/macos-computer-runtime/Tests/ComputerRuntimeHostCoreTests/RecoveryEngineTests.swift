@@ -129,6 +129,132 @@ final class RecoveryEngineTests: XCTestCase {
         XCTAssertEqual(modes, [.fast])
     }
 
+    func testRecoveryEvidenceReportsBoundedScopedScrollGuidanceWithoutContent() async throws {
+        let accessibility = FakeRecoveryAccessibility(elements: [
+            windowElement(),
+            scrollArea(index: 1),
+        ])
+        let engine = makeEngine(
+            accessibility: accessibility,
+            ocr: CountingOCR(fast: [], accurate: []),
+            capture: CountingScreenCapture()
+        )
+        let observation = try await engine.refreshObservation()
+        let target = ComputerTarget.scoped(
+            target: .text(text: "Sensitive Missing Label", exact: true),
+            within: .index(snapshotId: observation.snapshotId, index: 1)
+        )
+
+        do {
+            _ = try await engine.resolve(target, retryBudget: 0)
+            XCTFail("Expected targetNotFound")
+        } catch {
+            XCTAssertEqual(error as? ComputerRecoveryError, .targetNotFound)
+        }
+
+        let evidence = await engine.recoveryEvidence(for: target, error: .targetNotFound)
+
+        XCTAssertEqual(evidence.candidateCount, 0)
+        XCTAssertTrue(evidence.scopeResolved)
+        XCTAssertEqual(evidence.activeScrollContainerCount, 1)
+        XCTAssertEqual(evidence.recommendedRecovery, .scroll)
+        let encoded = try JSONEncoder().encode(evidence)
+        let serialized = String(decoding: encoded, as: UTF8.self)
+        XCTAssertFalse(serialized.contains("Sensitive Missing Label"))
+    }
+
+    func testRecoveryEvidenceCountsAmbiguousAXCandidatesAndRecommendsScoping() async throws {
+        let accessibility = FakeRecoveryAccessibility(elements: [
+            windowElement(),
+            button(index: 1, title: "Sensitive Save Label", x: 10),
+            button(index: 2, title: "Sensitive Save Label", x: 120),
+        ])
+        let engine = makeEngine(
+            accessibility: accessibility,
+            ocr: CountingOCR(fast: [], accurate: []),
+            capture: CountingScreenCapture()
+        )
+        _ = try await engine.refreshObservation()
+        let target = ComputerTarget.text(text: "Sensitive Save Label", exact: true)
+
+        do {
+            _ = try await engine.resolve(target, retryBudget: 0)
+            XCTFail("Expected targetAmbiguous")
+        } catch {
+            XCTAssertEqual(error as? ComputerRecoveryError, .targetAmbiguous)
+        }
+
+        let evidence = await engine.recoveryEvidence(for: target, error: .targetAmbiguous)
+
+        XCTAssertEqual(evidence.candidateCount, 2)
+        XCTAssertFalse(evidence.scopeResolved)
+        XCTAssertEqual(evidence.activeScrollContainerCount, 0)
+        XCTAssertEqual(evidence.recommendedRecovery, .scopeTarget)
+        let encoded = try JSONEncoder().encode(evidence)
+        let serialized = String(decoding: encoded, as: UTF8.self)
+        XCTAssertFalse(serialized.contains("Sensitive Save Label"))
+    }
+
+    func testRecoveryEvidenceCountsAmbiguousOCRCandidatesWithoutContent() async throws {
+        let accessibility = FakeRecoveryAccessibility(elements: [windowElement()])
+        let ocr = CountingOCR(
+            fast: [
+                OcrTextCandidate(
+                    text: "Sensitive OCR Label",
+                    bounds: ComputerBounds(x: 10, y: 10, width: 30, height: 20),
+                    confidence: 0.95,
+                    source: .fast,
+                    observationId: "ocr-evidence-a"
+                ),
+                OcrTextCandidate(
+                    text: "Sensitive OCR Label",
+                    bounds: ComputerBounds(x: 50, y: 10, width: 30, height: 20),
+                    confidence: 0.94,
+                    source: .fast,
+                    observationId: "ocr-evidence-b"
+                ),
+            ],
+            accurate: []
+        )
+        let engine = makeEngine(
+            accessibility: accessibility,
+            ocr: ocr,
+            capture: CountingScreenCapture(),
+            controller: FakeRecoveryApplicationController(bundleIdentifier: "com.google.Chrome")
+        )
+        _ = try await engine.refreshObservation()
+        let target = ComputerTarget.ocrText(text: "Sensitive OCR Label", exact: true)
+
+        let evidence = await engine.recoveryEvidence(for: target, error: .targetAmbiguous)
+
+        XCTAssertEqual(evidence.candidateCount, 2)
+        XCTAssertFalse(evidence.scopeResolved)
+        XCTAssertEqual(evidence.recommendedRecovery, .scopeTarget)
+        let serialized = String(decoding: try JSONEncoder().encode(evidence), as: UTF8.self)
+        XCTAssertFalse(serialized.contains("Sensitive OCR Label"))
+    }
+
+    func testRecoveryEvidenceDoesNotRecommendBlindScrollForUnscopedTarget() async throws {
+        let accessibility = FakeRecoveryAccessibility(elements: [
+            windowElement(),
+            scrollArea(index: 1),
+        ])
+        let engine = makeEngine(
+            accessibility: accessibility,
+            ocr: CountingOCR(fast: [], accurate: []),
+            capture: CountingScreenCapture()
+        )
+        _ = try await engine.refreshObservation()
+        let target = ComputerTarget.text(text: "Sensitive Missing Label", exact: true)
+
+        let evidence = await engine.recoveryEvidence(for: target, error: .targetNotFound)
+
+        XCTAssertEqual(evidence.candidateCount, 0)
+        XCTAssertFalse(evidence.scopeResolved)
+        XCTAssertEqual(evidence.activeScrollContainerCount, 1)
+        XCTAssertEqual(evidence.recommendedRecovery, .screenshot)
+    }
+
     func testVerifyContextRejectsChangedFocusedWindow() async throws {
         let accessibility = FakeRecoveryAccessibility(elements: [button(index: 1, title: "Run", x: 10)])
         let engine = makeEngine(
@@ -489,6 +615,24 @@ final class RecoveryEngineTests: XCTestCase {
             enabled: true,
             selected: false,
             bounds: ComputerBounds(x: x, y: 10, width: 80, height: 30)
+        )
+    }
+
+    private func scrollArea(index: Int) -> ComputerElementView {
+        ComputerElementView(
+            index: index,
+            parentIndex: 0,
+            depth: 1,
+            role: "AXScrollArea",
+            subrole: nil,
+            title: nil,
+            description: nil,
+            focused: false,
+            enabled: true,
+            selected: false,
+            bounds: ComputerBounds(x: 10, y: 50, width: 500, height: 500),
+            actions: ["AXScrollDown"],
+            scroll: ComputerScrollCapabilityView(scrollable: true, axes: [.vertical])
         )
     }
 }

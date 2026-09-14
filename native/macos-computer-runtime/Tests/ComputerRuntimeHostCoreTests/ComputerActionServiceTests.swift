@@ -48,7 +48,7 @@ final class ComputerActionServiceTests: XCTestCase {
         }
     }
 
-    func testMoveMouseDefaultsToFastAndReturnsCompletedEndpoint() async throws {
+    func testMoveMouseDefaultsToFastAndReturnsCompletedUnverifiedEndpoint() async throws {
         let sink = ActionRecordingSink()
         let service = makeActionHostService(pointer: ComputerPoint(x: 0, y: 0), sink: sink)
 
@@ -61,7 +61,7 @@ final class ComputerActionServiceTests: XCTestCase {
 
         XCTAssertTrue(response.ok)
         let result = try decodeActionResult(ComputerActionResult.self, from: response)
-        XCTAssertEqual(result.state, "completed")
+        XCTAssertEqual(result.state, "completed_unverified")
         XCTAssertEqual(result.pointer, ComputerPoint(x: 100, y: 80))
         XCTAssertEqual(sink.events.last, .mouseMove(point: ComputerPoint(x: 100, y: 80), dragButton: nil))
         XCTAssertGreaterThan(sink.events.count, 1, "Default mode should be smooth fast motion, not instant teleport")
@@ -276,6 +276,43 @@ final class ComputerActionServiceTests: XCTestCase {
         XCTAssertFalse(response.ok)
         XCTAssertEqual(response.error?.code, "COMPUTER_NEEDS_REPLAN")
         XCTAssertTrue(sink.events.isEmpty)
+    }
+
+    func testSemanticRecoveryErrorIncludesBoundedNonSensitiveEvidence() async throws {
+        let evidence = ComputerRecoveryEvidence(
+            candidateCount: 0,
+            scopeResolved: true,
+            activeScrollContainerCount: 1,
+            recommendedRecovery: .scroll
+        )
+        let recovery = ActionFakeRecovery(
+            resolved: nil,
+            error: .targetNotFound,
+            evidence: evidence
+        )
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 0, y: 0),
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "semantic-recovery-evidence",
+            method: "click",
+            params: .object([
+                "target": .object([
+                    "by": .string("text"),
+                    "text": .string("Sensitive Missing Label"),
+                ]),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_TARGET_NOT_FOUND")
+        XCTAssertEqual(response.error?.details, try JSONValue.fromEncodable(evidence))
+        let encoded = try JSONEncoder().encode(response)
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("Sensitive Missing Label"))
     }
 
     func testExplicitPointClickVerificationFailureReturnsNeedsReplanWithoutRecovery() async {
@@ -495,6 +532,7 @@ private actor ActionFakeRecovery: ComputerRecoveryHandling {
     let manyResolved: [ResolvedComputerTarget]?
     let error: ComputerRecoveryError?
     let contextError: ComputerRecoveryError?
+    let evidence: ComputerRecoveryEvidence?
     private(set) var resolveCallCount = 0
     private(set) var resolveManyCallCount = 0
     private(set) var lastResolvedTarget: ComputerTarget?
@@ -504,12 +542,14 @@ private actor ActionFakeRecovery: ComputerRecoveryHandling {
         resolved: ResolvedComputerTarget?,
         manyResolved: [ResolvedComputerTarget]? = nil,
         error: ComputerRecoveryError?,
-        contextError: ComputerRecoveryError? = nil
+        contextError: ComputerRecoveryError? = nil,
+        evidence: ComputerRecoveryEvidence? = nil
     ) {
         self.resolved = resolved
         self.manyResolved = manyResolved
         self.error = error
         self.contextError = contextError
+        self.evidence = evidence
     }
 
     func resolve(_ target: ComputerTarget, retryBudget: Int) async throws -> ResolvedComputerTarget {
@@ -517,6 +557,15 @@ private actor ActionFakeRecovery: ComputerRecoveryHandling {
         lastResolvedTarget = target
         if let error { throw error }
         return resolved!
+    }
+
+    func recoveryEvidence(for target: ComputerTarget, error: ComputerRecoveryError) async -> ComputerRecoveryEvidence {
+        evidence ?? ComputerRecoveryEvidence(
+            candidateCount: 0,
+            scopeResolved: false,
+            activeScrollContainerCount: 0,
+            recommendedRecovery: .none
+        )
     }
 
     func verifyContext(_ resolved: ResolvedComputerTarget) async throws {

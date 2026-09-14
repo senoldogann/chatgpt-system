@@ -15,6 +15,12 @@ enum ComputerTargetResolutionError: Error, Equatable, Sendable {
     case unsafeGeometry
 }
 
+struct ComputerTargetResolutionEvidence: Equatable, Sendable {
+    let candidateCount: Int
+    let scopeResolved: Bool
+    let scopeScrollable: Bool
+}
+
 struct ComputerTargetResolver: Sendable {
     func resolve(
         target: ComputerTarget,
@@ -81,6 +87,42 @@ struct ComputerTargetResolver: Sendable {
         in context: ComputerTargetResolutionContext
     ) throws -> [ResolvedComputerTarget] {
         try targets.map { try resolve(target: $0, in: context) }
+    }
+
+    func evidence(
+        for target: ComputerTarget,
+        in context: ComputerTargetResolutionContext
+    ) -> ComputerTargetResolutionEvidence {
+        guard context.cached.displayTopologyDigest == context.currentDisplayTopologyDigest else {
+            return ComputerTargetResolutionEvidence(
+                candidateCount: 0,
+                scopeResolved: false,
+                scopeScrollable: false
+            )
+        }
+
+        if case let .scoped(baseTarget, within) = target {
+            do {
+                let scope = try resolveScopeElement(within, in: context)
+                return ComputerTargetResolutionEvidence(
+                    candidateCount: candidateCount(for: baseTarget, scopeIndex: scope.index, in: context),
+                    scopeResolved: true,
+                    scopeScrollable: scope.enabled != false && scope.scroll.scrollable
+                )
+            } catch {
+                return ComputerTargetResolutionEvidence(
+                    candidateCount: 0,
+                    scopeResolved: false,
+                    scopeScrollable: false
+                )
+            }
+        }
+
+        return ComputerTargetResolutionEvidence(
+            candidateCount: candidateCount(for: target, scopeIndex: nil, in: context),
+            scopeResolved: false,
+            scopeScrollable: false
+        )
     }
 
     func resolveScope(
@@ -186,6 +228,56 @@ struct ComputerTargetResolver: Sendable {
             from: resolveUniqueAXElement(in: context, scopeIndex: scopeIndex, matches: matches),
             context: context
         )
+    }
+
+    private func candidateCount(
+        for target: ComputerTarget,
+        scopeIndex: Int?,
+        in context: ComputerTargetResolutionContext
+    ) -> Int {
+        switch target {
+        case let .index(snapshotId, index):
+            guard snapshotId == context.cached.observationId,
+                  snapshotId == context.cached.observation.snapshotId,
+                  let element = context.cached.observation.elements.first(where: { $0.index == index }),
+                  element.enabled != false
+            else { return 0 }
+            guard let scopeIndex else { return 1 }
+            return Self.isDescendant(
+                element,
+                of: scopeIndex,
+                elements: context.cached.observation.elements
+            ) ? 1 : 0
+        case let .role(role, name, exact):
+            return enabledAXCandidates(in: context, scopeIndex: scopeIndex) { element in
+                guard element.role == role else { return false }
+                guard let name else { return true }
+                return Self.matchesText(name, exact: exact, candidates: [element.title, element.description])
+            }.count
+        case let .text(text, exact):
+            return enabledAXCandidates(in: context, scopeIndex: scopeIndex) { element in
+                Self.matchesText(text, exact: exact, candidates: [element.title, element.description])
+            }.count
+        case let .label(label, exact):
+            return enabledAXCandidates(in: context, scopeIndex: scopeIndex) { element in
+                Self.matchesText(label, exact: exact, candidates: [element.title, element.description])
+            }.count
+        case .ocrText, .point, .scoped:
+            return 0
+        }
+    }
+
+    private func enabledAXCandidates(
+        in context: ComputerTargetResolutionContext,
+        scopeIndex: Int?,
+        matches: (ComputerElementView) -> Bool
+    ) -> [ComputerElementView] {
+        let elements = context.cached.observation.elements
+        return elements.filter { element in
+            guard element.enabled != false, matches(element) else { return false }
+            guard let scopeIndex else { return true }
+            return Self.isDescendant(element, of: scopeIndex, elements: elements)
+        }
     }
 
     private func resolveUniqueAXElement(
