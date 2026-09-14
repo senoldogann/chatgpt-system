@@ -126,6 +126,25 @@ public struct ComputerOcrCandidateView: Codable, Equatable, Sendable {
         self.confidence = confidence
         self.source = source
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case text
+        case bounds
+        case confidence
+        case source
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(text, forKey: .text)
+        try container.encode(bounds, forKey: .bounds)
+        if let confidence {
+            try container.encode(confidence, forKey: .confidence)
+        } else {
+            try container.encodeNil(forKey: .confidence)
+        }
+        try container.encode(source, forKey: .source)
+    }
 }
 
 public struct ComputerPerceptionSummary: Codable, Equatable, Sendable {
@@ -147,6 +166,27 @@ public struct ComputerPerceptionSummary: Codable, Equatable, Sendable {
         self.ocrUsed = ocrUsed
         self.recommendedTargeting = recommendedTargeting
         self.ocrCandidates = ocrCandidates
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case axQuality
+        case webContentAccessible
+        case ocrUsed
+        case recommendedTargeting
+        case ocrCandidates
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(axQuality, forKey: .axQuality)
+        if let webContentAccessible {
+            try container.encode(webContentAccessible, forKey: .webContentAccessible)
+        } else {
+            try container.encodeNil(forKey: .webContentAccessible)
+        }
+        try container.encode(ocrUsed, forKey: .ocrUsed)
+        try container.encode(recommendedTargeting, forKey: .recommendedTargeting)
+        try container.encode(ocrCandidates, forKey: .ocrCandidates)
     }
 }
 
