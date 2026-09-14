@@ -104,6 +104,7 @@ struct ScreenImageCapture: @unchecked Sendable {
 
 protocol ScreenImageCapturing: Sendable {
     func captureFocusedDisplayImage() async throws -> ScreenImageCapture
+    func captureWindowImage(bounds: ComputerBounds) async throws -> ScreenImageCapture
 }
 
 protocol FocusedDisplayReading: Sendable {

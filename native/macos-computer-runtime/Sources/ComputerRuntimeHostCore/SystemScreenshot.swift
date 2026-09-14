@@ -19,6 +19,56 @@ enum FocusedDisplaySelection {
     }
 }
 
+enum WindowCaptureGeometry {
+    static func cropRect(
+        windowBounds: ComputerBounds,
+        captureBounds: ComputerBounds,
+        imageWidth: Int,
+        imageHeight: Int
+    ) -> CGRect? {
+        guard imageWidth > 0,
+              imageHeight > 0,
+              windowBounds.x.isFinite,
+              windowBounds.y.isFinite,
+              windowBounds.width.isFinite,
+              windowBounds.height.isFinite,
+              captureBounds.x.isFinite,
+              captureBounds.y.isFinite,
+              captureBounds.width.isFinite,
+              captureBounds.height.isFinite,
+              windowBounds.width > 0,
+              windowBounds.height > 0,
+              captureBounds.width > 0,
+              captureBounds.height > 0,
+              windowBounds.x >= captureBounds.x,
+              windowBounds.y >= captureBounds.y,
+              windowBounds.x + windowBounds.width <= captureBounds.x + captureBounds.width,
+              windowBounds.y + windowBounds.height <= captureBounds.y + captureBounds.height
+        else {
+            return nil
+        }
+
+        let scaleX = Double(imageWidth) / captureBounds.width
+        let scaleY = Double(imageHeight) / captureBounds.height
+        let rect = CGRect(
+            x: (windowBounds.x - captureBounds.x) * scaleX,
+            y: (windowBounds.y - captureBounds.y) * scaleY,
+            width: windowBounds.width * scaleX,
+            height: windowBounds.height * scaleY
+        ).integral
+        guard rect.minX >= 0,
+              rect.minY >= 0,
+              rect.maxX <= Double(imageWidth),
+              rect.maxY <= Double(imageHeight),
+              rect.width > 0,
+              rect.height > 0
+        else {
+            return nil
+        }
+        return rect
+    }
+}
+
 struct MainScreenFocusedDisplayReader: FocusedDisplayReading {
     func focusedDisplayID() -> CGDirectDisplayID? {
         // NSScreen.main is the screen holding the key window, not the primary display.
@@ -76,6 +126,21 @@ public struct SystemScreenshotCapturer: ScreenshotCapturing, ScreenImageCapturin
             )
             return displays.first(where: { $0.displayID == selected })
         }
+    }
+
+    func captureWindowImage(bounds: ComputerBounds) async throws -> ScreenImageCapture {
+        let displayCapture = try await captureFocusedDisplayImage()
+        guard let cropRect = WindowCaptureGeometry.cropRect(
+            windowBounds: bounds,
+            captureBounds: displayCapture.screenBounds,
+            imageWidth: displayCapture.image.width,
+            imageHeight: displayCapture.image.height
+        ),
+        let cropped = displayCapture.image.cropping(to: cropRect)
+        else {
+            throw ScreenshotCaptureError.unavailable
+        }
+        return ScreenImageCapture(image: cropped, screenBounds: bounds)
     }
 
     private func captureImage(

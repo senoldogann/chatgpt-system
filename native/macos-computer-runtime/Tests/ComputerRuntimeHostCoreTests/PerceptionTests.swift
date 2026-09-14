@@ -61,6 +61,76 @@ final class PerceptionTests: XCTestCase {
         XCTAssertEqual(summary.recommendedTargeting, .ocr)
     }
 
+    func testBoundedCandidatesFiltersLowConfidenceAndMapsToScreenSpace() {
+        let candidates = [
+            OcrTextCandidate(
+                text: "drop",
+                bounds: ComputerBounds(x: 1, y: 1, width: 10, height: 10),
+                confidence: 0.49,
+                source: .fast,
+                observationId: "ocr"
+            ),
+            OcrTextCandidate(
+                text: "Plugins",
+                bounds: ComputerBounds(x: 10, y: 20, width: 30, height: 10),
+                confidence: 0.5,
+                source: .fast,
+                observationId: "ocr"
+            ),
+        ]
+
+        let bounded = ComputerPerception.boundedCandidates(
+            candidates,
+            imageWidth: 100,
+            imageHeight: 100,
+            captureBounds: ComputerBounds(x: 100, y: 200, width: 200, height: 300)
+        )
+
+        XCTAssertEqual(bounded.count, 1)
+        XCTAssertEqual(bounded.first?.text, "Plugins")
+        XCTAssertEqual(bounded.first?.bounds, ComputerBounds(x: 120, y: 260, width: 60, height: 30))
+        XCTAssertEqual(try XCTUnwrap(bounded.first?.confidence), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(bounded.first?.source, .visionFast)
+    }
+
+    func testBoundedCandidatesEnforcesCountAndAggregateTextLimits() {
+        let shortCandidates = (0..<80).map { index in
+            OcrTextCandidate(
+                text: String(repeating: "s", count: 100),
+                bounds: ComputerBounds(x: Double(index % 10), y: Double(index % 10), width: 1, height: 1),
+                confidence: 0.9,
+                source: .fast,
+                observationId: "short-\(index)"
+            )
+        }
+        let countBounded = ComputerPerception.boundedCandidates(
+            shortCandidates,
+            imageWidth: 100,
+            imageHeight: 100,
+            captureBounds: ComputerBounds(x: 0, y: 0, width: 100, height: 100)
+        )
+        XCTAssertEqual(countBounded.count, 64)
+
+        let longCandidates = (0..<80).map { index in
+            OcrTextCandidate(
+                text: String(repeating: "x", count: 600),
+                bounds: ComputerBounds(x: Double(index % 10), y: Double(index % 10), width: 1, height: 1),
+                confidence: 0.9,
+                source: .accurate,
+                observationId: "long-\(index)"
+            )
+        }
+        let aggregateBounded = ComputerPerception.boundedCandidates(
+            longCandidates,
+            imageWidth: 100,
+            imageHeight: 100,
+            captureBounds: ComputerBounds(x: 0, y: 0, width: 100, height: 100)
+        )
+        XCTAssertTrue(aggregateBounded.allSatisfy { $0.text.count <= 512 })
+        XCTAssertLessThanOrEqual(aggregateBounded.map(\.text.count).reduce(0, +), 8_192)
+        XCTAssertTrue(aggregateBounded.allSatisfy { $0.source == .visionAccurate })
+    }
+
     func testFocusedWindowBoundsPrefersFocusedAXWindow() {
         let app = ApplicationView(name: "Chrome", bundleIdentifier: "com.google.Chrome", frontmost: true)
         let observation = ComputerObservation(

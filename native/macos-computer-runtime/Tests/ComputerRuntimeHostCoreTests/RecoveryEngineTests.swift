@@ -24,7 +24,7 @@ final class RecoveryEngineTests: XCTestCase {
     }
 
     func testWeakAxFallsBackFastThenAccurateOcrUsingOneCapture() async throws {
-        let accessibility = FakeRecoveryAccessibility(elements: [])
+        let accessibility = FakeRecoveryAccessibility(elements: [windowElement()])
         let ocr = CountingOCR(
             fast: [],
             accurate: [
@@ -47,16 +47,19 @@ final class RecoveryEngineTests: XCTestCase {
         let result = try await engine.resolve(.ocrText(text: "Canvas Submit", exact: true), retryBudget: 2)
 
         XCTAssertEqual(result.source, .ocr)
-        XCTAssertEqual(result.bounds, ComputerBounds(x: 250, y: 250, width: 500, height: 125))
-        XCTAssertEqual(result.actionPoint, ComputerPoint(x: 500, y: 312.5))
+        XCTAssertEqual(result.bounds, ComputerBounds(x: 350, y: 450, width: 500, height: 175))
+        XCTAssertEqual(result.actionPoint, ComputerPoint(x: 600, y: 537.5))
         let modes = await ocr.modes
-        let captureCount = await capture.captureCount
+        let windowCaptureCount = await capture.windowCaptureCount
+        let displayCaptureCount = await capture.captureCount
         XCTAssertEqual(modes, [.fast, .accurate])
-        XCTAssertEqual(captureCount, 1)
+        XCTAssertEqual(windowCaptureCount, 1)
+        XCTAssertEqual(displayCaptureCount, 0)
     }
 
     func testOcrOnASecondaryDisplayResolvesIntoThatDisplayCoordinateSpace() async throws {
-        let accessibility = FakeRecoveryAccessibility(elements: [])
+        let secondaryBounds = ComputerBounds(x: 1_440, y: -180, width: 1_000, height: 500)
+        let accessibility = FakeRecoveryAccessibility(elements: [windowElement(bounds: secondaryBounds)])
         let ocr = CountingOCR(
             fast: [
                 OcrTextCandidate(
@@ -72,21 +75,27 @@ final class RecoveryEngineTests: XCTestCase {
         let capture = CountingScreenCapture(
             imageWidth: 200,
             imageHeight: 100,
-            screenBounds: ComputerBounds(x: 1_440, y: -180, width: 1_000, height: 500)
+            screenBounds: secondaryBounds
         )
-        let engine = makeEngine(accessibility: accessibility, ocr: ocr, capture: capture)
+        let engine = makeEngine(
+            accessibility: accessibility,
+            ocr: ocr,
+            capture: capture,
+            topology: FakeRecoveryTopology(bounds: [secondaryBounds])
+        )
 
         let result = try await engine.resolve(.ocrText(text: "Visual Submit", exact: true), retryBudget: 2)
 
         XCTAssertEqual(result.source, .ocr)
         XCTAssertEqual(result.bounds, ComputerBounds(x: 1_690, y: 70, width: 500, height: 125))
         XCTAssertEqual(result.actionPoint, ComputerPoint(x: 1_940, y: 132.5))
-        let captureCount = await capture.captureCount
-        XCTAssertEqual(captureCount, 1)
+        let windowCaptureCount = await capture.windowCaptureCount
+        XCTAssertEqual(windowCaptureCount, 1)
     }
 
-    func testPersistentAmbiguityStopsWithNeedsReplanWithinBudget() async {
+    func testPersistentAmbiguityStopsWithTargetAmbiguousWithinBudget() async {
         let accessibility = FakeRecoveryAccessibility(elements: [
+            windowElement(),
             button(index: 1, title: "Save", x: 10),
             button(index: 2, title: "Save", x: 120),
         ])
@@ -100,7 +109,7 @@ final class RecoveryEngineTests: XCTestCase {
             ),
             OcrTextCandidate(
                 text: "Save",
-                bounds: ComputerBounds(x: 80, y: 10, width: 40, height: 20),
+                bounds: ComputerBounds(x: 55, y: 10, width: 40, height: 20),
                 confidence: 0.9,
                 source: .fast,
                 observationId: "ocr-a"
@@ -111,13 +120,13 @@ final class RecoveryEngineTests: XCTestCase {
 
         do {
             _ = try await engine.resolve(.text(text: "Save", exact: true), retryBudget: 2)
-            XCTFail("Expected needsReplan")
+            XCTFail("Expected targetAmbiguous")
         } catch {
-            XCTAssertEqual(error as? ComputerRecoveryError, .needsReplan)
+            XCTAssertEqual(error as? ComputerRecoveryError, .targetAmbiguous)
         }
         XCTAssertLessThanOrEqual(accessibility.observeCount, 2)
         let modes = await ocr.modes
-        XCTAssertEqual(modes, [.fast, .accurate])
+        XCTAssertEqual(modes, [.fast])
     }
 
     func testAccessibilityPermissionLossIsTerminalAndDoesNotInvokeOcr() async {
@@ -162,13 +171,220 @@ final class RecoveryEngineTests: XCTestCase {
         XCTAssertNotEqual(resolved.observationId, oldObservation.snapshotId)
     }
 
+    func testWeakChromeObservationRunsFastFocusedWindowOCR() async throws {
+        let accessibility = FakeRecoveryAccessibility(elements: [
+            windowElement(),
+            ComputerElementView(
+                index: 2,
+                role: "AXToolbar",
+                subrole: nil,
+                title: "Toolbar",
+                description: nil,
+                focused: false,
+                enabled: true,
+                selected: false,
+                bounds: ComputerBounds(x: 0, y: 0, width: 1_000, height: 80)
+            ),
+        ])
+        let ocr = CountingOCR(
+            fast: [
+                OcrTextCandidate(
+                    text: "Plugins",
+                    bounds: ComputerBounds(x: 20, y: 30, width: 80, height: 24),
+                    confidence: 0.93,
+                    source: .fast,
+                    observationId: "fast-1"
+                ),
+            ],
+            accurate: []
+        )
+        let capture = CountingScreenCapture(
+            imageWidth: 1_000,
+            imageHeight: 700,
+            screenBounds: ComputerBounds(x: 100, y: 100, width: 1_000, height: 700)
+        )
+        let engine = makeEngine(
+            accessibility: accessibility,
+            ocr: ocr,
+            capture: capture,
+            controller: FakeRecoveryApplicationController(bundleIdentifier: "com.google.Chrome")
+        )
+
+        let observation = try await engine.refreshObservation()
+
+        XCTAssertEqual(observation.perception?.axQuality, .weak)
+        XCTAssertEqual(observation.perception?.webContentAccessible, false)
+        XCTAssertEqual(observation.perception?.ocrUsed, true)
+        XCTAssertEqual(observation.perception?.recommendedTargeting, .ocr)
+        XCTAssertEqual(observation.perception?.ocrCandidates.map(\.text), ["Plugins"])
+
+        let resolved = try await engine.resolve(.ocrText(text: "Plugins", exact: true), retryBudget: 2)
+        XCTAssertEqual(resolved.source, .ocr)
+
+        let modes = await ocr.modes
+        let windowCaptureCount = await capture.windowCaptureCount
+        let displayCaptureCount = await capture.captureCount
+        XCTAssertEqual(modes, [.fast])
+        XCTAssertEqual(windowCaptureCount, 1)
+        XCTAssertEqual(displayCaptureCount, 0)
+    }
+
+    func testWeakChromeWithoutScreenRecordingReturnsVisualPointWithoutFailingObservation() async throws {
+        let permissions = FakeRecoveryPermissions(accessibility: true, screenCapture: false)
+        let accessibility = FakeRecoveryAccessibility(elements: [windowElement()])
+        let ocr = CountingOCR(fast: [], accurate: [])
+        let capture = CountingScreenCapture()
+        let engine = makeEngine(
+            permissions: permissions,
+            accessibility: accessibility,
+            ocr: ocr,
+            capture: capture,
+            controller: FakeRecoveryApplicationController(bundleIdentifier: "com.google.Chrome")
+        )
+
+        let observation = try await engine.refreshObservation()
+
+        XCTAssertEqual(observation.perception?.axQuality, .weak)
+        XCTAssertEqual(observation.perception?.webContentAccessible, false)
+        XCTAssertEqual(observation.perception?.ocrUsed, false)
+        XCTAssertEqual(observation.perception?.recommendedTargeting, .visualPoint)
+        XCTAssertTrue(observation.perception?.ocrCandidates.isEmpty == true)
+        let modes = await ocr.modes
+        let windowCaptureCount = await capture.windowCaptureCount
+        let displayCaptureCount = await capture.captureCount
+        XCTAssertEqual(modes, [])
+        XCTAssertEqual(windowCaptureCount, 0)
+        XCTAssertEqual(displayCaptureCount, 0)
+    }
+
+    func testStrongChromeObservationSkipsOCR() async throws {
+        let accessibility = FakeRecoveryAccessibility(elements: [
+            windowElement(),
+            ComputerElementView(
+                index: 2,
+                role: "AXWebArea",
+                subrole: nil,
+                title: "Page",
+                description: nil,
+                focused: false,
+                enabled: true,
+                selected: false,
+                bounds: ComputerBounds(x: 100, y: 180, width: 1_000, height: 620)
+            ),
+        ])
+        let ocr = CountingOCR(fast: [], accurate: [])
+        let capture = CountingScreenCapture()
+        let engine = makeEngine(
+            accessibility: accessibility,
+            ocr: ocr,
+            capture: capture,
+            controller: FakeRecoveryApplicationController(bundleIdentifier: "com.google.Chrome")
+        )
+
+        let observation = try await engine.refreshObservation()
+
+        XCTAssertEqual(observation.perception?.axQuality, .strong)
+        XCTAssertEqual(observation.perception?.webContentAccessible, true)
+        XCTAssertEqual(observation.perception?.ocrUsed, false)
+        XCTAssertEqual(observation.perception?.recommendedTargeting, .ax)
+        let modes = await ocr.modes
+        let windowCaptureCount = await capture.windowCaptureCount
+        XCTAssertEqual(modes, [])
+        XCTAssertEqual(windowCaptureCount, 0)
+    }
+
+    func testMissingWindowBoundsDoesNotFallBackToFocusedDisplayOCR() async throws {
+        let accessibility = FakeRecoveryAccessibility(elements: [
+            ComputerElementView(
+                index: 1,
+                role: "AXToolbar",
+                subrole: nil,
+                title: "Toolbar",
+                description: nil,
+                focused: false,
+                enabled: true,
+                selected: false,
+                bounds: ComputerBounds(x: 0, y: 0, width: 1_000, height: 80)
+            ),
+        ])
+        let ocr = CountingOCR(fast: [], accurate: [])
+        let capture = CountingScreenCapture()
+        let engine = makeEngine(
+            accessibility: accessibility,
+            ocr: ocr,
+            capture: capture,
+            controller: FakeRecoveryApplicationController(bundleIdentifier: "com.google.Chrome")
+        )
+
+        let observation = try await engine.refreshObservation()
+
+        XCTAssertEqual(observation.perception?.axQuality, .weak)
+        XCTAssertEqual(observation.perception?.ocrUsed, false)
+        XCTAssertEqual(observation.perception?.recommendedTargeting, .visualPoint)
+        let windowCaptureCount = await capture.windowCaptureCount
+        let displayCaptureCount = await capture.captureCount
+        let modes = await ocr.modes
+        XCTAssertEqual(windowCaptureCount, 0)
+        XCTAssertEqual(displayCaptureCount, 0)
+        XCTAssertEqual(modes, [])
+    }
+
+    func testWeakObservationAccurateOCRRunsOnlyAfterEmptyFastPass() async throws {
+        let accessibility = FakeRecoveryAccessibility(elements: [windowElement()])
+        let ocr = CountingOCR(
+            fast: [],
+            accurate: [
+                OcrTextCandidate(
+                    text: "Refresh",
+                    bounds: ComputerBounds(x: 10, y: 10, width: 60, height: 20),
+                    confidence: 0.90,
+                    source: .accurate,
+                    observationId: "accurate-1"
+                ),
+            ]
+        )
+        let capture = CountingScreenCapture()
+        let engine = makeEngine(
+            accessibility: accessibility,
+            ocr: ocr,
+            capture: capture,
+            controller: FakeRecoveryApplicationController(bundleIdentifier: "com.google.Chrome")
+        )
+
+        let observation = try await engine.refreshObservation()
+
+        let modes = await ocr.modes
+        let windowCaptureCount = await capture.windowCaptureCount
+        XCTAssertEqual(modes, [.fast, .accurate])
+        XCTAssertEqual(windowCaptureCount, 1)
+        XCTAssertEqual(observation.perception?.ocrCandidates.map(\.text), ["Refresh"])
+        XCTAssertEqual(observation.perception?.ocrCandidates.first?.source, .visionAccurate)
+    }
+
+    private func windowElement(
+        bounds: ComputerBounds = ComputerBounds(x: 100, y: 100, width: 1_000, height: 700)
+    ) -> ComputerElementView {
+        ComputerElementView(
+            index: 0,
+            role: "AXWindow",
+            subrole: nil,
+            title: "Fixture Window",
+            description: nil,
+            focused: true,
+            enabled: true,
+            selected: false,
+            bounds: bounds
+        )
+    }
+
     private func makeEngine(
         permissions: FakeRecoveryPermissions = FakeRecoveryPermissions(accessibility: true, screenCapture: true),
         accessibility: FakeRecoveryAccessibility,
         ocr: CountingOCR,
-        capture: CountingScreenCapture
+        capture: CountingScreenCapture,
+        controller: FakeRecoveryApplicationController = FakeRecoveryApplicationController(),
+        topology: FakeRecoveryTopology = FakeRecoveryTopology()
     ) -> ComputerRecoveryEngine {
-        let controller = FakeRecoveryApplicationController()
         return ComputerRecoveryEngine(
             permissions: permissions,
             applicationController: controller,
@@ -177,7 +393,7 @@ final class RecoveryEngineTests: XCTestCase {
             resolver: ComputerTargetResolver(),
             screenCapture: capture,
             ocr: ocr,
-            displayTopology: FakeRecoveryTopology()
+            displayTopology: topology
         )
     }
 
@@ -232,12 +448,16 @@ private final class FakeRecoveryAccessibility: AccessibilityReading, @unchecked 
 }
 
 private final class FakeRecoveryApplicationController: ApplicationControlling, @unchecked Sendable {
-    private let base = WorkspaceApplication(
-        processIdentifier: 101,
-        name: "Fixture",
-        bundleIdentifier: "com.example.fixture",
-        frontmost: true
-    )
+    private let base: WorkspaceApplication
+
+    init(bundleIdentifier: String = "com.example.fixture") {
+        self.base = WorkspaceApplication(
+            processIdentifier: 101,
+            name: bundleIdentifier == "com.google.Chrome" ? "Google Chrome" : "Fixture",
+            bundleIdentifier: bundleIdentifier,
+            frontmost: true
+        )
+    }
 
     func runningApplications() -> [WorkspaceApplication] { [frontmostApplication()!] }
     func frontmostApplication() -> WorkspaceApplication? { base }
@@ -247,9 +467,13 @@ private final class FakeRecoveryApplicationController: ApplicationControlling, @
 }
 
 private struct FakeRecoveryTopology: DisplayTopologyReading {
-    func activeDisplayBounds() throws -> [ComputerBounds] {
-        [ComputerBounds(x: 0, y: 0, width: 1_440, height: 900)]
+    let bounds: [ComputerBounds]
+
+    init(bounds: [ComputerBounds] = [ComputerBounds(x: 0, y: 0, width: 1_440, height: 900)]) {
+        self.bounds = bounds
     }
+
+    func activeDisplayBounds() throws -> [ComputerBounds] { bounds }
 }
 
 private actor CountingOCR: VisionTextRecognizing {
@@ -271,6 +495,7 @@ private actor CountingOCR: VisionTextRecognizing {
 private actor CountingScreenCapture: ScreenImageCapturing {
     private let capture: ScreenImageCapture
     private(set) var captureCount = 0
+    private(set) var windowCaptureCount = 0
 
     init(
         imageWidth: Int = 100,
@@ -293,5 +518,10 @@ private actor CountingScreenCapture: ScreenImageCapturing {
     func captureFocusedDisplayImage() async throws -> ScreenImageCapture {
         captureCount += 1
         return capture
+    }
+
+    func captureWindowImage(bounds: ComputerBounds) async throws -> ScreenImageCapture {
+        windowCaptureCount += 1
+        return ScreenImageCapture(image: capture.image, screenBounds: bounds)
     }
 }
