@@ -217,6 +217,105 @@ final class ComputerActionServiceTests: XCTestCase {
         XCTAssertTrue(sink.events.isEmpty)
     }
 
+    func testExplicitPointClickVerificationFailureReturnsNeedsReplanWithoutRecovery() async {
+        let recovery = ActionFakeRecovery(resolved: actionResolvedTarget(x: 50, y: 50), error: nil)
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 0, y: 0),
+            recovery: recovery,
+            verification: TimeoutActionVerification()
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "point-click-timeout",
+            method: "click",
+            params: .object([
+                "x": .number(50),
+                "y": .number(50),
+                "motionMode": .string("instant"),
+                "verify": .object(["kind": .string("ax_changed"), "timeoutMs": .number(50)]),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_NEEDS_REPLAN")
+        let resolveCalls = await recovery.resolveCallCount
+        let resolveManyCalls = await recovery.resolveManyCallCount
+        XCTAssertEqual(resolveCalls, 0)
+        XCTAssertEqual(resolveManyCalls, 0)
+    }
+
+    func testSemanticTargetVerificationTimeoutKeepsComputerTimeout() async {
+        let recovery = ActionFakeRecovery(resolved: actionResolvedTarget(x: 50, y: 50), error: nil)
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 0, y: 0),
+            recovery: recovery,
+            verification: TimeoutActionVerification()
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "semantic-click-timeout",
+            method: "click",
+            params: .object([
+                "target": .object(["by": .string("text"), "text": .string("Submit")]),
+                "motionMode": .string("instant"),
+                "verify": .object(["kind": .string("ax_changed"), "timeoutMs": .number(50)]),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_TIMEOUT")
+        let resolveCalls = await recovery.resolveCallCount
+        XCTAssertEqual(resolveCalls, 1)
+    }
+
+    func testExplicitCoordinateDragVerificationFailureReturnsNeedsReplan() async {
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 10, y: 10),
+            verification: TimeoutActionVerification()
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "point-drag-timeout",
+            method: "drag",
+            params: .object([
+                "from": .object(["x": .number(10), "y": .number(10)]),
+                "to": .object(["x": .number(80), "y": .number(80)]),
+                "motionMode": .string("instant"),
+                "verify": .object(["kind": .string("ax_changed"), "timeoutMs": .number(50)]),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_NEEDS_REPLAN")
+    }
+
+    func testExplicitCoordinateScrollVerificationFailureReturnsNeedsReplan() async {
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 10, y: 10),
+            verification: TimeoutActionVerification()
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "point-scroll-timeout",
+            method: "scroll",
+            params: .object([
+                "vertical": .number(-3),
+                "horizontal": .number(0),
+                "x": .number(30),
+                "y": .number(40),
+                "motionMode": .string("instant"),
+                "verify": .object(["kind": .string("ax_changed"), "timeoutMs": .number(50)]),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_NEEDS_REPLAN")
+    }
+
     func testHeldInputStateStartsEmptyAndTracksExplicitDownState() {
         var state = HeldInputState()
         XCTAssertTrue(state.isEmpty)
@@ -286,7 +385,8 @@ private struct ActionImmediateSleeper: InputSleeping {
 private func makeActionHostService(
     pointer: ComputerPoint,
     sink: ActionRecordingSink = ActionRecordingSink(),
-    recovery: (any ComputerRecoveryHandling)? = nil
+    recovery: (any ComputerRecoveryHandling)? = nil,
+    verification: (any ComputerVerificationHandling)? = nil
 ) -> ComputerHostService {
     sink.configurePointer(pointer)
     let controller = ComputerInputController(
@@ -295,12 +395,38 @@ private func makeActionHostService(
         displayTopology: ActionDisplayTopology(),
         sleeper: ActionImmediateSleeper()
     )
-    let actions = ComputerActionService(controller: controller, recovery: recovery)
+    let actions = ComputerActionService(
+        controller: controller,
+        verification: verification,
+        recovery: recovery
+    )
     return ComputerHostService(
         permissions: ActionPermissions(),
         workspace: ActionWorkspace(),
         actions: actions
     )
+}
+
+private struct TimeoutActionVerification: ComputerVerificationHandling {
+    func currentAXDigest() throws -> String { "baseline" }
+    func currentFocusedElementIndex() throws -> Int? { nil }
+    func waitForFrontmost(_ selector: ComputerApplicationSelector, timeoutMs: Int) async throws -> ApplicationView {
+        throw ComputerVerificationError.timeout
+    }
+    func waitForText(_ text: String, exact: Bool, timeoutMs: Int) async throws {
+        throw ComputerVerificationError.timeout
+    }
+    func waitUntilAXChanged(from baselineDigest: String, timeoutMs: Int) async throws -> String {
+        throw ComputerVerificationError.timeout
+    }
+    func currentScreenRegionDigest(bounds: ComputerBounds) async throws -> String { "baseline-region" }
+    func waitUntilScreenRegionChanged(
+        bounds: ComputerBounds,
+        from baselineDigest: String,
+        timeoutMs: Int
+    ) async throws -> String {
+        throw ComputerVerificationError.timeout
+    }
 }
 
 private actor ActionFakeRecovery: ComputerRecoveryHandling {

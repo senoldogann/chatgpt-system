@@ -12,6 +12,11 @@ private enum ActionVerificationSpec: Sendable {
     case screenRegionChanged(bounds: ComputerBounds, timeoutMs: Int)
 }
 
+private enum VerificationFailurePolicy: Sendable {
+    case timeout
+    case needsReplan
+}
+
 private enum ActionPointSpec: Sendable {
     case point(ComputerPoint)
     case target(ComputerTarget, retryBudget: Int)
@@ -19,6 +24,16 @@ private enum ActionPointSpec: Sendable {
     var isSemantic: Bool {
         if case .target = self { return true }
         return false
+    }
+
+    var isExplicitPoint: Bool {
+        switch self {
+        case .point:
+            return true
+        case let .target(target, _):
+            if case .point = target { return true }
+            return false
+        }
     }
 }
 
@@ -92,6 +107,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             }
             return await executeVerifiedAction(
                 verificationSpec: parsed.verification,
+                failurePolicy: parsed.point.isExplicitPoint ? .needsReplan : .timeout,
                 requestId: request.requestId
             ) {
                 let point = try await resolveActionPoint(parsed.point)
@@ -102,7 +118,11 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             guard let parsed = parseClickParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
             }
-            return await executeVerifiedAction(verificationSpec: parsed.verification, requestId: request.requestId) {
+            return await executeVerifiedAction(
+                verificationSpec: parsed.verification,
+                failurePolicy: parsed.point.isExplicitPoint ? .needsReplan : .timeout,
+                requestId: request.requestId
+            ) {
                 let point = try await resolveActionPoint(parsed.point)
                 return request.method == "click"
                     ? try await controller.click(at: point, button: parsed.button, mode: parsed.mode)
@@ -123,7 +143,11 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             guard let parsed = parseDragParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
             }
-            return await executeVerifiedAction(verificationSpec: parsed.verification, requestId: request.requestId) {
+            return await executeVerifiedAction(
+                verificationSpec: parsed.verification,
+                failurePolicy: parsed.from.isExplicitPoint && parsed.to.isExplicitPoint ? .needsReplan : .timeout,
+                requestId: request.requestId
+            ) {
                 let endpoints = try await resolveDragEndpoints(from: parsed.from, to: parsed.to)
                 return try await controller.drag(
                     from: endpoints.from,
@@ -137,7 +161,11 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             guard let parsed = parseScrollParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
             }
-            return await executeVerifiedAction(verificationSpec: parsed.verification, requestId: request.requestId) {
+            return await executeVerifiedAction(
+                verificationSpec: parsed.verification,
+                failurePolicy: parsed.point?.isExplicitPoint == true ? .needsReplan : .timeout,
+                requestId: request.requestId
+            ) {
                 let point = try await resolveOptionalActionPoint(parsed.point)
                 return try await controller.scroll(
                     vertical: parsed.vertical,
@@ -288,6 +316,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
 
     private func executeVerifiedAction(
         verificationSpec: ActionVerificationSpec?,
+        failurePolicy: VerificationFailurePolicy = .timeout,
         requestId: String,
         action: () async throws -> ComputerActionResult
     ) async -> ComputerProtocolResponse {
@@ -301,7 +330,9 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             return recoveryFailed(error, requestId: requestId)
         } catch ComputerVerificationError.timeout {
             await releaseInputsAfterFailedAction()
-            return timeout(requestId: requestId)
+            return failurePolicy == .needsReplan
+                ? needsReplan(requestId: requestId)
+                : timeout(requestId: requestId)
         } catch ComputerInputError.focusMismatch {
             await releaseInputsAfterFailedAction()
             return focusFailed(requestId: requestId)
@@ -1049,6 +1080,14 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             requestId: requestId,
             code: "COMPUTER_FOCUS_FAILED",
             message: "Computer focus verification failed."
+        )
+    }
+
+    private func needsReplan(requestId: String) -> ComputerProtocolResponse {
+        .failure(
+            requestId: requestId,
+            code: "COMPUTER_NEEDS_REPLAN",
+            message: "Computer state requires replanning."
         )
     }
 
