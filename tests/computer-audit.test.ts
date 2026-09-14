@@ -175,6 +175,38 @@ describe("ScopedComputerService policy and audit", () => {
     expect(log).toContain('"errorCode":"INTERNAL_ERROR"');
   });
 
+  it("does not copy structured OCR observation text into audit metadata", async () => {
+    const { auditFile, audit } = await fixture();
+    const backend = new FakeComputerBackend();
+    backend.observe = async () => ({
+      snapshotId: "audit-observe",
+      application: { name: "Google Chrome", bundleIdentifier: "com.google.Chrome", frontmost: true },
+      windowTitle: "Fixture",
+      elements: [],
+      truncated: false,
+      perception: {
+        axQuality: "weak",
+        webContentAccessible: false,
+        ocrUsed: true,
+        recommendedTargeting: "ocr",
+        ocrCandidates: [{
+          text: "OCR_PRIVATE_CANARY",
+          bounds: { x: 10, y: 20, width: 30, height: 40 },
+          confidence: 0.91,
+          source: "vision-fast",
+        }],
+      },
+    });
+    const service = new ScopedComputerService(backend, audit, true);
+
+    await service.observe();
+
+    const log = await readFile(auditFile, "utf8");
+    expect(log).toContain('"action":"computer.observe"');
+    expect(log).not.toContain("OCR_PRIVATE_CANARY");
+    expect(log).not.toContain('"ocrCandidates"');
+  });
+
   it("never copies ComputerError details into audit metadata", async () => {
     const { auditFile, audit } = await fixture();
     const backend = new FakeComputerBackend();

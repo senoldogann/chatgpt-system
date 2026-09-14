@@ -335,7 +335,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_observe",
     {
-      description: "Return the bounded accessibility observation for the frontmost application. Requires Admin authority.",
+      description: "Return the bounded accessibility/perception observation for the frontmost application. Use perception.recommendedTargeting: ax => role/text/index; ocr => prefer target.by=ocrText from returned OCR candidates; visual-point => obtain a fresh screenshot and make at most one explicit verified point attempt. Do not repeat blind point coordinates after failure. Requires Admin authority.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: computerObservationOutputSchema,
       annotations: computerReadAnnotations,
