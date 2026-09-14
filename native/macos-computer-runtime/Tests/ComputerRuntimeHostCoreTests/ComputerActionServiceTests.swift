@@ -104,6 +104,37 @@ final class ComputerActionServiceTests: XCTestCase {
         ])
     }
 
+    func testSemanticClickAcceptsScopedTarget() async {
+        let recovery = ActionFakeRecovery(resolved: actionResolvedTarget(x: 120, y: 80), error: nil)
+        let service = makeActionHostService(pointer: ComputerPoint(x: 0, y: 0), recovery: recovery)
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "semantic-click-scoped",
+            method: "click",
+            params: .object([
+                "target": .object([
+                    "by": .string("text"),
+                    "text": .string("Refresh"),
+                    "within": .object([
+                        "by": .string("role"),
+                        "role": .string("AXGroup"),
+                        "name": .string("Plugin details"),
+                        "exact": .bool(true),
+                    ]),
+                ]),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let resolvedTarget = await recovery.lastResolvedTarget
+        XCTAssertEqual(resolvedTarget, .scoped(
+            target: .text(text: "Refresh", exact: false),
+            within: .role(role: "AXGroup", name: "Plugin details", exact: true)
+        ))
+    }
+
     func testSemanticMoveUsesResolvedPointWithoutGuessedCoordinates() async {
         let sink = ActionRecordingSink()
         let recovery = ActionFakeRecovery(resolved: actionResolvedTarget(x: 75, y: 45), error: nil)
@@ -435,6 +466,7 @@ private actor ActionFakeRecovery: ComputerRecoveryHandling {
     let error: ComputerRecoveryError?
     private(set) var resolveCallCount = 0
     private(set) var resolveManyCallCount = 0
+    private(set) var lastResolvedTarget: ComputerTarget?
 
     init(
         resolved: ResolvedComputerTarget?,
@@ -448,6 +480,7 @@ private actor ActionFakeRecovery: ComputerRecoveryHandling {
 
     func resolve(_ target: ComputerTarget, retryBudget: Int) async throws -> ResolvedComputerTarget {
         resolveCallCount += 1
+        lastResolvedTarget = target
         if let error { throw error }
         return resolved!
     }

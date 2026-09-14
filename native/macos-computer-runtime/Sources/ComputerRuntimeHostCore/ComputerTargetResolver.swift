@@ -67,6 +67,10 @@ struct ComputerTargetResolver: Sendable {
         case .ocrText:
             throw ComputerTargetResolutionError.notFound
 
+        case let .scoped(baseTarget, within):
+            let scope = try resolveScopeElement(within, in: context)
+            return try resolveScoped(baseTarget, within: scope.index, in: context)
+
         case .point:
             preconditionFailure("Point targets are resolved before cached AX validation.")
         }
@@ -79,11 +83,122 @@ struct ComputerTargetResolver: Sendable {
         try targets.map { try resolve(target: $0, in: context) }
     }
 
+    func resolveScope(
+        _ scope: ComputerTargetScope,
+        in context: ComputerTargetResolutionContext
+    ) throws -> ResolvedComputerTarget {
+        guard context.cached.displayTopologyDigest == context.currentDisplayTopologyDigest else {
+            throw ComputerTargetResolutionError.staleSnapshot
+        }
+        return try resolvedAXTarget(from: resolveScopeElement(scope, in: context), context: context)
+    }
+
+    private func resolveScoped(
+        _ target: ComputerTarget,
+        within scopeIndex: Int,
+        in context: ComputerTargetResolutionContext
+    ) throws -> ResolvedComputerTarget {
+        switch target {
+        case let .index(snapshotId, index):
+            guard snapshotId == context.cached.observationId,
+                  snapshotId == context.cached.observation.snapshotId,
+                  let element = context.cached.observation.elements.first(where: { $0.index == index })
+            else {
+                throw ComputerTargetResolutionError.staleSnapshot
+            }
+            guard Self.isDescendant(
+                element,
+                of: scopeIndex,
+                elements: context.cached.observation.elements
+            ) else {
+                throw ComputerTargetResolutionError.notFound
+            }
+            return try resolvedAXTarget(from: element, context: context)
+
+        case let .role(role, name, exact):
+            return try resolveUniqueAX(
+                in: context,
+                scopeIndex: scopeIndex,
+                matches: { element in
+                    guard element.role == role else { return false }
+                    guard let name else { return true }
+                    return Self.matchesText(name, exact: exact, candidates: [element.title, element.description])
+                }
+            )
+
+        case let .text(text, exact):
+            return try resolveUniqueAX(
+                in: context,
+                scopeIndex: scopeIndex,
+                matches: { element in
+                    Self.matchesText(text, exact: exact, candidates: [element.title, element.description])
+                }
+            )
+
+        case let .label(label, exact):
+            return try resolveUniqueAX(
+                in: context,
+                scopeIndex: scopeIndex,
+                matches: { element in
+                    Self.matchesText(label, exact: exact, candidates: [element.title, element.description])
+                }
+            )
+
+        case .ocrText:
+            throw ComputerTargetResolutionError.notFound
+        case .point, .scoped:
+            throw ComputerTargetResolutionError.notFound
+        }
+    }
+
+    private func resolveScopeElement(
+        _ scope: ComputerTargetScope,
+        in context: ComputerTargetResolutionContext
+    ) throws -> ComputerElementView {
+        switch scope {
+        case let .index(snapshotId, index):
+            guard snapshotId == context.cached.observationId,
+                  snapshotId == context.cached.observation.snapshotId,
+                  let element = context.cached.observation.elements.first(where: { $0.index == index })
+            else {
+                throw ComputerTargetResolutionError.staleSnapshot
+            }
+            return element
+        case let .role(role, name, exact):
+            return try resolveUniqueAXElement(
+                in: context,
+                scopeIndex: nil,
+                matches: { element in
+                    guard element.role == role else { return false }
+                    guard let name else { return true }
+                    return Self.matchesText(name, exact: exact, candidates: [element.title, element.description])
+                }
+            )
+        }
+    }
+
     private func resolveUniqueAX(
         in context: ComputerTargetResolutionContext,
+        scopeIndex: Int? = nil,
         matches: (ComputerElementView) -> Bool
     ) throws -> ResolvedComputerTarget {
-        let matching = context.cached.observation.elements.filter(matches)
+        try resolvedAXTarget(
+            from: resolveUniqueAXElement(in: context, scopeIndex: scopeIndex, matches: matches),
+            context: context
+        )
+    }
+
+    private func resolveUniqueAXElement(
+        in context: ComputerTargetResolutionContext,
+        scopeIndex: Int?,
+        matches: (ComputerElementView) -> Bool
+    ) throws -> ComputerElementView {
+        let elements = context.cached.observation.elements
+        let matching = elements.filter { element in
+            guard matches(element) else { return false }
+            guard let scopeIndex else { return true }
+            return Self.isDescendant(element, of: scopeIndex, elements: elements)
+        }
         let enabled = matching.filter { $0.enabled != false }
 
         guard !enabled.isEmpty else {
@@ -92,7 +207,7 @@ struct ComputerTargetResolver: Sendable {
         guard enabled.count == 1, let element = enabled.first else {
             throw ComputerTargetResolutionError.ambiguous
         }
-        return try resolvedAXTarget(from: element, context: context)
+        return element
     }
 
     private func resolvedAXTarget(
@@ -150,6 +265,23 @@ struct ComputerTargetResolver: Sendable {
             confidence: .explicit,
             semanticFingerprint: nil
         )
+    }
+
+    private static func isDescendant(
+        _ element: ComputerElementView,
+        of ancestorIndex: Int,
+        elements: [ComputerElementView]
+    ) -> Bool {
+        let byIndex = Dictionary(uniqueKeysWithValues: elements.map { ($0.index, $0) })
+        var parent = element.parentIndex
+        var visited: Set<Int> = []
+        while let parentIndex = parent {
+            guard visited.insert(parentIndex).inserted else { return false }
+            if parentIndex == ancestorIndex { return true }
+            guard let parentElement = byIndex[parentIndex] else { return false }
+            parent = parentElement.parentIndex
+        }
+        return false
     }
 
     private static func matchesText(
