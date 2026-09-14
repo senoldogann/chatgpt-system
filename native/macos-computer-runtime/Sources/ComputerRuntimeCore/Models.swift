@@ -92,6 +92,64 @@ public struct ActiveWindowView: Codable, Equatable, Sendable {
     }
 }
 
+public enum ComputerAXQuality: String, Codable, Equatable, Sendable {
+    case strong
+    case partial
+    case weak
+}
+
+public enum ComputerRecommendedTargeting: String, Codable, Equatable, Sendable {
+    case ax
+    case ocr
+    case visualPoint = "visual-point"
+}
+
+public enum ComputerOcrSource: String, Codable, Equatable, Sendable {
+    case visionFast = "vision-fast"
+    case visionAccurate = "vision-accurate"
+}
+
+public struct ComputerOcrCandidateView: Codable, Equatable, Sendable {
+    public let text: String
+    public let bounds: ComputerBounds
+    public let confidence: Double?
+    public let source: ComputerOcrSource
+
+    public init(
+        text: String,
+        bounds: ComputerBounds,
+        confidence: Double?,
+        source: ComputerOcrSource
+    ) {
+        self.text = text
+        self.bounds = bounds
+        self.confidence = confidence
+        self.source = source
+    }
+}
+
+public struct ComputerPerceptionSummary: Codable, Equatable, Sendable {
+    public let axQuality: ComputerAXQuality
+    public let webContentAccessible: Bool?
+    public let ocrUsed: Bool
+    public let recommendedTargeting: ComputerRecommendedTargeting
+    public let ocrCandidates: [ComputerOcrCandidateView]
+
+    public init(
+        axQuality: ComputerAXQuality,
+        webContentAccessible: Bool?,
+        ocrUsed: Bool,
+        recommendedTargeting: ComputerRecommendedTargeting,
+        ocrCandidates: [ComputerOcrCandidateView]
+    ) {
+        self.axQuality = axQuality
+        self.webContentAccessible = webContentAccessible
+        self.ocrUsed = ocrUsed
+        self.recommendedTargeting = recommendedTargeting
+        self.ocrCandidates = ocrCandidates
+    }
+}
+
 public struct ComputerObservation: Codable, Equatable, Sendable {
     public let snapshotId: String
     public let application: ApplicationView
@@ -99,6 +157,7 @@ public struct ComputerObservation: Codable, Equatable, Sendable {
     public let elements: [ComputerElementView]
     public let truncated: Bool
     public let digest: String?
+    public let perception: ComputerPerceptionSummary?
 
     public init(
         snapshotId: String,
@@ -106,7 +165,8 @@ public struct ComputerObservation: Codable, Equatable, Sendable {
         windowTitle: String?,
         elements: [ComputerElementView],
         truncated: Bool,
-        digest: String? = nil
+        digest: String? = nil,
+        perception: ComputerPerceptionSummary? = nil
     ) {
         self.snapshotId = snapshotId
         self.application = application
@@ -114,6 +174,7 @@ public struct ComputerObservation: Codable, Equatable, Sendable {
         self.elements = elements
         self.truncated = truncated
         self.digest = digest
+        self.perception = perception
     }
 }
 

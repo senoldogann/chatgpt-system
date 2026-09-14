@@ -233,7 +233,8 @@ public struct ComputerHostService: Sendable {
                 windowTitle: safeObservation.windowTitle,
                 elements: safeObservation.elements,
                 truncated: safeObservation.truncated,
-                digest: digest
+                digest: digest,
+                perception: safeObservation.perception
             )
             return encodeBoundedObservation(digestedObservation, requestId: requestId)
         } catch {
@@ -338,7 +339,8 @@ public struct ComputerHostService: Sendable {
             application: safeApplicationView(observation.application),
             windowTitle: boundedText(observation.windowTitle),
             elements: Array(boundedElements),
-            truncated: observation.truncated || observation.elements.count > limits.maxElements
+            truncated: observation.truncated || observation.elements.count > limits.maxElements,
+            perception: observation.perception
         )
     }
 
