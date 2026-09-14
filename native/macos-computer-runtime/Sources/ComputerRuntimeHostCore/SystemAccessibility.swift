@@ -13,6 +13,38 @@ func isRecoverableAccessibilityAttributeError(_ error: AXError) -> Bool {
 }
 
 public struct SystemAccessibilityReader: AccessibilityReading {
+    struct InteractionMetadata: Equatable {
+        let actions: [String]
+        let scroll: ComputerScrollCapabilityView
+    }
+
+    private static let maxActionNames = 16
+    private static let maxActionNameCharacters = 128
+
+    static func interactionMetadata(role: String, actionNames: [String]) -> InteractionMetadata {
+        let actions = actionNames
+            .prefix(Self.maxActionNames)
+            .map { String($0.prefix(Self.maxActionNameCharacters)) }
+            .filter { !$0.isEmpty }
+
+        let lowercased = actions.map { $0.lowercased() }
+        var axes: [ComputerScrollAxis] = []
+        if lowercased.contains(where: { $0.contains("scrollup") || $0.contains("scrolldown") || $0.contains("vertical") }) {
+            axes.append(.vertical)
+        }
+        if lowercased.contains(where: { $0.contains("scrollleft") || $0.contains("scrollright") || $0.contains("horizontal") }) {
+            axes.append(.horizontal)
+        }
+        let roleIsScrollable = role == "AXScrollArea" || role == "AXScrollBar"
+        return InteractionMetadata(
+            actions: actions,
+            scroll: ComputerScrollCapabilityView(
+                scrollable: roleIsScrollable || !axes.isEmpty,
+                axes: axes
+            )
+        )
+    }
+
     private enum Attribute {
         static let role = "AXRole"
         static let subrole = "AXSubrole"
@@ -54,6 +86,7 @@ public struct SystemAccessibilityReader: AccessibilityReading {
         var truncated = false
         try traverse(
             root,
+            parentIndex: nil,
             depth: 0,
             limits: limits,
             elements: &elements,
@@ -71,6 +104,7 @@ public struct SystemAccessibilityReader: AccessibilityReading {
 
     private func traverse(
         _ element: AXUIElement,
+        parentIndex: Int?,
         depth: Int,
         limits: ObservationLimits,
         elements: inout [ComputerElementView],
@@ -84,10 +118,16 @@ public struct SystemAccessibilityReader: AccessibilityReading {
         let index = elements.count
         let role = boundedText(try stringAttribute(Attribute.role, from: element)) ?? "AXUnknown"
         let bounds = try bounds(for: element)
+        let metadata = Self.interactionMetadata(
+            role: role,
+            actionNames: try actionNames(from: element)
+        )
 
         elements.append(
             ComputerElementView(
                 index: index,
+                parentIndex: parentIndex,
+                depth: depth,
                 role: role,
                 subrole: boundedText(try stringAttribute(Attribute.subrole, from: element)),
                 title: boundedText(try stringAttribute(Attribute.title, from: element)),
@@ -95,7 +135,9 @@ public struct SystemAccessibilityReader: AccessibilityReading {
                 focused: try boolAttribute(Attribute.focused, from: element),
                 enabled: try boolAttribute(Attribute.enabled, from: element),
                 selected: try boolAttribute(Attribute.selected, from: element),
-                bounds: bounds
+                bounds: bounds,
+                actions: metadata.actions,
+                scroll: metadata.scroll
             )
         )
 
@@ -114,6 +156,7 @@ public struct SystemAccessibilityReader: AccessibilityReading {
             }
             try traverse(
                 child,
+                parentIndex: index,
                 depth: depth + 1,
                 limits: limits,
                 elements: &elements,
@@ -151,6 +194,21 @@ public struct SystemAccessibilityReader: AccessibilityReading {
             return value
         case let error where isRecoverableAccessibilityAttributeError(error):
             return nil
+        case .apiDisabled:
+            throw AccessibilityReadError.permissionRequired
+        default:
+            throw AccessibilityReadError.unavailable
+        }
+    }
+
+    private func actionNames(from element: AXUIElement) throws -> [String] {
+        var names: CFArray?
+        let result = AXUIElementCopyActionNames(element, &names)
+        switch result {
+        case .success:
+            return (names as? [String]) ?? []
+        case let error where isRecoverableAccessibilityAttributeError(error):
+            return []
         case .apiDisabled:
             throw AccessibilityReadError.permissionRequired
         default:

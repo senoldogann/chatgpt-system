@@ -323,6 +323,8 @@ public struct ComputerHostService: Sendable {
             .map { element in
                 ComputerElementView(
                     index: element.index,
+                    parentIndex: element.parentIndex,
+                    depth: element.depth,
                     role: boundedText(element.role) ?? "",
                     subrole: boundedText(element.subrole),
                     title: boundedText(element.title),
@@ -330,7 +332,9 @@ public struct ComputerHostService: Sendable {
                     focused: element.focused,
                     enabled: element.enabled,
                     selected: element.selected,
-                    bounds: element.bounds
+                    bounds: element.bounds,
+                    actions: element.actions.prefix(16).compactMap { boundedText(String($0.prefix(128))) },
+                    scroll: element.scroll
                 )
             }
 
