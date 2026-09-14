@@ -629,6 +629,12 @@ export const computerChangedDigestOutputSchema = z.object({
   digest: z.string(),
 });
 
+export const computerScrollUntilVisibleOutputSchema = z.object({
+  state: z.enum(["target_visible", "boundary_reached", "needs_replan"]),
+  stepsUsed: z.number().int().min(0).max(6),
+  changed: z.boolean(),
+}).strict();
+
 export const computerScreenshotMetadataOutputSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),

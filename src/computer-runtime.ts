@@ -12,7 +12,10 @@ import type {
   ComputerNativeMethod,
   ComputerResolvedTargetView,
   ComputerRunResult,
+  ComputerScrollUntilVisibleInput,
+  ComputerScrollUntilVisibleResult,
   ComputerTarget,
+  ComputerTargetScope,
 } from "./computer-types.js";
 
 export type ComputerHostState = "disabled" | "stopped" | "running" | "unavailable";
@@ -201,6 +204,29 @@ function optionalExact(value: unknown): boolean | undefined {
   return value;
 }
 
+function canonicalTargetScope(value: unknown): ComputerTargetScope {
+  if (!isRecord(value) || typeof value.by !== "string") invalid();
+  if (value.by === "index") {
+    if (!hasOnlyKeys(value, ["by", "snapshotId", "index"])) invalid();
+    const snapshotId = boundedTargetString(value.snapshotId);
+    if (!Number.isSafeInteger(value.index) || (value.index as number) < 0) invalid();
+    return { by: "index", snapshotId, index: value.index as number };
+  }
+  if (value.by === "role") {
+    if (!hasOnlyKeys(value, ["by", "role", "name", "exact"])) invalid();
+    const role = boundedTargetString(value.role);
+    const name = value.name === undefined ? undefined : boundedTargetString(value.name);
+    const exact = optionalExact(value.exact);
+    return {
+      by: "role",
+      role,
+      ...(name !== undefined ? { name } : {}),
+      ...(exact !== undefined ? { exact } : {}),
+    };
+  }
+  return invalid();
+}
+
 function canonicalTarget(value: unknown): ComputerTarget {
   if (!isRecord(value) || typeof value.by !== "string") invalid();
   switch (value.by) {
@@ -211,24 +237,43 @@ function canonicalTarget(value: unknown): ComputerTarget {
       return { by: "index", snapshotId, index: value.index as number };
     }
     case "role": {
-      if (!hasOnlyKeys(value, ["by", "role", "name", "exact"])) invalid();
+      if (!hasOnlyKeys(value, ["by", "role", "name", "exact", "within"])) invalid();
       const role = boundedTargetString(value.role);
       const name = value.name === undefined ? undefined : boundedTargetString(value.name);
       const exact = optionalExact(value.exact);
-      return { by: "role", role, ...(name !== undefined ? { name } : {}), ...(exact !== undefined ? { exact } : {}) };
+      const within = value.within === undefined ? undefined : canonicalTargetScope(value.within);
+      return {
+        by: "role",
+        role,
+        ...(name !== undefined ? { name } : {}),
+        ...(exact !== undefined ? { exact } : {}),
+        ...(within !== undefined ? { within } : {}),
+      };
     }
     case "text":
     case "ocrText": {
-      if (!hasOnlyKeys(value, ["by", "text", "exact"])) invalid();
+      if (!hasOnlyKeys(value, ["by", "text", "exact", "within"])) invalid();
       const text = boundedTargetString(value.text);
       const exact = optionalExact(value.exact);
-      return { by: value.by, text, ...(exact !== undefined ? { exact } : {}) };
+      const within = value.within === undefined ? undefined : canonicalTargetScope(value.within);
+      return {
+        by: value.by,
+        text,
+        ...(exact !== undefined ? { exact } : {}),
+        ...(within !== undefined ? { within } : {}),
+      };
     }
     case "label": {
-      if (!hasOnlyKeys(value, ["by", "label", "exact"])) invalid();
+      if (!hasOnlyKeys(value, ["by", "label", "exact", "within"])) invalid();
       const label = boundedTargetString(value.label);
       const exact = optionalExact(value.exact);
-      return { by: "label", label, ...(exact !== undefined ? { exact } : {}) };
+      const within = value.within === undefined ? undefined : canonicalTargetScope(value.within);
+      return {
+        by: "label",
+        label,
+        ...(exact !== undefined ? { exact } : {}),
+        ...(within !== undefined ? { within } : {}),
+      };
     }
     case "point": {
       if (!hasOnlyKeys(value, ["by", "x", "y"]) || typeof value.x !== "number" || typeof value.y !== "number") invalid();
@@ -433,6 +478,28 @@ function validateObservationOutput(result: unknown, config: ComputerUseConfig): 
     throw new ComputerError("COMPUTER_OUTPUT_LIMIT");
   }
   return result;
+}
+
+function observationDigest(result: unknown): string | undefined {
+  if (!isRecord(result) || typeof result.digest !== "string" || result.digest.length === 0) return undefined;
+  return result.digest;
+}
+
+function isComputerError(error: unknown, code: string): boolean {
+  return error instanceof ComputerError && error.code === code;
+}
+
+function scrollDelta(
+  direction: ComputerScrollUntilVisibleInput["direction"],
+  amount: NonNullable<ComputerScrollUntilVisibleInput["amount"]>,
+): { vertical: number; horizontal: number } {
+  const units = amount === "small" ? 3 : 8;
+  switch (direction) {
+    case "up": return { vertical: units, horizontal: 0 };
+    case "down": return { vertical: -units, horizontal: 0 };
+    case "left": return { vertical: 0, horizontal: units };
+    case "right": return { vertical: 0, horizontal: -units };
+  }
 }
 
 class PhysicalActionLane {
@@ -698,6 +765,90 @@ export class ComputerRuntime {
     if (mode !== undefined) params.motionMode = mode;
     if (verify !== undefined) params.verify = verify;
     return this.physical("scroll", params);
+  }
+
+  async scrollUntilVisible(input: ComputerScrollUntilVisibleInput): Promise<ComputerScrollUntilVisibleResult> {
+    const rawTarget = canonicalTarget(input.target);
+    if (rawTarget.by === "index" || rawTarget.by === "point" || "within" in rawTarget && rawTarget.within !== undefined) invalid();
+    const within = canonicalTargetScope(input.within);
+    const direction = input.direction;
+    if (direction !== "up" && direction !== "down" && direction !== "left" && direction !== "right") invalid();
+    const amount = input.amount ?? "page";
+    if (amount !== "small" && amount !== "page") invalid();
+    const maxSteps = input.maxSteps ?? 4;
+    integerInRange(maxSteps, 1, 6);
+    const delta = scrollDelta(direction, amount);
+    const scopedTarget = { ...rawTarget, within } as ComputerTarget;
+
+    this.requireEnabled();
+    return this.physicalLane.run(async () => {
+      this.requireEnabled();
+      let stepsUsed = 0;
+      let changed = false;
+      let observation = validateObservationOutput(
+        await this.native.request("observe", {}, this.config.requestTimeoutMs),
+        this.config,
+      );
+      let digest = observationDigest(observation);
+      if (!digest) return { state: "needs_replan", stepsUsed, changed };
+
+      for (;;) {
+        try {
+          const container = await this.native.request(
+            "resolve_target",
+            { target: within, retryBudget: 1 },
+            this.config.requestTimeoutMs,
+          );
+          validateResolvedTargetView(container);
+        } catch (error) {
+          if (isComputerError(error, "COMPUTER_TARGET_NOT_FOUND") ||
+              isComputerError(error, "COMPUTER_TARGET_AMBIGUOUS") ||
+              isComputerError(error, "COMPUTER_STALE_SNAPSHOT") ||
+              isComputerError(error, "COMPUTER_NEEDS_REPLAN")) {
+            return { state: "needs_replan", stepsUsed, changed };
+          }
+          throw error;
+        }
+
+        try {
+          const target = await this.native.request(
+            "resolve_target",
+            { target: scopedTarget, retryBudget: 1 },
+            this.config.requestTimeoutMs,
+          );
+          validateResolvedTargetView(target);
+          return { state: "target_visible", stepsUsed, changed };
+        } catch (error) {
+          if (!isComputerError(error, "COMPUTER_TARGET_NOT_FOUND")) {
+            if (isComputerError(error, "COMPUTER_TARGET_AMBIGUOUS") ||
+                isComputerError(error, "COMPUTER_STALE_SNAPSHOT") ||
+                isComputerError(error, "COMPUTER_NEEDS_REPLAN")) {
+              return { state: "needs_replan", stepsUsed, changed };
+            }
+            throw error;
+          }
+        }
+
+        if (stepsUsed >= maxSteps) return { state: "needs_replan", stepsUsed, changed };
+
+        await this.native.request(
+          "scroll",
+          { ...delta, target: within, retryBudget: 1, motionMode: "fast" },
+          this.config.requestTimeoutMs,
+        );
+        stepsUsed += 1;
+
+        observation = validateObservationOutput(
+          await this.native.request("observe", {}, this.config.requestTimeoutMs),
+          this.config,
+        );
+        const nextDigest = observationDigest(observation);
+        if (!nextDigest) return { state: "needs_replan", stepsUsed, changed };
+        if (nextDigest === digest) return { state: "boundary_reached", stepsUsed, changed };
+        changed = true;
+        digest = nextDigest;
+      }
+    });
   }
 
   async typeText(input: ComputerApplicationSelector & { text: string; verify?: ComputerVerification | undefined }): Promise<unknown> {

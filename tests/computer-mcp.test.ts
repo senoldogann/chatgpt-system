@@ -83,6 +83,8 @@ class FakeComputerRuntime {
         return { name: "Fixture", bundleIdentifier: "com.example.fixture", frontmost: true };
       case "waitUntilChanged":
         return { digest: "digest-2" };
+      case "scrollUntilVisible":
+        return { state: "target_visible", stepsUsed: 2, changed: true };
       case "run": {
         const actions = (input as { actions: ComputerAction[] }).actions;
         return {
@@ -110,6 +112,7 @@ class FakeComputerRuntime {
   async click(input: unknown) { return this.answer("click", input); }
   async drag(input: unknown) { return this.answer("drag", input); }
   async scroll(input: unknown) { return this.answer("scroll", input); }
+  async scrollUntilVisible(input: unknown) { return this.answer("scrollUntilVisible", input); }
   async typeText(input: unknown) { return this.answer("typeText", input); }
   async pressKey(input: unknown) { return this.answer("pressKey", input); }
   async waitForFrontmost(input: unknown) { return this.answer("waitForFrontmost", input); }
@@ -220,6 +223,7 @@ const expectedComputerTools = [
   "computer_click",
   "computer_drag",
   "computer_scroll",
+  "computer_scroll_until_visible",
   "computer_type_text",
   "computer_press_key",
   "computer_release_inputs",
@@ -524,6 +528,49 @@ describe("computer MCP tools", () => {
       });
       expect(invalid.isError).toBe(true);
       expect(fake.calls).toHaveLength(callsBeforeInvalid);
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("validates bounded semantic scroll-until-visible inputs before runtime work", async () => {
+    const { runtime, fake, client, transport } = await fixture();
+    try {
+      const admin = await runtime.authority.start({ profile: "admin" });
+      const valid = await client.callTool({
+        name: "computer_scroll_until_visible",
+        arguments: {
+          authorityLeaseId: admin.leaseId,
+          target: { by: "text", text: "Refresh", exact: true },
+          within: { by: "role", role: "AXScrollArea", name: "Plugin details", exact: true },
+          direction: "down",
+          amount: "page",
+          maxSteps: 4,
+        },
+      });
+      expect(valid.isError).not.toBe(true);
+      expect(fake.calls.at(-1)).toMatchObject({ method: "scrollUntilVisible" });
+
+      for (const bad of [
+        { maxSteps: 7 },
+        { direction: "diagonal" },
+        { extra: true },
+      ]) {
+        const callsBefore = fake.calls.length;
+        const result = await client.callTool({
+          name: "computer_scroll_until_visible",
+          arguments: {
+            authorityLeaseId: admin.leaseId,
+            target: { by: "text", text: "Refresh", exact: true },
+            within: { by: "role", role: "AXScrollArea", name: "Plugin details", exact: true },
+            direction: "down",
+            ...bad,
+          },
+        });
+        expect(result.isError).toBe(true);
+        expect(fake.calls).toHaveLength(callsBefore);
+      }
     } finally {
       await transport.terminateSession();
       await client.close();

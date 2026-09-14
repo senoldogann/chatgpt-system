@@ -32,13 +32,37 @@ export const COMPUTER_NATIVE_METHODS = [
 
 export type ComputerNativeMethod = typeof COMPUTER_NATIVE_METHODS[number];
 
+export type ComputerTargetScope =
+  | { by: "index"; snapshotId: string; index: number }
+  | { by: "role"; role: string; name?: string; exact?: boolean };
+
+export type ComputerSemanticTarget =
+  | { by: "role"; role: string; name?: string; exact?: boolean; within?: ComputerTargetScope }
+  | { by: "text"; text: string; exact?: boolean; within?: ComputerTargetScope }
+  | { by: "label"; label: string; exact?: boolean; within?: ComputerTargetScope }
+  | { by: "ocrText"; text: string; exact?: boolean; within?: ComputerTargetScope };
+
 export type ComputerTarget =
   | { by: "index"; snapshotId: string; index: number }
-  | { by: "role"; role: string; name?: string; exact?: boolean }
-  | { by: "text"; text: string; exact?: boolean }
-  | { by: "label"; label: string; exact?: boolean }
-  | { by: "ocrText"; text: string; exact?: boolean }
+  | ComputerSemanticTarget
   | { by: "point"; x: number; y: number };
+
+export type ComputerScrollDirection = "up" | "down" | "left" | "right";
+export type ComputerScrollAmount = "small" | "page";
+
+export interface ComputerScrollUntilVisibleInput {
+  target: Omit<ComputerSemanticTarget, "within">;
+  within: ComputerTargetScope;
+  direction: ComputerScrollDirection;
+  amount?: ComputerScrollAmount;
+  maxSteps?: number;
+}
+
+export interface ComputerScrollUntilVisibleResult {
+  state: "target_visible" | "boundary_reached" | "needs_replan";
+  stepsUsed: number;
+  changed: boolean;
+}
 
 export interface ComputerResolvedTargetView {
   source: "ax" | "ocr" | "point";
