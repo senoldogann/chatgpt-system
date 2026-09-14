@@ -143,7 +143,7 @@ class FixtureNative implements ComputerNativeRequesting {
       }
       this.actuated.push(method);
     }
-    return { state: "completed" };
+    return { state: "completed_unverified" };
   }
 
   async close(): Promise<void> {}
