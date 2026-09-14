@@ -48,8 +48,27 @@ public struct ComputerBounds: Codable, Equatable, Sendable {
     }
 }
 
+public enum ComputerScrollAxis: String, Codable, Equatable, Sendable {
+    case vertical
+    case horizontal
+}
+
+public struct ComputerScrollCapabilityView: Codable, Equatable, Sendable {
+    public let scrollable: Bool
+    public let axes: [ComputerScrollAxis]
+
+    public init(scrollable: Bool, axes: [ComputerScrollAxis]) {
+        self.scrollable = scrollable
+        self.axes = axes
+    }
+
+    public static let none = ComputerScrollCapabilityView(scrollable: false, axes: [])
+}
+
 public struct ComputerElementView: Codable, Equatable, Sendable {
     public let index: Int
+    public let parentIndex: Int?
+    public let depth: Int
     public let role: String
     public let subrole: String?
     public let title: String?
@@ -58,9 +77,13 @@ public struct ComputerElementView: Codable, Equatable, Sendable {
     public let enabled: Bool?
     public let selected: Bool?
     public let bounds: ComputerBounds?
+    public let actions: [String]
+    public let scroll: ComputerScrollCapabilityView
 
     public init(
         index: Int,
+        parentIndex: Int? = nil,
+        depth: Int = 0,
         role: String,
         subrole: String?,
         title: String?,
@@ -68,9 +91,13 @@ public struct ComputerElementView: Codable, Equatable, Sendable {
         focused: Bool?,
         enabled: Bool?,
         selected: Bool?,
-        bounds: ComputerBounds?
+        bounds: ComputerBounds?,
+        actions: [String] = [],
+        scroll: ComputerScrollCapabilityView = .none
     ) {
         self.index = index
+        self.parentIndex = parentIndex
+        self.depth = depth
         self.role = role
         self.subrole = subrole
         self.title = title
@@ -79,6 +106,8 @@ public struct ComputerElementView: Codable, Equatable, Sendable {
         self.enabled = enabled
         self.selected = selected
         self.bounds = bounds
+        self.actions = actions
+        self.scroll = scroll
     }
 }
 
