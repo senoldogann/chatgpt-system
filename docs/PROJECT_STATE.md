@@ -131,3 +131,28 @@ Next exact step from this checkpoint:
 4. Rerun Acceptance B/C on the exact deployed artifact using `computer_*` only, with fresh observation after uncertain mutations and no repeated blind coordinates/unchanged scrolls.
 5. Leave Acceptance A pending unless Chrome is naturally stopped or explicit permission to close it exists.
 6. Record exact deployed identity and acceptance evidence, then rerun final exact-HEAD publication gates before any push/PR/merge.
+
+## Task 8 exact deployment and safe acceptance checkpoint — 2026-09-15
+
+The feature branch is at exact HEAD `428da223b6542b93a7fe19d4a04a3592cd4511a7`. The complete local gate set was rerun from a `git archive HEAD` snapshot after the Task 8 state commit and is GREEN: `npm run check` passed 113 test files with 707 tests passed and 2 intentional skips; native tests passed 214/214; production dependency audit found 0 vulnerabilities; TypeScript build, release native build, package, and implementation-range `git diff --check` all passed.
+
+Exact-lineage deployment evidence:
+
+- the native helper was installed from the exact `428da22` archive snapshot through `setup-macos-computer-runtime.mjs`;
+- the existing `ComputerUse Dev` signing identity was reused, `tccIdentityStable=true`, and the designated requirement remained `identifier "com.senoldogann.chatgpt-system.computer-runtime" and certificate leaf = H"484f87624db0cea96cf9664e45d99bb7e2db8d4a"`;
+- the installed native executable SHA-256 is `446c8cf6ef7f26521ca24918a16ef7a8545a5af8d9a9cfafdda6615d62fa7535`;
+- feature-worktree `dist/cli.js`, `dist/computer-runtime.js`, `dist/computer-tool-registration.js`, and `dist/tool-output-schemas.js` were rebuilt and matched the exact archive build byte-for-byte;
+- the Secure MCP Tunnel profile was backed up to `~/.config/tunnel-client/chatgpt-system.yaml.pre-reliability-v2-428da22.bak` and its stdio child was moved from the stale main-checkout `dist` to the exact-matching feature-worktree `dist`;
+- after LaunchAgent reactivation, the running tunnel child command points to the feature-worktree `dist/cli.js` and local `/healthz` and `/readyz` both return HTTP 200 (`live` / `ready`);
+- Computer Runtime readiness remains fully authorized for Accessibility, Screen Capture, event listen, and event post.
+
+Safe Acceptance B/C retry evidence on the exact deployed lineage:
+
+- the current normal Chrome main process is PID `86148`, started `2026-09-15 00:35:21` local, which predates the exact helper/tunnel deployment; this deployment did not restart Chrome;
+- an initial read-only Chrome observation again showed weak web AX with focused-window OCR active and the new required-nullable `parentIndex` field present;
+- two stale snapshot-index attempts were stopped before physical input and returned bounded recovery evidence rather than clicking stale geometry;
+- subsequent semantic `text` and `role` attempts also failed closed with `candidateCount=0`, `activeScrollContainerCount=0`, and `recommendedRecovery=screenshot`; no blind coordinate fallback was executed;
+- a fresh screenshot then showed the user actively working in T3 Code rather than Chrome, so foreground acceptance was stopped immediately and runtime-held inputs were released;
+- no `browser_*` fallback was used and no coordinate point was clicked during this exact-lineage retry.
+
+Acceptance B/C therefore remains **pending**, not failed: the deployed exact lineage is healthy, but final ChatGPT Plugins -> Refresh interaction must wait for a short uninterrupted Chrome-control window so the runtime does not steal foreground focus. Acceptance A remains pending under the existing stopped-Chrome precondition.
