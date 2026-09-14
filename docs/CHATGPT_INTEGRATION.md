@@ -770,3 +770,13 @@ Next separate capability layers:
 
 - no additional Computer Runtime feature layer is implied by Slice 5 completion; any expansion requires a separate plan;
 - typed root-only ServiceManagement/XPC operations only for concrete root-only needs.
+
+## Computer Use reliability v2 contract
+
+The structured `computer_observe` element contract exposes `parentIndex`, `depth`, bounded `actions`, and `scroll` capability metadata so the model can reason about hierarchy and deterministic containers instead of inferring layout from pixels. Semantic targets use the same scoped `within` form in standalone tools and `computer_run`; point targets remain explicit and are never silently promoted into semantic recovery.
+
+The decision ladder is: prefer semantic AX targeting first; for an off-screen semantic target in a known deterministic container, use scoped `computer_scroll_until_visible`; use bounded OCR fallback only when AX evidence is insufficient; after semantic options are exhausted, obtain a fresh screenshot. A visual fallback permits at most one verified point attempt against that fresh state. Do not repeat an unchanged point or scroll attempt: fresh observation and replanning are required.
+
+Mutation completion is evidence-aware. `verified` means the requested verifier succeeded; `completed_unverified` means physical dispatch completed without proof of the intended UI effect. Callers must not reinterpret event posting alone as verification. Screenshot metadata carries explicit display bounds and pixel-to-screen scales; bounded scrolling stops at six physical scrolls or earlier on an unchanged digest and never switches to raw coordinates automatically.
+
+Recovery error details remain non-sensitive and bounded. The public recovery evidence contains only `candidateCount`, `scopeResolved`, `activeScrollContainerCount`, and `recommendedRecovery` (`observe`, `scope-target`, `scroll`, `screenshot`, or `none`). Target text, OCR text, page content, native diagnostics, and guessed coordinates are not copied into these details; callers use the categorical recommendation together with a fresh observation when replanning.
