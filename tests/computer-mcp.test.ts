@@ -243,6 +243,13 @@ describe("computer MCP tools", () => {
       expect(byName.get("computer_open_app")?.description).toMatch(/do not substitute.*browser_\*/i);
       expect(byName.get("computer_run")?.description).toMatch(/physical mouse.*keyboard/i);
       expect(byName.get("computer_run")?.description).toContain("com.google.Chrome");
+
+      const pressKeySchema = byName.get("computer_press_key")?.inputSchema as {
+        properties?: { key?: { enum?: string[] } };
+      };
+      expect(pressKeySchema.properties?.key?.enum).toEqual(expect.arrayContaining([
+        "return", "enter", "esc", "backspace", "ArrowLeft", "F12", "A",
+      ]));
     } finally {
       await transport.terminateSession();
       await client.close();
@@ -397,6 +404,70 @@ describe("computer MCP tools", () => {
         method: "click",
         input: { target: { by: "role", role: "AXButton", name: "Submit", exact: true }, count: 1 },
       });
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("normalizes canonical key aliases for direct and batched actions and rejects unknown keys before runtime", async () => {
+    const { runtime, fake, client, transport } = await fixture();
+    try {
+      const admin = await runtime.authority.start({ profile: "admin" });
+      const cases = [
+        ["Enter", "return"],
+        ["Esc", "escape"],
+        ["Backspace", "delete"],
+        ["ArrowLeft", "left"],
+        ["F12", "f12"],
+        ["A", "a"],
+      ] as const;
+
+      for (const [inputKey, canonicalKey] of cases) {
+        const result = await client.callTool({
+          name: "computer_press_key",
+          arguments: {
+            authorityLeaseId: admin.leaseId,
+            key: inputKey,
+            bundleIdentifier: "com.example.fixture",
+          },
+        });
+        expect(result.isError).not.toBe(true);
+        expect(fake.calls.at(-1)).toMatchObject({
+          method: "pressKey",
+          input: { key: canonicalKey, bundleIdentifier: "com.example.fixture" },
+        });
+      }
+
+      const batch = await client.callTool({
+        name: "computer_run",
+        arguments: {
+          authorityLeaseId: admin.leaseId,
+          finalObservation: "none",
+          actions: [
+            { type: "press_key", key: "Enter", bundleIdentifier: "com.example.fixture" },
+          ],
+        },
+      });
+      expect(batch.isError).not.toBe(true);
+      expect(fake.calls.at(-1)).toMatchObject({
+        method: "run",
+        input: {
+          actions: [{ type: "press_key", key: "return", bundleIdentifier: "com.example.fixture" }],
+        },
+      });
+
+      const callsBeforeInvalid = fake.calls.length;
+      const invalid = await client.callTool({
+        name: "computer_press_key",
+        arguments: {
+          authorityLeaseId: admin.leaseId,
+          key: "HyperSuperKey",
+          bundleIdentifier: "com.example.fixture",
+        },
+      });
+      expect(invalid.isError).toBe(true);
+      expect(fake.calls).toHaveLength(callsBeforeInvalid);
     } finally {
       await transport.terminateSession();
       await client.close();
