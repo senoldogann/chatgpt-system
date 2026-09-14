@@ -124,8 +124,9 @@ Required boundaries:
 
 - command and args come only from a detected check; the caller cannot override them;
 - cwd is the canonical repository root observed under the Project lease, never an Admin-selected arbitrary cwd;
+- the host `ProcessService` path policy is narrowed to that canonical Project repository root even though terminal capability comes from Admin authority; Admin's natural `/` root is not used as the verification filesystem scope;
 - `shell=false`;
-- the configured terminal executable allowlist still applies (`swift` is already in the default allowlist);
+- terminal enabled/command allowlist state comes from the active Admin authority (`swift` is already in the default allowlist);
 - the existing sanitized child environment is used;
 - existing output-byte and timeout limits apply;
 - process execution is audited using the existing process audit path;
@@ -137,7 +138,7 @@ The host lane is intentionally not an OS sandbox. Running `swift test` or `swift
 
 `createProjectCheckService` continues to resolve the Project lease and create the Project path policy.
 
-For `run`, the tool registration may additionally resolve `adminAuthorityLeaseId` and create an Admin-scoped host executor adapter backed by `ProcessService`. `ProjectCheckService` receives that adapter only for the current run. `detect`/`report` and `git_push` do not require or retain an Admin executor.
+For `run`, the tool registration may additionally resolve `adminAuthorityLeaseId` and create an Admin-authorized host-executor factory. `ProjectCheckService` invokes that factory only after it has observed the canonical Project repository root; the resulting `ProcessService` combines Admin terminal capability with a path policy narrowed to that Project root. `detect`/`report` and `git_push` do not require or retain an Admin executor.
 
 Conceptually:
 
@@ -153,7 +154,7 @@ project_check run
   -> observe exact repo state
   -> for each detected check
        project-sandbox -> ProjectExecService
-       admin-host      -> Admin ProcessService adapter
+       admin-host      -> Admin-authorized, Project-root-scoped ProcessService adapter
   -> observe state again
   -> persist digest-only evidence
 
@@ -252,7 +253,7 @@ Implementation must follow RED -> GREEN.
 - non-Admin secondary lease is rejected;
 - valid Admin lease runs only the detected fixed host command;
 - caller cannot provide command/args fields;
-- host executor receives the canonical Project repository root as cwd;
+- host executor factory receives the canonical Project repository root and constructs a ProcessService whose PathPolicy is exactly that root;
 - existing Node checks still use only the Project sandbox backend;
 - Docker `UNAVAILABLE` does not trigger host fallback.
 
