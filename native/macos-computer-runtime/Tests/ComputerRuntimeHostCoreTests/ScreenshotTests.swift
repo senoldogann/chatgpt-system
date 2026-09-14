@@ -136,6 +136,28 @@ final class ScreenshotTests: XCTestCase {
         XCTAssertFalse(text.contains("native-screenshot-secret"))
     }
 
+    func testInteractiveDisplaySelectionPrefersFocusedDisplay() throws {
+        XCTAssertEqual(
+            try InteractiveDisplaySelection.select(
+                availableDisplayIDs: [1, 2, 3],
+                focusedDisplayID: 2,
+                mainDisplayID: 1
+            ),
+            2
+        )
+    }
+
+    func testInteractiveDisplaySelectionFallsBackToMainDisplay() throws {
+        XCTAssertEqual(
+            try InteractiveDisplaySelection.select(
+                availableDisplayIDs: [1, 3],
+                focusedDisplayID: nil,
+                mainDisplayID: 1
+            ),
+            1
+        )
+    }
+
     func testFocusedWindowCropRectUsesIndependentDisplayScaleFactors() throws {
         let rect = try XCTUnwrap(WindowCaptureGeometry.cropRect(
             windowBounds: ComputerBounds(x: 120, y: 80, width: 400, height: 300),

@@ -4,6 +4,25 @@ import CoreGraphics
 import Foundation
 import ScreenCaptureKit
 
+enum InteractiveDisplaySelection {
+    static func select(
+        availableDisplayIDs: [CGDirectDisplayID],
+        focusedDisplayID: CGDirectDisplayID?,
+        mainDisplayID: CGDirectDisplayID
+    ) throws -> CGDirectDisplayID {
+        if let focusedDisplayID, availableDisplayIDs.contains(focusedDisplayID) {
+            return focusedDisplayID
+        }
+        if availableDisplayIDs.contains(mainDisplayID) {
+            return mainDisplayID
+        }
+        guard let fallback = availableDisplayIDs.first else {
+            throw ScreenshotCaptureError.unavailable
+        }
+        return fallback
+    }
+}
+
 enum FocusedDisplaySelection {
     static func select(
         availableDisplayIDs: [CGDirectDisplayID],
@@ -97,8 +116,15 @@ public struct SystemScreenshotCapturer: ScreenshotCapturing, ScreenImageCapturin
             throw ScreenshotCaptureError.outputLimit
         }
 
+        let focusedDisplayID = focusedDisplay.focusedDisplayID()
+        let mainDisplayID = CGMainDisplayID()
         let capture = try await captureImage { displays in
-            displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? displays.first
+            let selected = try InteractiveDisplaySelection.select(
+                availableDisplayIDs: displays.map(\.displayID),
+                focusedDisplayID: focusedDisplayID,
+                mainDisplayID: mainDisplayID
+            )
+            return displays.first(where: { $0.displayID == selected })
         }
         let representation = NSBitmapImageRep(cgImage: capture.image)
         guard let png = representation.representation(using: .png, properties: [:]),
