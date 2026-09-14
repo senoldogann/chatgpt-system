@@ -356,7 +356,14 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         const screenshot = await computerFor(runtime, authorityLeaseId).screenshot();
         return {
           content: [{ type: "image" as const, data: screenshot.pngBase64, mimeType: "image/png" }],
-          structuredContent: { width: screenshot.width, height: screenshot.height },
+          structuredContent: {
+            width: screenshot.width,
+            height: screenshot.height,
+            captureKind: screenshot.captureKind,
+            screenBounds: screenshot.screenBounds,
+            scaleX: screenshot.scaleX,
+            scaleY: screenshot.scaleY,
+          },
         };
       } catch (error) {
         return { ...textResult(computerErrorPayload(error)), isError: true };

@@ -13,8 +13,12 @@ final class ScreenshotTests: XCTestCase {
             capturer: FakeScreenshotCapturer(
                 screenshot: ComputerScreenshot(
                     pngBase64: png.base64EncodedString(),
-                    width: 1440,
-                    height: 900
+                    width: 2880,
+                    height: 1800,
+                    captureKind: .display,
+                    screenBounds: ComputerBounds(x: 1440, y: -180, width: 1440, height: 900),
+                    scaleX: 2,
+                    scaleY: 2
                 ),
                 counter: counter
             )
@@ -30,8 +34,12 @@ final class ScreenshotTests: XCTestCase {
         XCTAssertTrue(response.ok)
         let screenshot = try decodeScreenshotResult(from: response)
         XCTAssertEqual(Data(base64Encoded: screenshot.pngBase64), png)
-        XCTAssertEqual(screenshot.width, 1440)
-        XCTAssertEqual(screenshot.height, 900)
+        XCTAssertEqual(screenshot.width, 2880)
+        XCTAssertEqual(screenshot.height, 1800)
+        XCTAssertEqual(screenshot.captureKind, .display)
+        XCTAssertEqual(screenshot.screenBounds, ComputerBounds(x: 1440, y: -180, width: 1440, height: 900))
+        XCTAssertEqual(screenshot.scaleX, 2)
+        XCTAssertEqual(screenshot.scaleY, 2)
         XCTAssertEqual(counter.value, 1)
     }
 
@@ -43,7 +51,11 @@ final class ScreenshotTests: XCTestCase {
                 screenshot: ComputerScreenshot(
                     pngBase64: Data([0x89, 0x50, 0x4E, 0x47]).base64EncodedString(),
                     width: 1,
-                    height: 1
+                    height: 1,
+                    captureKind: .display,
+                    screenBounds: ComputerBounds(x: 0, y: 0, width: 1, height: 1),
+                    scaleX: 1,
+                    scaleY: 1
                 ),
                 counter: counter
             )
@@ -70,7 +82,11 @@ final class ScreenshotTests: XCTestCase {
                 screenshot: ComputerScreenshot(
                     pngBase64: oversized.base64EncodedString(),
                     width: 4096,
-                    height: 2160
+                    height: 2160,
+                    captureKind: .display,
+                    screenBounds: ComputerBounds(x: 0, y: 0, width: 4096, height: 2160),
+                    scaleX: 1,
+                    scaleY: 1
                 )
             )
         )
@@ -91,7 +107,15 @@ final class ScreenshotTests: XCTestCase {
         let service = makeScreenshotService(
             authorized: true,
             capturer: FakeScreenshotCapturer(
-                screenshot: ComputerScreenshot(pngBase64: "", width: 0, height: 0),
+                screenshot: ComputerScreenshot(
+                    pngBase64: "",
+                    width: 0,
+                    height: 0,
+                    captureKind: .display,
+                    screenBounds: ComputerBounds(x: 0, y: 0, width: 1, height: 1),
+                    scaleX: 1,
+                    scaleY: 1
+                ),
                 shouldThrow: true
             )
         )
@@ -139,7 +163,11 @@ final class ScreenshotTests: XCTestCase {
                 screenshot: ComputerScreenshot(
                     pngBase64: Data([0x89, 0x50, 0x4E, 0x47]).base64EncodedString(),
                     width: 1,
-                    height: 1
+                    height: 1,
+                    captureKind: .display,
+                    screenBounds: ComputerBounds(x: 0, y: 0, width: 1, height: 1),
+                    scaleX: 1,
+                    scaleY: 1
                 )
             )
         )

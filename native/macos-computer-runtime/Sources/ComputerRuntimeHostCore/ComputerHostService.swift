@@ -298,6 +298,16 @@ public struct ComputerHostService: Sendable {
             let capture = try await screenshot.captureMainDisplay(maxBytes: Self.maxScreenshotBytes)
             guard capture.width > 0,
                   capture.height > 0,
+                  capture.screenBounds.x.isFinite,
+                  capture.screenBounds.y.isFinite,
+                  capture.screenBounds.width.isFinite,
+                  capture.screenBounds.height.isFinite,
+                  capture.screenBounds.width > 0,
+                  capture.screenBounds.height > 0,
+                  capture.scaleX.isFinite,
+                  capture.scaleY.isFinite,
+                  capture.scaleX > 0,
+                  capture.scaleY > 0,
                   let png = Data(base64Encoded: capture.pngBase64),
                   !png.isEmpty
             else {

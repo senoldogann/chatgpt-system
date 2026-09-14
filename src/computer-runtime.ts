@@ -38,7 +38,7 @@ export interface ComputerProgramSession {
   execute(action: ComputerAction): Promise<unknown>;
   listApps(): Promise<unknown>;
   activeWindow(): Promise<unknown>;
-  screenshot(): Promise<{ pngBase64: string; width: number; height: number }>;
+  screenshot(): Promise<ComputerScreenshotResult>;
   resolve(target: ComputerTarget, options: { retryBudget?: number }): Promise<ComputerResolvedTargetView>;
   resolveMany(targets: ComputerTarget[], options: { retryBudget?: number }): Promise<ComputerResolvedTargetView[]>;
   exists(target: ComputerTarget, options: { retryBudget?: number }): Promise<boolean>;
@@ -80,6 +80,16 @@ export interface ComputerApplicationSelector {
 export interface ComputerPoint {
   x: number;
   y: number;
+}
+
+export interface ComputerScreenshotResult {
+  pngBase64: string;
+  width: number;
+  height: number;
+  captureKind: "display" | "focused-window" | "region";
+  screenBounds: { x: number; y: number; width: number; height: number };
+  scaleX: number;
+  scaleY: number;
 }
 
 const MAX_SELECTOR_CHARS = 4_096;
@@ -556,13 +566,23 @@ export class ComputerRuntime {
     return this.observe();
   }
 
-  async screenshot(): Promise<{ pngBase64: string; width: number; height: number }> {
+  async screenshot(): Promise<ComputerScreenshotResult> {
     const result = await this.read("screenshot", {});
     if (!isRecord(result) || typeof result.pngBase64 !== "string" ||
         !Number.isInteger(result.width) || !Number.isInteger(result.height) ||
-        (result.width as number) <= 0 || (result.height as number) <= 0) {
+        (result.width as number) <= 0 || (result.height as number) <= 0 ||
+        (result.captureKind !== "display" && result.captureKind !== "focused-window" && result.captureKind !== "region") ||
+        !isRecord(result.screenBounds) ||
+        typeof result.screenBounds.x !== "number" || typeof result.screenBounds.y !== "number" ||
+        typeof result.screenBounds.width !== "number" || typeof result.screenBounds.height !== "number" ||
+        typeof result.scaleX !== "number" || typeof result.scaleY !== "number") {
       invalid();
     }
+    const screenBounds = result.screenBounds;
+    finite(screenBounds.x as number); finite(screenBounds.y as number);
+    finite(screenBounds.width as number); finite(screenBounds.height as number);
+    finite(result.scaleX); finite(result.scaleY);
+    if ((screenBounds.width as number) <= 0 || (screenBounds.height as number) <= 0 || result.scaleX <= 0 || result.scaleY <= 0) invalid();
     let bytes: Buffer;
     try {
       bytes = Buffer.from(result.pngBase64 as string, "base64");
@@ -576,6 +596,15 @@ export class ComputerRuntime {
       pngBase64: result.pngBase64 as string,
       width: result.width as number,
       height: result.height as number,
+      captureKind: result.captureKind,
+      screenBounds: {
+        x: screenBounds.x as number,
+        y: screenBounds.y as number,
+        width: screenBounds.width as number,
+        height: screenBounds.height as number,
+      },
+      scaleX: result.scaleX,
+      scaleY: result.scaleY,
     };
   }
 

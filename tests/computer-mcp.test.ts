@@ -66,7 +66,15 @@ class FakeComputerRuntime {
           },
         };
       case "screenshot":
-        return { pngBase64: "iVBORw0KGgo=", width: 2, height: 3 };
+        return {
+          pngBase64: "iVBORw0KGgo=",
+          width: 4,
+          height: 6,
+          captureKind: "display",
+          screenBounds: { x: 100, y: -50, width: 2, height: 3 },
+          scaleX: 2,
+          scaleY: 2,
+        };
       case "pointerPosition":
         return { x: 10, y: 20 };
       case "openApp":
@@ -532,7 +540,14 @@ describe("computer MCP tools", () => {
       });
       expect(screenshot.isError).not.toBe(true);
       expect(screenshot.content).toContainEqual({ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" });
-      expect(screenshot.structuredContent).toEqual({ width: 2, height: 3 });
+      expect(screenshot.structuredContent).toEqual({
+        width: 4,
+        height: 6,
+        captureKind: "display",
+        screenBounds: { x: 100, y: -50, width: 2, height: 3 },
+        scaleX: 2,
+        scaleY: 2,
+      });
       expect(JSON.stringify(screenshot.structuredContent)).not.toContain("pngBase64");
     } finally {
       await transport.terminateSession();

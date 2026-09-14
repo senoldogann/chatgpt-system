@@ -632,7 +632,16 @@ export const computerChangedDigestOutputSchema = z.object({
 export const computerScreenshotMetadataOutputSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
-});
+  captureKind: z.enum(["display", "focused-window", "region"]),
+  screenBounds: z.object({
+    x: z.number(),
+    y: z.number(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+  }).strict(),
+  scaleX: z.number().positive(),
+  scaleY: z.number().positive(),
+}).strict();
 
 const computerRunStepTypeSchema = z.enum([
   "observe",

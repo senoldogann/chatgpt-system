@@ -110,10 +110,19 @@ public struct SystemScreenshotCapturer: ScreenshotCapturing, ScreenImageCapturin
             throw ScreenshotCaptureError.outputLimit
         }
 
+        let scaleX = Double(capture.image.width) / capture.screenBounds.width
+        let scaleY = Double(capture.image.height) / capture.screenBounds.height
+        guard scaleX.isFinite, scaleY.isFinite, scaleX > 0, scaleY > 0 else {
+            throw ScreenshotCaptureError.unavailable
+        }
         return ComputerScreenshot(
             pngBase64: png.base64EncodedString(),
             width: capture.image.width,
-            height: capture.image.height
+            height: capture.image.height,
+            captureKind: .display,
+            screenBounds: capture.screenBounds,
+            scaleX: scaleX,
+            scaleY: scaleY
         )
     }
 
