@@ -92,3 +92,42 @@ The implementation plan decomposes the work into eight TDD tasks: perception mod
 
 - No design blocker remains. Implementation is waiting only for execution-mode handoff.
 - `NSWorkspace.OpenConfiguration.arguments` is the preferred stopped-Chrome launch mechanism; implementation must prove it preserves the default profile/session. A narrow dedicated launch adapter is allowed only if the Apple API path fails deterministic real-Mac tests.
+
+## Task 8 exact-HEAD local gate — 2026-09-15
+
+Git/worktree reconciliation now places the implementation branch at exact HEAD `48e60fe8004e5fedc334c9d33c0da7652c475859`. The only remaining unstaged paths are the pre-existing mixed-ownership documentation files plus the preserved daily-driver pair; there are no staged or untracked files.
+
+Task 7 / reliability-v2 completion commits after the earlier live deployment include:
+
+- `723f310` — bounded non-sensitive computer recovery evidence
+- `9dbfd1c` — TypeScript/MCP scoped-target and reliability-contract parity
+- `bc97501` — reliability-v2 integration documentation contract
+- `768a47f` — review fix preserving required-nullable `parentIndex`
+- `48e60fe` — broad-gate fixture/catalog alignment for the v2 public contract
+
+The structured review found one correctness issue before the full gate: the approved v2 observation contract specifies `parentIndex: number | null`, but Swift synthesized encoding omitted root `parentIndex` and the TypeScript output schema treated it as optional. RED tests failed in native `ObservationTests` and the MCP schema test, then passed after `768a47f` added explicit JSON null encoding and required-nullable schema validation.
+
+The first exact-HEAD `npm run check` then exposed eight stale broad-suite expectations rather than production regressions: older native fakes still returned `{ state: "completed" }` after the public mutation-result contract changed to `completed_unverified`, and the global HTTP catalog baseline had not classified `computer_scroll_until_visible` as a reliability-v2 tool. Those expectations were updated without weakening runtime validation; the focused five-file rerun passed 34 tests with one intentional long acceptance skip before commit `48e60fe`.
+
+Exact `48e60fe` local verification is GREEN:
+
+- feature diff whitespace check: PASS
+- `npm run check`: **113 test files passed, 1 skipped; 707 tests passed, 2 skipped**
+- `npm run test:computer:macos`: **214/214 passed, 0 failures**
+- `npm audit --omit=dev`: **0 vulnerabilities**
+- `npm run build`: PASS
+- `npm run build:computer:macos`: PASS
+- `npm run package:computer:macos`: PASS, producing the staged ad-hoc app from exact `48e60fe`
+
+Independent reviewer-subagent infrastructure is not available in this chat surface, so no independent-review PASS claim is made. A separate structured spec/diff review was performed and the nullable-parent defect above was found and fixed through RED -> GREEN evidence.
+
+Important deployment boundary: the previously recorded live Mac/tunnel deployment and Acceptance B/C evidence are tied to the older `5cb22d7` lineage. Exact `48e60fe` has been built and packaged locally but has **not** yet been installed/deployed, and final real-Mac Acceptance B/C has therefore **not** been rerun against the exact final local artifact. Do not call the slice complete until deployment identity and live acceptance are tied to the same exact HEAD.
+
+Next exact step from this checkpoint:
+
+1. Reconfirm the preserved daily-driver diff fingerprint before any deploy-side action.
+2. Install/deploy exact `48e60fe` only through the existing identity-preserving Computer Runtime/tunnel path; do not restart already-running normal Chrome.
+3. Verify installed helper signature/artifact lineage and local/tunnel health before physical UI work.
+4. Rerun Acceptance B/C on the exact deployed artifact using `computer_*` only, with fresh observation after uncertain mutations and no repeated blind coordinates/unchanged scrolls.
+5. Leave Acceptance A pending unless Chrome is naturally stopped or explicit permission to close it exists.
+6. Record exact deployed identity and acceptance evidence, then rerun final exact-HEAD publication gates before any push/PR/merge.
