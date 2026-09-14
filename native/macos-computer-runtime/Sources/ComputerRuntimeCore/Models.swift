@@ -109,6 +109,43 @@ public struct ComputerElementView: Codable, Equatable, Sendable {
         self.actions = actions
         self.scroll = scroll
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case index
+        case parentIndex
+        case depth
+        case role
+        case subrole
+        case title
+        case description
+        case focused
+        case enabled
+        case selected
+        case bounds
+        case actions
+        case scroll
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(index, forKey: .index)
+        if let parentIndex {
+            try container.encode(parentIndex, forKey: .parentIndex)
+        } else {
+            try container.encodeNil(forKey: .parentIndex)
+        }
+        try container.encode(depth, forKey: .depth)
+        try container.encode(role, forKey: .role)
+        try container.encodeIfPresent(subrole, forKey: .subrole)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(description, forKey: .description)
+        try container.encodeIfPresent(focused, forKey: .focused)
+        try container.encodeIfPresent(enabled, forKey: .enabled)
+        try container.encodeIfPresent(selected, forKey: .selected)
+        try container.encodeIfPresent(bounds, forKey: .bounds)
+        try container.encode(actions, forKey: .actions)
+        try container.encode(scroll, forKey: .scroll)
+    }
 }
 
 public struct ActiveWindowView: Codable, Equatable, Sendable {

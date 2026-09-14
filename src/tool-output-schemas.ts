@@ -570,7 +570,7 @@ const computerScrollCapabilityOutputSchema = z.object({
 
 const computerElementOutputSchema = z.object({
   index: z.number().int().nonnegative(),
-  parentIndex: z.number().int().nonnegative().optional(),
+  parentIndex: z.number().int().nonnegative().nullable(),
   depth: z.number().int().nonnegative(),
   role: z.string(),
   subrole: z.string().optional(),

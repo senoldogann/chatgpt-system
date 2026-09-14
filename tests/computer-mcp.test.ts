@@ -46,6 +46,7 @@ class FakeComputerRuntime {
           windowTitle: "Fixture",
           elements: [{
             index: 0,
+            parentIndex: null,
             depth: 0,
             role: "button",
             title: "Go",
@@ -317,7 +318,7 @@ describe("computer MCP tools", () => {
       expect(elementSchema?.properties?.actions?.maxItems).toBe(16);
       expect(elementSchema?.properties?.scroll?.required).toEqual(expect.arrayContaining(["scrollable", "axes"]));
       expect(elementSchema?.properties?.scroll?.properties?.axes?.items?.enum).toEqual(["vertical", "horizontal"]);
-      expect(elementSchema?.required).toEqual(expect.arrayContaining(["index", "depth", "role", "actions", "scroll"]));
+      expect(elementSchema?.required).toEqual(expect.arrayContaining(["index", "parentIndex", "depth", "role", "actions", "scroll"]));
 
       expect(byName.get("computer_observe")?.description).toMatch(/semantic AX/i);
       expect(byName.get("computer_observe")?.description).toMatch(/scoped.*scroll/i);

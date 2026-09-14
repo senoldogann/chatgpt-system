@@ -230,6 +230,8 @@ final class ObservationTests: XCTestCase {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         XCTAssertNil(json["value"])
+        XCTAssertTrue(json.keys.contains("parentIndex"))
+        XCTAssertTrue(json["parentIndex"] is NSNull)
     }
 
     func testObservationPreservesInteractionMetadata() async throws {
