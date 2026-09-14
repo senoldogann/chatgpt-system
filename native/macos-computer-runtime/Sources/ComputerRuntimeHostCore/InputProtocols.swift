@@ -39,7 +39,14 @@ protocol ApplicationControlling: Sendable {
     func frontmostApplication() -> WorkspaceApplication?
     func applicationURL(bundleIdentifier: String) -> URL?
     func openApplication(at url: URL) async throws -> WorkspaceApplication
+    func openApplication(at url: URL, arguments: [String]) async throws -> WorkspaceApplication
     func activate(_ application: WorkspaceApplication) async -> Bool
+}
+
+extension ApplicationControlling {
+    func openApplication(at url: URL, arguments: [String]) async throws -> WorkspaceApplication {
+        try await openApplication(at: url)
+    }
 }
 
 enum ComputerInputError: Error, Equatable, Sendable {
