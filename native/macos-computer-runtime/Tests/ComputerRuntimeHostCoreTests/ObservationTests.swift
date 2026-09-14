@@ -232,6 +232,43 @@ final class ObservationTests: XCTestCase {
         XCTAssertNil(json["value"])
     }
 
+    func testObservationPreservesPerceptionSummary() async throws {
+        let app = makeWorkspaceApp(frontmost: true)
+        let perception = ComputerPerceptionSummary(
+            axQuality: .weak,
+            webContentAccessible: false,
+            ocrUsed: false,
+            recommendedTargeting: .ocr,
+            ocrCandidates: []
+        )
+        let observation = ComputerObservation(
+            snapshotId: "perception",
+            application: app.view,
+            windowTitle: "Fixture Window",
+            elements: makeObservation(app: app).elements,
+            truncated: false,
+            perception: perception
+        )
+        let service = makeObservationService(
+            apps: [app],
+            accessibility: FakeAccessibility(
+                activeWindow: ActiveWindowView(application: app.view, title: "Fixture Window"),
+                observation: observation
+            )
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "observe-perception",
+            method: "observe",
+            params: .object([:])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let decoded = try decodeObservationResult(ComputerObservation.self, from: response)
+        XCTAssertEqual(decoded.perception, perception)
+    }
+
     func testObservationLimitsMatchSliceContract() {
         XCTAssertEqual(ObservationLimits.default.maxElements, 500)
         XCTAssertEqual(ObservationLimits.default.maxSerializedCharacters, 262_144)
