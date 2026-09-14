@@ -29,6 +29,10 @@ protocol InputFocusGuard: Sendable {
     func verifyExpectedFrontmost() async throws
 }
 
+protocol InputContextGuard: Sendable {
+    func verifyExpectedContext() async throws
+}
+
 protocol TakeoverMonitoring: Sendable {
     func start() throws
     func stop()

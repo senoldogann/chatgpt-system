@@ -127,6 +127,46 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
         return resolved
     }
 
+    func verifyContext(_ resolved: ResolvedComputerTarget) async throws {
+        guard permissions.accessibilityTrusted() else {
+            throw ComputerRecoveryError.permissionRequired
+        }
+        guard let application = applicationController.frontmostApplication(),
+              Self.appIdentity(for: application) == resolved.appIdentity
+        else {
+            throw ComputerRecoveryError.focusFailed
+        }
+
+        let activeWindow: ActiveWindowView
+        do {
+            activeWindow = try accessibility.activeWindow(for: application)
+        } catch AccessibilityReadError.permissionRequired {
+            throw ComputerRecoveryError.permissionRequired
+        } catch {
+            throw ComputerRecoveryError.focusFailed
+        }
+        let windowIdentity = Self.windowIdentity(
+            appIdentity: resolved.appIdentity,
+            title: activeWindow.title
+        )
+        guard windowIdentity == resolved.windowIdentity else {
+            throw ComputerRecoveryError.staleSnapshot
+        }
+
+        let displays = try activeDisplays()
+        guard Self.topologyDigest(displays) == resolved.displayTopologyDigest else {
+            throw ComputerRecoveryError.staleSnapshot
+        }
+        guard let lastObservation,
+              lastObservation.appIdentity == resolved.appIdentity,
+              lastObservation.windowIdentity == resolved.windowIdentity,
+              lastObservation.windowGeneration == resolved.windowGeneration,
+              lastObservation.displayTopologyDigest == resolved.displayTopologyDigest
+        else {
+            throw ComputerRecoveryError.staleSnapshot
+        }
+    }
+
     func refreshObservation() async throws -> ComputerObservation {
         try await freshContext().cached.observation
     }

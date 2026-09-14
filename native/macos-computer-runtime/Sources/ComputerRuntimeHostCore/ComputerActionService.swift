@@ -37,6 +37,22 @@ private enum ActionPointSpec: Sendable {
     }
 }
 
+private struct ResolvedActionPoint {
+    let point: ComputerPoint
+    let resolvedTarget: ResolvedComputerTarget?
+}
+
+private struct RecoveryInputContextGuard: InputContextGuard {
+    let recovery: any ComputerRecoveryHandling
+    let resolvedTargets: [ResolvedComputerTarget]
+
+    func verifyExpectedContext() async throws {
+        for resolved in resolvedTargets {
+            try await recovery.verifyContext(resolved)
+        }
+    }
+}
+
 private struct ApplicationInputFocusGuard: InputFocusGuard {
     let applicationController: any ApplicationControlling
     let target: WorkspaceApplication
@@ -110,8 +126,12 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 failurePolicy: parsed.point.isExplicitPoint ? .needsReplan : .timeout,
                 requestId: request.requestId
             ) {
-                let point = try await resolveActionPoint(parsed.point)
-                return try await controller.moveMouse(to: point, mode: parsed.mode)
+                let resolved = try await resolveActionPoint(parsed.point)
+                return try await controller.moveMouse(
+                    to: resolved.point,
+                    mode: parsed.mode,
+                    contextGuard: contextGuard(for: [resolved])
+                )
             }
 
         case "click", "double_click":
@@ -123,10 +143,15 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 failurePolicy: parsed.point.isExplicitPoint ? .needsReplan : .timeout,
                 requestId: request.requestId
             ) {
-                let point = try await resolveActionPoint(parsed.point)
+                let resolved = try await resolveActionPoint(parsed.point)
+                let guardState = contextGuard(for: [resolved])
                 return request.method == "click"
-                    ? try await controller.click(at: point, button: parsed.button, mode: parsed.mode)
-                    : try await controller.doubleClick(at: point, button: parsed.button, mode: parsed.mode)
+                    ? try await controller.click(
+                        at: resolved.point, button: parsed.button, mode: parsed.mode, contextGuard: guardState
+                    )
+                    : try await controller.doubleClick(
+                        at: resolved.point, button: parsed.button, mode: parsed.mode, contextGuard: guardState
+                    )
             }
 
         case "mouse_down", "mouse_up":
@@ -150,10 +175,11 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             ) {
                 let endpoints = try await resolveDragEndpoints(from: parsed.from, to: parsed.to)
                 return try await controller.drag(
-                    from: endpoints.from,
-                    to: endpoints.to,
+                    from: endpoints.from.point,
+                    to: endpoints.to.point,
                     button: parsed.button,
-                    mode: parsed.mode
+                    mode: parsed.mode,
+                    contextGuard: contextGuard(for: [endpoints.from, endpoints.to])
                 )
             }
 
@@ -166,12 +192,13 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                 failurePolicy: parsed.point?.isExplicitPoint == true ? .needsReplan : .timeout,
                 requestId: request.requestId
             ) {
-                let point = try await resolveOptionalActionPoint(parsed.point)
+                let resolved = try await resolveOptionalActionPoint(parsed.point)
                 return try await controller.scroll(
                     vertical: parsed.vertical,
                     horizontal: parsed.horizontal,
-                    at: point,
-                    mode: parsed.mode
+                    at: resolved?.point,
+                    mode: parsed.mode,
+                    contextGuard: resolved.map { contextGuard(for: [$0]) } ?? nil
                 )
             }
 
@@ -282,18 +309,18 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
         takeoverMonitor?.stop()
     }
 
-    private func resolveActionPoint(_ spec: ActionPointSpec) async throws -> ComputerPoint {
+    private func resolveActionPoint(_ spec: ActionPointSpec) async throws -> ResolvedActionPoint {
         switch spec {
         case let .point(point):
-            return point
+            return ResolvedActionPoint(point: point, resolvedTarget: nil)
         case let .target(target, retryBudget):
             guard let recovery else { throw ComputerRecoveryError.unavailable }
             let resolved = try await recovery.resolve(target, retryBudget: retryBudget)
-            return resolved.actionPoint
+            return ResolvedActionPoint(point: resolved.actionPoint, resolvedTarget: resolved)
         }
     }
 
-    private func resolveOptionalActionPoint(_ spec: ActionPointSpec?) async throws -> ComputerPoint? {
+    private func resolveOptionalActionPoint(_ spec: ActionPointSpec?) async throws -> ResolvedActionPoint? {
         guard let spec else { return nil }
         return try await resolveActionPoint(spec)
     }
@@ -301,7 +328,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
     private func resolveDragEndpoints(
         from: ActionPointSpec,
         to: ActionPointSpec
-    ) async throws -> (from: ComputerPoint, to: ComputerPoint) {
+    ) async throws -> (from: ResolvedActionPoint, to: ResolvedActionPoint) {
         if case let .target(fromTarget, fromBudget) = from,
            case let .target(toTarget, toBudget) = to,
            fromBudget == toBudget
@@ -309,9 +336,18 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             guard let recovery else { throw ComputerRecoveryError.unavailable }
             let resolved = try await recovery.resolveMany([fromTarget, toTarget], retryBudget: fromBudget)
             guard resolved.count == 2 else { throw ComputerRecoveryError.unavailable }
-            return (resolved[0].actionPoint, resolved[1].actionPoint)
+            return (
+                ResolvedActionPoint(point: resolved[0].actionPoint, resolvedTarget: resolved[0]),
+                ResolvedActionPoint(point: resolved[1].actionPoint, resolvedTarget: resolved[1])
+            )
         }
         return (try await resolveActionPoint(from), try await resolveActionPoint(to))
+    }
+
+    private func contextGuard(for points: [ResolvedActionPoint]) -> (any InputContextGuard)? {
+        let resolvedTargets = points.compactMap(\.resolvedTarget)
+        guard !resolvedTargets.isEmpty, let recovery else { return nil }
+        return RecoveryInputContextGuard(recovery: recovery, resolvedTargets: resolvedTargets)
     }
 
     private func executeVerifiedAction(

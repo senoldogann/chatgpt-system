@@ -224,6 +224,36 @@ final class ComputerActionServiceTests: XCTestCase {
         ])
     }
 
+    func testSemanticClickContextFailureStopsBeforePhysicalInput() async {
+        let sink = ActionRecordingSink()
+        let recovery = ActionFakeRecovery(
+            resolved: actionResolvedTarget(x: 50, y: 50),
+            error: nil,
+            contextError: .focusFailed
+        )
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 0, y: 0),
+            sink: sink,
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "semantic-click-context-failed",
+            method: "click",
+            params: .object([
+                "target": .object(["by": .string("text"), "text": .string("Submit")]),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_FOCUS_FAILED")
+        XCTAssertTrue(sink.events.isEmpty)
+        let contextVerifyCallCount = await recovery.contextVerifyCallCount
+        XCTAssertGreaterThan(contextVerifyCallCount, 0)
+    }
+
     func testSemanticClickNeedsReplanDoesNotEmitPhysicalInput() async {
         let sink = ActionRecordingSink()
         let recovery = ActionFakeRecovery(resolved: nil, error: .needsReplan)
@@ -464,18 +494,22 @@ private actor ActionFakeRecovery: ComputerRecoveryHandling {
     let resolved: ResolvedComputerTarget?
     let manyResolved: [ResolvedComputerTarget]?
     let error: ComputerRecoveryError?
+    let contextError: ComputerRecoveryError?
     private(set) var resolveCallCount = 0
     private(set) var resolveManyCallCount = 0
     private(set) var lastResolvedTarget: ComputerTarget?
+    private(set) var contextVerifyCallCount = 0
 
     init(
         resolved: ResolvedComputerTarget?,
         manyResolved: [ResolvedComputerTarget]? = nil,
-        error: ComputerRecoveryError?
+        error: ComputerRecoveryError?,
+        contextError: ComputerRecoveryError? = nil
     ) {
         self.resolved = resolved
         self.manyResolved = manyResolved
         self.error = error
+        self.contextError = contextError
     }
 
     func resolve(_ target: ComputerTarget, retryBudget: Int) async throws -> ResolvedComputerTarget {
@@ -483,6 +517,11 @@ private actor ActionFakeRecovery: ComputerRecoveryHandling {
         lastResolvedTarget = target
         if let error { throw error }
         return resolved!
+    }
+
+    func verifyContext(_ resolved: ResolvedComputerTarget) async throws {
+        contextVerifyCallCount += 1
+        if let contextError { throw contextError }
     }
 
     func resolveMany(_ targets: [ComputerTarget], retryBudget: Int) async throws -> [ResolvedComputerTarget] {

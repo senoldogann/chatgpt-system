@@ -352,6 +352,8 @@ private actor SafetyOCRRecovery: ComputerRecoveryHandling {
         return results
     }
 
+    func verifyContext(_ resolved: ResolvedComputerTarget) async throws {}
+
     func refreshObservation() async throws -> ComputerObservation {
         ComputerObservation(
             snapshotId: "safety-observation",

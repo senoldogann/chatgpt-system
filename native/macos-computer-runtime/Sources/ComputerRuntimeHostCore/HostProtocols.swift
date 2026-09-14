@@ -118,6 +118,7 @@ protocol VisionTextRecognizing: Sendable {
 protocol ComputerRecoveryHandling: Sendable {
     func resolve(_ target: ComputerTarget, retryBudget: Int) async throws -> ResolvedComputerTarget
     func resolveMany(_ targets: [ComputerTarget], retryBudget: Int) async throws -> [ResolvedComputerTarget]
+    func verifyContext(_ resolved: ResolvedComputerTarget) async throws
     func refreshObservation() async throws -> ComputerObservation
 }
 
