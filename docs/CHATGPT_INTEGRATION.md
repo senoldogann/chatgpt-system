@@ -184,6 +184,10 @@ Use the least powerful deterministic route that can satisfy the task:
 
 Direct `computer_move_mouse`, `computer_click`, `computer_drag`, and positioned `computer_scroll` accept semantic targets in the Slice 5 branch contract; typed `computer_run` has the same semantic-target parity. `computer_run_js` exposes `resolve`, `resolveMany`, `exists`, and `refreshObservation`, plus semantic action inputs. `exists` returns `false` only for target-not-found and propagates ambiguity/stale/permission/takeover failures.
 
+Reliability v2 extends that contract without adding a hidden planner. Each AX element now carries deterministic interaction structure: optional `parentIndex`, required `depth`, bounded supported `actions`, and `scroll` metadata with `scrollable` plus supported axes. Semantic targets may be scoped to an AX index or role/name container, allowing the agent to distinguish a modal descendant from a background match. Successful physical mutations report either `verified` or `completed_unverified`; event posting alone is never treated as proof that the intended UI state changed. Screenshot results include capture kind, macOS screen-space bounds, and scale factors for deterministic coordinate mapping. These fields are implementation contract; real-Chrome acceptance for this reliability slice remains a separate final gate.
+
+The preferred agent recovery ladder is bounded: start with semantic AX; when a deterministic scroll region is known, use scoped container scroll through `computer_scroll_until_visible`; use OCR as a fallback when AX is insufficient; if semantic perception is exhausted, obtain a fresh screenshot and make at most one point attempt. After any uncertain mutation, observe fresh. Do not repeat a failed point against unchanged state, and do not repeat an unchanged scroll attempt blindly. `computer_scroll_until_visible` checks fresh observations between steps, stops at an unchanged boundary, returns `needs_replan` instead of inventing coordinates, and is capped at six scroll steps.
+
 The current Vision recovery path captures the **focused display**, not a cropped target region. Region verification itself is cropped and digest-only. Repeated identical visible text on the focused display can therefore make an OCR target ambiguous and produce `COMPUTER_NEEDS_REPLAN`; callers should narrow the visible state rather than guess. Cached observations are bounded/in-memory, but known UI reorders should be followed by explicit fresh observation before the next semantic mutation.
 
 Real-Mac acceptance on 2026-09-12 used the exact signed helper identity (`tccIdentityStable: true`) with Accessibility, Screen Recording, event-listen, and event-post readiness all true. Recorded evidence was content-free timing/count metadata only:
@@ -479,6 +483,7 @@ computer_move_mouse
 computer_click
 computer_drag
 computer_scroll
+computer_scroll_until_visible
 computer_type_text
 computer_press_key
 computer_release_inputs

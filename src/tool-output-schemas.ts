@@ -565,6 +565,8 @@ const computerBoundsOutputSchema = z.object({
 
 const computerElementOutputSchema = z.object({
   index: z.number().int().nonnegative(),
+  parentIndex: z.number().int().nonnegative().optional(),
+  depth: z.number().int().nonnegative(),
   role: z.string(),
   subrole: z.string().optional(),
   title: z.string().optional(),
@@ -573,7 +575,12 @@ const computerElementOutputSchema = z.object({
   enabled: z.boolean().optional(),
   selected: z.boolean().optional(),
   bounds: computerBoundsOutputSchema.optional(),
-});
+  actions: z.array(z.string().max(128)).max(16),
+  scroll: z.object({
+    scrollable: z.boolean(),
+    axes: z.array(z.enum(["vertical", "horizontal"])).max(2),
+  }).strict(),
+}).strict();
 
 const computerOcrCandidateOutputSchema = z.object({
   text: z.string().max(512),
@@ -623,7 +630,7 @@ export const computerActionResultOutputSchema = z.object({
   state: z.enum(["verified", "completed_unverified"]),
   pointer: computerPointOutputSchema.optional(),
   changed: z.boolean().optional(),
-});
+}).strict();
 
 export const computerChangedDigestOutputSchema = z.object({
   digest: z.string(),

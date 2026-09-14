@@ -30,23 +30,23 @@ const selectorFields = {
 };
 const pointFields = { x: z.number(), y: z.number() };
 const retryBudgetSchema = z.number().int().min(0).max(2);
-const computerTargetSchema = z.discriminatedUnion("by", [
-  z.object({ by: z.literal("index"), snapshotId: z.string().min(1).max(4_096), index: z.number().int().nonnegative() }).strict(),
-  z.object({ by: z.literal("role"), role: z.string().min(1).max(4_096), name: z.string().min(1).max(4_096).optional(), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("text"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("label"), label: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("ocrText"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("point"), x: z.number(), y: z.number() }).strict(),
-]);
 const computerTargetScopeSchema = z.discriminatedUnion("by", [
   z.object({ by: z.literal("index"), snapshotId: z.string().min(1).max(4_096), index: z.number().int().nonnegative() }).strict(),
   z.object({ by: z.literal("role"), role: z.string().min(1).max(4_096), name: z.string().min(1).max(4_096).optional(), exact: z.boolean().optional() }).strict(),
 ]);
-const computerSemanticTargetSchema = z.discriminatedUnion("by", [
+const computerUnscopedSemanticTargetSchema = z.discriminatedUnion("by", [
   z.object({ by: z.literal("role"), role: z.string().min(1).max(4_096), name: z.string().min(1).max(4_096).optional(), exact: z.boolean().optional() }).strict(),
   z.object({ by: z.literal("text"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
   z.object({ by: z.literal("label"), label: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
   z.object({ by: z.literal("ocrText"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
+]);
+const computerTargetSchema = z.discriminatedUnion("by", [
+  z.object({ by: z.literal("index"), snapshotId: z.string().min(1).max(4_096), index: z.number().int().nonnegative() }).strict(),
+  z.object({ by: z.literal("role"), role: z.string().min(1).max(4_096), name: z.string().min(1).max(4_096).optional(), exact: z.boolean().optional(), within: computerTargetScopeSchema.optional() }).strict(),
+  z.object({ by: z.literal("text"), text: z.string().min(1).max(4_096), exact: z.boolean().optional(), within: computerTargetScopeSchema.optional() }).strict(),
+  z.object({ by: z.literal("label"), label: z.string().min(1).max(4_096), exact: z.boolean().optional(), within: computerTargetScopeSchema.optional() }).strict(),
+  z.object({ by: z.literal("ocrText"), text: z.string().min(1).max(4_096), exact: z.boolean().optional(), within: computerTargetScopeSchema.optional() }).strict(),
+  z.object({ by: z.literal("point"), x: z.number(), y: z.number() }).strict(),
 ]);
 const targetLocationFields = { target: computerTargetSchema, retryBudget: retryBudgetSchema.optional() };
 const endpointSchema = z.union([z.object(pointFields).strict(), computerTargetSchema]);
@@ -346,7 +346,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_observe",
     {
-      description: "Return the bounded accessibility/perception observation for the frontmost application. Use perception.recommendedTargeting: ax => role/text/index; ocr => prefer target.by=ocrText from returned OCR candidates; visual-point => obtain a fresh screenshot and make at most one explicit verified point attempt. Do not repeat blind point coordinates after failure. Requires Admin authority.",
+      description: "Return the bounded accessibility/perception observation for the frontmost application. Follow perception.recommendedTargeting: ax => prefer semantic AX role/text/index targets; ocr => use OCR fallback with target.by=ocrText; visual-point => obtain a fresh screenshot and make at most one verified point attempt. When a deterministic scroll container is known, use scoped container scrolling via computer_scroll_until_visible. Fresh-observe after uncertain mutations; never repeat blind or unchanged point coordinates, and never repeat unchanged scroll attempts blindly. Requires Admin authority.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: computerObservationOutputSchema,
       annotations: computerReadAnnotations,
@@ -523,7 +523,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       description: "Boundedly scroll a deterministic semantic AX container until a scoped target becomes visible. Prefer this only when a fresh observation identifies a deterministic scroll container. After needs_replan, observe fresh before choosing another action. Never convert failure into repeated blind raw scrolling or unchanged point retries. Requires Admin authority.",
       inputSchema: z.object({
         ...authorityLeaseField,
-        target: computerSemanticTargetSchema,
+        target: computerUnscopedSemanticTargetSchema,
         within: computerTargetScopeSchema,
         direction: z.enum(["up", "down", "left", "right"]),
         amount: z.enum(["small", "page"]).optional(),

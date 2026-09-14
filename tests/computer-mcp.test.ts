@@ -45,10 +45,13 @@ class FakeComputerRuntime {
           windowTitle: "Fixture",
           elements: [{
             index: 0,
+            depth: 0,
             role: "button",
             title: "Go",
             enabled: true,
             bounds: { x: 10, y: 20, width: 0, height: 0 },
+            actions: ["AXPress"],
+            scroll: { scrollable: false, axes: [] },
           }],
           truncated: false,
           digest: "digest-1",
@@ -292,6 +295,25 @@ describe("computer MCP tools", () => {
       expect(observeOutputSchema.properties?.perception?.properties?.recommendedTargeting?.enum).toEqual(["ax", "ocr", "visual-point"]);
       expect(observeOutputSchema.properties?.perception?.properties?.ocrCandidates?.maxItems).toBe(64);
 
+      const elementSchema = (observeOutputSchema.properties as {
+        elements?: { items?: { properties?: Record<string, unknown>; required?: string[] } };
+      })?.elements?.items;
+      expect(elementSchema?.required).toEqual(expect.arrayContaining([
+        "depth", "actions", "scroll",
+      ]));
+      expect(elementSchema?.properties).toHaveProperty("parentIndex");
+      expect(elementSchema?.properties).toHaveProperty("depth");
+      expect(elementSchema?.properties).toHaveProperty("actions");
+      expect(elementSchema?.properties).toHaveProperty("scroll");
+
+      const observeDescription = byName.get("computer_observe")?.description ?? "";
+      expect(observeDescription).toMatch(/semantic AX/i);
+      expect(observeDescription).toMatch(/scoped.*container.*scroll|scroll.*scoped.*container/i);
+      expect(observeDescription).toMatch(/OCR.*fallback/i);
+      expect(observeDescription).toMatch(/fresh screenshot/i);
+      expect(observeDescription).toMatch(/one.*point/i);
+      expect(observeDescription).toMatch(/unchanged.*scroll|scroll.*unchanged/i);
+
       const pressKeySchema = byName.get("computer_press_key")?.inputSchema as {
         properties?: { key?: { enum?: string[] } };
       };
@@ -463,6 +485,43 @@ describe("computer MCP tools", () => {
       expect(fake.calls).toContainEqual({
         method: "click",
         input: { target: { by: "role", role: "AXButton", name: "Submit", exact: true }, count: 1 },
+      });
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("accepts scoped semantic targets consistently in direct and batched actions", async () => {
+    const { runtime, fake, client, transport } = await fixture();
+    try {
+      const admin = await runtime.authority.start({ profile: "admin" });
+      const target = {
+        by: "text",
+        text: "Refresh",
+        exact: true,
+        within: { by: "role", role: "AXScrollArea", name: "Plugin details", exact: true },
+      };
+
+      const direct = await client.callTool({
+        name: "computer_click",
+        arguments: { authorityLeaseId: admin.leaseId, target },
+      });
+      expect(direct.isError).not.toBe(true);
+      expect(fake.calls.at(-1)).toMatchObject({ method: "click", input: { target } });
+
+      const batched = await client.callTool({
+        name: "computer_run",
+        arguments: {
+          authorityLeaseId: admin.leaseId,
+          finalObservation: "none",
+          actions: [{ type: "click", target }],
+        },
+      });
+      expect(batched.isError).not.toBe(true);
+      expect(fake.calls.at(-1)).toMatchObject({
+        method: "run",
+        input: { actions: [{ type: "click", target }] },
       });
     } finally {
       await transport.terminateSession();

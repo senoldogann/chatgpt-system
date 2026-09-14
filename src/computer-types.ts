@@ -36,11 +36,17 @@ export type ComputerTargetScope =
   | { by: "index"; snapshotId: string; index: number }
   | { by: "role"; role: string; name?: string; exact?: boolean };
 
+export type ComputerUnscopedSemanticTarget =
+  | { by: "role"; role: string; name?: string; exact?: boolean }
+  | { by: "text"; text: string; exact?: boolean }
+  | { by: "label"; label: string; exact?: boolean }
+  | { by: "ocrText"; text: string; exact?: boolean };
+
 export type ComputerSemanticTarget =
-  | { by: "role"; role: string; name?: string; exact?: boolean; within?: ComputerTargetScope }
-  | { by: "text"; text: string; exact?: boolean; within?: ComputerTargetScope }
-  | { by: "label"; label: string; exact?: boolean; within?: ComputerTargetScope }
-  | { by: "ocrText"; text: string; exact?: boolean; within?: ComputerTargetScope };
+  | ({ by: "role"; role: string; name?: string; exact?: boolean } & { within?: ComputerTargetScope })
+  | ({ by: "text"; text: string; exact?: boolean } & { within?: ComputerTargetScope })
+  | ({ by: "label"; label: string; exact?: boolean } & { within?: ComputerTargetScope })
+  | ({ by: "ocrText"; text: string; exact?: boolean } & { within?: ComputerTargetScope });
 
 export type ComputerTarget =
   | { by: "index"; snapshotId: string; index: number }
@@ -51,7 +57,7 @@ export type ComputerScrollDirection = "up" | "down" | "left" | "right";
 export type ComputerScrollAmount = "small" | "page";
 
 export interface ComputerScrollUntilVisibleInput {
-  target: Omit<ComputerSemanticTarget, "within">;
+  target: ComputerUnscopedSemanticTarget;
   within: ComputerTargetScope;
   direction: ComputerScrollDirection;
   amount?: ComputerScrollAmount;
