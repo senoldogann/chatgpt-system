@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 import ComputerRuntimeCore
 @testable import ComputerRuntimeHostCore
@@ -207,6 +208,31 @@ final class PerceptionTests: XCTestCase {
             ComputerPerception.focusedWindowBounds(in: observation),
             ComputerBounds(x: 10, y: 20, width: 800, height: 600)
         )
+    }
+
+    func testPerceptionEncodingPreservesRequiredNullableFields() throws {
+        let summary = ComputerPerceptionSummary(
+            axQuality: .weak,
+            webContentAccessible: nil,
+            ocrUsed: true,
+            recommendedTargeting: .ocr,
+            ocrCandidates: [
+                ComputerOcrCandidateView(
+                    text: "Fixture",
+                    bounds: ComputerBounds(x: 1, y: 2, width: 3, height: 4),
+                    confidence: nil,
+                    source: .visionFast
+                ),
+            ]
+        )
+        let data = try JSONEncoder().encode(summary)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertTrue(object.keys.contains("webContentAccessible"))
+        XCTAssertTrue(object["webContentAccessible"] is NSNull)
+        let candidates = try XCTUnwrap(object["ocrCandidates"] as? [[String: Any]])
+        let candidate = try XCTUnwrap(candidates.first)
+        XCTAssertTrue(candidate.keys.contains("confidence"))
+        XCTAssertTrue(candidate["confidence"] is NSNull)
     }
 }
 
