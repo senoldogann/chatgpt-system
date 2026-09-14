@@ -1,4 +1,5 @@
 import ComputerRuntimeCore
+import CoreGraphics
 import Foundation
 import XCTest
 @testable import ComputerRuntimeHostCore
@@ -109,6 +110,26 @@ final class ScreenshotTests: XCTestCase {
         let data = try JSONEncoder().encode(response)
         let text = String(decoding: data, as: UTF8.self)
         XCTAssertFalse(text.contains("native-screenshot-secret"))
+    }
+
+    func testFocusedWindowCropRectUsesIndependentDisplayScaleFactors() throws {
+        let rect = try XCTUnwrap(WindowCaptureGeometry.cropRect(
+            windowBounds: ComputerBounds(x: 120, y: 80, width: 400, height: 300),
+            captureBounds: ComputerBounds(x: 100, y: 50, width: 1_000, height: 500),
+            imageWidth: 2_000,
+            imageHeight: 1_000
+        ))
+
+        XCTAssertEqual(rect, CGRect(x: 40, y: 60, width: 800, height: 600))
+    }
+
+    func testFocusedWindowCropRectRejectsCrossDisplayBounds() {
+        XCTAssertNil(WindowCaptureGeometry.cropRect(
+            windowBounds: ComputerBounds(x: 900, y: 80, width: 400, height: 300),
+            captureBounds: ComputerBounds(x: 100, y: 50, width: 1_000, height: 500),
+            imageWidth: 2_000,
+            imageHeight: 1_000
+        ))
     }
 
     func testScreenshotRejectsNonEmptyParams() async {
