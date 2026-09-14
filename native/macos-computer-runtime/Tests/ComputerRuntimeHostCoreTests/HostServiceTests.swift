@@ -188,6 +188,41 @@ final class HostServiceTests: XCTestCase {
         XCTAssertEqual(call?.retryBudget, 2)
     }
 
+    func testResolveTargetAcceptsStrictScopedSemanticTarget() async {
+        let recovery = HostFakeRecovery(resolved: resolvedTarget(source: .ax, x: 40, y: 50), error: nil)
+        let service = ComputerHostService(
+            permissions: HostFakePermissions(accessibilityTrusted: true, screenCaptureAuthorized: true),
+            workspace: HostFakeWorkspace(),
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "resolve-scoped",
+            method: "resolve_target",
+            params: .object([
+                "target": .object([
+                    "by": .string("text"),
+                    "text": .string("Refresh"),
+                    "exact": .bool(true),
+                    "within": .object([
+                        "by": .string("index"),
+                        "snapshotId": .string("obs-current"),
+                        "index": .number(10),
+                    ]),
+                ]),
+                "retryBudget": .number(1),
+            ])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let call = await recovery.lastResolveCall
+        XCTAssertEqual(call?.target, .scoped(
+            target: .text(text: "Refresh", exact: true),
+            within: .index(snapshotId: "obs-current", index: 10)
+        ))
+    }
+
     func testResolveTargetsUsesOneStrictArrayRequest() async throws {
         let recovery = HostFakeRecovery(
             resolved: resolvedTarget(source: .ax, x: 10, y: 20),

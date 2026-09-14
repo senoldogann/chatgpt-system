@@ -425,7 +425,7 @@ public struct ComputerHostService: Sendable {
             return .index(snapshotId: snapshotId, index: Int(rawIndex))
 
         case "role":
-            guard Set(object.keys).isSubset(of: ["by", "role", "name", "exact"]),
+            guard Set(object.keys).isSubset(of: ["by", "role", "name", "exact", "within"]),
                   case let .string(role)? = object["role"],
                   isValidTargetString(role),
                   let exact = parseOptionalExact(object["exact"])
@@ -437,20 +437,25 @@ public struct ComputerHostService: Sendable {
             } else {
                 name = nil
             }
-            return .role(role: role, name: name, exact: exact)
+            return applyTargetScope(
+                .role(role: role, name: name, exact: exact),
+                rawScope: object["within"]
+            )
 
         case "text", "ocrText", "label":
             let textKey = kind == "label" ? "label" : "text"
-            guard Set(object.keys).isSubset(of: ["by", textKey, "exact"]),
+            guard Set(object.keys).isSubset(of: ["by", textKey, "exact", "within"]),
                   case let .string(text)? = object[textKey],
                   isValidTargetString(text),
                   let exact = parseOptionalExact(object["exact"])
             else { return nil }
+            let base: ComputerTarget
             switch kind {
-            case "text": return .text(text: text, exact: exact)
-            case "ocrText": return .ocrText(text: text, exact: exact)
-            default: return .label(label: text, exact: exact)
+            case "text": base = .text(text: text, exact: exact)
+            case "ocrText": base = .ocrText(text: text, exact: exact)
+            default: base = .label(label: text, exact: exact)
             }
+            return applyTargetScope(base, rawScope: object["within"])
 
         case "point":
             guard Set(object.keys) == Set(["by", "x", "y"]),
@@ -460,6 +465,40 @@ public struct ComputerHostService: Sendable {
             else { return nil }
             return .point(x: x, y: y)
 
+        default:
+            return nil
+        }
+    }
+
+    private func applyTargetScope(_ target: ComputerTarget, rawScope: JSONValue?) -> ComputerTarget? {
+        guard let rawScope else { return target }
+        guard let scope = parseTargetScope(rawScope) else { return nil }
+        return .scoped(target: target, within: scope)
+    }
+
+    private func parseTargetScope(_ value: JSONValue) -> ComputerTargetScope? {
+        guard case let .object(object) = value, case let .string(kind)? = object["by"] else { return nil }
+        switch kind {
+        case "index":
+            guard Set(object.keys).isSubset(of: ["by", "snapshotId", "index"]),
+                  case let .string(snapshotId)? = object["snapshotId"], isValidTargetString(snapshotId),
+                  case let .number(rawIndex)? = object["index"], rawIndex.isFinite,
+                  rawIndex.rounded(.towardZero) == rawIndex, rawIndex >= 0, rawIndex <= Double(Int.max)
+            else { return nil }
+            return .index(snapshotId: snapshotId, index: Int(rawIndex))
+        case "role":
+            guard Set(object.keys).isSubset(of: ["by", "role", "name", "exact"]),
+                  case let .string(role)? = object["role"], isValidTargetString(role),
+                  let exact = parseOptionalExact(object["exact"])
+            else { return nil }
+            let name: String?
+            if let rawName = object["name"] {
+                guard case let .string(value) = rawName, isValidTargetString(value) else { return nil }
+                name = value
+            } else {
+                name = nil
+            }
+            return .role(role: role, name: name, exact: exact)
         default:
             return nil
         }

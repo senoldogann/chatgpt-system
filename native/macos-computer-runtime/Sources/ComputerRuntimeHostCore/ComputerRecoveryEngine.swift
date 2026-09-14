@@ -132,14 +132,24 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
     }
 
     private func priorObservation(for target: ComputerTarget) -> CachedComputerObservation? {
-        guard case let .index(snapshotId, _) = target else { return nil }
-        return cache.observation(snapshotId: snapshotId)
+        switch target {
+        case let .index(snapshotId, _):
+            return cache.observation(snapshotId: snapshotId)
+        case let .scoped(baseTarget, _):
+            return priorObservation(for: baseTarget)
+        default:
+            return nil
+        }
     }
 
     private func semanticRecoveryTarget(
         for target: ComputerTarget,
         prior: CachedComputerObservation?
     ) -> ComputerTarget? {
+        if case let .scoped(baseTarget, within) = target {
+            let recoveredBase = semanticRecoveryTarget(for: baseTarget, prior: prior) ?? baseTarget
+            return .scoped(target: recoveredBase, within: within)
+        }
         guard case let .index(_, index) = target,
               let prior,
               let element = prior.observation.elements.first(where: { $0.index == index })
@@ -366,6 +376,12 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
         )
     }
 
+    private struct OCRQuery {
+        let text: String
+        let exact: Bool
+        let within: ComputerTargetScope?
+    }
+
     private func resolveWithOCRIfRelevant(
         target: ComputerTarget,
         context: ComputerTargetResolutionContext
@@ -437,7 +453,7 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
 
     private func resolveOCRCandidates(
         _ candidates: [OcrTextCandidate],
-        query: (text: String, exact: Bool),
+        query: OCRQuery,
         capture: ScreenImageCapture,
         context: ComputerTargetResolutionContext
     ) throws -> ResolvedComputerTarget? {
@@ -452,11 +468,23 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
 
     private func resolveStructuredOCRCandidates(
         _ candidates: [ComputerOcrCandidateView],
-        query: (text: String, exact: Bool),
+        query: OCRQuery,
         context: ComputerTargetResolutionContext
     ) throws -> ResolvedComputerTarget? {
+        let scopeBounds: ComputerBounds?
+        if let within = query.within {
+            do {
+                scopeBounds = try resolver.resolveScope(within, in: context).bounds
+            } catch let error as ComputerTargetResolutionError {
+                throw mapResolutionError(error)
+            }
+        } else {
+            scopeBounds = nil
+        }
         let matching = candidates.filter { candidate in
-            Self.matchesText(candidate.text, query: query.text, exact: query.exact)
+            guard Self.matchesText(candidate.text, query: query.text, exact: query.exact) else { return false }
+            guard let scopeBounds else { return true }
+            return Self.contains(bounds: candidate.bounds, within: scopeBounds)
         }
         guard !matching.isEmpty else { return nil }
         guard matching.count == 1, let candidate = matching.first else {
@@ -577,10 +605,13 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
         }
     }
 
-    private static func ocrQuery(for target: ComputerTarget) -> (text: String, exact: Bool)? {
+    private static func ocrQuery(for target: ComputerTarget) -> OCRQuery? {
         switch target {
         case let .text(text, exact), let .ocrText(text, exact):
-            return (text, exact)
+            return OCRQuery(text: text, exact: exact, within: nil)
+        case let .scoped(baseTarget, within):
+            guard let base = ocrQuery(for: baseTarget) else { return nil }
+            return OCRQuery(text: base.text, exact: base.exact, within: within)
         default:
             return nil
         }
@@ -599,6 +630,20 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
         return lowercased ? collapsed.lowercased() : collapsed
+    }
+
+    private static func contains(bounds candidate: ComputerBounds, within container: ComputerBounds) -> Bool {
+        guard candidate.x.isFinite, candidate.y.isFinite,
+              candidate.width.isFinite, candidate.height.isFinite,
+              container.x.isFinite, container.y.isFinite,
+              container.width.isFinite, container.height.isFinite,
+              candidate.width > 0, candidate.height > 0,
+              container.width > 0, container.height > 0
+        else { return false }
+        return candidate.x >= container.x &&
+            candidate.y >= container.y &&
+            candidate.x + candidate.width <= container.x + container.width &&
+            candidate.y + candidate.height <= container.y + container.height
     }
 
     private static func isSafe(bounds: ComputerBounds, insideAny displays: [ComputerBounds]) -> Bool {
