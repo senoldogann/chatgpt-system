@@ -102,6 +102,7 @@ function check(kind: ProjectCheckKind, manager: string, script: string): Detecte
     args: invocation.args,
     cwd: ".",
     source: `package.json#scripts.${script}`,
+    execution: "project-sandbox",
   };
 }
 
@@ -114,6 +115,9 @@ function validEvidence(value: unknown): value is StoredProjectCheckEvidence {
     && Array.isArray(evidence.args) && evidence.args.every((item) => typeof item === "string")
     && typeof evidence.cwd === "string"
     && typeof evidence.source === "string"
+    && (evidence.execution === undefined
+      || evidence.execution === "project-sandbox"
+      || evidence.execution === "admin-host")
     && (evidence.baseStatus === "PASS" || evidence.baseStatus === "FAIL" || evidence.baseStatus === "UNAVAILABLE")
     && typeof evidence.startedAt === "string"
     && typeof evidence.finishedAt === "string"

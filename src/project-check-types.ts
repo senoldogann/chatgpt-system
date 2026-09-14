@@ -1,6 +1,7 @@
 export type ProjectCheckStatus = "PASS" | "FAIL" | "NOT_RUN" | "STALE" | "UNAVAILABLE";
 export type ProjectCheckKind = "check" | "typecheck" | "lint" | "test" | "build";
 export type ProjectCheckBaseStatus = Extract<ProjectCheckStatus, "PASS" | "FAIL" | "UNAVAILABLE">;
+export type ProjectCheckExecutionLane = "project-sandbox" | "admin-host";
 
 export interface DetectedProjectCheck {
   checkId: string;
@@ -9,9 +10,11 @@ export interface DetectedProjectCheck {
   args: string[];
   cwd: string;
   source: string;
+  execution: ProjectCheckExecutionLane;
 }
 
-export interface StoredProjectCheckEvidence extends DetectedProjectCheck {
+export interface StoredProjectCheckEvidence extends Omit<DetectedProjectCheck, "execution"> {
+  execution?: ProjectCheckExecutionLane;
   baseStatus: ProjectCheckBaseStatus;
   startedAt: string;
   finishedAt: string;

@@ -57,8 +57,10 @@ interface ProjectCheckView {
     args: string[];
     cwd: string;
     source: string;
+    execution: "project-sandbox" | "admin-host";
     status: "PASS" | "FAIL" | "NOT_RUN" | "STALE" | "UNAVAILABLE";
     evidence?: {
+      execution?: "project-sandbox" | "admin-host";
       baseStatus: "PASS" | "FAIL" | "UNAVAILABLE";
       stdoutSha256: string;
       stderrSha256: string;
@@ -214,6 +216,7 @@ describe("project_check MCP tool", () => {
         command: "npm",
         args: ["run", "check"],
         source: "package.json#scripts.check",
+        execution: "project-sandbox",
         status: "NOT_RUN",
       });
 

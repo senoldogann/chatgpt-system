@@ -213,7 +213,8 @@ export const gitWorktreeOutputSchema = z.object({
 
 const projectCheckStatusSchema = z.enum(["PASS", "FAIL", "NOT_RUN", "STALE", "UNAVAILABLE"]);
 const projectCheckKindSchema = z.enum(["check", "typecheck", "lint", "test", "build"]);
-const projectCheckDetectedFields = {
+const projectCheckExecutionSchema = z.enum(["project-sandbox", "admin-host"]);
+const projectCheckCommonFields = {
   checkId: z.string(),
   kind: projectCheckKindSchema,
   command: z.string(),
@@ -221,8 +222,13 @@ const projectCheckDetectedFields = {
   cwd: z.string(),
   source: z.string(),
 };
+const projectCheckDetectedFields = {
+  ...projectCheckCommonFields,
+  execution: projectCheckExecutionSchema,
+};
 const projectCheckEvidenceSchema = z.object({
-  ...projectCheckDetectedFields,
+  ...projectCheckCommonFields,
+  execution: projectCheckExecutionSchema.optional(),
   baseStatus: z.enum(["PASS", "FAIL", "UNAVAILABLE"]),
   startedAt: z.string(),
   finishedAt: z.string(),
