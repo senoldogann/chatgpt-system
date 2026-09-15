@@ -303,16 +303,21 @@ ChatGPT Web is the canonical first acceptance surface. Desktop uses the same ins
 
 If ChatGPT returns `This conversation does not support developer MCPs`, treat it as a **product surface / tool routing availability** problem, do not treat it as daemon failure or tunnel failure. Do not invent a local-host fallback and do not claim local changes, tests, or Git operations that were not actually performed.
 
-Recovery flow:
+If `@chatgpt-system-local` no longer appears or disappears from the current composer/tools surface, do not repeatedly keep trying the same unavailable `@` path. Selection on an earlier turn is not proof that the custom app is still available now.
+
+Recovery flow for normal project work:
 
 1. Return to a supported **standard text chat** surface. Agent mode does not use custom apps; Deep Research can use custom apps only for read/fetch actions, not write/modify actions.
-2. Select the custom app again from the tools/apps menu or `@mention` it on the message that needs new local data or an action.
-3. If the MCP server tool/action definitions changed, use **Refresh** in the app configuration so ChatGPT reloads the current actions.
-4. Once developer MCP tools are available again, call `project_resume` for the exact registered alias and reconcile Git/worktree reality before continuing.
+2. If the app is actually available in the current chat, select it from the supported tools/apps surface. If it is absent or the conversation rejects developer MCPs, open a **new supported standard text chat** in the **same Project** instead of depending on `@mention` recovery in the broken conversation.
+3. In the new chat, select the app from whatever supported apps/tools surface is available and ask to continue the exact project.
+4. Once developer MCP tools are available again, the **first project action** is `project_resume` for the exact registered alias; reconcile Git/worktree reality before project mutation.
+5. If tool/action definitions changed and the product exposes a supported **Refresh** action, use it to reload the current catalog. Do not disconnect/recreate the app merely to simulate refresh.
+
+`Connection interrupted. Waiting for the complete answer` is not evidence of local tunnel failure by itself. Do not restart an otherwise healthy tunnel solely for this Web-stream symptom; run `npm run diagnose:chatgpt` near the incident time to classify bounded local evidence. Container access is not the user's Mac and must not be substituted for an unavailable developer MCP surface.
 
 Stopping and continuing the same chat is not itself proof that the custom app remains available on the next message. The agent must use actual MCP tool availability as evidence. Safety or product-surface routing must never be worked around by keyword substitution or by pretending container access is equivalent to the user's Mac.
 
-See [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md) for the full runbook.
+See [docs/CHATGPT_WEB_RESILIENCE.md](docs/CHATGPT_WEB_RESILIENCE.md) for hosted stream/capability-loss recovery and safe local diagnostics, and [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md) for the full integration runbook.
 
 ## macOS daily driver
 
