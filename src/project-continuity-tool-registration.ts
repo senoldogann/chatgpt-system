@@ -155,7 +155,7 @@ export function registerProjectContinuityTools(
   server.registerTool(
     "project_resume",
     {
-      description: "Use when the user asks to continue a registered project by its exact alias in a new or current chat. Never fuzzy-match the alias. Revalidates the exact worktree and returns a fresh Project authority lease plus bounded resume context.",
+      description: "Use when the user asks to continue a registered project by its exact alias in a new or current chat. Never fuzzy-match the alias. After developer MCP capability returns in a new or recovered chat, call project_resume before any project mutation. Revalidates the exact worktree and returns a fresh Project authority lease plus bounded resume context.",
       inputSchema: projectResumeInputSchema,
       outputSchema: projectResumeOutputSchema,
       annotations: mutationAnnotations,
@@ -168,7 +168,7 @@ export function registerProjectContinuityTools(
   server.registerTool(
     "project_checkpoint",
     {
-      description: "Update the current project continuity record after user direction changes, important decisions, milestones or failures, and before a project handoff or final response. Delivery 1 is not automatically logged, so checkpoints must be written deliberately.",
+      description: "Update the current project continuity record after user direction changes, important decisions, milestones or failures, before a long or tool-heavy or remote-sensitive sequence where developer MCP capability could disappear between messages, and before a project handoff or final response. Delivery 1 is not automatically logged, so checkpoints must be written deliberately.",
       inputSchema: projectCheckpointInputSchema,
       outputSchema: projectContinuityResultOutputSchema,
       annotations: mutationAnnotations,

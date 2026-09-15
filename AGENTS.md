@@ -39,6 +39,25 @@ Every update must leave a concrete `Next exact step`, not a vague reminder. Reco
 
 If Project Continuity tools are available, pair the file update with `project_checkpoint` after the same meaningful milestones and before ending a work session. The checkpoint should contain the same goal/next-step semantics but may additionally name the current active worktree in its bounded detail. Do not claim a checkpoint happened unless the call succeeded.
 
+## ChatGPT Web / developer-MCP resilience
+
+Hosted ChatGPT Web state can fail independently of the local tunnel/runtime. Preserve recoverability instead of treating every UI symptom as a local crash.
+
+- Create a proactive **risk checkpoint** with `project_checkpoint` before a sequence expected to require roughly 8 or more sequential MCP calls, a long hosted wait/poll cycle, or a risky transition where losing the current conversation would force the user to reconstruct intent. Keep the checkpoint bounded and non-sensitive, with the current goal, latest completed milestone, exact branch/worktree/HEAD when relevant, blocker, and `Next exact step`.
+- Prefer existing bounded batch tools and parallel independent read-only calls over unnecessary serial model yields. Examples include `fs_apply_patch_set` for independent guarded patches and `computer_run` for one validated physical-input program. Never widen authority merely to batch work; batching must stay inside the authority the operation already requires.
+- If ChatGPT returns `This conversation does not support developer MCPs`, treat that as product-surface/tool-routing unavailability. Stop making local-change claims, do not repeatedly retry the unavailable developer-MCP namespace, and do not substitute container access for the user's Mac. If the current conversation no longer exposes the app/tools, hand off to a **new supported standard text chat** in the same Project. Once developer MCP capability returns, call `project_resume` for the exact alias before any project mutation, then reconcile Git/worktree reality.
+- `Connection interrupted. Waiting for the complete answer` is not by itself evidence that the local daemon, tunnel, or MCP child failed. Do not restart an otherwise healthy tunnel solely for this UI symptom. Use `npm run diagnose:chatgpt` near the incident time to classify bounded local evidence, then act on the specific failure boundary.
+- Before removing a worktree that was ever used as a ChatGPT tunnel/runtime target, run `npm run diagnose:chatgpt`. If the diagnostic reports runtime source `managed-worktree`, do not remove that worktree until the tunnel/profile has been repointed and a fresh diagnostic no longer reports the managed worktree as active. For `other` or `unknown`, inspect before cleanup rather than guessing.
+
+The safe recovery path for a product-surface failure is therefore:
+
+1. leave the unavailable namespace alone instead of retrying it in a loop;
+2. use a new supported standard text chat in the same Project if the current chat cannot expose the custom app;
+3. once the developer MCP surface is present again, `project_resume` the exact alias;
+4. reconcile Git/worktree reality and continue from the checkpointed `Next exact step`.
+
+This protocol mitigates hosted capability/stream loss; it does not claim to repair ChatGPT's composer, `@` picker, WebSocket stream, or hosted turn orchestrator from local code.
+
 ## Concurrent-agent safety
 
 - Assume an unfamiliar dirty worktree may be owned by another agent until proven otherwise.
