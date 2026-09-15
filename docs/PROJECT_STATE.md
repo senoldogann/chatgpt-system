@@ -13,7 +13,7 @@ Preserve the verified `main@8ae6bee3f2aedca3a6b31b3dc17a909b4e49296d` perception
 
 - Authoritative checkout: `/Users/dogan/Desktop/chatgpt-system`.
 - Project Continuity alias: `chatgpt-system-desktop`.
-- Published/local `main`: `8ae6bee3f2aedca3a6b31b3dc17a909b4e49296d` (`feat: harden computer use perception reliability (#51)`).
+- Perception-reliability implementation merge baseline on `main`: `8ae6bee3f2aedca3a6b31b3dc17a909b4e49296d` (`feat: harden computer use perception reliability (#51)`). Current repository HEAD must be read from Git, not inferred from this historical baseline.
 - PR #51 squash-merged the verified perception-reliability integration lineage to `main`.
 - The local/remote integration branch and its integration/post-merge verification worktrees were removed after successful merge verification.
 - Detached merged-runtime worktree `/Users/dogan/.chatgpt-system/runtime/chatgpt-system-main` remains intentionally present at `8ae6bee`; do not repurpose or delete it as part of unrelated work.
@@ -88,7 +88,7 @@ The authoritative completion evidence is tied to exact published merge commit `8
 - `git diff --check`: PASS;
 - freshness-bound `project_check`: **PASS** with matching exact HEAD and working-tree digest;
 - post-verification Git status: clean;
-- local `main == origin/main == 8ae6bee3f2aedca3a6b31b3dc17a909b4e49296d`.
+- at perception-reliability publication close, local `main == origin/main == 8ae6bee3f2aedca3a6b31b3dc17a909b4e49296d`.
 
 The earlier clean integration baseline `35ec7a7595f4f8eab4dfe1ebace260dbce6d0af1` remains useful pre-merge evidence, but completion/publication claims are bound to the independently verified merge commit above.
 
