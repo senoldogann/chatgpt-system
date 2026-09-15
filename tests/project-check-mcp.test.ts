@@ -7,6 +7,7 @@ import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AppConfig } from "../src/config.js";
+import { CommandTimeoutError, ExecutableNotFoundError, SandboxUnavailableError } from "../src/errors.js";
 import type {
   ProjectCheckCommandResult,
   ProjectCheckExecutor,
@@ -23,21 +24,30 @@ const cleanups: string[] = [];
 const servers: ReturnType<typeof startHttp>[] = [];
 const runtimes: RuntimeServices[] = [];
 
-type BackendMode = "pass" | "fail" | "mutate";
+type BackendMode = "pass" | "fail" | "mutate" | "unavailable";
+type HostMode = "pass" | "fail" | "mutate" | "unavailable" | "timeout";
 
 class HostVerificationExecutor implements ProjectCheckExecutor {
   readonly requests: Array<{ command: string; args: string[]; cwd: string; timeoutMs: number }> = [];
+  mode: HostMode = "pass";
+
+  constructor(private readonly projectRoot: string) {}
 
   async run(command: string, args: string[], cwd: string, timeoutMs: number): Promise<ProjectCheckCommandResult> {
     this.requests.push({ command, args: [...args], cwd, timeoutMs });
+    if (this.mode === "unavailable") throw new ExecutableNotFoundError(command);
+    if (this.mode === "timeout") throw new CommandTimeoutError(timeoutMs, { command });
+    if (this.mode === "mutate") {
+      await writeFile(path.join(this.projectRoot, "during-native-check.txt"), "changed\n", "utf8");
+    }
     return {
       command,
       args: [...args],
       cwd,
-      exitCode: 0,
+      exitCode: this.mode === "fail" ? 2 : 0,
       signal: null,
-      stdout: "native output\n",
-      stderr: "",
+      stdout: "TOKEN=native-secret\nnative output\n",
+      stderr: this.mode === "fail" ? "password=native-error\n" : "",
       timedOut: false,
     };
   }
@@ -49,6 +59,7 @@ class VerificationBackend implements ProjectExecBackend {
 
   async run(request: ProjectExecRequest): Promise<ProjectExecResult> {
     this.requests.push(request);
+    if (this.mode === "unavailable") throw new SandboxUnavailableError("docker_unavailable");
     if (this.mode === "mutate") {
       await writeFile(path.join(request.projectRoot, "src", "during-check.ts"), "export const changed = true;\n", "utf8");
     }
@@ -213,7 +224,7 @@ async function fixture(projectExecEnabled = true, kind: FixtureKind = "node") {
   };
 
   const backend = new VerificationBackend();
-  const host = new HostVerificationExecutor();
+  const host = new HostVerificationExecutor(root);
   const boundRoots: string[] = [];
   const runtime = createRuntimeServices(config, {
     taskStateRoot,
@@ -234,6 +245,12 @@ async function fixture(projectExecEnabled = true, kind: FixtureKind = "node") {
   });
   await client.connect(transport);
   return { base, root, taskStateRoot, config, backend, host, boundRoots, runtime, server, client, transport };
+}
+
+async function verificationStorePath(taskStateRoot: string): Promise<string> {
+  const projects = await readdir(path.join(taskStateRoot, "projects"));
+  expect(projects).toHaveLength(1);
+  return path.join(taskStateRoot, "projects", projects[0]!, "verification", "latest.json");
 }
 
 describe("project_check MCP tool", () => {
@@ -387,6 +404,122 @@ describe("project_check MCP tool", () => {
         { command: "swift", args: ["build"], cwd: canonicalRoot, timeoutMs: 1500 },
       ]);
       expect(connected.backend.requests).toHaveLength(0);
+      expect(body.checks[0]?.evidence?.execution).toBe("admin-host");
+      expect(body.checks[1]?.evidence?.execution).toBe("admin-host");
+      const persisted = await readFile(await verificationStorePath(connected.taskStateRoot), "utf8");
+      expect(persisted).not.toContain("native-secret");
+      expect(persisted).not.toContain("native output");
+      expect(persisted).not.toContain("native-error");
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it.each([
+    ["fail", "FAIL"],
+    ["unavailable", "UNAVAILABLE"],
+    ["timeout", "FAIL"],
+  ] as const)("maps native host %s to %s without a tool-level error", async (mode, expectedStatus) => {
+    const connected = await fixture(true, "swiftpm");
+    try {
+      connected.host.mode = mode;
+      const projectLeaseId = await projectLease(connected.client, connected.root);
+      const adminLeaseId = await adminLease(connected.client);
+      const run = await connected.client.callTool({
+        name: "project_check",
+        arguments: {
+          authorityLeaseId: projectLeaseId,
+          adminAuthorityLeaseId: adminLeaseId,
+          operation: "run",
+          cwd: connected.root,
+        },
+      });
+      expect(run.isError).not.toBe(true);
+      expect((run.structuredContent as unknown as ProjectCheckView).overallStatus).toBe(expectedStatus);
+      expect(connected.backend.requests).toHaveLength(0);
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it("marks native evidence stale when repository state changes during execution", async () => {
+    const connected = await fixture(true, "swiftpm");
+    try {
+      connected.host.mode = "mutate";
+      const projectLeaseId = await projectLease(connected.client, connected.root);
+      const adminLeaseId = await adminLease(connected.client);
+      const run = await connected.client.callTool({
+        name: "project_check",
+        arguments: {
+          authorityLeaseId: projectLeaseId,
+          adminAuthorityLeaseId: adminLeaseId,
+          operation: "run",
+          cwd: connected.root,
+        },
+      });
+      expect(run.isError).not.toBe(true);
+      const body = run.structuredContent as unknown as ProjectCheckView;
+      expect(body.overallStatus).toBe("STALE");
+      expect(body.checks[0]?.evidence?.stateChangedDuringRun).toBe(true);
+      expect(connected.backend.requests).toHaveLength(0);
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it("does not fall back from an unavailable Node sandbox to Admin host execution", async () => {
+    const connected = await fixture(true, "node");
+    try {
+      connected.backend.mode = "unavailable";
+      const projectLeaseId = await projectLease(connected.client, connected.root);
+      const adminLeaseId = await adminLease(connected.client);
+      const run = await connected.client.callTool({
+        name: "project_check",
+        arguments: {
+          authorityLeaseId: projectLeaseId,
+          adminAuthorityLeaseId: adminLeaseId,
+          operation: "run",
+          cwd: connected.root,
+        },
+      });
+      expect(run.isError).not.toBe(true);
+      expect((run.structuredContent as unknown as ProjectCheckView).overallStatus).toBe("UNAVAILABLE");
+      expect(connected.host.requests).toHaveLength(0);
+      expect(connected.backend.requests).toHaveLength(1);
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it("reads legacy verification evidence that predates the execution lane field", async () => {
+    const connected = await fixture(true, "node");
+    try {
+      const leaseId = await projectLease(connected.client, connected.root);
+      const run = await connected.client.callTool({
+        name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "run", cwd: connected.root },
+      });
+      expect(run.isError).not.toBe(true);
+      const storePath = await verificationStorePath(connected.taskStateRoot);
+      const stored = JSON.parse(await readFile(storePath, "utf8")) as {
+        evidence: Record<string, { execution?: "project-sandbox" | "admin-host" }>;
+      };
+      delete stored.evidence["package-script:check"]?.execution;
+      await writeFile(storePath, `${JSON.stringify(stored, null, 2)}\n`, "utf8");
+
+      const report = await connected.client.callTool({
+        name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "report", cwd: connected.root },
+      });
+      expect(report.isError).not.toBe(true);
+      const body = report.structuredContent as unknown as ProjectCheckView;
+      expect(body.checks[0]?.execution).toBe("project-sandbox");
+      expect(body.checks[0]?.evidence?.execution).toBeUndefined();
+      expect(body.overallStatus).toBe("PASS");
     } finally {
       await connected.transport.terminateSession();
       await connected.client.close();
