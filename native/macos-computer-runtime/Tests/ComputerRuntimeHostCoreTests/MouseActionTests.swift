@@ -69,6 +69,51 @@ final class MouseActionTests: XCTestCase {
         XCTAssertEqual(sink.events, [.mouseMove(point: target, dragButton: nil)])
     }
 
+    func testClickContextGuardStopsBeforeMouseDownAfterPointerMove() async {
+        let harness = MouseHarness(point: ComputerPoint(x: 0, y: 0))
+        let guardState = FailAfterFirstContextGuard()
+        let target = ComputerPoint(x: 100, y: 80)
+
+        do {
+            _ = try await harness.controller.click(
+                at: target,
+                button: .left,
+                mode: .instant,
+                contextGuard: guardState
+            )
+            XCTFail("Expected focus mismatch")
+        } catch {
+            XCTAssertEqual(error as? ComputerInputError, .focusMismatch)
+        }
+
+        XCTAssertEqual(harness.sink.events, [
+            .mouseMove(point: target, dragButton: nil),
+        ])
+    }
+
+    func testScrollContextGuardStopsBeforeScrollAfterPointerMove() async {
+        let harness = MouseHarness(point: ComputerPoint(x: 0, y: 0))
+        let guardState = FailAfterFirstContextGuard()
+        let target = ComputerPoint(x: 200, y: 100)
+
+        do {
+            _ = try await harness.controller.scroll(
+                vertical: 4,
+                horizontal: 0,
+                at: target,
+                mode: .instant,
+                contextGuard: guardState
+            )
+            XCTFail("Expected focus mismatch")
+        } catch {
+            XCTAssertEqual(error as? ComputerInputError, .focusMismatch)
+        }
+
+        XCTAssertEqual(harness.sink.events, [
+            .mouseMove(point: target, dragButton: nil),
+        ])
+    }
+
     func testDoubleClickUsesClickCountOneThenTwo() async throws {
         let harness = MouseHarness(point: ComputerPoint(x: 10, y: 10))
         let target = ComputerPoint(x: 40, y: 50)
@@ -451,4 +496,15 @@ private struct MousePermissions: PermissionReading {
 private struct MouseWorkspace: WorkspaceReading {
     func runningApplications() -> [WorkspaceApplication] { [] }
     func frontmostApplication() -> WorkspaceApplication? { nil }
+}
+
+private actor FailAfterFirstContextGuard: InputContextGuard {
+    private var calls = 0
+
+    func verifyExpectedContext() async throws {
+        calls += 1
+        if calls > 1 {
+            throw ComputerInputError.focusMismatch
+        }
+    }
 }

@@ -45,8 +45,10 @@ function response(requestId: string, result: unknown): string {
   return JSON.stringify({ protocolVersion: 1, requestId, ok: true, result }) + "\n";
 }
 
-function failure(requestId: string, code: string, message = "NATIVE_SECRET_MESSAGE"): string {
-  return JSON.stringify({ protocolVersion: 1, requestId, ok: false, error: { code, message } }) + "\n";
+function failure(
+  requestId: string, code: string, message = "NATIVE_SECRET_MESSAGE", details?: Record<string, unknown>,
+): string {
+  return JSON.stringify({ protocolVersion: 1, requestId, ok: false, error: { code, message, ...(details ? { details } : {}) } }) + "\n";
 }
 
 async function flushWrites(): Promise<void> {
@@ -144,6 +146,40 @@ describe("ComputerNativeClient", () => {
     await flushWrites();
     stdout.write(response("second", { state: "running" }));
     await expect(second).resolves.toEqual({ state: "running" });
+  });
+
+  it("preserves bounded recovery details while replacing the native error message", async () => {
+    const { client, stdout } = fixture();
+    const pending = client.request("click", { target: { by: "text", text: "missing" } }, 1_000);
+    await flushWrites();
+    const details = {
+      candidateCount: 2,
+      scopeResolved: false,
+      activeScrollContainerCount: 1,
+      recommendedRecovery: "scope-target",
+    };
+    stdout.write(failure("request-a", "COMPUTER_TARGET_AMBIGUOUS", "Sensitive native message", details));
+
+    await expect(pending).rejects.toMatchObject({
+      code: "COMPUTER_TARGET_AMBIGUOUS",
+      message: "Computer target is ambiguous.",
+      details,
+    });
+  });
+
+  it("rejects content-bearing or otherwise non-allowlisted native recovery details", async () => {
+    const { client, stdout } = fixture();
+    const pending = client.request("click", { target: { by: "text", text: "missing" } }, 1_000);
+    await flushWrites();
+    stdout.write(failure("request-a", "COMPUTER_TARGET_NOT_FOUND", "ignored", {
+      candidateCount: 0,
+      scopeResolved: false,
+      activeScrollContainerCount: 0,
+      recommendedRecovery: "screenshot",
+      targetText: "Sensitive Missing Label",
+    }));
+
+    await expect(pending).rejects.toMatchObject({ code: "COMPUTER_PROTOCOL_INVALID" });
   });
 
   it("poisons the stream instead of surfacing an unknown native error code or message", async () => {

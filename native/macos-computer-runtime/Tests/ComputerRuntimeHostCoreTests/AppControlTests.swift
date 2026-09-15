@@ -87,6 +87,69 @@ final class AppControlTests: XCTestCase {
         XCTAssertFalse(encoded.contains("\"pid\""))
     }
 
+    func testOpenRunningChromeDoesNotRelaunchOrPassArguments() async throws {
+        let chrome = app(pid: 41, name: "Google Chrome", bundle: "com.google.Chrome")
+        let workspace = FakeApplicationController(apps: [chrome], becomesFrontmost: true)
+        let response = await request(
+            makeAppHostService(workspace: workspace),
+            method: "open_app",
+            params: .object([
+                "bundleIdentifier": .string("com.google.Chrome"),
+                "timeoutMs": .number(50),
+            ])
+        )
+
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(workspace.openedURLs, [])
+        XCTAssertEqual(workspace.openedArguments, [])
+        XCTAssertEqual(workspace.activatedProcessIdentifiers, [41])
+    }
+
+    func testOpenStoppedChromePassesOnlyRendererAccessibilityArgument() async throws {
+        let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app")
+        let opened = app(pid: 42, name: "Google Chrome", bundle: "com.google.Chrome")
+        let workspace = FakeApplicationController(
+            apps: [],
+            urls: ["com.google.Chrome": chromeURL],
+            openResult: opened,
+            becomesFrontmost: true
+        )
+        let response = await request(
+            makeAppHostService(workspace: workspace),
+            method: "open_app",
+            params: .object([
+                "bundleIdentifier": .string("com.google.Chrome"),
+                "timeoutMs": .number(50),
+            ])
+        )
+
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(workspace.openedURLs, [chromeURL])
+        XCTAssertEqual(workspace.openedArguments, [["--force-renderer-accessibility=complete"]])
+    }
+
+    func testOpenStoppedNonChromePassesNoArguments() async throws {
+        let fixtureURL = URL(fileURLWithPath: "/Applications/Fixture.app")
+        let opened = app(pid: 43, name: "Fixture", bundle: "com.example.fixture")
+        let workspace = FakeApplicationController(
+            apps: [],
+            urls: ["com.example.fixture": fixtureURL],
+            openResult: opened,
+            becomesFrontmost: true
+        )
+        let response = await request(
+            makeAppHostService(workspace: workspace),
+            method: "open_app",
+            params: .object([
+                "bundleIdentifier": .string("com.example.fixture"),
+                "timeoutMs": .number(50),
+            ])
+        )
+
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(workspace.openedArguments, [[]])
+    }
+
     func testFocusSuccessRequiresAppToBecomeFrontmost() async throws {
         let target = app(pid: 50, name: "Fixture", bundle: "com.example.fixture")
         let workspace = FakeApplicationController(apps: [target], becomesFrontmost: true)
@@ -202,6 +265,7 @@ private final class FakeApplicationController: ApplicationControlling, @unchecke
     private var activationLog: [pid_t] = []
     private var bundleLog: [String] = []
     private var openLog: [URL] = []
+    private var openArgumentsLog: [[String]] = []
 
     init(
         apps: [WorkspaceApplication],
@@ -224,6 +288,7 @@ private final class FakeApplicationController: ApplicationControlling, @unchecke
     var activatedProcessIdentifiers: [pid_t] { withLock { activationLog } }
     var requestedBundleIdentifiers: [String] { withLock { bundleLog } }
     var openedURLs: [URL] { withLock { openLog } }
+    var openedArguments: [[String]] { withLock { openArgumentsLog } }
 
     func runningApplications() -> [WorkspaceApplication] {
         withLock {
@@ -258,8 +323,13 @@ private final class FakeApplicationController: ApplicationControlling, @unchecke
     }
 
     func openApplication(at url: URL) async throws -> WorkspaceApplication {
+        try await openApplication(at: url, arguments: [])
+    }
+
+    func openApplication(at url: URL, arguments: [String]) async throws -> WorkspaceApplication {
         let (error, result): (Error?, WorkspaceApplication?) = withLock {
             openLog.append(url)
+            openArgumentsLog.append(arguments)
             let result = openResult
             if let result, !apps.contains(where: { $0.processIdentifier == result.processIdentifier }) {
                 apps.append(result)

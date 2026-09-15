@@ -230,6 +230,89 @@ final class ObservationTests: XCTestCase {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         XCTAssertNil(json["value"])
+        XCTAssertTrue(json.keys.contains("parentIndex"))
+        XCTAssertTrue(json["parentIndex"] is NSNull)
+    }
+
+    func testObservationPreservesInteractionMetadata() async throws {
+        let app = makeWorkspaceApp(frontmost: true)
+        let element = ComputerElementView(
+            index: 7,
+            parentIndex: 3,
+            depth: 2,
+            role: "AXScrollArea",
+            subrole: nil,
+            title: "Plugin details",
+            description: nil,
+            focused: false,
+            enabled: true,
+            selected: nil,
+            bounds: ComputerBounds(x: 100, y: 200, width: 400, height: 500),
+            actions: ["AXScrollDownByPage"],
+            scroll: ComputerScrollCapabilityView(scrollable: true, axes: [.vertical])
+        )
+        let observation = ComputerObservation(
+            snapshotId: "interaction-metadata",
+            application: app.view,
+            windowTitle: "Fixture Window",
+            elements: [element],
+            truncated: false
+        )
+        let service = makeObservationService(
+            apps: [app],
+            accessibility: FakeAccessibility(
+                activeWindow: ActiveWindowView(application: app.view, title: "Fixture Window"),
+                observation: observation
+            )
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "observe-interaction-metadata",
+            method: "observe",
+            params: .object([:])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let decoded = try decodeObservationResult(ComputerObservation.self, from: response)
+        XCTAssertEqual(decoded.elements, [element])
+    }
+
+    func testObservationPreservesPerceptionSummary() async throws {
+        let app = makeWorkspaceApp(frontmost: true)
+        let perception = ComputerPerceptionSummary(
+            axQuality: .weak,
+            webContentAccessible: false,
+            ocrUsed: false,
+            recommendedTargeting: .ocr,
+            ocrCandidates: []
+        )
+        let observation = ComputerObservation(
+            snapshotId: "perception",
+            application: app.view,
+            windowTitle: "Fixture Window",
+            elements: makeObservation(app: app).elements,
+            truncated: false,
+            perception: perception
+        )
+        let service = makeObservationService(
+            apps: [app],
+            accessibility: FakeAccessibility(
+                activeWindow: ActiveWindowView(application: app.view, title: "Fixture Window"),
+                observation: observation
+            )
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "observe-perception",
+            method: "observe",
+            params: .object([:])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let decoded = try decodeObservationResult(ComputerObservation.self, from: response)
+        XCTAssertEqual(decoded.perception, perception)
     }
 
     func testObservationLimitsMatchSliceContract() {

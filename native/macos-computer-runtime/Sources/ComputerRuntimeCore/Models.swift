@@ -48,8 +48,27 @@ public struct ComputerBounds: Codable, Equatable, Sendable {
     }
 }
 
+public enum ComputerScrollAxis: String, Codable, Equatable, Sendable {
+    case vertical
+    case horizontal
+}
+
+public struct ComputerScrollCapabilityView: Codable, Equatable, Sendable {
+    public let scrollable: Bool
+    public let axes: [ComputerScrollAxis]
+
+    public init(scrollable: Bool, axes: [ComputerScrollAxis]) {
+        self.scrollable = scrollable
+        self.axes = axes
+    }
+
+    public static let none = ComputerScrollCapabilityView(scrollable: false, axes: [])
+}
+
 public struct ComputerElementView: Codable, Equatable, Sendable {
     public let index: Int
+    public let parentIndex: Int?
+    public let depth: Int
     public let role: String
     public let subrole: String?
     public let title: String?
@@ -58,9 +77,13 @@ public struct ComputerElementView: Codable, Equatable, Sendable {
     public let enabled: Bool?
     public let selected: Bool?
     public let bounds: ComputerBounds?
+    public let actions: [String]
+    public let scroll: ComputerScrollCapabilityView
 
     public init(
         index: Int,
+        parentIndex: Int? = nil,
+        depth: Int = 0,
         role: String,
         subrole: String?,
         title: String?,
@@ -68,9 +91,13 @@ public struct ComputerElementView: Codable, Equatable, Sendable {
         focused: Bool?,
         enabled: Bool?,
         selected: Bool?,
-        bounds: ComputerBounds?
+        bounds: ComputerBounds?,
+        actions: [String] = [],
+        scroll: ComputerScrollCapabilityView = .none
     ) {
         self.index = index
+        self.parentIndex = parentIndex
+        self.depth = depth
         self.role = role
         self.subrole = subrole
         self.title = title
@@ -79,6 +106,45 @@ public struct ComputerElementView: Codable, Equatable, Sendable {
         self.enabled = enabled
         self.selected = selected
         self.bounds = bounds
+        self.actions = actions
+        self.scroll = scroll
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case index
+        case parentIndex
+        case depth
+        case role
+        case subrole
+        case title
+        case description
+        case focused
+        case enabled
+        case selected
+        case bounds
+        case actions
+        case scroll
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(index, forKey: .index)
+        if let parentIndex {
+            try container.encode(parentIndex, forKey: .parentIndex)
+        } else {
+            try container.encodeNil(forKey: .parentIndex)
+        }
+        try container.encode(depth, forKey: .depth)
+        try container.encode(role, forKey: .role)
+        try container.encodeIfPresent(subrole, forKey: .subrole)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(description, forKey: .description)
+        try container.encodeIfPresent(focused, forKey: .focused)
+        try container.encodeIfPresent(enabled, forKey: .enabled)
+        try container.encodeIfPresent(selected, forKey: .selected)
+        try container.encodeIfPresent(bounds, forKey: .bounds)
+        try container.encode(actions, forKey: .actions)
+        try container.encode(scroll, forKey: .scroll)
     }
 }
 
@@ -92,6 +158,104 @@ public struct ActiveWindowView: Codable, Equatable, Sendable {
     }
 }
 
+public enum ComputerAXQuality: String, Codable, Equatable, Sendable {
+    case strong
+    case partial
+    case weak
+}
+
+public enum ComputerRecommendedTargeting: String, Codable, Equatable, Sendable {
+    case ax
+    case ocr
+    case visualPoint = "visual-point"
+}
+
+public enum ComputerOcrSource: String, Codable, Equatable, Sendable {
+    case visionFast = "vision-fast"
+    case visionAccurate = "vision-accurate"
+}
+
+public struct ComputerOcrCandidateView: Codable, Equatable, Sendable {
+    public let text: String
+    public let bounds: ComputerBounds
+    public let confidence: Double?
+    public let source: ComputerOcrSource
+
+    public init(
+        text: String,
+        bounds: ComputerBounds,
+        confidence: Double?,
+        source: ComputerOcrSource
+    ) {
+        self.text = text
+        self.bounds = bounds
+        self.confidence = confidence
+        self.source = source
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case text
+        case bounds
+        case confidence
+        case source
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(text, forKey: .text)
+        try container.encode(bounds, forKey: .bounds)
+        if let confidence {
+            try container.encode(confidence, forKey: .confidence)
+        } else {
+            try container.encodeNil(forKey: .confidence)
+        }
+        try container.encode(source, forKey: .source)
+    }
+}
+
+public struct ComputerPerceptionSummary: Codable, Equatable, Sendable {
+    public let axQuality: ComputerAXQuality
+    public let webContentAccessible: Bool?
+    public let ocrUsed: Bool
+    public let recommendedTargeting: ComputerRecommendedTargeting
+    public let ocrCandidates: [ComputerOcrCandidateView]
+
+    public init(
+        axQuality: ComputerAXQuality,
+        webContentAccessible: Bool?,
+        ocrUsed: Bool,
+        recommendedTargeting: ComputerRecommendedTargeting,
+        ocrCandidates: [ComputerOcrCandidateView]
+    ) {
+        self.axQuality = axQuality
+        self.webContentAccessible = webContentAccessible
+        self.ocrUsed = ocrUsed
+        self.recommendedTargeting = recommendedTargeting
+        self.ocrCandidates = ocrCandidates
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case axQuality
+        case webContentAccessible
+        case ocrUsed
+        case recommendedTargeting
+        case ocrCandidates
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(axQuality, forKey: .axQuality)
+        if let webContentAccessible {
+            try container.encode(webContentAccessible, forKey: .webContentAccessible)
+        } else {
+            try container.encodeNil(forKey: .webContentAccessible)
+        }
+        try container.encode(ocrUsed, forKey: .ocrUsed)
+        try container.encode(recommendedTargeting, forKey: .recommendedTargeting)
+        try container.encode(ocrCandidates, forKey: .ocrCandidates)
+    }
+}
+
 public struct ComputerObservation: Codable, Equatable, Sendable {
     public let snapshotId: String
     public let application: ApplicationView
@@ -99,6 +263,7 @@ public struct ComputerObservation: Codable, Equatable, Sendable {
     public let elements: [ComputerElementView]
     public let truncated: Bool
     public let digest: String?
+    public let perception: ComputerPerceptionSummary?
 
     public init(
         snapshotId: String,
@@ -106,7 +271,8 @@ public struct ComputerObservation: Codable, Equatable, Sendable {
         windowTitle: String?,
         elements: [ComputerElementView],
         truncated: Bool,
-        digest: String? = nil
+        digest: String? = nil,
+        perception: ComputerPerceptionSummary? = nil
     ) {
         self.snapshotId = snapshotId
         self.application = application
@@ -114,17 +280,38 @@ public struct ComputerObservation: Codable, Equatable, Sendable {
         self.elements = elements
         self.truncated = truncated
         self.digest = digest
+        self.perception = perception
     }
+}
+
+public enum ComputerScreenshotCaptureKind: String, Codable, Equatable, Sendable {
+    case display
 }
 
 public struct ComputerScreenshot: Codable, Equatable, Sendable {
     public let pngBase64: String
     public let width: Int
     public let height: Int
+    public let captureKind: ComputerScreenshotCaptureKind
+    public let screenBounds: ComputerBounds
+    public let scaleX: Double
+    public let scaleY: Double
 
-    public init(pngBase64: String, width: Int, height: Int) {
+    public init(
+        pngBase64: String,
+        width: Int,
+        height: Int,
+        captureKind: ComputerScreenshotCaptureKind,
+        screenBounds: ComputerBounds,
+        scaleX: Double,
+        scaleY: Double
+    ) {
         self.pngBase64 = pngBase64
         self.width = width
         self.height = height
+        self.captureKind = captureKind
+        self.screenBounds = screenBounds
+        self.scaleX = scaleX
+        self.scaleY = scaleY
     }
 }

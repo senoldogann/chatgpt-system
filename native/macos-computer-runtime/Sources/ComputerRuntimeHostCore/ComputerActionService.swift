@@ -12,6 +12,11 @@ private enum ActionVerificationSpec: Sendable {
     case screenRegionChanged(bounds: ComputerBounds, timeoutMs: Int)
 }
 
+private enum VerificationFailurePolicy: Sendable {
+    case timeout
+    case needsReplan
+}
+
 private enum ActionPointSpec: Sendable {
     case point(ComputerPoint)
     case target(ComputerTarget, retryBudget: Int)
@@ -19,6 +24,37 @@ private enum ActionPointSpec: Sendable {
     var isSemantic: Bool {
         if case .target = self { return true }
         return false
+    }
+
+    var isExplicitPoint: Bool {
+        switch self {
+        case .point:
+            return true
+        case let .target(target, _):
+            if case .point = target { return true }
+            return false
+        }
+    }
+}
+
+private struct ResolvedActionPoint {
+    let point: ComputerPoint
+    let resolvedTarget: ResolvedComputerTarget?
+}
+
+private struct RecoveryActionFailure: Error, Sendable {
+    let error: ComputerRecoveryError
+    let evidence: ComputerRecoveryEvidence
+}
+
+private struct RecoveryInputContextGuard: InputContextGuard {
+    let recovery: any ComputerRecoveryHandling
+    let resolvedTargets: [ResolvedComputerTarget]
+
+    func verifyExpectedContext() async throws {
+        for resolved in resolvedTargets {
+            try await recovery.verifyContext(resolved)
+        }
     }
 }
 
@@ -46,6 +82,8 @@ private struct ApplicationInputFocusGuard: InputFocusGuard {
 struct ComputerActionService: ComputerActionHandling, Sendable {
     private static let maxSelectorCharacters = 4_096
     private static let maxTypedCharacters = 16_384
+    private static let chromeBundleIdentifier = "com.google.Chrome"
+    private static let chromeAccessibilityArguments = ["--force-renderer-accessibility=complete"]
     private static let defaultFocusTimeoutMs = 1_500
     private static let focusPollIntervalMs = 20
 
@@ -90,21 +128,35 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             }
             return await executeVerifiedAction(
                 verificationSpec: parsed.verification,
+                failurePolicy: parsed.point.isExplicitPoint ? .needsReplan : .timeout,
                 requestId: request.requestId
             ) {
-                let point = try await resolveActionPoint(parsed.point)
-                return try await controller.moveMouse(to: point, mode: parsed.mode)
+                let resolved = try await resolveActionPoint(parsed.point)
+                return try await controller.moveMouse(
+                    to: resolved.point,
+                    mode: parsed.mode,
+                    contextGuard: contextGuard(for: [resolved])
+                )
             }
 
         case "click", "double_click":
             guard let parsed = parseClickParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
             }
-            return await executeVerifiedAction(verificationSpec: parsed.verification, requestId: request.requestId) {
-                let point = try await resolveActionPoint(parsed.point)
+            return await executeVerifiedAction(
+                verificationSpec: parsed.verification,
+                failurePolicy: parsed.point.isExplicitPoint ? .needsReplan : .timeout,
+                requestId: request.requestId
+            ) {
+                let resolved = try await resolveActionPoint(parsed.point)
+                let guardState = contextGuard(for: [resolved])
                 return request.method == "click"
-                    ? try await controller.click(at: point, button: parsed.button, mode: parsed.mode)
-                    : try await controller.doubleClick(at: point, button: parsed.button, mode: parsed.mode)
+                    ? try await controller.click(
+                        at: resolved.point, button: parsed.button, mode: parsed.mode, contextGuard: guardState
+                    )
+                    : try await controller.doubleClick(
+                        at: resolved.point, button: parsed.button, mode: parsed.mode, contextGuard: guardState
+                    )
             }
 
         case "mouse_down", "mouse_up":
@@ -121,13 +173,18 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             guard let parsed = parseDragParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
             }
-            return await executeVerifiedAction(verificationSpec: parsed.verification, requestId: request.requestId) {
+            return await executeVerifiedAction(
+                verificationSpec: parsed.verification,
+                failurePolicy: parsed.from.isExplicitPoint && parsed.to.isExplicitPoint ? .needsReplan : .timeout,
+                requestId: request.requestId
+            ) {
                 let endpoints = try await resolveDragEndpoints(from: parsed.from, to: parsed.to)
                 return try await controller.drag(
-                    from: endpoints.from,
-                    to: endpoints.to,
+                    from: endpoints.from.point,
+                    to: endpoints.to.point,
                     button: parsed.button,
-                    mode: parsed.mode
+                    mode: parsed.mode,
+                    contextGuard: contextGuard(for: [endpoints.from, endpoints.to])
                 )
             }
 
@@ -135,13 +192,18 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             guard let parsed = parseScrollParams(request.params) else {
                 return protocolInvalid(requestId: request.requestId)
             }
-            return await executeVerifiedAction(verificationSpec: parsed.verification, requestId: request.requestId) {
-                let point = try await resolveOptionalActionPoint(parsed.point)
+            return await executeVerifiedAction(
+                verificationSpec: parsed.verification,
+                failurePolicy: parsed.point?.isExplicitPoint == true ? .needsReplan : .timeout,
+                requestId: request.requestId
+            ) {
+                let resolved = try await resolveOptionalActionPoint(parsed.point)
                 return try await controller.scroll(
                     vertical: parsed.vertical,
                     horizontal: parsed.horizontal,
-                    at: point,
-                    mode: parsed.mode
+                    at: resolved?.point,
+                    mode: parsed.mode,
+                    contextGuard: resolved.map { contextGuard(for: [$0]) } ?? nil
                 )
             }
 
@@ -226,7 +288,13 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             }
             do {
                 try await controller.releaseAllInputs()
-                return encodeResult(ComputerActionResult(state: "completed"), requestId: request.requestId)
+                return encodeResult(
+                    ComputerActionResult(
+                        state: "completed_unverified",
+                        verification: ComputerVerificationEvidence(kind: .none, changed: nil)
+                    ),
+                    requestId: request.requestId
+                )
             } catch {
                 return actionFailed(requestId: request.requestId)
             }
@@ -252,18 +320,23 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
         takeoverMonitor?.stop()
     }
 
-    private func resolveActionPoint(_ spec: ActionPointSpec) async throws -> ComputerPoint {
+    private func resolveActionPoint(_ spec: ActionPointSpec) async throws -> ResolvedActionPoint {
         switch spec {
         case let .point(point):
-            return point
+            return ResolvedActionPoint(point: point, resolvedTarget: nil)
         case let .target(target, retryBudget):
             guard let recovery else { throw ComputerRecoveryError.unavailable }
-            let resolved = try await recovery.resolve(target, retryBudget: retryBudget)
-            return resolved.actionPoint
+            do {
+                let resolved = try await recovery.resolve(target, retryBudget: retryBudget)
+                return ResolvedActionPoint(point: resolved.actionPoint, resolvedTarget: resolved)
+            } catch let error as ComputerRecoveryError {
+                let evidence = await recovery.recoveryEvidence(for: target, error: error)
+                throw RecoveryActionFailure(error: error, evidence: evidence)
+            }
         }
     }
 
-    private func resolveOptionalActionPoint(_ spec: ActionPointSpec?) async throws -> ComputerPoint? {
+    private func resolveOptionalActionPoint(_ spec: ActionPointSpec?) async throws -> ResolvedActionPoint? {
         guard let spec else { return nil }
         return try await resolveActionPoint(spec)
     }
@@ -271,7 +344,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
     private func resolveDragEndpoints(
         from: ActionPointSpec,
         to: ActionPointSpec
-    ) async throws -> (from: ComputerPoint, to: ComputerPoint) {
+    ) async throws -> (from: ResolvedActionPoint, to: ResolvedActionPoint) {
         if case let .target(fromTarget, fromBudget) = from,
            case let .target(toTarget, toBudget) = to,
            fromBudget == toBudget
@@ -279,13 +352,23 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             guard let recovery else { throw ComputerRecoveryError.unavailable }
             let resolved = try await recovery.resolveMany([fromTarget, toTarget], retryBudget: fromBudget)
             guard resolved.count == 2 else { throw ComputerRecoveryError.unavailable }
-            return (resolved[0].actionPoint, resolved[1].actionPoint)
+            return (
+                ResolvedActionPoint(point: resolved[0].actionPoint, resolvedTarget: resolved[0]),
+                ResolvedActionPoint(point: resolved[1].actionPoint, resolvedTarget: resolved[1])
+            )
         }
         return (try await resolveActionPoint(from), try await resolveActionPoint(to))
     }
 
+    private func contextGuard(for points: [ResolvedActionPoint]) -> (any InputContextGuard)? {
+        let resolvedTargets = points.compactMap(\.resolvedTarget)
+        guard !resolvedTargets.isEmpty, let recovery else { return nil }
+        return RecoveryInputContextGuard(recovery: recovery, resolvedTargets: resolvedTargets)
+    }
+
     private func executeVerifiedAction(
         verificationSpec: ActionVerificationSpec?,
+        failurePolicy: VerificationFailurePolicy = .timeout,
         requestId: String,
         action: () async throws -> ComputerActionResult
     ) async -> ComputerProtocolResponse {
@@ -293,13 +376,42 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             let baseline = try await captureVerificationBaseline(verificationSpec)
             let result = try await action()
             try await waitForVerification(verificationSpec, baseline: baseline)
-            return encodeResult(result, requestId: requestId)
+            let outward: ComputerActionResult
+            if let verificationSpec {
+                let changed = verificationChanged(for: verificationSpec)
+                outward = ComputerActionResult(
+                    state: "verified",
+                    pointer: result.pointer,
+                    changed: changed,
+                    verification: ComputerVerificationEvidence(
+                        kind: verificationKind(for: verificationSpec),
+                        changed: changed
+                    )
+                )
+            } else {
+                outward = ComputerActionResult(
+                    state: "completed_unverified",
+                    pointer: result.pointer,
+                    changed: result.changed,
+                    verification: ComputerVerificationEvidence(kind: .none, changed: nil)
+                )
+            }
+            return encodeResult(outward, requestId: requestId)
+        } catch let failure as RecoveryActionFailure {
+            await releaseInputsAfterFailedAction()
+            return recoveryFailed(
+                failure.error,
+                details: recoveryDetails(failure.evidence),
+                requestId: requestId
+            )
         } catch let error as ComputerRecoveryError {
             await releaseInputsAfterFailedAction()
             return recoveryFailed(error, requestId: requestId)
         } catch ComputerVerificationError.timeout {
             await releaseInputsAfterFailedAction()
-            return timeout(requestId: requestId)
+            return failurePolicy == .needsReplan
+                ? needsReplan(requestId: requestId)
+                : timeout(requestId: requestId)
         } catch ComputerInputError.focusMismatch {
             await releaseInputsAfterFailedAction()
             return focusFailed(requestId: requestId)
@@ -317,6 +429,23 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
 
     private func releaseInputsAfterFailedAction() async {
         try? await controller.releaseAllInputs()
+    }
+
+    private func verificationKind(for spec: ActionVerificationSpec) -> ComputerVerificationKind {
+        switch spec {
+        case .axChanged: return .ax
+        case .textAppeared: return .text
+        case .screenRegionChanged: return .screenRegion
+        }
+    }
+
+    private func verificationChanged(for spec: ActionVerificationSpec) -> Bool? {
+        switch spec {
+        case .axChanged, .screenRegionChanged:
+            return true
+        case .textAppeared:
+            return nil
+        }
     }
 
     private func captureVerificationBaseline(_ spec: ActionVerificationSpec?) async throws -> String? {
@@ -475,7 +604,10 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             guard let url = applicationController.applicationURL(bundleIdentifier: bundleIdentifier) else {
                 throw ApplicationResolutionError.notFound
             }
-            return try await applicationController.openApplication(at: url)
+            let arguments = bundleIdentifier == Self.chromeBundleIdentifier
+                ? Self.chromeAccessibilityArguments
+                : []
+            return try await applicationController.openApplication(at: url, arguments: arguments)
         }
 
         return try resolveRunning(selector, using: applicationController)
@@ -656,7 +788,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             return .index(snapshotId: snapshotId, index: Int(rawIndex))
 
         case "role":
-            guard Set(object.keys).isSubset(of: ["by", "role", "name", "exact"]),
+            guard Set(object.keys).isSubset(of: ["by", "role", "name", "exact", "within"]),
                   case let .string(role)? = object["role"],
                   isValidSelectorString(role),
                   let exact = parseExact(object["exact"])
@@ -668,18 +800,23 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             } else {
                 name = nil
             }
-            return .role(role: role, name: name, exact: exact)
+            return applyTargetScope(
+                .role(role: role, name: name, exact: exact),
+                rawScope: object["within"]
+            )
 
         case "text", "ocrText", "label":
             let key = kind == "label" ? "label" : "text"
-            guard Set(object.keys).isSubset(of: ["by", key, "exact"]),
+            guard Set(object.keys).isSubset(of: ["by", key, "exact", "within"]),
                   case let .string(text)? = object[key],
                   isValidSelectorString(text),
                   let exact = parseExact(object["exact"])
             else { return nil }
-            if kind == "text" { return .text(text: text, exact: exact) }
-            if kind == "ocrText" { return .ocrText(text: text, exact: exact) }
-            return .label(label: text, exact: exact)
+            let base: ComputerTarget
+            if kind == "text" { base = .text(text: text, exact: exact) }
+            else if kind == "ocrText" { base = .ocrText(text: text, exact: exact) }
+            else { base = .label(label: text, exact: exact) }
+            return applyTargetScope(base, rawScope: object["within"])
 
         case "point":
             guard Set(object.keys) == Set(["by", "x", "y"]),
@@ -689,6 +826,40 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             else { return nil }
             return .point(x: x, y: y)
 
+        default:
+            return nil
+        }
+    }
+
+    private func applyTargetScope(_ target: ComputerTarget, rawScope: JSONValue?) -> ComputerTarget? {
+        guard let rawScope else { return target }
+        guard let scope = parseTargetScope(rawScope) else { return nil }
+        return .scoped(target: target, within: scope)
+    }
+
+    private func parseTargetScope(_ value: JSONValue) -> ComputerTargetScope? {
+        guard case let .object(object) = value, case let .string(kind)? = object["by"] else { return nil }
+        switch kind {
+        case "index":
+            guard Set(object.keys).isSubset(of: ["by", "snapshotId", "index"]),
+                  case let .string(snapshotId)? = object["snapshotId"], isValidSelectorString(snapshotId),
+                  case let .number(rawIndex)? = object["index"], rawIndex.isFinite,
+                  rawIndex.rounded(.towardZero) == rawIndex, rawIndex >= 0, rawIndex <= Double(Int.max)
+            else { return nil }
+            return .index(snapshotId: snapshotId, index: Int(rawIndex))
+        case "role":
+            guard Set(object.keys).isSubset(of: ["by", "role", "name", "exact"]),
+                  case let .string(role)? = object["role"], isValidSelectorString(role),
+                  let exact = parseExact(object["exact"])
+            else { return nil }
+            let name: String?
+            if let rawName = object["name"] {
+                guard case let .string(value) = rawName, isValidSelectorString(value) else { return nil }
+                name = value
+            } else {
+                name = nil
+            }
+            return .role(role: role, name: name, exact: exact)
         default:
             return nil
         }
@@ -982,19 +1153,28 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
         }
     }
 
-    private func recoveryFailed(_ error: ComputerRecoveryError, requestId: String) -> ComputerProtocolResponse {
+    private func recoveryDetails(_ evidence: ComputerRecoveryEvidence) -> JSONValue? {
+        try? JSONValue.fromEncodable(evidence)
+    }
+
+    private func recoveryFailed(
+        _ error: ComputerRecoveryError,
+        details: JSONValue? = nil,
+        requestId: String
+    ) -> ComputerProtocolResponse {
         switch error {
         case .invalidRetryBudget:
             return protocolInvalid(requestId: requestId)
         case .targetNotFound:
-            return targetNotFound(requestId: requestId)
+            return targetNotFound(details: details, requestId: requestId)
         case .targetAmbiguous:
-            return targetAmbiguous(requestId: requestId)
+            return targetAmbiguous(details: details, requestId: requestId)
         case .staleSnapshot:
             return .failure(
                 requestId: requestId,
                 code: "COMPUTER_STALE_SNAPSHOT",
-                message: "Computer target snapshot is stale."
+                message: "Computer target snapshot is stale.",
+                details: details
             )
         case .unsafeGeometry, .unavailable:
             return actionFailed(requestId: requestId)
@@ -1010,7 +1190,8 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             return .failure(
                 requestId: requestId,
                 code: "COMPUTER_NEEDS_REPLAN",
-                message: "Computer state requires replanning."
+                message: "Computer state requires replanning.",
+                details: details
             )
         }
     }
@@ -1023,19 +1204,27 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
         )
     }
 
-    private func targetNotFound(requestId: String) -> ComputerProtocolResponse {
+    private func targetNotFound(
+        details: JSONValue? = nil,
+        requestId: String
+    ) -> ComputerProtocolResponse {
         .failure(
             requestId: requestId,
             code: "COMPUTER_TARGET_NOT_FOUND",
-            message: "Computer target was not found."
+            message: "Computer target was not found.",
+            details: details
         )
     }
 
-    private func targetAmbiguous(requestId: String) -> ComputerProtocolResponse {
+    private func targetAmbiguous(
+        details: JSONValue? = nil,
+        requestId: String
+    ) -> ComputerProtocolResponse {
         .failure(
             requestId: requestId,
             code: "COMPUTER_TARGET_AMBIGUOUS",
-            message: "Computer target is ambiguous."
+            message: "Computer target is ambiguous.",
+            details: details
         )
     }
 
@@ -1044,6 +1233,14 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             requestId: requestId,
             code: "COMPUTER_FOCUS_FAILED",
             message: "Computer focus verification failed."
+        )
+    }
+
+    private func needsReplan(requestId: String) -> ComputerProtocolResponse {
+        .failure(
+            requestId: requestId,
+            code: "COMPUTER_NEEDS_REPLAN",
+            message: "Computer state requires replanning."
         )
     }
 

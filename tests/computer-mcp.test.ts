@@ -19,13 +19,14 @@ const runtimes: RuntimeServices[] = [];
 class FakeComputerRuntime {
   readonly calls: Array<{ method: string; input?: unknown; options?: unknown }> = [];
   failMethod?: string;
+  failError?: ComputerError;
   rawFailure = false;
 
   private answer(method: string, input?: unknown, options?: unknown): unknown {
     this.calls.push({ method, ...(input !== undefined ? { input } : {}), ...(options !== undefined ? { options } : {}) });
     if (this.failMethod === method) {
       if (this.rawFailure) throw new Error("NATIVE_STDERR_CANARY REQUEST_ID_CANARY");
-      throw new ComputerError("COMPUTER_ACTION_FAILED");
+      throw this.failError ?? new ComputerError("COMPUTER_ACTION_FAILED");
     }
     switch (method) {
       case "health":
@@ -45,16 +46,40 @@ class FakeComputerRuntime {
           windowTitle: "Fixture",
           elements: [{
             index: 0,
+            parentIndex: null,
+            depth: 0,
             role: "button",
             title: "Go",
             enabled: true,
             bounds: { x: 10, y: 20, width: 0, height: 0 },
+            actions: ["AXPress"],
+            scroll: { scrollable: false, axes: [] },
           }],
           truncated: false,
           digest: "digest-1",
+          perception: {
+            axQuality: "weak",
+            webContentAccessible: false,
+            ocrUsed: true,
+            recommendedTargeting: "ocr",
+            ocrCandidates: [{
+              text: "Plugins",
+              bounds: { x: 100, y: 120, width: 80, height: 24 },
+              confidence: 0.93,
+              source: "vision-fast",
+            }],
+          },
         };
       case "screenshot":
-        return { pngBase64: "iVBORw0KGgo=", width: 2, height: 3 };
+        return {
+          pngBase64: "iVBORw0KGgo=",
+          width: 2,
+          height: 3,
+          captureKind: "display",
+          screenBounds: { x: -1, y: 10, width: 1, height: 1.5 },
+          scaleX: 0.5,
+          scaleY: 0.5,
+        };
       case "pointerPosition":
         return { x: 10, y: 20 };
       case "openApp":
@@ -63,6 +88,10 @@ class FakeComputerRuntime {
         return { name: "Fixture", bundleIdentifier: "com.example.fixture", frontmost: true };
       case "waitUntilChanged":
         return { digest: "digest-2" };
+      case "waitForText":
+        return { state: "completed" };
+      case "scrollUntilVisible":
+        return { state: "target_visible", stepsUsed: 0, changed: false };
       case "run": {
         const actions = (input as { actions: ComputerAction[] }).actions;
         return {
@@ -74,7 +103,10 @@ class FakeComputerRuntime {
         };
       }
       default:
-        return { state: "completed" };
+        return {
+          state: "completed_unverified",
+          verification: { kind: "none", changed: null },
+        };
     }
   }
 
@@ -90,6 +122,7 @@ class FakeComputerRuntime {
   async click(input: unknown) { return this.answer("click", input); }
   async drag(input: unknown) { return this.answer("drag", input); }
   async scroll(input: unknown) { return this.answer("scroll", input); }
+  async scrollUntilVisible(input: unknown) { return this.answer("scrollUntilVisible", input); }
   async typeText(input: unknown) { return this.answer("typeText", input); }
   async pressKey(input: unknown) { return this.answer("pressKey", input); }
   async waitForFrontmost(input: unknown) { return this.answer("waitForFrontmost", input); }
@@ -200,6 +233,7 @@ const expectedComputerTools = [
   "computer_click",
   "computer_drag",
   "computer_scroll",
+  "computer_scroll_until_visible",
   "computer_type_text",
   "computer_press_key",
   "computer_release_inputs",
@@ -243,6 +277,118 @@ describe("computer MCP tools", () => {
       expect(byName.get("computer_open_app")?.description).toMatch(/do not substitute.*browser_\*/i);
       expect(byName.get("computer_run")?.description).toMatch(/physical mouse.*keyboard/i);
       expect(byName.get("computer_run")?.description).toContain("com.google.Chrome");
+      expect(byName.get("computer_observe")?.description).toMatch(/perception\.recommendedTargeting/i);
+      expect(byName.get("computer_observe")?.description).toMatch(/ocrText/);
+      expect(byName.get("computer_observe")?.description).toMatch(/visual-point/);
+      expect(byName.get("computer_observe")?.description).toMatch(/blind.*point/i);
+      const observeOutputSchema = byName.get("computer_observe")?.outputSchema as {
+        properties?: {
+          elements?: {
+            items?: {
+              properties?: {
+                parentIndex?: unknown;
+                depth?: unknown;
+                actions?: { maxItems?: number };
+                scroll?: {
+                  properties?: { axes?: { items?: { enum?: string[] } } };
+                  required?: string[];
+                };
+              };
+              required?: string[];
+            };
+          };
+          perception?: {
+            properties?: {
+              axQuality?: { enum?: string[] };
+              recommendedTargeting?: { enum?: string[] };
+              ocrCandidates?: { maxItems?: number };
+            };
+          };
+        };
+        required?: string[];
+      };
+      expect(observeOutputSchema.required).toContain("perception");
+      expect(observeOutputSchema.properties?.perception?.properties?.axQuality?.enum).toEqual(["strong", "partial", "weak"]);
+      expect(observeOutputSchema.properties?.perception?.properties?.recommendedTargeting?.enum).toEqual(["ax", "ocr", "visual-point"]);
+      expect(observeOutputSchema.properties?.perception?.properties?.ocrCandidates?.maxItems).toBe(64);
+
+      const elementSchema = observeOutputSchema.properties?.elements?.items;
+      expect(elementSchema?.properties).toHaveProperty("parentIndex");
+      expect(elementSchema?.properties).toHaveProperty("depth");
+      expect(elementSchema?.properties?.actions?.maxItems).toBe(16);
+      expect(elementSchema?.properties?.scroll?.required).toEqual(expect.arrayContaining(["scrollable", "axes"]));
+      expect(elementSchema?.properties?.scroll?.properties?.axes?.items?.enum).toEqual(["vertical", "horizontal"]);
+      expect(elementSchema?.required).toEqual(expect.arrayContaining(["index", "parentIndex", "depth", "role", "actions", "scroll"]));
+
+      expect(byName.get("computer_observe")?.description).toMatch(/semantic AX/i);
+      expect(byName.get("computer_observe")?.description).toMatch(/scoped.*scroll/i);
+      expect(byName.get("computer_observe")?.description).toMatch(/OCR fallback/i);
+      expect(byName.get("computer_observe")?.description).toMatch(/fresh screenshot/i);
+      expect(byName.get("computer_observe")?.description).toMatch(/one.*point attempt/i);
+      expect(byName.get("computer_observe")?.description).toMatch(/unchanged.*point.*scroll/i);
+
+      const screenshotOutputSchema = byName.get("computer_screenshot")?.outputSchema as {
+        properties?: {
+          captureKind?: { const?: string };
+          screenBounds?: { required?: string[] };
+          scaleX?: { exclusiveMinimum?: number };
+          scaleY?: { exclusiveMinimum?: number };
+        };
+        required?: string[];
+      };
+      expect(screenshotOutputSchema.properties?.captureKind?.const).toBe("display");
+      expect(screenshotOutputSchema.required).toEqual(expect.arrayContaining([
+        "width", "height", "captureKind", "screenBounds", "scaleX", "scaleY",
+      ]));
+      expect(screenshotOutputSchema.properties?.screenBounds?.required).toEqual(expect.arrayContaining([
+        "x", "y", "width", "height",
+      ]));
+      expect(screenshotOutputSchema.properties?.scaleX?.exclusiveMinimum).toBe(0);
+      expect(screenshotOutputSchema.properties?.scaleY?.exclusiveMinimum).toBe(0);
+
+      const scrollUntilVisible = byName.get("computer_scroll_until_visible");
+      expect(scrollUntilVisible?.description).toMatch(/deterministic scroll container/i);
+      expect(scrollUntilVisible?.description).toMatch(/fresh.*observe.*needs_replan/i);
+      expect(scrollUntilVisible?.description).toMatch(/never.*blind.*raw scroll/i);
+      const boundedScrollInput = scrollUntilVisible?.inputSchema as {
+        properties?: {
+          direction?: { enum?: string[] };
+          amount?: { enum?: string[] };
+          maxSteps?: { minimum?: number; maximum?: number };
+        };
+      };
+      expect(boundedScrollInput.properties?.direction?.enum).toEqual(["up", "down", "left", "right"]);
+      expect(boundedScrollInput.properties?.amount?.enum).toEqual(["small", "page"]);
+      expect(boundedScrollInput.properties?.maxSteps).toMatchObject({ minimum: 1, maximum: 6 });
+      const boundedScrollOutput = scrollUntilVisible?.outputSchema as {
+        properties?: { state?: { enum?: string[] } };
+      };
+      expect(boundedScrollOutput.properties?.state?.enum).toEqual(["target_visible", "boundary_reached", "needs_replan"]);
+
+      const clickOutputSchema = byName.get("computer_click")?.outputSchema as {
+        properties?: {
+          state?: { enum?: string[] };
+          verification?: {
+            properties?: { kind?: { enum?: string[] } };
+            required?: string[];
+          };
+        };
+      };
+      expect(clickOutputSchema.properties?.state?.enum).toEqual(["verified", "completed_unverified"]);
+      expect(clickOutputSchema.properties?.verification?.properties?.kind?.enum).toEqual(["ax", "text", "screen-region", "none"]);
+      expect(clickOutputSchema.properties?.verification?.required).toContain("changed");
+
+      const waitForTextOutputSchema = byName.get("computer_wait_for_text")?.outputSchema as {
+        properties?: { state?: { const?: string } };
+      };
+      expect(waitForTextOutputSchema.properties?.state?.const).toBe("completed");
+
+      const pressKeySchema = byName.get("computer_press_key")?.inputSchema as {
+        properties?: { key?: { enum?: string[] } };
+      };
+      expect(pressKeySchema.properties?.key?.enum).toEqual(expect.arrayContaining([
+        "return", "enter", "esc", "backspace", "ArrowLeft", "F12", "A",
+      ]));
     } finally {
       await transport.terminateSession();
       await client.close();
@@ -291,6 +437,18 @@ describe("computer MCP tools", () => {
         snapshotId: "snap-1",
         digest: "digest-1",
         elements: [{ bounds: { x: 10, y: 20, width: 0, height: 0 } }],
+        perception: {
+          axQuality: "weak",
+          webContentAccessible: false,
+          ocrUsed: true,
+          recommendedTargeting: "ocr",
+          ocrCandidates: [{
+            text: "Plugins",
+            bounds: { x: 100, y: 120, width: 80, height: 24 },
+            confidence: 0.93,
+            source: "vision-fast",
+          }],
+        },
       });
       expect(textContent(adminObserve)).toContain("snap-1");
     } finally {
@@ -362,7 +520,15 @@ describe("computer MCP tools", () => {
           authorityLeaseId: admin.leaseId,
           finalObservation: "none",
           actions: [
-            { type: "click", target: { by: "text", text: "Run", exact: true } },
+            {
+              type: "click",
+              target: {
+                by: "text",
+                text: "Run",
+                exact: true,
+                within: { by: "role", role: "AXGroup", name: "Modal", exact: true },
+              },
+            },
           ],
         },
       });
@@ -371,7 +537,15 @@ describe("computer MCP tools", () => {
       expect(fake.calls).toContainEqual(expect.objectContaining({
         method: "run",
         input: expect.objectContaining({
-          actions: [{ type: "click", target: { by: "text", text: "Run", exact: true } }],
+          actions: [{
+            type: "click",
+            target: {
+              by: "text",
+              text: "Run",
+              exact: true,
+              within: { by: "role", role: "AXGroup", name: "Modal", exact: true },
+            },
+          }],
         }),
       }));
     } finally {
@@ -388,14 +562,135 @@ describe("computer MCP tools", () => {
         name: "computer_click",
         arguments: {
           authorityLeaseId: admin.leaseId,
-          target: { by: "role", role: "AXButton", name: "Submit", exact: true },
+          target: {
+            by: "role",
+            role: "AXButton",
+            name: "Submit",
+            exact: true,
+            within: { by: "index", snapshotId: "snap-1", index: 10 },
+          },
         },
       });
 
       expect(click.isError).not.toBe(true);
       expect(fake.calls).toContainEqual({
         method: "click",
-        input: { target: { by: "role", role: "AXButton", name: "Submit", exact: true }, count: 1 },
+        input: {
+          target: {
+            by: "role",
+            role: "AXButton",
+            name: "Submit",
+            exact: true,
+            within: { by: "index", snapshotId: "snap-1", index: 10 },
+          },
+          count: 1,
+        },
+      });
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("normalizes canonical key aliases for direct and batched actions and rejects unknown keys before runtime", async () => {
+    const { runtime, fake, client, transport } = await fixture();
+    try {
+      const admin = await runtime.authority.start({ profile: "admin" });
+      const cases = [
+        ["Enter", "return"],
+        ["Esc", "escape"],
+        ["Backspace", "delete"],
+        ["ArrowLeft", "left"],
+        ["F12", "f12"],
+        ["A", "a"],
+      ] as const;
+
+      for (const [inputKey, canonicalKey] of cases) {
+        const result = await client.callTool({
+          name: "computer_press_key",
+          arguments: {
+            authorityLeaseId: admin.leaseId,
+            key: inputKey,
+            bundleIdentifier: "com.example.fixture",
+          },
+        });
+        expect(result.isError).not.toBe(true);
+        expect(fake.calls.at(-1)).toMatchObject({
+          method: "pressKey",
+          input: { key: canonicalKey, bundleIdentifier: "com.example.fixture" },
+        });
+      }
+
+      const batch = await client.callTool({
+        name: "computer_run",
+        arguments: {
+          authorityLeaseId: admin.leaseId,
+          finalObservation: "none",
+          actions: [
+            { type: "press_key", key: "Enter", bundleIdentifier: "com.example.fixture" },
+          ],
+        },
+      });
+      expect(batch.isError).not.toBe(true);
+      expect(fake.calls.at(-1)).toMatchObject({
+        method: "run",
+        input: {
+          actions: [{ type: "press_key", key: "return", bundleIdentifier: "com.example.fixture" }],
+        },
+      });
+
+      const callsBeforeInvalid = fake.calls.length;
+      const invalid = await client.callTool({
+        name: "computer_press_key",
+        arguments: {
+          authorityLeaseId: admin.leaseId,
+          key: "HyperSuperKey",
+          bundleIdentifier: "com.example.fixture",
+        },
+      });
+      expect(invalid.isError).toBe(true);
+      expect(fake.calls).toHaveLength(callsBeforeInvalid);
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("enforces strict bounded-scroll schema and routes a valid semantic request", async () => {
+    const { runtime, fake, client, transport } = await fixture();
+    try {
+      const admin = await runtime.authority.start({ profile: "admin" });
+      const base = {
+        authorityLeaseId: admin.leaseId,
+        target: { by: "text", text: "Refresh", exact: true },
+        within: { by: "role", role: "AXScrollArea", name: "Plugins", exact: true },
+      };
+
+      for (const argumentsValue of [
+        { ...base, direction: "down", maxSteps: 7 },
+        { ...base, direction: "diagonal", maxSteps: 2 },
+        { ...base, direction: "down", maxSteps: 2, arbitrary: true },
+      ]) {
+        const invalid = await client.callTool({ name: "computer_scroll_until_visible", arguments: argumentsValue });
+        expect(invalid.isError).toBe(true);
+      }
+      expect(fake.calls).toHaveLength(0);
+
+      const valid = await client.callTool({
+        name: "computer_scroll_until_visible",
+        arguments: { ...base, direction: "down", amount: "small", maxSteps: 4 },
+      });
+      expect(valid.isError).not.toBe(true);
+      expect(valid.structuredContent).toEqual({ state: "target_visible", stepsUsed: 0, changed: false });
+      expect(fake.calls).toContainEqual({
+        method: "scrollUntilVisible",
+        input: {
+          target: { by: "text", text: "Refresh", exact: true },
+          within: { by: "role", role: "AXScrollArea", name: "Plugins", exact: true },
+          direction: "down",
+          amount: "small",
+          maxSteps: 4,
+        },
       });
     } finally {
       await transport.terminateSession();
@@ -413,8 +708,55 @@ describe("computer MCP tools", () => {
       });
       expect(screenshot.isError).not.toBe(true);
       expect(screenshot.content).toContainEqual({ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" });
-      expect(screenshot.structuredContent).toEqual({ width: 2, height: 3 });
+      expect(screenshot.structuredContent).toEqual({
+        width: 2,
+        height: 3,
+        captureKind: "display",
+        screenBounds: { x: -1, y: 10, width: 1, height: 1.5 },
+        scaleX: 0.5,
+        scaleY: 0.5,
+      });
       expect(JSON.stringify(screenshot.structuredContent)).not.toContain("pngBase64");
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("returns only bounded recovery evidence in MCP computer error details", async () => {
+    const { runtime, fake, client, transport } = await fixture();
+    try {
+      const admin = await runtime.authority.start({ profile: "admin" });
+      fake.failMethod = "click";
+      fake.failError = new ComputerError("COMPUTER_TARGET_AMBIGUOUS", {
+        candidateCount: 2,
+        scopeResolved: false,
+        activeScrollContainerCount: 1,
+        recommendedRecovery: "scope-target",
+        targetText: "Sensitive Missing Label",
+      });
+
+      const failed = await client.callTool({
+        name: "computer_click",
+        arguments: {
+          authorityLeaseId: admin.leaseId,
+          target: { by: "text", text: "Sensitive Missing Label", exact: true },
+        },
+      });
+
+      expect(failed.isError).toBe(true);
+      const payload = JSON.parse(textContent(failed)) as Record<string, unknown>;
+      expect(payload).toMatchObject({
+        error: "COMPUTER_TARGET_AMBIGUOUS",
+        details: {
+          candidateCount: 2,
+          scopeResolved: false,
+          activeScrollContainerCount: 1,
+          recommendedRecovery: "scope-target",
+        },
+      });
+      expect(JSON.stringify(payload)).not.toContain("Sensitive Missing Label");
+      expect((payload.details as Record<string, unknown>)).not.toHaveProperty("targetText");
     } finally {
       await transport.terminateSession();
       await client.close();

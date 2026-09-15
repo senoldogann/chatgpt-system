@@ -569,8 +569,15 @@ const computerBoundsOutputSchema = z.object({
   height: z.number().nonnegative(),
 });
 
+const computerScrollCapabilityOutputSchema = z.object({
+  scrollable: z.boolean(),
+  axes: z.array(z.enum(["vertical", "horizontal"])).max(2),
+}).strict();
+
 const computerElementOutputSchema = z.object({
   index: z.number().int().nonnegative(),
+  parentIndex: z.number().int().nonnegative().nullable(),
+  depth: z.number().int().nonnegative(),
   role: z.string(),
   subrole: z.string().optional(),
   title: z.string().optional(),
@@ -579,7 +586,24 @@ const computerElementOutputSchema = z.object({
   enabled: z.boolean().optional(),
   selected: z.boolean().optional(),
   bounds: computerBoundsOutputSchema.optional(),
-});
+  actions: z.array(z.string().max(128)).max(16),
+  scroll: computerScrollCapabilityOutputSchema,
+}).strict();
+
+const computerOcrCandidateOutputSchema = z.object({
+  text: z.string().max(512),
+  bounds: computerBoundsOutputSchema,
+  confidence: z.number().min(0).max(1).nullable(),
+  source: z.enum(["vision-fast", "vision-accurate"]),
+}).strict();
+
+const computerPerceptionOutputSchema = z.object({
+  axQuality: z.enum(["strong", "partial", "weak"]),
+  webContentAccessible: z.boolean().nullable(),
+  ocrUsed: z.boolean(),
+  recommendedTargeting: z.enum(["ax", "ocr", "visual-point"]),
+  ocrCandidates: z.array(computerOcrCandidateOutputSchema).max(64),
+}).strict();
 
 export const computerHealthOutputSchema = z.object({
   enabled: z.boolean(),
@@ -607,13 +631,28 @@ export const computerObservationOutputSchema = z.object({
   elements: z.array(computerElementOutputSchema),
   truncated: z.boolean(),
   digest: z.string().optional(),
-});
+  perception: computerPerceptionOutputSchema,
+}).strict();
 
 export const computerActionResultOutputSchema = z.object({
-  state: z.string(),
+  state: z.enum(["verified", "completed_unverified"]),
   pointer: computerPointOutputSchema.optional(),
   changed: z.boolean().optional(),
-});
+  verification: z.object({
+    kind: z.enum(["ax", "text", "screen-region", "none"]),
+    changed: z.boolean().nullable(),
+  }).strict().optional(),
+}).strict();
+
+export const computerScrollUntilVisibleOutputSchema = z.object({
+  state: z.enum(["target_visible", "boundary_reached", "needs_replan"]),
+  stepsUsed: z.number().int().min(0).max(6),
+  changed: z.boolean(),
+}).strict();
+
+export const computerWaitResultOutputSchema = z.object({
+  state: z.literal("completed"),
+}).strict();
 
 export const computerChangedDigestOutputSchema = z.object({
   digest: z.string(),
@@ -622,7 +661,16 @@ export const computerChangedDigestOutputSchema = z.object({
 export const computerScreenshotMetadataOutputSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
-});
+  captureKind: z.literal("display"),
+  screenBounds: z.object({
+    x: z.number(),
+    y: z.number(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+  }).strict(),
+  scaleX: z.number().positive(),
+  scaleY: z.number().positive(),
+}).strict();
 
 const computerRunStepTypeSchema = z.enum([
   "observe",

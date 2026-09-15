@@ -223,6 +223,101 @@ final class VerificationTests: XCTestCase {
         XCTAssertEqual(digest.count, 64)
     }
 
+    func testVerificationEvidenceEncodingPreservesNullableChangedField() throws {
+        let evidence = ComputerVerificationEvidence(kind: .none, changed: nil)
+        let data = try JSONEncoder().encode(evidence)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertTrue(json.keys.contains("changed"))
+        XCTAssertTrue(json["changed"] is NSNull)
+    }
+
+    func testMutationWithoutVerificationReturnsCompletedUnverified() async throws {
+        let service = ComputerHostService(
+            permissions: VerificationPermissions(),
+            workspace: VerificationWorkspace(frontmostSequence: [], apps: []),
+            actions: ComputerActionService(controller: verificationController())
+        )
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "unverified-click",
+            method: "click",
+            params: .object([
+                "x": .number(10),
+                "y": .number(10),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let result = try decodeVerificationResult(ComputerActionResult.self, response: response)
+        XCTAssertEqual(result.state, "completed_unverified")
+        XCTAssertEqual(result.verification?.kind, ComputerVerificationKind.none)
+        XCTAssertNil(result.verification?.changed)
+    }
+
+    func testSuccessfulAXVerificationReturnsVerifiedEvidence() async throws {
+        let log = VerificationCallLog()
+        let service = ComputerHostService(
+            permissions: VerificationPermissions(),
+            workspace: VerificationWorkspace(frontmostSequence: [], apps: []),
+            actions: ComputerActionService(
+                controller: verificationActionController(log: log),
+                verification: RecordingVerificationHandler(log: log)
+            )
+        )
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "verified-click",
+            method: "click",
+            params: .object([
+                "x": .number(10),
+                "y": .number(10),
+                "motionMode": .string("instant"),
+                "verify": .object(["kind": .string("ax_changed"), "timeoutMs": .number(50)]),
+            ])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let result = try decodeVerificationResult(ComputerActionResult.self, response: response)
+        XCTAssertEqual(result.state, "verified")
+        XCTAssertEqual(result.verification?.kind, .ax)
+        XCTAssertEqual(result.verification?.changed, true)
+    }
+
+    func testSuccessfulTextVerificationDoesNotClaimStateChanged() async throws {
+        let log = VerificationCallLog()
+        let service = ComputerHostService(
+            permissions: VerificationPermissions(),
+            workspace: VerificationWorkspace(frontmostSequence: [], apps: []),
+            actions: ComputerActionService(
+                controller: verificationActionController(log: log),
+                verification: RecordingVerificationHandler(log: log)
+            )
+        )
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "verified-text-click",
+            method: "click",
+            params: .object([
+                "x": .number(10),
+                "y": .number(10),
+                "motionMode": .string("instant"),
+                "verify": .object([
+                    "kind": .string("text_appeared"),
+                    "text": .string("Ready"),
+                    "timeoutMs": .number(50),
+                ]),
+            ])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let result = try decodeVerificationResult(ComputerActionResult.self, response: response)
+        XCTAssertEqual(result.state, "verified")
+        XCTAssertEqual(result.verification?.kind, .text)
+        XCTAssertNil(result.verification?.changed)
+        XCTAssertNil(result.changed)
+    }
+
     func testActionVerifyAXChangedCapturesBaselineBeforeMutationAndWaitsAfterSuccess() async throws {
         let log = VerificationCallLog()
         let handler = RecordingVerificationHandler(log: log)
@@ -360,6 +455,11 @@ final class VerificationTests: XCTestCase {
             XCTAssertEqual(response.error?.code, "COMPUTER_PROTOCOL_INVALID")
         }
     }
+}
+
+private func decodeVerificationResult<T: Decodable>(_ type: T.Type, response: ComputerProtocolResponse) throws -> T {
+    let result = try XCTUnwrap(response.result)
+    return try JSONDecoder().decode(type, from: JSONEncoder().encode(result))
 }
 
 private final class VerificationWorkspace: WorkspaceReading, @unchecked Sendable {

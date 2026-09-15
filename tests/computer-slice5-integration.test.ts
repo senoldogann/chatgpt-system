@@ -122,6 +122,18 @@ class FixtureNative implements ComputerNativeRequesting {
         windowTitle: "Computer Runtime v2 Fixture",
         elements: [],
         truncated: false,
+        perception: {
+          axQuality: "weak",
+          webContentAccessible: false,
+          ocrUsed: true,
+          recommendedTargeting: "ocr",
+          ocrCandidates: [{
+            text: "Fixture Visual Submit",
+            bounds: { x: 400, y: 236, width: 340, height: 52 },
+            confidence: 0.95,
+            source: "vision-fast",
+          }],
+        },
       };
     }
     if (PHYSICAL_METHODS.has(method)) {
@@ -131,7 +143,7 @@ class FixtureNative implements ComputerNativeRequesting {
       }
       this.actuated.push(method);
     }
-    return { state: "completed" };
+    return { state: "completed_unverified" };
   }
 
   async close(): Promise<void> {}
@@ -188,6 +200,28 @@ describe("computer runtime v2 slice 5 recovery integration", () => {
       }),
     ).rejects.toMatchObject({ code: "COMPUTER_STALE_SNAPSHOT" });
     expect(native.actuatedCalls()).toEqual([]);
+  });
+
+  it("preserves bounded perception metadata on refreshed observations", async () => {
+    const { computer } = createRuntime();
+
+    const observation = await computer.refreshObservation() as {
+      perception?: {
+        axQuality: string;
+        webContentAccessible: boolean | null;
+        ocrUsed: boolean;
+        recommendedTargeting: string;
+        ocrCandidates: Array<{ text: string; source: string }>;
+      };
+    };
+
+    expect(observation.perception).toMatchObject({
+      axQuality: "weak",
+      webContentAccessible: false,
+      ocrUsed: true,
+      recommendedTargeting: "ocr",
+      ocrCandidates: [{ text: "Fixture Visual Submit", source: "vision-fast" }],
+    });
   });
 
   it("recovers a text target from a fresh observation after a reorder", async () => {

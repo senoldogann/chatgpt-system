@@ -33,6 +33,29 @@ final class TargetResolverTests: XCTestCase {
         }
     }
 
+    func testScopedTextRestrictsMatchesToContainerDescendants() throws {
+        let context = makeContext(elements: [
+            element(index: 10, role: "AXGroup", title: "Plugin details", bounds: bounds(100, 100, 500, 500)),
+            element(index: 11, parentIndex: 10, role: "AXButton", title: "Refresh", bounds: bounds(200, 200, 100, 30)),
+            element(index: 20, role: "AXButton", title: "Refresh", bounds: bounds(900, 200, 100, 30)),
+        ])
+
+        XCTAssertThrowsError(try resolver.resolve(target: .text(text: "Refresh", exact: true), in: context)) {
+            XCTAssertEqual($0 as? ComputerTargetResolutionError, .ambiguous)
+        }
+
+        let resolved = try resolver.resolve(
+            target: .scoped(
+                target: .text(text: "Refresh", exact: true),
+                within: .index(snapshotId: "obs-current", index: 10)
+            ),
+            in: context
+        )
+
+        XCTAssertEqual(resolved.source, .ax)
+        XCTAssertEqual(resolved.actionPoint, ComputerPoint(x: 250, y: 215))
+    }
+
     func testOldIndexSnapshotIsStaleBeforeIndexLookup() {
         let context = makeContext(elements: [
             element(index: 3, role: "AXButton", title: "Run", bounds: bounds(10, 10, 80, 30)),
@@ -145,6 +168,7 @@ final class TargetResolverTests: XCTestCase {
 
     private func element(
         index: Int,
+        parentIndex: Int? = nil,
         role: String,
         title: String?,
         description: String? = nil,
@@ -153,6 +177,7 @@ final class TargetResolverTests: XCTestCase {
     ) -> ComputerElementView {
         ComputerElementView(
             index: index,
+            parentIndex: parentIndex,
             role: role,
             subrole: nil,
             title: title,

@@ -133,7 +133,7 @@ The runtime never executes repository `.build/release` output as the production 
 
 ## 3a. Build, sign, and install Computer Runtime v2
 
-The native helper remains under `native/macos-computer-runtime`, requires macOS 14+, and communicates only through inherited stdin/stdout using strict bounded NDJSON. Slice 3 established the TypeScript supervisor, Admin policy, strict low-level MCP registration, bounded typed `computer_run`, stable daily-driver installation, takeover safety, and ordered shutdown cleanup. Slice 4 added the separate full-host JavaScript runner. Slice 5 adds native target resolution/recovery, focused-display Vision OCR fallback, semantic physical-action inputs, and matching semantic helpers inside `computer_run_js`.
+The native helper remains under `native/macos-computer-runtime`, requires macOS 14+, and communicates only through inherited stdin/stdout using strict bounded NDJSON. Slice 3 established the TypeScript supervisor, Admin policy, strict low-level MCP registration, bounded typed `computer_run`, stable daily-driver installation, takeover safety, and ordered shutdown cleanup. Slice 4 added the separate full-host JavaScript runner. Slice 5 adds native target resolution/recovery, focused-window Vision OCR enrichment, semantic physical-action inputs, and matching semantic helpers inside `computer_run_js`.
 
 Run:
 
@@ -182,11 +182,19 @@ Use the least powerful deterministic route that can satisfy the task:
 5. Use `ocrText` only when structured AX evidence is insufficient or the target is deliberately visual-only. The recovery ladder is bounded to fast then accurate Vision OCR and never retries without limit.
 6. Use explicit point targets only when the caller supplied the point. Ambiguous, stale, unsafe, permission, takeover, and exhausted-recovery states fail closed instead of guessing coordinates.
 
+For normal Chrome, an already-running `com.google.Chrome` is reused and may be focused, but it is never silently restarted to change accessibility flags. Only when Computer Runtime itself starts a stopped real Google Chrome does it pass `--force-renderer-accessibility=complete`; it does not add a temporary `--user-data-dir` or substitute Chrome for Testing, so the normal default profile/session remains the target.
+
+The public key contract is finite and normalized before native IPC. Canonical names include `return`, `escape`, `delete`, `forward_delete`, arrows, navigation keys, letters/digits, and F1-F12. Explicit aliases include `enter -> return`, `esc -> escape`, `backspace -> delete`, `forwarddelete -> forward_delete`, page-navigation aliases, and arrow aliases. Unknown key names are rejected before native dispatch.
+
 Direct `computer_move_mouse`, `computer_click`, `computer_drag`, and positioned `computer_scroll` accept semantic targets in the Slice 5 branch contract; typed `computer_run` has the same semantic-target parity. `computer_run_js` exposes `resolve`, `resolveMany`, `exists`, and `refreshObservation`, plus semantic action inputs. `exists` returns `false` only for target-not-found and propagates ambiguity/stale/permission/takeover failures.
 
-The current Vision recovery path captures the **focused display**, not a cropped target region. Region verification itself is cropped and digest-only. Repeated identical visible text on the focused display can therefore make an OCR target ambiguous and produce `COMPUTER_NEEDS_REPLAN`; callers should narrow the visible state rather than guess. Cached observations are bounded/in-memory, but known UI reorders should be followed by explicit fresh observation before the next semantic mutation.
+When AX is weak, ordinary `computer_observe` can enrich the fresh observation with structured Vision OCR from the **focused AX window only**. The runtime captures the focused display only as the safe ScreenCaptureKit source, crops it to validated focused-window bounds, and never silently broadens automatic OCR to the full display. Fast Vision runs first; accurate Vision may run once only when the fast pass yields zero acceptable candidates. Output is bounded to 64 candidates, 512 characters per candidate, 8192 aggregate OCR characters, and confidence below 0.5 is dropped when Vision supplies confidence.
+
+`computer_observe.perception` reports `axQuality`, required-nullable `webContentAccessible`, `ocrUsed`, `recommendedTargeting`, and bounded `ocrCandidates`. For non-Chrome applications `webContentAccessible` is explicitly JSON `null`, not omitted. Candidate `confidence` is likewise present as a number or JSON `null`. Use `recommendedTargeting=ax` for AX role/text/index, `ocr` for returned `ocrText` candidates, and `visual-point` only after a fresh screenshot with at most one explicit verified point attempt. A failed visual point is a replan boundary; do not repeat blind coordinates. Repeated OCR text remains ambiguous and fails closed instead of choosing a coordinate. Cached observations are bounded/in-memory, and known UI reorders should be followed by an explicit fresh observation before the next semantic mutation.
 
 Real-Mac acceptance on 2026-09-12 used the exact signed helper identity (`tccIdentityStable: true`) with Accessibility, Screen Recording, event-listen, and event-post readiness all true. Recorded evidence was content-free timing/count metadata only:
+
+> Historical baseline: these 2026-09-12 measurements predate the focused-window perception-reliability slice. Rows labeled focused-display OCR describe the then-current implementation and are retained only as baseline evidence, not as the current automatic OCR contract.
 
 | Acceptance probe | Result |
 | --- | --- |
@@ -208,6 +216,24 @@ Real-Mac acceptance on 2026-09-12 used the exact signed helper identity (`tccIde
 The timing values are one controlled acceptance run, not latency guarantees. Native IPC counts above are logical request counts at the TypeScript/native boundary; internal Vision candidate work is deliberately not persisted in audit logs.
 
 An independent repeat after the fresh-observation recovery-cache fix measured 44.5 ms cold / 7.3 ms warm native health, 2.9-12.3 ms warm Calculator AX resolution, a 220.9 ms main-display screenshot, a 1694.6 ms focused-display OCR resolve, and a 318.9 ms Calculator `active_window` + fresh observe + `resolveMany` + five semantic moves + screenshot workflow using 9 logical native IPC requests. Finder, TextEdit, System Settings, and Chrome also completed harmless frontmost/observation smoke checks; System Settings had one transient `openApp` unavailable result even though it became frontmost, after which `active_window` and fresh observation succeeded.
+
+### 2026-09-15 perception-reliability acceptance and publication
+
+The clean runtime-verification baseline before this documentation follow-up was `integration/computer-use-perception-native-verification` at exact HEAD `35ec7a7595f4f8eab4dfe1ebace260dbce6d0af1`. It contains the cached-OCR zero-retry fix plus `main@4c94c42`, and `origin` was independently re-read at the same SHA after guarded publication. Documentation-only commits may sit above that code baseline; re-read remote truth before making a publication claim.
+
+Verification tied to that exact clean HEAD:
+
+- focused TypeScript integration suites: **80/80 passed**;
+- native macOS Computer Runtime suite: **215/215 passed**;
+- full `npm run check`: **722 passed, 2 skipped, 0 failed**;
+- freshness-bound `project_check`: **PASS**, with matching HEAD and working-tree digest;
+- runtime and fixture release packaging: **PASS**;
+- staged runtime/fixture `codesign --verify --strict --deep`: **PASS**;
+- installed daily-driver runtime: signer `ComputerUse Dev`, stable designated requirement preserved.
+
+Acceptance B is verified on an already-running normal Chrome process: weak web AX produced `axQuality=weak`, `webContentAccessible=false`, focused-window OCR candidates, and `recommendedTargeting=ocr` without restarting Chrome. A live regression that previously returned target-not-found for a unique cached `ocrText` target with `retryBudget=0` navigated successfully after the fix; zero retry still forbids fresh-context/on-demand retry work.
+
+Acceptance C is **not** recorded as passed. The current user-level Plugins settings and public plugin-detail surfaces exposed edit/view/disconnect/delete controls but no Refresh action, and the current account UI did not expose a Workspace-admin action-control surface. Do not simulate success with blind coordinates, repeated point attempts, disconnect/recreate, or Browser Runtime substitution. Rerun this acceptance only when a supported Refresh surface is actually available, using `computer_*` end-to-end and preserving the no-restart Chrome policy.
 
 ## 4. Install the browser binary
 
@@ -714,7 +740,7 @@ Browser page IDs and diagnostic buffers are in-memory only. The dedicated browse
 
 Validate Web first, then Desktop with the same installed plugin/backend. Do not create a second permanent authority implementation for Desktop. Count actual MCP calls, not UI labels, as acceptance evidence.
 
-Browser Runtime exists so normal web tasks can prefer deterministic semantic automation. Computer Runtime v2 Slice 5 is the separate Admin-gated native desktop-control surface. ChatGPT can use direct semantic/coordinate computer tools, typed `computer_run`, and separately gated owner-trust `computer_run_js`; the native helper owns AX-first resolution, bounded recovery, focused-display Vision fallback, and fail-closed stale/ambiguous target handling.
+Browser Runtime exists so normal web tasks can prefer deterministic semantic automation. Computer Runtime v2 Slice 5 is the separate Admin-gated native desktop-control surface. ChatGPT can use direct semantic/coordinate computer tools, typed `computer_run`, and separately gated owner-trust `computer_run_js`; the native helper owns AX-first resolution, bounded recovery, focused-window Vision enrichment, and fail-closed stale/ambiguous target handling.
 
 ## 20. Troubleshooting order
 
@@ -762,7 +788,7 @@ Implemented:
 - stable fixed-path daily-driver helper signing/install plus disposable helper/fixture packaging;
 - lease-free `computer_health`, Admin-only strict `computer_*` MCP tools, bounded typed `computer_run`, and separately gated Admin-only `computer_run_js`;
 - fixed per-call full-host runner with stdin-only source, sanitized secret-bearing environment, bounded source/runtime/output, private low-level computer RPC, process-group cleanup for ordinary descendants, request cancellation, and takeover-fatal termination;
-- Slice 5 semantic AX/label/text/index/point/OCR targets, bounded recovery, stale-snapshot refusal, focused-display Vision fallback, and fresh-observation cache refresh;
+- Slice 5 semantic AX/label/text/index/point/OCR targets, bounded recovery, stale-snapshot refusal, focused-window Vision enrichment, and fresh-observation cache refresh;
 - lease expiry/revoke/isolation;
 - audit redaction.
 
@@ -770,3 +796,13 @@ Next separate capability layers:
 
 - no additional Computer Runtime feature layer is implied by Slice 5 completion; any expansion requires a separate plan;
 - typed root-only ServiceManagement/XPC operations only for concrete root-only needs.
+
+## Computer Use reliability v2 contract
+
+The structured `computer_observe` element contract exposes `parentIndex`, `depth`, bounded `actions`, and `scroll` capability metadata so the model can reason about hierarchy and deterministic containers instead of inferring layout from pixels. Semantic targets use the same scoped `within` form in standalone tools and `computer_run`; point targets remain explicit and are never silently promoted into semantic recovery.
+
+The decision ladder is: prefer semantic AX targeting first; for an off-screen semantic target in a known deterministic container, use scoped `computer_scroll_until_visible`; use bounded OCR fallback only when AX evidence is insufficient; after semantic options are exhausted, obtain a fresh screenshot. A visual fallback permits at most one verified point attempt against that fresh state. Do not repeat an unchanged point or scroll attempt: fresh observation and replanning are required.
+
+Mutation completion is evidence-aware. `verified` means the requested verifier succeeded; `completed_unverified` means physical dispatch completed without proof of the intended UI effect. Callers must not reinterpret event posting alone as verification. Screenshot metadata carries explicit display bounds and pixel-to-screen scales; bounded scrolling stops at six physical scrolls or earlier on an unchanged digest and never switches to raw coordinates automatically.
+
+Recovery error details remain non-sensitive and bounded. The public recovery evidence contains only `candidateCount`, `scopeResolved`, `activeScrollContainerCount`, and `recommendedRecovery` (`observe`, `scope-target`, `scroll`, `screenshot`, or `none`). Target text, OCR text, page content, native diagnostics, and guessed coordinates are not copied into these details; callers use the categorical recommendation together with a fresh observation when replanning.

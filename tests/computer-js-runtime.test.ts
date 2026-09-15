@@ -38,7 +38,7 @@ const computerConfig: ComputerUseConfig = {
 
 class FakeNative implements ComputerNativeRequesting {
   readonly calls: Array<{ method: ComputerNativeMethod; params: Record<string, unknown> }> = [];
-  responder: (method: ComputerNativeMethod, params: Record<string, unknown>) => Promise<unknown> | unknown = () => ({ state: "completed" });
+  responder: (method: ComputerNativeMethod, params: Record<string, unknown>) => Promise<unknown> | unknown = () => ({ state: "completed_unverified" });
 
   healthState() { return "running" as const; }
   async request(method: ComputerNativeMethod, params: Record<string, unknown>): Promise<unknown> {
@@ -191,7 +191,7 @@ describe("ComputerJsRuntime", () => {
           confidence: "deterministic",
         };
       }
-      return { state: "completed" };
+      return { state: "completed_unverified" };
     };
     supervisor.responder = async (request) => ({
       stdout: "",

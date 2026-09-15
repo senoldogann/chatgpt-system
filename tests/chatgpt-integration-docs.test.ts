@@ -22,6 +22,19 @@ describe("ChatGPT custom-app recovery runbook", () => {
     }
   });
 
+  it("documents the bounded Computer Use reliability decision ladder", async () => {
+    const runbook = await readFile(new URL("../docs/CHATGPT_INTEGRATION.md", import.meta.url), "utf8");
+
+    expect(runbook).toContain("computer_scroll_until_visible");
+    expect(runbook).toMatch(/parentIndex.*depth.*actions.*scroll/is);
+    expect(runbook).toMatch(/verified.*completed_unverified/is);
+    expect(runbook).toMatch(/semantic AX.*scoped.*scroll.*OCR fallback.*fresh screenshot/is);
+    expect(runbook).toMatch(/one.*point attempt/is);
+    expect(runbook).toMatch(/unchanged.*point.*scroll/is);
+    expect(runbook).toMatch(/candidateCount.*scopeResolved.*activeScrollContainerCount.*recommendedRecovery/is);
+    expect(runbook).toMatch(/recovery.*details.*non-sensitive/is);
+  });
+
   it("routes explicit Computer Use web requests to real Google Chrome rather than Playwright", async () => {
     const [readme, runbook] = await Promise.all([
       readFile(new URL("../README.md", import.meta.url), "utf8"),

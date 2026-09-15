@@ -48,7 +48,7 @@ final class ComputerActionServiceTests: XCTestCase {
         }
     }
 
-    func testMoveMouseDefaultsToFastAndReturnsCompletedEndpoint() async throws {
+    func testMoveMouseDefaultsToFastAndReturnsCompletedUnverifiedEndpoint() async throws {
         let sink = ActionRecordingSink()
         let service = makeActionHostService(pointer: ComputerPoint(x: 0, y: 0), sink: sink)
 
@@ -61,7 +61,7 @@ final class ComputerActionServiceTests: XCTestCase {
 
         XCTAssertTrue(response.ok)
         let result = try decodeActionResult(ComputerActionResult.self, from: response)
-        XCTAssertEqual(result.state, "completed")
+        XCTAssertEqual(result.state, "completed_unverified")
         XCTAssertEqual(result.pointer, ComputerPoint(x: 100, y: 80))
         XCTAssertEqual(sink.events.last, .mouseMove(point: ComputerPoint(x: 100, y: 80), dragButton: nil))
         XCTAssertGreaterThan(sink.events.count, 1, "Default mode should be smooth fast motion, not instant teleport")
@@ -102,6 +102,37 @@ final class ComputerActionServiceTests: XCTestCase {
             .mouseButton(button: .left, down: true, point: ComputerPoint(x: 120, y: 80), clickCount: 1),
             .mouseButton(button: .left, down: false, point: ComputerPoint(x: 120, y: 80), clickCount: 1),
         ])
+    }
+
+    func testSemanticClickAcceptsScopedTarget() async {
+        let recovery = ActionFakeRecovery(resolved: actionResolvedTarget(x: 120, y: 80), error: nil)
+        let service = makeActionHostService(pointer: ComputerPoint(x: 0, y: 0), recovery: recovery)
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "semantic-click-scoped",
+            method: "click",
+            params: .object([
+                "target": .object([
+                    "by": .string("text"),
+                    "text": .string("Refresh"),
+                    "within": .object([
+                        "by": .string("role"),
+                        "role": .string("AXGroup"),
+                        "name": .string("Plugin details"),
+                        "exact": .bool(true),
+                    ]),
+                ]),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let resolvedTarget = await recovery.lastResolvedTarget
+        XCTAssertEqual(resolvedTarget, .scoped(
+            target: .text(text: "Refresh", exact: false),
+            within: .role(role: "AXGroup", name: "Plugin details", exact: true)
+        ))
     }
 
     func testSemanticMoveUsesResolvedPointWithoutGuessedCoordinates() async {
@@ -193,6 +224,36 @@ final class ComputerActionServiceTests: XCTestCase {
         ])
     }
 
+    func testSemanticClickContextFailureStopsBeforePhysicalInput() async {
+        let sink = ActionRecordingSink()
+        let recovery = ActionFakeRecovery(
+            resolved: actionResolvedTarget(x: 50, y: 50),
+            error: nil,
+            contextError: .focusFailed
+        )
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 0, y: 0),
+            sink: sink,
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "semantic-click-context-failed",
+            method: "click",
+            params: .object([
+                "target": .object(["by": .string("text"), "text": .string("Submit")]),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_FOCUS_FAILED")
+        XCTAssertTrue(sink.events.isEmpty)
+        let contextVerifyCallCount = await recovery.contextVerifyCallCount
+        XCTAssertGreaterThan(contextVerifyCallCount, 0)
+    }
+
     func testSemanticClickNeedsReplanDoesNotEmitPhysicalInput() async {
         let sink = ActionRecordingSink()
         let recovery = ActionFakeRecovery(resolved: nil, error: .needsReplan)
@@ -215,6 +276,142 @@ final class ComputerActionServiceTests: XCTestCase {
         XCTAssertFalse(response.ok)
         XCTAssertEqual(response.error?.code, "COMPUTER_NEEDS_REPLAN")
         XCTAssertTrue(sink.events.isEmpty)
+    }
+
+    func testSemanticRecoveryErrorIncludesBoundedNonSensitiveEvidence() async throws {
+        let evidence = ComputerRecoveryEvidence(
+            candidateCount: 0,
+            scopeResolved: true,
+            activeScrollContainerCount: 1,
+            recommendedRecovery: .scroll
+        )
+        let recovery = ActionFakeRecovery(
+            resolved: nil,
+            error: .targetNotFound,
+            evidence: evidence
+        )
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 0, y: 0),
+            recovery: recovery
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "semantic-recovery-evidence",
+            method: "click",
+            params: .object([
+                "target": .object([
+                    "by": .string("text"),
+                    "text": .string("Sensitive Missing Label"),
+                ]),
+                "motionMode": .string("instant"),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_TARGET_NOT_FOUND")
+        XCTAssertEqual(response.error?.details, try JSONValue.fromEncodable(evidence))
+        let encoded = try JSONEncoder().encode(response)
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("Sensitive Missing Label"))
+    }
+
+    func testExplicitPointClickVerificationFailureReturnsNeedsReplanWithoutRecovery() async {
+        let recovery = ActionFakeRecovery(resolved: actionResolvedTarget(x: 50, y: 50), error: nil)
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 0, y: 0),
+            recovery: recovery,
+            verification: TimeoutActionVerification()
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "point-click-timeout",
+            method: "click",
+            params: .object([
+                "x": .number(50),
+                "y": .number(50),
+                "motionMode": .string("instant"),
+                "verify": .object(["kind": .string("ax_changed"), "timeoutMs": .number(50)]),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_NEEDS_REPLAN")
+        let resolveCalls = await recovery.resolveCallCount
+        let resolveManyCalls = await recovery.resolveManyCallCount
+        XCTAssertEqual(resolveCalls, 0)
+        XCTAssertEqual(resolveManyCalls, 0)
+    }
+
+    func testSemanticTargetVerificationTimeoutKeepsComputerTimeout() async {
+        let recovery = ActionFakeRecovery(resolved: actionResolvedTarget(x: 50, y: 50), error: nil)
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 0, y: 0),
+            recovery: recovery,
+            verification: TimeoutActionVerification()
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "semantic-click-timeout",
+            method: "click",
+            params: .object([
+                "target": .object(["by": .string("text"), "text": .string("Submit")]),
+                "motionMode": .string("instant"),
+                "verify": .object(["kind": .string("ax_changed"), "timeoutMs": .number(50)]),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_TIMEOUT")
+        let resolveCalls = await recovery.resolveCallCount
+        XCTAssertEqual(resolveCalls, 1)
+    }
+
+    func testExplicitCoordinateDragVerificationFailureReturnsNeedsReplan() async {
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 10, y: 10),
+            verification: TimeoutActionVerification()
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "point-drag-timeout",
+            method: "drag",
+            params: .object([
+                "from": .object(["x": .number(10), "y": .number(10)]),
+                "to": .object(["x": .number(80), "y": .number(80)]),
+                "motionMode": .string("instant"),
+                "verify": .object(["kind": .string("ax_changed"), "timeoutMs": .number(50)]),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_NEEDS_REPLAN")
+    }
+
+    func testExplicitCoordinateScrollVerificationFailureReturnsNeedsReplan() async {
+        let service = makeActionHostService(
+            pointer: ComputerPoint(x: 10, y: 10),
+            verification: TimeoutActionVerification()
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "point-scroll-timeout",
+            method: "scroll",
+            params: .object([
+                "vertical": .number(-3),
+                "horizontal": .number(0),
+                "x": .number(30),
+                "y": .number(40),
+                "motionMode": .string("instant"),
+                "verify": .object(["kind": .string("ax_changed"), "timeoutMs": .number(50)]),
+            ])
+        ))
+
+        XCTAssertFalse(response.ok)
+        XCTAssertEqual(response.error?.code, "COMPUTER_NEEDS_REPLAN")
     }
 
     func testHeldInputStateStartsEmptyAndTracksExplicitDownState() {
@@ -286,7 +483,8 @@ private struct ActionImmediateSleeper: InputSleeping {
 private func makeActionHostService(
     pointer: ComputerPoint,
     sink: ActionRecordingSink = ActionRecordingSink(),
-    recovery: (any ComputerRecoveryHandling)? = nil
+    recovery: (any ComputerRecoveryHandling)? = nil,
+    verification: (any ComputerVerificationHandling)? = nil
 ) -> ComputerHostService {
     sink.configurePointer(pointer)
     let controller = ComputerInputController(
@@ -295,7 +493,11 @@ private func makeActionHostService(
         displayTopology: ActionDisplayTopology(),
         sleeper: ActionImmediateSleeper()
     )
-    let actions = ComputerActionService(controller: controller, recovery: recovery)
+    let actions = ComputerActionService(
+        controller: controller,
+        verification: verification,
+        recovery: recovery
+    )
     return ComputerHostService(
         permissions: ActionPermissions(),
         workspace: ActionWorkspace(),
@@ -303,27 +505,72 @@ private func makeActionHostService(
     )
 }
 
+private struct TimeoutActionVerification: ComputerVerificationHandling {
+    func currentAXDigest() throws -> String { "baseline" }
+    func currentFocusedElementIndex() throws -> Int? { nil }
+    func waitForFrontmost(_ selector: ComputerApplicationSelector, timeoutMs: Int) async throws -> ApplicationView {
+        throw ComputerVerificationError.timeout
+    }
+    func waitForText(_ text: String, exact: Bool, timeoutMs: Int) async throws {
+        throw ComputerVerificationError.timeout
+    }
+    func waitUntilAXChanged(from baselineDigest: String, timeoutMs: Int) async throws -> String {
+        throw ComputerVerificationError.timeout
+    }
+    func currentScreenRegionDigest(bounds: ComputerBounds) async throws -> String { "baseline-region" }
+    func waitUntilScreenRegionChanged(
+        bounds: ComputerBounds,
+        from baselineDigest: String,
+        timeoutMs: Int
+    ) async throws -> String {
+        throw ComputerVerificationError.timeout
+    }
+}
+
 private actor ActionFakeRecovery: ComputerRecoveryHandling {
     let resolved: ResolvedComputerTarget?
     let manyResolved: [ResolvedComputerTarget]?
     let error: ComputerRecoveryError?
+    let contextError: ComputerRecoveryError?
+    let evidence: ComputerRecoveryEvidence?
     private(set) var resolveCallCount = 0
     private(set) var resolveManyCallCount = 0
+    private(set) var lastResolvedTarget: ComputerTarget?
+    private(set) var contextVerifyCallCount = 0
 
     init(
         resolved: ResolvedComputerTarget?,
         manyResolved: [ResolvedComputerTarget]? = nil,
-        error: ComputerRecoveryError?
+        error: ComputerRecoveryError?,
+        contextError: ComputerRecoveryError? = nil,
+        evidence: ComputerRecoveryEvidence? = nil
     ) {
         self.resolved = resolved
         self.manyResolved = manyResolved
         self.error = error
+        self.contextError = contextError
+        self.evidence = evidence
     }
 
     func resolve(_ target: ComputerTarget, retryBudget: Int) async throws -> ResolvedComputerTarget {
         resolveCallCount += 1
+        lastResolvedTarget = target
         if let error { throw error }
         return resolved!
+    }
+
+    func recoveryEvidence(for target: ComputerTarget, error: ComputerRecoveryError) async -> ComputerRecoveryEvidence {
+        evidence ?? ComputerRecoveryEvidence(
+            candidateCount: 0,
+            scopeResolved: false,
+            activeScrollContainerCount: 0,
+            recommendedRecovery: .none
+        )
+    }
+
+    func verifyContext(_ resolved: ResolvedComputerTarget) async throws {
+        contextVerifyCallCount += 1
+        if let contextError { throw contextError }
     }
 
     func resolveMany(_ targets: [ComputerTarget], retryBudget: Int) async throws -> [ResolvedComputerTarget] {

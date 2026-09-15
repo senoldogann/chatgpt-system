@@ -14,6 +14,21 @@ public enum ComputerRecoveryError: Error, Equatable, Sendable {
     case needsReplan
 }
 
+enum ComputerRecommendedRecovery: String, Codable, Equatable, Sendable {
+    case observe
+    case scopeTarget = "scope-target"
+    case scroll
+    case screenshot
+    case none
+}
+
+struct ComputerRecoveryEvidence: Codable, Equatable, Sendable {
+    let candidateCount: Int
+    let scopeResolved: Bool
+    let activeScrollContainerCount: Int
+    let recommendedRecovery: ComputerRecommendedRecovery
+}
+
 actor ComputerRecoveryEngine: ComputerRecoveryHandling {
     private let permissions: any PermissionReading
     private let applicationController: any ApplicationControlling
@@ -71,19 +86,31 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
             context = cached
             usedCachedContext = true
         } else {
-            context = try freshContext()
+            context = try await freshContext()
         }
 
+        var initialResolutionError: ComputerTargetResolutionError?
         do {
             return try resolver.resolve(target: target, in: context)
         } catch let error as ComputerTargetResolutionError {
-            if retryBudget == 0 {
-                throw mapResolutionError(error)
-            }
+            initialResolutionError = error
+        }
+
+        if context.cached.observation.perception?.ocrUsed == true,
+           let cachedOCRResolved = try await resolveWithOCRIfRelevant(
+            target: recoveryTarget,
+            context: context
+           )
+        {
+            return cachedOCRResolved
+        }
+
+        if retryBudget == 0, let initialResolutionError {
+            throw mapResolutionError(initialResolutionError)
         }
 
         if usedCachedContext {
-            context = try freshContext()
+            context = try await freshContext()
         }
         do {
             return try resolver.resolve(target: recoveryTarget, in: context)
@@ -118,19 +145,127 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
         return resolved
     }
 
+    func verifyContext(_ resolved: ResolvedComputerTarget) async throws {
+        guard permissions.accessibilityTrusted() else {
+            throw ComputerRecoveryError.permissionRequired
+        }
+        guard let application = applicationController.frontmostApplication(),
+              Self.appIdentity(for: application) == resolved.appIdentity
+        else {
+            throw ComputerRecoveryError.focusFailed
+        }
+
+        let activeWindow: ActiveWindowView
+        do {
+            activeWindow = try accessibility.activeWindow(for: application)
+        } catch AccessibilityReadError.permissionRequired {
+            throw ComputerRecoveryError.permissionRequired
+        } catch {
+            throw ComputerRecoveryError.focusFailed
+        }
+        let windowIdentity = Self.windowIdentity(
+            appIdentity: resolved.appIdentity,
+            title: activeWindow.title
+        )
+        guard windowIdentity == resolved.windowIdentity else {
+            throw ComputerRecoveryError.staleSnapshot
+        }
+
+        let displays = try activeDisplays()
+        guard Self.topologyDigest(displays) == resolved.displayTopologyDigest else {
+            throw ComputerRecoveryError.staleSnapshot
+        }
+        guard let lastObservation,
+              lastObservation.appIdentity == resolved.appIdentity,
+              lastObservation.windowIdentity == resolved.windowIdentity,
+              lastObservation.windowGeneration == resolved.windowGeneration,
+              lastObservation.displayTopologyDigest == resolved.displayTopologyDigest
+        else {
+            throw ComputerRecoveryError.staleSnapshot
+        }
+    }
+
     func refreshObservation() async throws -> ComputerObservation {
-        try freshContext().cached.observation
+        try await freshContext().cached.observation
+    }
+
+    func recoveryEvidence(
+        for target: ComputerTarget,
+        error: ComputerRecoveryError
+    ) async -> ComputerRecoveryEvidence {
+        let context = try? compatibleCachedContext()
+        let targetEvidence = context.map { resolver.evidence(for: target, in: $0) }
+        let ocrCandidateCount = context.map { recoveryOCRCandidateCount(for: target, in: $0) } ?? 0
+        let candidateCount = max(targetEvidence?.candidateCount ?? 0, ocrCandidateCount)
+        let activeScrollContainerCount = context?.cached.observation.elements.reduce(into: 0) { count, element in
+            if element.enabled != false && element.scroll.scrollable { count += 1 }
+        } ?? 0
+        let recommendation: ComputerRecommendedRecovery
+        switch error {
+        case .targetAmbiguous:
+            recommendation = .scopeTarget
+        case .targetNotFound:
+            recommendation = targetEvidence?.scopeResolved == true && targetEvidence?.scopeScrollable == true
+                ? .scroll
+                : .screenshot
+        case .staleSnapshot:
+            recommendation = .observe
+        case .needsReplan:
+            recommendation = .screenshot
+        default:
+            recommendation = .none
+        }
+        return ComputerRecoveryEvidence(
+            candidateCount: min(candidateCount, ObservationLimits.default.maxElements),
+            scopeResolved: targetEvidence?.scopeResolved ?? false,
+            activeScrollContainerCount: min(activeScrollContainerCount, ObservationLimits.default.maxElements),
+            recommendedRecovery: recommendation
+        )
+    }
+
+    private func recoveryOCRCandidateCount(
+        for target: ComputerTarget,
+        in context: ComputerTargetResolutionContext
+    ) -> Int {
+        guard let query = Self.ocrQuery(for: target),
+              let candidates = context.cached.observation.perception?.ocrCandidates,
+              !candidates.isEmpty
+        else { return 0 }
+
+        let scopeBounds: ComputerBounds?
+        if let within = query.within {
+            guard let resolvedScope = try? resolver.resolveScope(within, in: context) else { return 0 }
+            scopeBounds = resolvedScope.bounds
+        } else {
+            scopeBounds = nil
+        }
+
+        return candidates.reduce(into: 0) { count, candidate in
+            guard Self.matchesText(candidate.text, query: query.text, exact: query.exact) else { return }
+            if let scopeBounds, !Self.contains(bounds: candidate.bounds, within: scopeBounds) { return }
+            count += 1
+        }
     }
 
     private func priorObservation(for target: ComputerTarget) -> CachedComputerObservation? {
-        guard case let .index(snapshotId, _) = target else { return nil }
-        return cache.observation(snapshotId: snapshotId)
+        switch target {
+        case let .index(snapshotId, _):
+            return cache.observation(snapshotId: snapshotId)
+        case let .scoped(baseTarget, _):
+            return priorObservation(for: baseTarget)
+        default:
+            return nil
+        }
     }
 
     private func semanticRecoveryTarget(
         for target: ComputerTarget,
         prior: CachedComputerObservation?
     ) -> ComputerTarget? {
+        if case let .scoped(baseTarget, within) = target {
+            let recoveredBase = semanticRecoveryTarget(for: baseTarget, prior: prior) ?? baseTarget
+            return .scoped(target: recoveredBase, within: within)
+        }
         guard case let .index(_, index) = target,
               let prior,
               let element = prior.observation.elements.first(where: { $0.index == index })
@@ -209,7 +344,7 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
         )
     }
 
-    private func freshContext() throws -> ComputerTargetResolutionContext {
+    private func freshContext() async throws -> ComputerTargetResolutionContext {
         guard permissions.accessibilityTrusted() else {
             throw ComputerRecoveryError.permissionRequired
         }
@@ -243,16 +378,20 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
             throw ComputerRecoveryError.unavailable
         }
 
+        let basePerception = ComputerPerception.classify(observation: rawObservation)
+        let enrichedObservation = await enrichObservation(rawObservation, base: basePerception)
+
         let observation: ComputerObservation
         do {
-            let digest = try ObservationDigest.digest(rawObservation)
+            let digest = try ObservationDigest.digest(enrichedObservation)
             observation = ComputerObservation(
-                snapshotId: rawObservation.snapshotId,
-                application: rawObservation.application,
-                windowTitle: rawObservation.windowTitle,
-                elements: rawObservation.elements,
-                truncated: rawObservation.truncated,
-                digest: digest
+                snapshotId: enrichedObservation.snapshotId,
+                application: enrichedObservation.application,
+                windowTitle: enrichedObservation.windowTitle,
+                elements: enrichedObservation.elements,
+                truncated: enrichedObservation.truncated,
+                digest: digest,
+                perception: enrichedObservation.perception
             )
         } catch {
             throw ComputerRecoveryError.unavailable
@@ -267,7 +406,7 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
             previousOCRUsefulness = .unknown
         }
         let profile = PerceptionCapabilityProfile(
-            axQuality: Self.axQuality(for: observation),
+            axQuality: Self.legacyAXQuality(for: observation.perception?.axQuality ?? basePerception.axQuality),
             ocrUseful: previousOCRUsefulness,
             lastObservationMonotonicMs: ProcessInfo.processInfo.systemUptime * 1_000,
             windowGeneration: generation
@@ -292,18 +431,102 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
         )
     }
 
+    private func enrichObservation(
+        _ observation: ComputerObservation,
+        base: ComputerPerceptionSummary
+    ) async -> ComputerObservation {
+        guard base.axQuality == .weak else {
+            return observationWithPerception(observation, summary: base)
+        }
+        guard permissions.screenCaptureAuthorized(),
+              let windowBounds = ComputerPerception.focusedWindowBounds(in: observation)
+        else {
+            return observationWithPerception(
+                observation,
+                summary: ComputerPerception.summary(base: base, ocrCandidates: [], ocrUsed: false)
+            )
+        }
+
+        do {
+            let capture = try await screenCapture.captureWindowImage(bounds: windowBounds)
+            let fast = try await ocr.recognizeText(in: capture.image, mode: .fast)
+            var candidates = ComputerPerception.boundedCandidates(
+                fast,
+                imageWidth: capture.image.width,
+                imageHeight: capture.image.height,
+                captureBounds: capture.screenBounds
+            )
+            if candidates.isEmpty {
+                let accurate = try await ocr.recognizeText(in: capture.image, mode: .accurate)
+                candidates = ComputerPerception.boundedCandidates(
+                    accurate,
+                    imageWidth: capture.image.width,
+                    imageHeight: capture.image.height,
+                    captureBounds: capture.screenBounds
+                )
+            }
+            return observationWithPerception(
+                observation,
+                summary: ComputerPerception.summary(base: base, ocrCandidates: candidates, ocrUsed: true)
+            )
+        } catch {
+            return observationWithPerception(
+                observation,
+                summary: ComputerPerception.summary(base: base, ocrCandidates: [], ocrUsed: false)
+            )
+        }
+    }
+
+    private func observationWithPerception(
+        _ observation: ComputerObservation,
+        summary: ComputerPerceptionSummary
+    ) -> ComputerObservation {
+        ComputerObservation(
+            snapshotId: observation.snapshotId,
+            application: observation.application,
+            windowTitle: observation.windowTitle,
+            elements: observation.elements,
+            truncated: observation.truncated,
+            digest: observation.digest,
+            perception: summary
+        )
+    }
+
+    private struct OCRQuery {
+        let text: String
+        let exact: Bool
+        let within: ComputerTargetScope?
+    }
+
     private func resolveWithOCRIfRelevant(
         target: ComputerTarget,
         context: ComputerTargetResolutionContext
     ) async throws -> ResolvedComputerTarget? {
         guard let query = Self.ocrQuery(for: target) else { return nil }
+
+        if let perception = context.cached.observation.perception {
+            if !perception.ocrCandidates.isEmpty {
+                return try resolveStructuredOCRCandidates(
+                    perception.ocrCandidates,
+                    query: query,
+                    context: context
+                )
+            }
+            if perception.ocrUsed {
+                return nil
+            }
+        }
+
         guard permissions.screenCaptureAuthorized() else {
             throw ComputerRecoveryError.permissionRequired
+        }
+        guard let windowBounds = ComputerPerception.focusedWindowBounds(in: context.cached.observation) else {
+            return nil
         }
 
         let capture: ScreenImageCapture
         do {
-            capture = try await screenCapture.captureFocusedDisplayImage()
+            capture = try await screenCapture.captureWindowImage(bounds: windowBounds)
         } catch {
             throw ComputerRecoveryError.unavailable
         }
@@ -346,43 +569,63 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
 
     private func resolveOCRCandidates(
         _ candidates: [OcrTextCandidate],
-        query: (text: String, exact: Bool),
+        query: OCRQuery,
         capture: ScreenImageCapture,
         context: ComputerTargetResolutionContext
     ) throws -> ResolvedComputerTarget? {
-        let matching = candidates.filter { candidate in
-            guard candidate.confidence.map({ $0 >= 0.5 }) ?? true else { return false }
-            return Self.matchesText(candidate.text, query: query.text, exact: query.exact)
-        }
-        guard !matching.isEmpty else { return nil }
-        guard matching.count == 1, let candidate = matching.first else {
-            return nil
-        }
-        guard let screenBounds = Self.screenBounds(
-            for: candidate.bounds,
+        let bounded = ComputerPerception.boundedCandidates(
+            candidates,
             imageWidth: capture.image.width,
             imageHeight: capture.image.height,
             captureBounds: capture.screenBounds
-        ) else {
-            return nil
+        )
+        return try resolveStructuredOCRCandidates(bounded, query: query, context: context)
+    }
+
+    private func resolveStructuredOCRCandidates(
+        _ candidates: [ComputerOcrCandidateView],
+        query: OCRQuery,
+        context: ComputerTargetResolutionContext
+    ) throws -> ResolvedComputerTarget? {
+        let scopeBounds: ComputerBounds?
+        if let within = query.within {
+            do {
+                scopeBounds = try resolver.resolveScope(within, in: context).bounds
+            } catch let error as ComputerTargetResolutionError {
+                throw mapResolutionError(error)
+            }
+        } else {
+            scopeBounds = nil
+        }
+        let matching = candidates.filter { candidate in
+            guard Self.matchesText(candidate.text, query: query.text, exact: query.exact) else { return false }
+            guard let scopeBounds else { return true }
+            return Self.contains(bounds: candidate.bounds, within: scopeBounds)
+        }
+        guard !matching.isEmpty else { return nil }
+        guard matching.count == 1, let candidate = matching.first else {
+            throw ComputerRecoveryError.targetAmbiguous
+        }
+        guard Self.isSafe(bounds: candidate.bounds, insideAny: context.activeDisplays) else {
+            throw ComputerRecoveryError.unsafeGeometry
         }
 
         let actionPoint = ComputerPoint(
-            x: screenBounds.x + screenBounds.width / 2,
-            y: screenBounds.y + screenBounds.height / 2
+            x: candidate.bounds.x + candidate.bounds.width / 2,
+            y: candidate.bounds.y + candidate.bounds.height / 2
         )
         return ResolvedComputerTarget(
             source: .ocr,
-            bounds: screenBounds,
+            bounds: candidate.bounds,
             actionPoint: actionPoint,
-            observationId: candidate.observationId,
+            observationId: context.cached.observationId,
             appIdentity: context.cached.appIdentity,
             windowIdentity: context.cached.windowIdentity,
             windowGeneration: context.cached.windowGeneration,
             displayTopologyDigest: context.currentDisplayTopologyDigest,
             confidence: .high,
             semanticFingerprint: Self.hash(
-                "\(Self.normalized(query.text, lowercased: true))\u{1f}\(screenBounds.x),\(screenBounds.y),\(screenBounds.width),\(screenBounds.height)"
+                "\(Self.normalized(query.text, lowercased: true))\u{1f}\(candidate.bounds.x),\(candidate.bounds.y),\(candidate.bounds.width),\(candidate.bounds.height)"
             )
         )
     }
@@ -470,16 +713,21 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
         return hash(payload)
     }
 
-    private static func axQuality(for observation: ComputerObservation) -> AXQuality {
-        if observation.elements.isEmpty { return .weak }
-        if observation.truncated { return .partial }
-        return .strong
+    private static func legacyAXQuality(for quality: ComputerAXQuality) -> AXQuality {
+        switch quality {
+        case .strong: return .strong
+        case .partial: return .partial
+        case .weak: return .weak
+        }
     }
 
-    private static func ocrQuery(for target: ComputerTarget) -> (text: String, exact: Bool)? {
+    private static func ocrQuery(for target: ComputerTarget) -> OCRQuery? {
         switch target {
         case let .text(text, exact), let .ocrText(text, exact):
-            return (text, exact)
+            return OCRQuery(text: text, exact: exact, within: nil)
+        case let .scoped(baseTarget, within):
+            guard let base = ocrQuery(for: baseTarget) else { return nil }
+            return OCRQuery(text: base.text, exact: base.exact, within: within)
         default:
             return nil
         }
@@ -500,38 +748,45 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
         return lowercased ? collapsed.lowercased() : collapsed
     }
 
-    private static func screenBounds(
-        for imageBounds: ComputerBounds,
-        imageWidth: Int,
-        imageHeight: Int,
-        captureBounds: ComputerBounds
-    ) -> ComputerBounds? {
-        guard imageWidth > 0,
-              imageHeight > 0,
-              imageBounds.x.isFinite,
-              imageBounds.y.isFinite,
-              imageBounds.width.isFinite,
-              imageBounds.height.isFinite,
-              imageBounds.x >= 0,
-              imageBounds.y >= 0,
-              imageBounds.width > 0,
-              imageBounds.height > 0,
-              imageBounds.x + imageBounds.width <= Double(imageWidth),
-              imageBounds.y + imageBounds.height <= Double(imageHeight),
-              captureBounds.width > 0,
-              captureBounds.height > 0
-        else {
-            return nil
-        }
+    private static func contains(bounds candidate: ComputerBounds, within container: ComputerBounds) -> Bool {
+        guard candidate.x.isFinite, candidate.y.isFinite,
+              candidate.width.isFinite, candidate.height.isFinite,
+              container.x.isFinite, container.y.isFinite,
+              container.width.isFinite, container.height.isFinite,
+              candidate.width > 0, candidate.height > 0,
+              container.width > 0, container.height > 0
+        else { return false }
+        return candidate.x >= container.x &&
+            candidate.y >= container.y &&
+            candidate.x + candidate.width <= container.x + container.width &&
+            candidate.y + candidate.height <= container.y + container.height
+    }
 
-        let scaleX = captureBounds.width / Double(imageWidth)
-        let scaleY = captureBounds.height / Double(imageHeight)
-        return ComputerBounds(
-            x: captureBounds.x + imageBounds.x * scaleX,
-            y: captureBounds.y + imageBounds.y * scaleY,
-            width: imageBounds.width * scaleX,
-            height: imageBounds.height * scaleY
-        )
+    private static func isSafe(bounds: ComputerBounds, insideAny displays: [ComputerBounds]) -> Bool {
+        guard bounds.x.isFinite,
+              bounds.y.isFinite,
+              bounds.width.isFinite,
+              bounds.height.isFinite,
+              bounds.width > 0,
+              bounds.height > 0
+        else {
+            return false
+        }
+        return displays.contains { display in
+            guard display.x.isFinite,
+                  display.y.isFinite,
+                  display.width.isFinite,
+                  display.height.isFinite,
+                  display.width > 0,
+                  display.height > 0
+            else {
+                return false
+            }
+            return bounds.x >= display.x &&
+                bounds.y >= display.y &&
+                bounds.x + bounds.width <= display.x + display.width &&
+                bounds.y + bounds.height <= display.y + display.height
+        }
     }
 
     private static func hash(_ value: String) -> String {

@@ -85,6 +85,7 @@ const expectedAnnotations = {
   computer_click: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   computer_drag: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   computer_scroll: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  computer_scroll_until_visible: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   computer_type_text: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   computer_press_key: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   computer_release_inputs: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -102,6 +103,9 @@ const codingHarnessV2ToolNames = [
   "project_check",
   "project_exec",
   "task_state",
+] as const;
+const computerReliabilityV2ToolNames = [
+  "computer_scroll_until_visible",
 ] as const;
 const ownerRuntimeToolNames = [
   "shell_run",
@@ -241,7 +245,12 @@ describe("HTTP MCP transport", () => {
       const currentNames = tools.map((tool) => tool.name);
       const harnessNames = new Set<string>(codingHarnessV2ToolNames);
       const continuityNames = new Set<string>(continuityV1ToolNames);
-      const featureNames = new Set<string>([...codingHarnessV2ToolNames, ...continuityV1ToolNames, ...ownerRuntimeToolNames]);
+      const featureNames = new Set<string>([
+        ...codingHarnessV2ToolNames,
+        ...continuityV1ToolNames,
+        ...computerReliabilityV2ToolNames,
+        ...ownerRuntimeToolNames,
+      ]);
       const legacyNames = currentNames.filter((name) => !featureNames.has(name)).sort();
       const currentHarnessNames = currentNames.filter((name) => harnessNames.has(name)).sort();
       const currentContinuityNames = currentNames.filter((name) => continuityNames.has(name)).sort();
