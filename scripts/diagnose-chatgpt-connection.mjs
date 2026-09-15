@@ -99,9 +99,6 @@ export function classifyRuntimeSource(commandPath, homeDir = homedir()) {
 export function classifyConnectionEvidence(evidence) {
   if (!evidence.dailyDriver.loaded || !evidence.dailyDriver.running) return "DAILY_DRIVER_UNAVAILABLE";
 
-  if (evidence.stderr.recent && evidence.stderr.dependencyFailureSignature) {
-    return "LOCAL_RUNTIME_DEPENDENCY_FAILURE";
-  }
   if (
     evidence.runtime.distCliPresent === false
     || evidence.runtime.nodeModulesPresent === false
