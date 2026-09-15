@@ -61,12 +61,13 @@ No Computer Runtime behavior, installed helper, tunnel process, plugin registrat
 
 ## Next exact step
 
-1. User reviews and approves the written design spec.
-2. Read the `writing-plans` skill and create Plan A at `docs/superpowers/plans/2026-09-16-computer-use-flow-performance-benchmark.md`.
-3. Plan A must define exact files, typed schemas, privacy-safe digest rules, required versus optional Agent Mode batches, tests, RED/GREEN commands, commit boundaries, and continuity checkpoints.
-4. Dispatch the independent plan-document reviewer and resolve blocking findings, up to three review iterations.
-5. Commit the approved Plan A and checkpoint exact branch/worktree/HEAD.
-6. Do not begin implementation until the plan handoff gate is complete.
+1. The user requested handoff to another agent and authorized continuation into Plan A; do not repeat completed brainstorming questions.
+2. Resume the exact feature alias `chatgpt-system-computer-flow-performance`, then reconcile Git/worktree reality before mutation.
+3. Read the `writing-plans` skill and create Plan A at `docs/superpowers/plans/2026-09-16-computer-use-flow-performance-benchmark.md`.
+4. Plan A must define exact files, typed schemas, privacy-safe digest rules, required versus optional Agent Mode batches, tests, RED/GREEN commands, commit boundaries, and continuity checkpoints.
+5. Dispatch the independent plan-document reviewer and resolve blocking findings, up to three review iterations.
+6. Commit the approved Plan A and checkpoint exact branch/worktree/HEAD.
+7. Do not begin implementation until the plan handoff gate is complete.
 
 ## Completion stages
 
