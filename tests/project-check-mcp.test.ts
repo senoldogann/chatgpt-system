@@ -8,6 +8,10 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { afterEach, describe, expect, it } from "vitest";
 import type { AppConfig } from "../src/config.js";
 import type {
+  ProjectCheckCommandResult,
+  ProjectCheckExecutor,
+} from "../src/project-check-types.js";
+import type {
   ProjectExecBackend,
   ProjectExecRequest,
   ProjectExecResult,
@@ -20,6 +24,24 @@ const servers: ReturnType<typeof startHttp>[] = [];
 const runtimes: RuntimeServices[] = [];
 
 type BackendMode = "pass" | "fail" | "mutate";
+
+class HostVerificationExecutor implements ProjectCheckExecutor {
+  readonly requests: Array<{ command: string; args: string[]; cwd: string; timeoutMs: number }> = [];
+
+  async run(command: string, args: string[], cwd: string, timeoutMs: number): Promise<ProjectCheckCommandResult> {
+    this.requests.push({ command, args: [...args], cwd, timeoutMs });
+    return {
+      command,
+      args: [...args],
+      cwd,
+      exitCode: 0,
+      signal: null,
+      stdout: "native output\n",
+      stderr: "",
+      timedOut: false,
+    };
+  }
+}
 
 class VerificationBackend implements ProjectExecBackend {
   readonly requests: ProjectExecRequest[] = [];
@@ -100,6 +122,15 @@ async function projectLease(client: Client, root: string): Promise<string> {
   return (result.structuredContent as { leaseId: string }).leaseId;
 }
 
+async function adminLease(client: Client): Promise<string> {
+  const result = await client.callTool({
+    name: "session_authority_start",
+    arguments: { profile: "admin", requestedTtlSeconds: 120 },
+  });
+  expect(result.isError).not.toBe(true);
+  return (result.structuredContent as { leaseId: string }).leaseId;
+}
+
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
   await Promise.all(runtimes.splice(0).map((runtime) => runtime.processSupervisor.close()));
@@ -142,7 +173,7 @@ async function fixture(projectExecEnabled = true, kind: FixtureKind = "node") {
   const config: AppConfig = {
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
-    terminal: { enabled: false, commands: ["node", "npm", "git"] },
+    terminal: { enabled: true, commands: ["node", "npm", "git", "swift"] },
     projectExec: { enabled: projectExecEnabled },
     continuity: {
       databasePath: path.join(path.dirname(path.join(base, "audit.jsonl")), "continuity.db"),
@@ -182,7 +213,16 @@ async function fixture(projectExecEnabled = true, kind: FixtureKind = "node") {
   };
 
   const backend = new VerificationBackend();
-  const runtime = createRuntimeServices(config, { taskStateRoot, projectExecBackend: backend });
+  const host = new HostVerificationExecutor();
+  const boundRoots: string[] = [];
+  const runtime = createRuntimeServices(config, {
+    taskStateRoot,
+    projectExecBackend: backend,
+    projectCheckHostExecutorFactory: (_authority, repositoryRoot) => {
+      boundRoots.push(repositoryRoot);
+      return host;
+    },
+  });
   runtimes.push(runtime);
   const server = startHttp(runtime);
   servers.push(server);
@@ -193,7 +233,7 @@ async function fixture(projectExecEnabled = true, kind: FixtureKind = "node") {
     requestInit: { headers: { authorization: `Bearer ${config.http.token!}` } },
   });
   await client.connect(transport);
-  return { base, root, taskStateRoot, config, backend, runtime, server, client, transport };
+  return { base, root, taskStateRoot, config, backend, host, boundRoots, runtime, server, client, transport };
 }
 
 describe("project_check MCP tool", () => {
@@ -291,6 +331,61 @@ describe("project_check MCP tool", () => {
       });
       expect(run.isError).toBe(true);
       expect(resultText(run)).toContain("AUTHORITY_DENIED");
+      expect(connected.backend.requests).toHaveLength(0);
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it("rejects a non-Admin lease before native verification can execute", async () => {
+    const connected = await fixture(true, "swiftpm");
+    try {
+      const leaseId = await projectLease(connected.client, connected.root);
+      const run = await connected.client.callTool({
+        name: "project_check",
+        arguments: {
+          authorityLeaseId: leaseId,
+          adminAuthorityLeaseId: leaseId,
+          operation: "run",
+          cwd: connected.root,
+        },
+      });
+      expect(run.isError).toBe(true);
+      expect(resultText(run)).toContain("AUTHORITY_DENIED");
+      expect(connected.host.requests).toHaveLength(0);
+      expect(connected.backend.requests).toHaveLength(0);
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it("runs fixed SwiftPM checks through an Admin-authorized executor bound to the Project root", async () => {
+    const connected = await fixture(true, "swiftpm");
+    try {
+      const projectLeaseId = await projectLease(connected.client, connected.root);
+      const adminLeaseId = await adminLease(connected.client);
+      const run = await connected.client.callTool({
+        name: "project_check",
+        arguments: {
+          authorityLeaseId: projectLeaseId,
+          adminAuthorityLeaseId: adminLeaseId,
+          operation: "run",
+          cwd: connected.root,
+          timeoutMs: 1500,
+        },
+      });
+      expect(run.isError).not.toBe(true);
+      const body = run.structuredContent as unknown as ProjectCheckView;
+      expect(body.overallStatus).toBe("PASS");
+      expect(body.checks.map((item) => item.status)).toEqual(["PASS", "PASS"]);
+      const canonicalRoot = await realpath(connected.root);
+      expect(connected.boundRoots).toEqual([canonicalRoot]);
+      expect(connected.host.requests).toEqual([
+        { command: "swift", args: ["test", "--quiet"], cwd: canonicalRoot, timeoutMs: 1500 },
+        { command: "swift", args: ["build"], cwd: canonicalRoot, timeoutMs: 1500 },
+      ]);
       expect(connected.backend.requests).toHaveLength(0);
     } finally {
       await connected.transport.terminateSession();
