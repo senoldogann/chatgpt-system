@@ -7,6 +7,7 @@ import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
+import type { ProjectCheckCommandResult, ProjectCheckExecutor } from "../src/project-check-types.js";
 import type { ProjectExecBackend, ProjectExecRequest, ProjectExecResult } from "../src/project-exec-types.js";
 import { createRuntimeServices, type RuntimeServices } from "../src/server.js";
 import { startHttp } from "../src/transport.js";
@@ -15,6 +16,15 @@ const cleanups: string[] = [];
 const servers: ReturnType<typeof startHttp>[] = [];
 const runtimes: RuntimeServices[] = [];
 const clients: Client[] = [];
+
+class PassingHostExecutor implements ProjectCheckExecutor {
+  readonly requests: Array<{ command: string; args: string[]; cwd: string; timeoutMs: number }> = [];
+
+  async run(command: string, args: string[], cwd: string, timeoutMs: number): Promise<ProjectCheckCommandResult> {
+    this.requests.push({ command, args: [...args], cwd, timeoutMs });
+    return { command, args: [...args], cwd, exitCode: 0, signal: null, stdout: "native ok\n", stderr: "", timedOut: false };
+  }
+}
 
 class PassingBackend implements ProjectExecBackend {
   readonly requests: ProjectExecRequest[] = [];
@@ -61,6 +71,22 @@ async function initProject(root: string, marker: string): Promise<void> {
   git(root, ["commit", "-q", "-m", "initial"]);
   git(root, ["switch", "-q", "-c", `feat/${marker}`]);
   git(root, ["remote", "add", "origin", path.join(path.dirname(root), `${marker}-remote.git`)]);
+}
+
+async function initSwiftProject(root: string): Promise<void> {
+  await mkdir(root, { recursive: true });
+  await writeFile(
+    path.join(root, "Package.swift"),
+    "// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: \"NativePublishFixture\")\n",
+  );
+  await writeFile(path.join(root, "README.md"), "native publish fixture\n");
+  git(root, ["init", "-q", "-b", "main"]);
+  git(root, ["config", "user.name", "Native Publish Gate Test"]);
+  git(root, ["config", "user.email", "native-publish@example.invalid"]);
+  git(root, ["add", "Package.swift", "README.md"]);
+  git(root, ["commit", "-q", "-m", "initial"]);
+  git(root, ["switch", "-q", "-c", "feat/native-verify"]);
+  git(root, ["remote", "add", "origin", path.join(path.dirname(root), "native-remote.git")]);
 }
 
 async function fixture() {
@@ -122,6 +148,64 @@ async function fixture() {
   return { client, runtime, backend, projectA, projectB, adminLeaseId, projectALeaseId, projectBLeaseId };
 }
 
+async function nativeFixture() {
+  const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-native-publish-mcp-"));
+  cleanups.push(base);
+  const projectRoot = path.join(base, "native-project");
+  await initSwiftProject(projectRoot);
+  const backend = new PassingBackend();
+  const host = new PassingHostExecutor();
+  const config = await loadConfig({
+    roots: [base],
+    auditFile: path.join(base, "audit.jsonl"),
+    continuityDatabasePath: path.join(base, "continuity.db"),
+    terminalEnabled: true,
+    commands: ["git", "swift"],
+    projectExecEnabled: true,
+    personalAdminEnabled: true,
+    computerUseEnabled: false,
+    fullHostJsEnabled: false,
+    browserEnabled: false,
+    controlEnabled: false,
+    host: "127.0.0.1",
+    port: 0,
+    token: "native-project-publish-token-0123456789",
+  });
+  const runtime = createRuntimeServices(config, {
+    projectExecBackend: backend,
+    taskStateRoot: path.join(base, "state"),
+    projectCheckHostExecutorFactory: () => host,
+  });
+  runtimes.push(runtime);
+  const server = startHttp(runtime);
+  servers.push(server);
+  await once(server, "listening");
+  const address = server.address() as AddressInfo;
+  const client = new Client({ name: "native-project-publish-mcp-test", version: "1.0.0" });
+  clients.push(client);
+  await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${address.port}/mcp`), {
+    requestInit: { headers: { authorization: `Bearer ${config.http.token!}` } },
+  }));
+
+  const registered = await client.callTool({ name: "project_register", arguments: {
+    alias: "Native-Project",
+    worktreePath: projectRoot,
+    projectRoots: [projectRoot],
+    task: { goal: "Publish Native-Project", constraints: [], successCriteria: [], status: "active", nextStep: "Verify and publish." },
+  } });
+  expect(registered.isError).not.toBe(true);
+
+  const admin = await client.callTool({ name: "session_authority_start", arguments: { profile: "admin", requestedTtlSeconds: 120 } });
+  expect(admin.isError).not.toBe(true);
+  const adminLeaseId = (admin.structuredContent as { leaseId: string }).leaseId;
+
+  const resumed = await client.callTool({ name: "project_resume", arguments: { alias: "Native-Project", requestedTtlSeconds: 120 } });
+  expect(resumed.isError).not.toBe(true);
+  const projectLeaseId = (resumed.structuredContent as { authorityLease: { leaseId: string } }).authorityLease.leaseId;
+
+  return { client, host, backend, projectRoot, adminLeaseId, projectLeaseId };
+}
+
 describe("git_push dual authority", () => {
   it("rejects a generic Project lease even with valid Admin authority", async () => {
     const test = await fixture();
@@ -163,6 +247,34 @@ describe("git_push dual authority", () => {
     } });
     expect(result.isError).toBe(true);
     expect(textContent(result)).toContain("AUTHORITY_REQUIRED");
+  }, 15_000);
+
+  it("native SwiftPM PASS reaches the unchanged final remote policy boundary", async () => {
+    const test = await nativeFixture();
+    const checked = await test.client.callTool({ name: "project_check", arguments: {
+      authorityLeaseId: test.projectLeaseId,
+      adminAuthorityLeaseId: test.adminLeaseId,
+      operation: "run",
+      cwd: test.projectRoot,
+    } });
+    expect(checked.isError).not.toBe(true);
+    expect((checked.structuredContent as { overallStatus: string }).overallStatus).toBe("PASS");
+    expect(test.backend.requests).toHaveLength(0);
+    expect(test.host.requests.map(({ command, args }) => ({ command, args }))).toEqual([
+      { command: "swift", args: ["test", "--quiet"] },
+      { command: "swift", args: ["build"] },
+    ]);
+
+    const result = await test.client.callTool({ name: "git_push", arguments: {
+      authorityLeaseId: test.adminLeaseId,
+      projectAuthorityLeaseId: test.projectLeaseId,
+      cwd: test.projectRoot,
+    } });
+    expect(result.isError).toBe(true);
+    expect(textContent(result)).toContain("credential-free GitHub origin URL");
+    expect(textContent(result)).not.toContain("PROJECT_RESUME_REQUIRED");
+    expect(textContent(result)).not.toContain("LOCAL_VERIFICATION_REQUIRED");
+    expect(textContent(result)).not.toContain("LOCAL_VERIFICATION_STALE");
   }, 15_000);
 
   it("valid dual authority with fresh PASS reaches the final remote policy boundary", async () => {
