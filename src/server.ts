@@ -261,7 +261,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "system_capabilities",
     {
-      description: "Show bootstrap filesystem roots, safety limits, audit path, and startup terminal configuration. Bootstrap roots are defaults only: Project leases may target other explicit project directories outside bootstrap roots, while filesystem root and the entire home directory remain forbidden for Project authority. If ChatGPT reports 'This conversation does not support developer MCPs', treat that as developer MCP product-surface/tool-routing unavailability, do not treat it as daemon failure; do not claim local changes, and project_resume after the app tools are available again.",
+      description: "Show bootstrap filesystem roots, safety limits, audit path, and startup terminal configuration. Bootstrap roots are defaults only: Project leases may target other explicit project directories outside bootstrap roots, while filesystem root and the entire home directory remain forbidden for Project authority. If ChatGPT reports 'This conversation does not support developer MCPs', treat that as developer MCP product-surface/tool-routing unavailability; do not treat it as daemon failure. Do not repeatedly retry an unavailable developer-MCP namespace, do not substitute container/local-host access, and do not claim local changes. Move to a new supported or recovered chat when needed; once developer MCP capability returns, project_resume the exact registered project before mutation.",
       inputSchema: z.object({}),
       outputSchema: systemCapabilitiesOutputSchema,
       annotations: readAnnotations,
@@ -311,7 +311,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "system_environment",
     {
-      description: "Describe the local runtime environment without running terminal commands. Bootstrap roots are defaults only; Project leases may target other explicit project directories outside bootstrap roots. If ChatGPT reports 'This conversation does not support developer MCPs', treat that as developer MCP product-surface/tool-routing unavailability, do not treat it as daemon failure; do not claim local changes, and project_resume after the app tools are available again. Read-only; exposes no secret values.",
+      description: "Describe the local runtime environment without running terminal commands. Bootstrap roots are defaults only: Project leases may target other explicit project directories outside bootstrap roots. If ChatGPT reports 'This conversation does not support developer MCPs', treat that as developer MCP product-surface/tool-routing unavailability; do not treat it as daemon failure. Do not repeatedly retry an unavailable developer-MCP namespace, do not substitute container/local-host access, and do not claim local changes. Move to a new supported or recovered chat when needed; once developer MCP capability returns, project_resume the exact registered project before mutation. Read-only; exposes no secret values.",
       inputSchema: z.object({}),
       outputSchema: systemEnvironmentOutputSchema,
       annotations: readAnnotations,
