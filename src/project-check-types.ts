@@ -3,6 +3,23 @@ export type ProjectCheckKind = "check" | "typecheck" | "lint" | "test" | "build"
 export type ProjectCheckBaseStatus = Extract<ProjectCheckStatus, "PASS" | "FAIL" | "UNAVAILABLE">;
 export type ProjectCheckExecutionLane = "project-sandbox" | "admin-host";
 
+export interface ProjectCheckCommandResult {
+  command: string;
+  args: string[];
+  cwd: string;
+  exitCode: number | null;
+  signal: string | null;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+}
+
+export interface ProjectCheckExecutor {
+  run(command: string, args: string[], cwd: string, timeoutMs: number): Promise<ProjectCheckCommandResult>;
+}
+
+export type ProjectCheckExecutorFactory = (repositoryRoot: string) => ProjectCheckExecutor;
+
 export interface DetectedProjectCheck {
   checkId: string;
   kind: ProjectCheckKind;

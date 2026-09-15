@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
@@ -106,22 +106,33 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-async function fixture(projectExecEnabled = true) {
+type FixtureKind = "node" | "swiftpm" | "mixed";
+
+async function fixture(projectExecEnabled = true, kind: FixtureKind = "node") {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-project-check-"));
   cleanups.push(base);
   const root = path.join(base, "repo");
   const taskStateRoot = path.join(base, "home", ".chatgpt-system", "state");
   await mkdir(path.join(root, "src"), { recursive: true });
   await writeFile(path.join(root, "src", "app.ts"), "export const value = 1;\n", "utf8");
-  await writeFile(path.join(root, "package.json"), `${JSON.stringify({
-    name: "verification-fixture",
-    private: true,
-    scripts: {
-      check: "npm run build && npm test",
-      build: "tsc -p tsconfig.json",
-      test: "vitest run",
-    },
-  }, null, 2)}\n`, "utf8");
+  if (kind === "node" || kind === "mixed") {
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify({
+      name: "verification-fixture",
+      private: true,
+      scripts: {
+        check: "npm run build && npm test",
+        build: "tsc -p tsconfig.json",
+        test: "vitest run",
+      },
+    }, null, 2)}\n`, "utf8");
+  }
+  if (kind === "swiftpm" || kind === "mixed") {
+    await writeFile(
+      path.join(root, "Package.swift"),
+      "// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: \"Fixture\")\n",
+      "utf8",
+    );
+  }
   git(root, ["init", "-q"]);
   git(root, ["config", "user.email", "project-check@example.invalid"]);
   git(root, ["config", "user.name", "Project Check Test"]);
@@ -186,6 +197,107 @@ async function fixture(projectExecEnabled = true) {
 }
 
 describe("project_check MCP tool", () => {
+  it("detects fixed native checks for a pure SwiftPM repository", async () => {
+    const connected = await fixture(true, "swiftpm");
+    try {
+      const leaseId = await projectLease(connected.client, connected.root);
+      const detected = await connected.client.callTool({
+        name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "detect", cwd: connected.root },
+      });
+      expect(detected.isError).not.toBe(true);
+      const body = detected.structuredContent as unknown as ProjectCheckView;
+      expect(body.required).toBe(true);
+      expect(body.overallStatus).toBe("NOT_RUN");
+      expect(body.checks).toEqual([
+        expect.objectContaining({
+          checkId: "swiftpm:test",
+          kind: "test",
+          command: "swift",
+          args: ["test", "--quiet"],
+          source: "Package.swift",
+          execution: "admin-host",
+          status: "NOT_RUN",
+        }),
+        expect.objectContaining({
+          checkId: "swiftpm:build",
+          kind: "build",
+          command: "swift",
+          args: ["build"],
+          source: "Package.swift",
+          execution: "admin-host",
+          status: "NOT_RUN",
+        }),
+      ]);
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it("keeps Node aggregate verification authoritative in a mixed repository", async () => {
+    const connected = await fixture(true, "mixed");
+    try {
+      const leaseId = await projectLease(connected.client, connected.root);
+      const detected = await connected.client.callTool({
+        name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "detect", cwd: connected.root },
+      });
+      expect(detected.isError).not.toBe(true);
+      const body = detected.structuredContent as unknown as ProjectCheckView;
+      expect(body.checks).toHaveLength(1);
+      expect(body.checks[0]).toMatchObject({
+        checkId: "package-script:check",
+        execution: "project-sandbox",
+      });
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it("does not trust a symlinked Package.swift as verification configuration", async () => {
+    const connected = await fixture(true, "swiftpm");
+    try {
+      const packagePath = path.join(connected.root, "Package.swift");
+      const targetPath = path.join(connected.root, "Package.real.swift");
+      await rm(packagePath);
+      await writeFile(targetPath, "// not trusted through a symlink\n", "utf8");
+      await symlink(targetPath, packagePath);
+
+      const leaseId = await projectLease(connected.client, connected.root);
+      const detected = await connected.client.callTool({
+        name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "detect", cwd: connected.root },
+      });
+      expect(detected.isError).not.toBe(true);
+      const body = detected.structuredContent as unknown as ProjectCheckView;
+      expect(body.required).toBe(false);
+      expect(body.overallStatus).toBe("UNAVAILABLE");
+      expect(body.checks).toEqual([]);
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it("fails closed before a SwiftPM check can reach the project sandbox", async () => {
+    const connected = await fixture(true, "swiftpm");
+    try {
+      const leaseId = await projectLease(connected.client, connected.root);
+      const run = await connected.client.callTool({
+        name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "run", cwd: connected.root },
+      });
+      expect(run.isError).toBe(true);
+      expect(resultText(run)).toContain("AUTHORITY_DENIED");
+      expect(connected.backend.requests).toHaveLength(0);
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
   it("detects real scripts, runs only detected checks, persists digest-only evidence, and enforces task completion", async () => {
     const { root, taskStateRoot, backend, client, transport } = await fixture(true);
     try {
