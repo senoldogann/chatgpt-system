@@ -114,7 +114,7 @@ describe("ChatGPT connection diagnostics", () => {
     expect(classifyConnectionEvidence({
       ...healthy,
       stderr: { recent: true, dependencyFailureSignature: true },
-    })).toBe("LOCAL_RUNTIME_DEPENDENCY_FAILURE");
+    })).toBe("LOCAL_HEALTHY_NO_LOCAL_FAILURE_EVIDENCE");
     expect(classifyConnectionEvidence({
       ...healthy,
       tunnel: { ...healthy.tunnel, warningCount: 1, stdioFailureCount: 1 },
