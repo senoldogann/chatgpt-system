@@ -1,22 +1,22 @@
 # chatgpt-system — Active Project State
 
 Last updated: 2026-09-15
-Status: **Computer Use perception-reliability implementation is integrated, verified, installed, and published; Acceptance C remains blocked by the current product/account UI surface.**
+Status: **Computer Use perception-reliability is merged and independently verified on published `main`; integration cleanup is complete. Acceptance A remains precondition-gated and Acceptance C remains blocked by the current product/account UI surface.**
 
 This file is a handoff cache, not the sole source of truth. Git/worktree reality and Project Continuity records outrank this file. Resume the exact alias named below before acting.
 
 ## Current goal
 
-Preserve the verified perception-reliability publication lineage and rerun the remaining ChatGPT Plugins Refresh acceptance only when a supported Refresh surface is actually available. Do not create a synthetic success by weakening recovery, restarting normal Chrome, switching to Browser Runtime, or consuming unrelated dirty work.
+Preserve the verified `main@8ae6bee3f2aedca3a6b31b3dc17a909b4e49296d` perception-reliability lineage. Rerun the remaining acceptance work only when its real preconditions are satisfied: Chrome is naturally stopped or explicitly authorized to close for Acceptance A, and a supported ChatGPT Plugins Refresh surface is available for Acceptance C. Do not create synthetic success by weakening recovery, restarting normal Chrome, switching to Browser Runtime, or consuming unrelated dirty work.
 
 ## Active workspace
 
-- Clean integration Continuity alias: `chatgpt-system-perception-integration`.
-- Clean integration branch: `integration/computer-use-perception-native-verification`.
-- Verified runtime/integration code baseline before this documentation-only follow-up: `35ec7a7595f4f8eab4dfe1ebace260dbce6d0af1`.
-- `origin/integration/computer-use-perception-native-verification` was independently verified at that SHA before this docs follow-up; re-read remote truth after publishing documentation-only commits.
-- Integrated main base: `4c94c42ad2ffb2fb3d6f79e0d14a725f9d3d0542`.
-- Feature fix commit before integration: `4a7b5d11731bafc63c53931a5762e5df27b4ba60`.
+- Authoritative checkout: `/Users/dogan/Desktop/chatgpt-system`.
+- Project Continuity alias: `chatgpt-system-desktop`.
+- Published/local `main`: `8ae6bee3f2aedca3a6b31b3dc17a909b4e49296d` (`feat: harden computer use perception reliability (#51)`).
+- PR #51 squash-merged the verified perception-reliability integration lineage to `main`.
+- The local/remote integration branch and its integration/post-merge verification worktrees were removed after successful merge verification.
+- Detached merged-runtime worktree `/Users/dogan/.chatgpt-system/runtime/chatgpt-system-main` remains intentionally present at `8ae6bee`; do not repurpose or delete it as part of unrelated work.
 - Feature Continuity alias: `chatgpt-system-perception-feature`.
 - Feature branch `feat/computer-use-perception-reliability` remains intentionally unpublished and its worktree remains dirty only with preserved concurrent documentation/daily-driver changes.
 
@@ -35,9 +35,11 @@ The preserved daily-driver pair diff SHA-256 remains `47df7fedc5e2f8a98374793c8d
 
 - The cached structured-OCR zero-retry defect was reproduced RED, fixed, and regression-tested.
 - The clean feature lineage was integrated with `main@4c94c42` without consuming preserved dirty work.
-- Exact runtime/integration baseline `35ec7a7595f4f8eab4dfe1ebace260dbce6d0af1` passed focused, native, full, packaging, signing, and freshness-bound verification.
+- Exact runtime/integration baseline `35ec7a7595f4f8eab4dfe1ebace260dbce6d0af1` passed focused, native, full, packaging, signing, and freshness-bound verification before publication.
 - The identity-preserving daily-driver installer updated the fixed runtime bundle while preserving signer `ComputerUse Dev` and the stable designated requirement.
-- The clean integration branch was published through guarded `git_push` and remote truth was re-read at the same code baseline before this documentation follow-up.
+- The clean integration branch was published through guarded `git_push`; PR #51 passed hosted Node 22, Node 24, and macOS-native checks and was squash-merged as `8ae6bee3f2aedca3a6b31b3dc17a909b4e49296d`.
+- Independent post-merge verification passed on exact published `main@8ae6bee`, and local `main` was confirmed equal to `origin/main`.
+- The merged integration branch plus temporary integration/post-merge worktrees were cleaned up without modifying preserved dirty/review worktrees.
 
 ## Current state
 
@@ -74,21 +76,21 @@ The preserved daily-driver pair diff SHA-256 remains `47df7fedc5e2f8a98374793c8d
 
 ## Verification
 
-All evidence below is tied to clean exact HEAD `35ec7a7595f4f8eab4dfe1ebace260dbce6d0af1` before this final documentation-only follow-up:
+The authoritative completion evidence is tied to exact published merge commit `8ae6bee3f2aedca3a6b31b3dc17a909b4e49296d`:
 
-- focused TypeScript integration suites: **80/80 passed**;
-- native macOS Computer Runtime suite: **215/215 passed**;
+- PR #51 hosted CI: Node 22 PASS, Node 24 PASS, macOS-native PASS;
+- main push CI: SUCCESS;
 - full `npm run check`: **722 passed, 2 skipped, 0 failures**;
-- freshness-bound `project_check`: **PASS**, with matching HEAD and working-tree digest;
-- `npm run build:computer:macos`: PASS;
-- `npm run package:computer:macos`: PASS;
-- `npm run package:computer-fixture:macos`: PASS;
-- staged runtime and fixture bundles passed `codesign --verify --strict --deep` and expected bundle/executable checks;
+- native macOS Computer Runtime suite: **215/215 passed**;
+- `npm audit --omit=dev`: **0 vulnerabilities**;
+- runtime and fixture packaging: PASS;
+- independent strict/deep codesign and bundle-contract verification: PASS;
 - `git diff --check`: PASS;
-- clean Git status before publication;
-- guarded `git_push` succeeded and a fresh `project_resume` verified the remote integration branch at the same SHA.
+- freshness-bound `project_check`: **PASS** with matching exact HEAD and working-tree digest;
+- post-verification Git status: clean;
+- local `main == origin/main == 8ae6bee3f2aedca3a6b31b3dc17a909b4e49296d`.
 
-The integrated native runtime source tree is unchanged from `4a7b5d1` to `35ec7a7`; the merged main changes are outside `native/macos-computer-runtime`.
+The earlier clean integration baseline `35ec7a7595f4f8eab4dfe1ebace260dbce6d0af1` remains useful pre-merge evidence, but completion/publication claims are bound to the independently verified merge commit above.
 
 ## Installed runtime
 
@@ -107,10 +109,11 @@ The installed bundle is updated. The already-running native helper child was not
 ## Next exact step
 
 1. Do not modify the preserved dirty feature worktree to force task closure.
-2. Use the clean integration branch as the publication/deployment lineage.
-3. If a supported Workspace-admin/plugin Refresh surface becomes available, start with fresh `project_resume`, verify current Git/runtime state, and rerun Acceptance C using `computer_*` only.
-4. Reacquire fresh observation/screenshot evidence after uncertain UI mutations. Never repeat a failed point blindly and never silently restart normal Chrome.
-5. If Refresh remains unavailable, keep Acceptance C explicitly blocked rather than changing local authority or runtime behavior without new evidence.
+2. Treat published `main@8ae6bee` as the completed perception-reliability publication/deployment lineage; do not resurrect the removed integration branch.
+3. Run Acceptance A only when Chrome is naturally stopped or the user explicitly authorizes closing it.
+4. If a supported Workspace-admin/plugin Refresh surface becomes available, start with fresh `project_resume`, verify current Git/runtime state, and rerun Acceptance C using `computer_*` only.
+5. Reacquire fresh observation/screenshot evidence after uncertain UI mutations. Never repeat a failed point blindly and never silently restart normal Chrome.
+6. If neither acceptance precondition is available, keep those items pending/blocked and start any new `chatgpt-system` development as a separately scoped non-`main` branch/worktree from the current published `main`.
 
 ## Invariants
 
