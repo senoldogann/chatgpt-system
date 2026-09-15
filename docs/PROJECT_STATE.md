@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-16
 
-Status: **Computer Use flow-performance design is approved; Plan A has not yet been written.**
+Status: **Plan A is written and self-reviewed; independent plan review is blocked because this product surface exposes no reviewer/subagent dispatch capability. Implementation has not started.**
 
 This file is a bounded handoff cache. Git/worktree reality and Project Continuity records outrank it.
 
@@ -20,7 +20,8 @@ Live Codex comparison is deferred to conserve the user's Codex usage. This slice
 - Managed worktree ID: `c0b6df28-5082-4d9d-819a-011c2e21233e`
 - Branch: `design/computer-use-flow-performance`
 - Base: clean published `main@96d76b2810c7442a70dae5502065ff5bd15a2f99`
-- Design commits before this state update: `f7a9fbc`, `710d650`, `6528c04`
+- Design commits before Plan A: `f7a9fbc`, `710d650`, `6528c04`, `cf35308`, `b811810`
+- Plan A content commit: `359756ea9fc3bec10f5a42b2dac6b0a0a5d86878` (`docs: add computer use flow benchmark plan`)
 
 Do not modify, clean, reset, remove, or repurpose other existing worktrees. This managed worktree is the only worktree owned by the current task.
 
@@ -49,6 +50,20 @@ From the clean managed worktree before task changes:
 
 No Computer Runtime behavior, installed helper, tunnel process, plugin registration, or public MCP schema has been changed.
 
+## Plan A status and review evidence
+
+- Plan: `docs/superpowers/plans/2026-09-16-computer-use-flow-performance-benchmark.md`
+- Plan content commit: `359756ea9fc3bec10f5a42b2dac6b0a0a5d86878`
+- Scope remains benchmark/baseline only; no Runtime, MCP, Browser Runtime, or native helper implementation was started.
+- Repository mapping reused the existing Coding Harness patterns, Computer Runtime contracts, categorical audit, and deterministic native fixture.
+- Agent evidence is fail-closed: the existing audit is used only for categories it actually records; missing turn correlation/direct verification evidence is `unavailable`, never inferred as pass. Required unavailable Agent assertions make the scenario gate `incomplete`.
+- Chrome preservation uses a planned benchmark-owned read-only host-process oracle; raw process identifiers remain in memory and are not persisted.
+- Runtime-build identity is bound to exact Git commit, clean working-tree digest domain, TypeScript artifact hash, installed-helper executable hash, protocol version, and a coarse non-identifying machine-class hash.
+- Self-review against the approved spec found and resolved: incomplete Agent-result provenance, missing Chrome process oracle, missing metric fields, objective-comparison type mismatch, optionalized native regression gate, undefined plan interfaces, and underspecified artifact identity.
+- Final self-review scan found no missing required spec coverage, no `TBD`/`TODO`/`FIXME`/placeholder markers, and no undefined named benchmark types.
+- `git diff --cached --check` passed before the Plan A content commit.
+- Independent plan review is **not complete**. The installed `writing-plans` skill has no embedded plan-document-reviewer prompt, and the available reviewer guidance requires dispatching an independent subagent; this chat surface exposes no such dispatch tool. No `Approved` result was fabricated.
+
 ## Constraints
 
 - Do not develop on `main`.
@@ -61,18 +76,20 @@ No Computer Runtime behavior, installed helper, tunnel process, plugin registrat
 
 ## Next exact step
 
-1. The user requested handoff to another agent and authorized continuation into Plan A; do not repeat completed brainstorming questions.
-2. Resume the exact feature alias `chatgpt-system-computer-flow-performance`, then reconcile Git/worktree reality before mutation.
-3. Read the `writing-plans` skill and create Plan A at `docs/superpowers/plans/2026-09-16-computer-use-flow-performance-benchmark.md`.
-4. Plan A must define exact files, typed schemas, privacy-safe digest rules, required versus optional Agent Mode batches, tests, RED/GREEN commands, commit boundaries, and continuity checkpoints.
-5. Dispatch the independent plan-document reviewer and resolve blocking findings, up to three review iterations.
-6. Commit the approved Plan A and checkpoint exact branch/worktree/HEAD.
-7. Do not begin implementation until the plan handoff gate is complete.
+1. Do not begin Task 1 implementation while the independent Plan A review gate is unresolved.
+2. On a reviewer-capable surface, dispatch an independent reviewer with only:
+   - `docs/superpowers/specs/2026-09-16-computer-use-flow-performance-design.md`
+   - `docs/superpowers/plans/2026-09-16-computer-use-flow-performance-benchmark.md`
+3. Resolve every blocking reviewer finding and rerun the complete independent review, up to three rounds.
+4. Require final reviewer status `Approved`; do not substitute this self-review for that gate.
+5. After independent approval, reconcile Git/worktree reality, update this state plus `chatgpt-system-computer-flow-performance` continuity, and hand off the explicit execution choice. Do not automatically start implementation from this planning chat.
+6. Push/PR/merge/deployment/helper replacement/tunnel restart remain separately unauthorized.
 
 ## Completion stages
 
-- `design_approved`: current stage
-- `plan_a_approved`: pending
+- `design_approved`: complete
+- `plan_a_self_reviewed`: complete at Plan A content commit `359756ea9fc3bec10f5a42b2dac6b0a0a5d86878`
+- `plan_a_approved`: blocked pending independent reviewer capability/status
 - `benchmark_baseline_complete`: pending
 - `candidate_ready_for_deployment`: pending
 - `real_mac_acceptance_complete`: pending
