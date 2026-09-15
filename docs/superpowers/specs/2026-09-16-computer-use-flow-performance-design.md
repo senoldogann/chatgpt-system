@@ -272,11 +272,18 @@ Each run derives:
 
 Runtime Mode owns local program, RPC, physical action, recovery, verification, and safety metrics. Agent Mode owns model/runtime decision boundaries, tool choice, batching, model-visible replans, and end-to-end duration. Metrics without an authoritative source in a mode are recorded as unavailable and excluded from that mode's acceptance arithmetic.
 
+Agent Mode records two distinct boundary metrics:
+
+- `computerToolCallCount`: each completed top-level measured `computer_*` MCP request; `computer_run` and `computer_run_js` each count once regardless of their local action count;
+- `modelRoundTripCount`: each agent turn that sends one or more measured `computer_*` calls and receives their results before the model continues reasoning.
+
+Authority setup, fixture reset, collector probes, and lease-free health preflight are outside the measured workflow. Parallel calls in one agent turn contribute their individual tool calls but one model round trip. The accepted "decision boundary" performance rules use `modelRoundTripCount`. If the product surface does not expose a trustworthy turn/correlation identifier, that metric is unavailable rather than reconstructed heuristically.
+
 Timing uses monotonic clocks. Product targets are evaluated statistically and are not converted into brittle per-call CI timeouts.
 
 ### 7.3 Baseline and comparison
 
-The first accepted benchmark run establishes the current-system baseline. A subsequent optimization report compares the same benchmark-schema version, metric-rules version, scenario version, fixture version, runtime build, machine class, mode, and run count.
+The first accepted benchmark run establishes the current-system baseline. A subsequent optimization report requires matching benchmark-schema version, metric-rules version, scenario version, fixture version, machine class, mode, run count, and other declared controlled conditions. It binds separate immutable `baselineRuntimeBuild` and `candidateRuntimeBuild` identities; those build identities are reported, not required to be equal.
 
 Each comparison uses one unrecorded warm-up followed by ten recorded runs per scenario and candidate. Runs alternate baseline/candidate order when both artifacts can be exercised without violating installed-helper identity. No recorded run is discarded as an outlier. Reports include all values, median, p90, and paired faster-run count where pairing is valid.
 
@@ -517,7 +524,8 @@ The slice is complete when:
 - all repository/native/security/package gates required by the changed files pass on the exact final artifact;
 - current `computer_*` callers remain compatible;
 - no live Codex usage was consumed;
-- publication and deployment remain pending until separately authorized.
+- every installation/deployment action used for Tier 2 had separate authorization;
+- publication and any deployment beyond the specifically authorized Tier 2 installation remain pending until separately authorized.
 
 Completion is reported in named stages:
 
