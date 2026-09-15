@@ -112,13 +112,20 @@ explicit benchmark runner/collector (off by default)
         +-- privacy-safe run record
 ```
 
-The benchmark runner is outside the runtime's normal request path. It drives the public Computer Runtime contracts, observes results, and consults deterministic fixture oracles. The model or workflow under test cannot self-certify success.
+The benchmark is outside the runtime's normal request path and has two explicit modes. Runtime Mode drives public Computer Runtime contracts with a fixed scripted workflow and owns deterministic runtime latency, correctness, recovery, and safety measurements. Agent Mode is driven by ChatGPT through the normal custom-app MCP surface and owns model/runtime decision-boundary and end-to-end flow measurements. Neither mode may self-certify success; a trusted collector consults versioned fixture or real-app oracles.
 
 ## 6. Two-tier benchmark
 
 ### 6.1 Tier 1: deterministic fixture benchmark
 
 Tier 1 contains five controlled web scenarios opened in normal Google Chrome and one controlled native macOS scenario. Fixture state is deterministic, resettable, local, and contains no user data.
+
+Each scenario supports two distinct executions:
+
+- **Runtime Mode:** a repository-owned scripted driver sends a fixed sequence through the public Computer Runtime API. It does not invoke ChatGPT or another model. It establishes native/supervisor latency, action correctness, recovery, and safety baselines.
+- **Agent Mode:** ChatGPT receives only the scenario goal and uses the normal custom-app tools. A trusted external collector records actual MCP calls/results and fixture-oracle evidence. It measures decision boundaries, tool selection, batching, replans, and end-to-end experience. Agent Mode is never run in ordinary CI and is never replaced by a model-authored run record.
+
+Runtime Mode and Agent Mode produce the same versioned record envelope but have different `mode` values and may not be aggregated into one latency distribution. Repository CI tests the protocol, fixtures, evaluator, and scripted Runtime Mode where the platform supports it. Repeated live Agent Mode is a controlled local acceptance activity.
 
 Each scenario declares:
 
@@ -169,6 +176,17 @@ Normal Chrome profile/process state is preserved. No account mutation, payment, 
 
 If a hosted product surface does not expose a required control, the run is `precondition_blocked`, not a runtime failure or synthetic success. The operator records the missing external precondition without weakening the scenario or changing automation surfaces.
 
+Tier 2 has an explicit artifact gate:
+
+1. build and verify the candidate worktree artifact without changing the installed daily-driver helper;
+2. reach `candidate_ready_for_deployment` with all non-deployment gates green;
+3. request separate deployment authorization;
+4. only after authorization, use the identity-preserving installer for the fixed helper path and perform any required controlled supervisor/tunnel lifecycle action;
+5. confirm the installed bundle identity and exact candidate lineage;
+6. run Tier 2 against that installed artifact.
+
+Without deployment authorization, Tier 2 remains `deployment_pending`; the candidate may be implementation-complete but the slice cannot claim real-Mac acceptance completion. A currently installed older helper cannot be used as evidence for a native candidate change. If the candidate changes no native helper code, the acceptance record must still bind the running TypeScript/runtime lineage and installed helper identity explicitly.
+
 ## 7. Run record and metrics
 
 ### 7.1 Privacy-safe event model
@@ -179,6 +197,7 @@ The collector records only bounded categorical data:
 type ComputerBenchmarkEvent = {
   sequence: number;
   elapsedMs: number;
+  mode: "runtime" | "agent";
   category:
     | "workflow_start"
     | "tool_boundary"
@@ -189,12 +208,35 @@ type ComputerBenchmarkEvent = {
     | "replan"
     | "takeover"
     | "workflow_end";
-  operation?: string;
-  outcome?: string;
+  operation?: ComputerBenchmarkOperation;
+  outcome?: ComputerBenchmarkOutcome;
   targeting?: "ax" | "ocr" | "visual-point" | "none";
   verified?: boolean;
 };
 ```
+
+`ComputerBenchmarkOperation` and `ComputerBenchmarkOutcome` are closed enums. Operation values are tool/action categories such as `observe`, `screenshot`, `click`, `scroll`, `type_text`, `wait`, `verify`, and `run`; outcome values are bounded categories such as `completed`, `verified`, `completed_unverified`, `blocked`, `needs_replan`, `timeout`, `unavailable`, and `precondition_blocked`. Raw tool names may be mapped to these enums in memory, but arbitrary strings and error messages are never persisted.
+
+Zero-tolerance gates use explicit trusted-oracle assertions rather than inference from free-form events:
+
+```ts
+type ComputerBenchmarkAssertion = {
+  assertion:
+    | "completion_oracle"
+    | "wrong_app_input_absent"
+    | "post_takeover_input_absent"
+    | "blind_point_repeat_absent"
+    | "unchanged_scroll_repeat_absent"
+    | "false_verified_absent"
+    | "safety_boundary_violation_absent"
+    | "browser_runtime_absent"
+    | "chrome_process_preserved";
+  status: "pass" | "fail" | "unavailable";
+  evidenceDigest?: string;
+};
+```
+
+The scenario definition names the allowed oracle for each assertion. Fixture state, native fixture event counters, typed runtime results, and trusted MCP call traces are valid sources. Model prose is not. An assertion with no permitted observable source is `unavailable`, never assumed to pass.
 
 Exact final field names may follow existing benchmark conventions, but the persisted schema must not contain:
 
@@ -228,11 +270,24 @@ Each run derives:
 - unchanged-state repeated-scroll count;
 - safety-boundary violation count.
 
+Runtime Mode owns local program, RPC, physical action, recovery, verification, and safety metrics. Agent Mode owns model/runtime decision boundaries, tool choice, batching, model-visible replans, and end-to-end duration. Metrics without an authoritative source in a mode are recorded as unavailable and excluded from that mode's acceptance arithmetic.
+
 Timing uses monotonic clocks. Product targets are evaluated statistically and are not converted into brittle per-call CI timeouts.
 
 ### 7.3 Baseline and comparison
 
-The first accepted benchmark run establishes the current-system baseline. A subsequent optimization report compares the same scenario version, fixture version, runtime build, machine class, and run count.
+The first accepted benchmark run establishes the current-system baseline. A subsequent optimization report compares the same benchmark-schema version, metric-rules version, scenario version, fixture version, runtime build, machine class, mode, and run count.
+
+Each comparison uses one unrecorded warm-up followed by ten recorded runs per scenario and candidate. Runs alternate baseline/candidate order when both artifacts can be exercised without violating installed-helper identity. No recorded run is discarded as an outlier. Reports include all values, median, p90, and paired faster-run count where pairing is valid.
+
+Before changing behavior, the optimization plan selects one primary bottleneck and one of these objective completion rules:
+
+- **flow boundary:** at least one fewer model/runtime decision boundary in at least 9 of 10 Agent Mode pairs, with candidate median end-to-end duration no worse than baseline;
+- **flow latency:** at least 10% lower Agent Mode median end-to-end duration and at least 7 of 10 paired runs faster, with decision-boundary median no worse;
+- **runtime latency:** at least 20% lower Runtime Mode median for the targeted operation/program and at least 10% lower p90, with at least 7 of 10 paired runs faster;
+- **reliability defect:** a baseline failure reproduced in at least 2 of 10 runs becomes 0 of 10, while the scenario remains at least 9 of 10 overall and other scenarios do not regress below their gates.
+
+If baseline noise or external product behavior prevents valid pairing, the plan must stop and redesign the measurement rather than declare improvement. Timing-only changes that fail the selected minimum effect do not satisfy this slice, even if their point estimate is positive.
 
 An optimization is acceptable only when:
 
@@ -241,6 +296,8 @@ An optimization is acceptable only when:
 - decision-boundary count does not increase;
 - safety counters remain zero;
 - full regression gates remain green.
+
+The metric derivation algorithm, enum mappings, assertion-oracle mappings, warm-up rule, aggregation rule, and gate calculations are versioned together. Historical records are evaluated only by their matching rules version.
 
 ## 8. Success gates
 
@@ -257,6 +314,8 @@ Run each of the six scenarios ten times:
 - false verified results: 0;
 - safety-boundary violations: 0.
 
+The 57/60 and per-scenario floors apply separately to Runtime Mode and to any completed Agent Mode batch; the two modes are never pooled to manufacture the threshold.
+
 ### 8.2 Real-Mac acceptance
 
 When required external controls are available:
@@ -269,6 +328,8 @@ When required external controls are available:
 - uncertain successful mutations are followed by fresh evidence rather than duplicate action.
 
 Precondition-blocked tasks remain explicit and do not count as pass or runtime failure.
+
+A selected Tier 2 workflow needs three completed eligible repetitions. `precondition_blocked` and `deployment_pending` runs do not reduce that sample size. If three eligible repetitions cannot be obtained, that workflow remains pending and Tier 2 completion cannot be claimed. The implementation and candidate-ready milestones may still be reported separately with the blocker.
 
 ## 9. Optimistic Verified Batching policy
 
@@ -315,7 +376,12 @@ Rules:
 
 ## 11. Candidate optimization areas
 
-The implementation plan may include an optimization only after its baseline evidence exists. Candidate areas are:
+The work uses a mandatory two-plan phase gate:
+
+- **Plan A — Benchmark and Baseline:** implement the versioned protocol, fixtures, trusted collector/evaluator, Runtime Mode, Agent Mode collection contract, tests, and baseline procedure. Plan A must not prescribe or implement a speculative runtime optimization.
+- **Plan B — Evidence-Selected Optimization:** after Plan A is complete and the baseline is checkpointed, select exactly one primary bottleneck and objective completion rule. Write a second exact implementation plan naming the files, focused RED evidence, minimal change, metric target, regression gates, and rollback boundary. Additional bottlenecks require later plan amendments or separate plans.
+
+Plan B may include an optimization only after its baseline evidence exists. Candidate areas are:
 
 - reduce redundant observe/screenshot boundaries when existing local verification is sufficient;
 - prefer `computer_run` or `computer_run_js` for multi-step workflows in tool guidance;
@@ -325,7 +391,7 @@ The implementation plan may include an optimization only after its baseline evid
 - improve local wait/verify composition so expected UI transitions do not require a model round trip;
 - bound payloads more tightly if observation size, not runtime latency, is the measured bottleneck.
 
-This list is not a promise to implement every item. Unmeasured speculative changes remain out of scope.
+This list is not a promise to implement every item. Unmeasured speculative changes remain out of scope. If Plan A finds no bottleneck that can satisfy an objective completion rule without weakening invariants, checkpoint that evidence and return to design rather than inventing Plan B.
 
 ## 12. Testing strategy
 
@@ -387,19 +453,29 @@ Before completion:
 
 ## 13. Delivery sequence
 
-1. Add the deterministic benchmark protocol, scenario metadata, evaluator, and privacy-safe record schema without changing runtime behavior.
-2. Add controlled web fixture states and reuse or minimally extend the existing native fixture.
-3. Prove collector/oracle behavior with focused integration tests.
-4. Establish and preserve the current runtime baseline.
-5. Select the highest-impact measured bottleneck.
-6. Reproduce it with focused RED evidence.
-7. Implement the smallest backwards-compatible fix.
-8. Rerun the focused scenario and regression suites.
-9. Repeat only for additional bottlenecks necessary to satisfy the accepted gates.
-10. Run Tier 1 repeated acceptance.
-11. Build/package the exact candidate artifact and run Tier 2 when preconditions allow.
-12. Update continuity state with exact branch/worktree/HEAD, evidence, blockers, and next step.
-13. Request separate authorization before push, PR creation, merge, deployment, helper replacement, or tunnel restart.
+### Phase A — Benchmark and baseline
+
+1. Write and approve Plan A with exact files, tests, commands, commit boundaries, and handoff checkpoints.
+2. Add the versioned benchmark protocol, scenario metadata, evaluator, and privacy-safe record schema without changing runtime behavior.
+3. Add controlled web fixture states and reuse or minimally extend the existing native fixture.
+4. Prove collector/oracle behavior with focused integration tests.
+5. Implement scripted Runtime Mode and the trusted Agent Mode collection contract.
+6. Run protocol/full regression gates and establish the current runtime baseline.
+7. Commit and checkpoint the baseline evidence, exact artifact identity, selected primary bottleneck, and selected objective completion rule.
+
+### Phase B — Evidence-selected optimization
+
+8. Write and approve Plan B for the selected bottleneck; do not continue from a generic placeholder task.
+9. Reproduce the bottleneck with focused RED evidence.
+10. Implement the smallest backwards-compatible fix.
+11. Rerun the focused scenario, repeated comparison, and regression suites.
+12. Repeat only through a separately approved plan amendment if another bottleneck is still required.
+13. Run Tier 1 repeated acceptance for the exact candidate.
+14. Build/package and verify the exact candidate artifact without changing the installed daily-driver helper.
+15. Reach and checkpoint `candidate_ready_for_deployment`.
+16. Request separate authorization before push, PR creation, merge, deployment, helper replacement, or tunnel restart.
+17. If deployment is authorized, install with identity preservation, verify exact lineage, and run Tier 2 when external preconditions allow.
+18. Update continuity state after every milestone with exact branch/worktree/HEAD, evidence, blockers, and one concrete next step.
 
 ## 14. Rollback and compatibility
 
@@ -420,7 +496,8 @@ The existing installed helper and healthy tunnel remain untouched until a verifi
 Another agent must be able to resume without chat history. The task therefore maintains:
 
 - this design spec as the authoritative approved behavior;
-- an implementation plan with exact files, tests, commands, expected RED/GREEN states, and commit boundaries;
+- Plan A with exact benchmark/baseline files, tests, commands, expected RED/GREEN states, and commit boundaries;
+- after the baseline, a separately approved Plan B with the evidence-selected optimization's exact files, tests, commands, expected RED/GREEN states, metric target, and commit boundaries;
 - `docs/PROJECT_STATE.md` with the active worktree, branch, exact HEAD, completed milestone, current evidence, blockers, and one concrete next step;
 - Project Continuity checkpoints at each meaningful milestone;
 - no secrets, raw UI content, screenshots, OCR/AX text, typed sensitive data, or lease IDs in repository documentation.
@@ -441,3 +518,12 @@ The slice is complete when:
 - current `computer_*` callers remain compatible;
 - no live Codex usage was consumed;
 - publication and deployment remain pending until separately authorized.
+
+Completion is reported in named stages:
+
+- `benchmark_baseline_complete`: Plan A is implemented and the versioned baseline is checkpointed;
+- `candidate_ready_for_deployment`: Plan B is implemented, Tier 1 and all non-deployment gates pass on the exact candidate;
+- `real_mac_acceptance_complete`: authorized exact-artifact Tier 2 obtains all required eligible repetitions;
+- `slice_complete`: all definition-of-done requirements, including real-Mac acceptance, are satisfied.
+
+`deployment_pending` or `precondition_blocked` may legitimately stop progress after candidate readiness, but neither is reported as `slice_complete`.
