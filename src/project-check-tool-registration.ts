@@ -1,7 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { errorPayload } from "./errors.js";
-import { createProjectCheckService, type ProjectCheckRuntimeDependencies } from "./project-check-factory.js";
+import {
+  createProjectCheckHostExecutorFactory,
+  createProjectCheckService,
+  type ProjectCheckRuntimeDependencies,
+} from "./project-check-factory.js";
 import { projectCheckOutputSchema } from "./tool-output-schemas.js";
 
 export interface ProjectCheckToolRuntime extends ProjectCheckRuntimeDependencies {}
@@ -26,6 +30,7 @@ const inputSchema = z.discriminatedUnion("operation", [
   z.object({
     ...baseFields,
     operation: z.literal("run"),
+    adminAuthorityLeaseId: z.string().min(40).optional(),
     checkIds: z.array(z.string().min(1).max(256)).min(1).max(32).optional(),
     timeoutMs: z.number().int().positive().max(600_000).optional(),
   }).strict(),
@@ -58,7 +63,7 @@ export function registerProjectCheckTool(server: McpServer, runtime: ProjectChec
   server.registerTool(
     "project_check",
     {
-      description: "Detect repository-defined verification checks, run only detected checks inside the existing Project sandbox, and report freshness-bound evidence without persisting raw command output.",
+      description: "Detect repository-defined verification checks, run only detected checks through their declared Project-sandbox or explicitly Admin-authorized native-host lane, and report freshness-bound evidence without persisting raw command output.",
       inputSchema,
       outputSchema: projectCheckOutputSchema,
       annotations,
@@ -67,7 +72,10 @@ export function registerProjectCheckTool(server: McpServer, runtime: ProjectChec
       const service = createProjectCheckService(runtime, input.authorityLeaseId);
       if (input.operation === "detect") return service.detect(input.cwd);
       if (input.operation === "report") return service.report(input.cwd);
-      return service.run(input.cwd, input.checkIds, input.timeoutMs);
+      const hostExecutorFactory = input.adminAuthorityLeaseId === undefined
+        ? undefined
+        : createProjectCheckHostExecutorFactory(runtime, input.adminAuthorityLeaseId);
+      return service.run(input.cwd, input.checkIds, input.timeoutMs, hostExecutorFactory);
     }),
   );
 }

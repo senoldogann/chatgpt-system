@@ -35,6 +35,7 @@ import { TerminalSessionSupervisor } from "./terminal-session-supervisor.js";
 import { registerTerminalSessionTools } from "./terminal-session-tool-registration.js";
 import { registerOwnerShellTool } from "./owner-shell-tool-registration.js";
 import { createProjectCheckService } from "./project-check-factory.js";
+import type { ProjectCheckHostExecutorFactory } from "./project-check-host-executor.js";
 import { registerProjectCheckTool } from "./project-check-tool-registration.js";
 import { registerProjectExecTool } from "./project-exec-tool-registration.js";
 import { ProjectPublishGate } from "./project-publish-gate.js";
@@ -79,6 +80,7 @@ export interface RuntimeServices extends ProjectContinuityRuntime {
   ownerShellSupervisor: OwnerShellSupervisor;
   terminalSessionSupervisor: TerminalSessionSupervisor;
   projectExecBackend: ProjectExecBackend;
+  projectCheckHostExecutorFactory?: ProjectCheckHostExecutorFactory;
   taskStateRoot: string;
   worktreeRoot: string;
   browser: BrowserService;
@@ -93,6 +95,7 @@ export interface RuntimeOptions extends BrowserFactoryOptions {
   computerRuntime?: ComputerRuntime;
   computerJsRuntime?: ComputerJsRuntime;
   projectExecBackend?: ProjectExecBackend;
+  projectCheckHostExecutorFactory?: ProjectCheckHostExecutorFactory;
   taskStateRoot?: string;
   worktreeRoot?: string;
 }
@@ -188,6 +191,9 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     ownerShellSupervisor,
     terminalSessionSupervisor,
     projectExecBackend,
+    ...(options.projectCheckHostExecutorFactory !== undefined
+      ? { projectCheckHostExecutorFactory: options.projectCheckHostExecutorFactory }
+      : {}),
     taskStateRoot,
     worktreeRoot,
     browser,

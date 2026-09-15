@@ -156,9 +156,9 @@ run
 report
 ```
 
-`detect` reads actual project configuration instead of accepting an arbitrary command from the caller. For Node repositories, an existing aggregate `check` script is preferred; otherwise existing typecheck/lint/test/build scripts may be detected.
+Detection is repository-derived. Existing Node package scripts keep their current precedence and run in the Project Docker sandbox. If no Node check is detected and the repository root contains a regular non-symlink Package.swift, project_check detects fixed SwiftPM test/build checks. Those checks are marked admin-host and project_check run requires an explicit active Admin lease; callers still cannot submit command/args/cwd overrides. Detect/report remain Project-only. All lanes write the same freshness-bound digest-only evidence.
 
-`run` executes only detected checks through Project sandbox execution. Evidence stores categorical execution metadata plus output digests and byte counts; raw stdout/stderr are not persisted.
+Docker/image/backend failure never causes automatic fallback from a `project-sandbox` check to host execution. Native `admin-host` checks are a separately detected lane with explicit Admin authorization, not a recovery path for failed sandbox checks.
 
 Statuses:
 

@@ -456,6 +456,8 @@ git_push
 
 `git_push` is a dual-authority publication gate. `authorityLeaseId` must be an active Admin lease and `projectAuthorityLeaseId` must be the exact active Project lease returned by `project_resume` for the registered worktree. Publication is denied on `main`, on a dirty tree, when resumed worktree identity no longer matches, or unless `project_check` reports a fresh `PASS` for the exact current `HEAD` + `workingTreeDigest`. The final Git refspec uses that verified commit SHA and the validated current branch; remote/refspec/force/branch/head verification overrides are not exposed to MCP callers.
 
+An Admin lease supplied to `project_check run` for an `admin-host` native verification check authorizes only that local verification execution. `git_push` independently requires its own current Admin lease plus the exact resumed Project lease and a fresh `project_check report` `PASS`. Verification evidence stores categorical execution metadata plus output digests and byte counts; raw terminal stdout/stderr is not persisted.
+
 ### Sandboxed Project execution
 
 ```text
