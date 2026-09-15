@@ -375,6 +375,43 @@ final class RecoveryEngineTests: XCTestCase {
         XCTAssertEqual(displayCaptureCount, 0)
     }
 
+    func testCachedStructuredOcrResolvesWithZeroRetryBudget() async throws {
+        let accessibility = FakeRecoveryAccessibility(elements: [windowElement()])
+        let ocr = CountingOCR(
+            fast: [
+                OcrTextCandidate(
+                    text: "chatgpt-system-local",
+                    bounds: ComputerBounds(x: 20, y: 30, width: 40, height: 24),
+                    confidence: 0.95,
+                    source: .fast,
+                    observationId: "cached-ocr"
+                ),
+            ],
+            accurate: []
+        )
+        let capture = CountingScreenCapture()
+        let engine = makeEngine(
+            accessibility: accessibility,
+            ocr: ocr,
+            capture: capture,
+            controller: FakeRecoveryApplicationController(bundleIdentifier: "com.google.Chrome")
+        )
+
+        let observation = try await engine.refreshObservation()
+        XCTAssertEqual(observation.perception?.ocrCandidates.map(\.text), ["chatgpt-system-local"])
+
+        let resolved = try await engine.resolve(
+            .ocrText(text: "chatgpt-system-local", exact: true),
+            retryBudget: 0
+        )
+
+        XCTAssertEqual(resolved.source, .ocr)
+        let modes = await ocr.modes
+        let windowCaptureCount = await capture.windowCaptureCount
+        XCTAssertEqual(modes, [.fast])
+        XCTAssertEqual(windowCaptureCount, 1)
+    }
+
     func testScopedOcrTextRestrictsCandidatesToContainerBounds() async throws {
         let accessibility = FakeRecoveryAccessibility(elements: [
             windowElement(),

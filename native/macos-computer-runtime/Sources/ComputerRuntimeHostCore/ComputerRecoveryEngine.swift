@@ -89,12 +89,11 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
             context = try await freshContext()
         }
 
+        var initialResolutionError: ComputerTargetResolutionError?
         do {
             return try resolver.resolve(target: target, in: context)
         } catch let error as ComputerTargetResolutionError {
-            if retryBudget == 0 {
-                throw mapResolutionError(error)
-            }
+            initialResolutionError = error
         }
 
         if context.cached.observation.perception?.ocrUsed == true,
@@ -104,6 +103,10 @@ actor ComputerRecoveryEngine: ComputerRecoveryHandling {
            )
         {
             return cachedOCRResolved
+        }
+
+        if retryBudget == 0, let initialResolutionError {
+            throw mapResolutionError(initialResolutionError)
         }
 
         if usedCachedContext {
