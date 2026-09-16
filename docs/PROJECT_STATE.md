@@ -2,85 +2,89 @@
 
 Last updated: 2026-09-16
 
-Status: **Plan A round-2 independent approval was not obtained because this ChatGPT surface exposes no reviewer/subagent dispatch capability. On 2026-09-16 the user explicitly waived that pre-implementation review gate and ordered implementation to start. The waiver is recorded without claiming `Approved`; Task 1 TDD implementation is now authorized.**
+Status: **Plan A benchmark/readiness implementation Tasks 1–5 are committed and all Task 6 pre-readiness verification gates are green. The missing independent Plan A round-2 review was explicitly waived by the user and remains recorded as waived, not `Approved`. This document records the implementation code HEAD immediately preceding the readiness-state commit; the final readiness commit must still receive a fresh exact-HEAD `project_check` before baseline execution starts.**
 
 This file is a handoff cache, not the sole source of truth. Git/worktree reality and Project Continuity records outrank it.
 
 ## Current goal
 
-Make ChatGPT Web/Desktop Computer Use fast and fluid through measurement-first, backwards-compatible improvements while preserving the working runtime, public `computer_*` contracts, and all authority, TCC, takeover, recovery, and verification invariants.
+Make ChatGPT Web/Desktop Computer Use fast and fluid through measurement-first, backwards-compatible improvements while preserving the working runtime, public `computer_*` contracts, and all authority, TCC, takeover, recovery, verification, and held-input cleanup invariants.
 
-Live Codex comparison is deferred to conserve the user's Codex usage. This slice uses absolute reliability, latency, boundary-count, and safety gates.
+Live Codex comparison remains deferred. Plan A now provides the measurement/baseline layer; Plan B is written only after baseline evidence selects one eligible bottleneck and one preselected objective rule.
 
 ## Active workspace
 
 - Authoritative checkout: `/Users/dogan/Desktop/chatgpt-system`
-- Continuity alias: `chatgpt-system-desktop`
-- Active managed worktree: `/Users/dogan/.chatgpt-system/worktrees/e4eaca835975a22d75cc3e7778bb895500595d13b544a96d350c557d9edad976/c0b6df28-5082-4d9d-819a-011c2e21233e`
-- Managed worktree ID: `c0b6df28-5082-4d9d-819a-011c2e21233e`
+- Project Continuity alias: `chatgpt-system-computer-flow-performance`
+- Main Continuity alias: `chatgpt-system-desktop`
 - Branch: `design/computer-use-flow-performance`
 - Base: clean published `main@96d76b2810c7442a70dae5502065ff5bd15a2f99`
-- Design commits before Plan A: `f7a9fbc`, `710d650`, `6528c04`, `cf35308`, `b811810`
-- Original Plan A content commit: `359756ea9fc3bec10f5a42b2dac6b0a0a5d86878` (`docs: add computer use flow benchmark plan`)
-- Review-resolution commits: `46cb9a3842e458aca358ed125613bca9b452d442` (`docs: address computer flow plan review`), `2a8e434d14fff70eb86425e35f8f3fedf9aaf386` (`docs: tighten computer flow plan assertions`), and `36694d0e4f6d348842353252990487e164c989ae` (`docs: harden computer flow plan review contract`)
-- Exact revised Plan A content for round 2: `36694d0e4f6d348842353252990487e164c989ae`
+- Exact revised Plan A content: `36694d0e4f6d348842353252990487e164c989ae`
 - Exact revised Plan A SHA-256: `91be19caf98e17fe2d2d94b55655ca3f0f6a962684bd5f8ce8695dfa1f474186`
+- Implementation code HEAD immediately preceding the readiness-state commit: `a0923e01baf142302fae5767e9a04c4dc4651f96`
 
-Do not modify, clean, reset, remove, or repurpose other existing worktrees. This managed worktree is the only worktree owned by the current task.
+Do not modify, clean, reset, remove, or repurpose other existing worktrees. Do not push, open a PR, merge, deploy, replace the installed helper, restart the healthy tunnel, or restart normal Chrome without separate authorization.
 
 ## Completed
 
-### Approved design
+### Approved design and Plan A review state
 
 - Spec: `docs/superpowers/specs/2026-09-16-computer-use-flow-performance-design.md`
-- Target surface: ChatGPT Web/Desktop custom app
-- Execution policy: Optimistic Verified Batching
-- Benchmark: five controlled Chrome scenarios plus one native macOS scenario
-- Modes: scripted Runtime Mode and ChatGPT-driven Agent Mode with separate metrics
-- Safety records: closed enums plus trusted categorical oracle assertions; no raw UI, OCR/AX, editable, screenshot, label, coordinate, secret, or lease content
-- Deterministic gate: at least 57/60 per completed mode, no scenario below 9/10, and all safety counters zero
-- Real-Mac gate: three eligible repetitions per selected workflow after separately authorized exact-artifact installation
-- Planning gate: Plan A builds benchmark/baseline infrastructure; Plan B is written only after baseline evidence selects one exact bottleneck and objective effect rule
-
-The spec passed an independent three-turn review. The final review status was Approved with no blocking issues.
-
-## Verification
-
-### Baseline evidence
-
-From the clean managed worktree before task changes:
-
-- `npm ci`: completed; 0 vulnerabilities reported
-- `npm run check`: PASS
-- TypeScript build: PASS
-- Vitest: 117 files passed, 1 skipped; 735 tests passed, 2 skipped
-
-No Computer Runtime behavior, installed helper, tunnel process, plugin registration, or public MCP schema has been changed.
-
-## Current state
-
-### Plan A status and review evidence
-
 - Plan: `docs/superpowers/plans/2026-09-16-computer-use-flow-performance-benchmark.md`
-- Original Plan A content commit: `359756ea9fc3bec10f5a42b2dac6b0a0a5d86878`.
-- Independent review round 1 returned `Needs Changes` with seven findings: lossy audit completeness, missing independent native oracle, Task 1/Task 2 scenario dependency, objective-specific comparison request typing, closed recovery/mapping gaps, weak Chrome process-preservation semantics, and stale final-HEAD verification sequencing.
-- Review findings were resolved across `46cb9a3842e458aca358ed125613bca9b452d442` and `2a8e434d14fff70eb86425e35f8f3fedf9aaf386`. A fresh pre-round-2 self-review then produced `36694d0e4f6d348842353252990487e164c989ae`, which is now the only exact Plan A content eligible for round-2 approval; the original `359756...` and earlier revised content are obsolete for approval purposes.
-- Agent audit evidence is now explicitly positive-only because `ScopedComputerService.safeRecord()` / `AuditLogger.recordBestEffort()` can lose records without rolling back operations. Exact Agent `computerToolCallCount` and completeness-dependent absence assertions remain `unavailable/lossy_audit_source`; observed forbidden activity still invalidates a run.
-- Scenario 6 now plans a minimally extended fixture-only, content-safe external native oracle; Runtime/Agent completion can no longer self-certify through `ComputerRuntime`/AX observation. Production native helper/core/host behavior remains outside Plan A.
-- Task 1 now owns the six-scenario registry/provenance plus exhaustive versioned error/scroll mappings. Objective comparison input is a caller-preselected discriminated union with required runtime selector or reliability category.
-- Chrome preservation now requires every pre-existing main-process ID to survive (`pre ⊆ post`); partial replacement fails.
-- Tasks 6/7 now commit PROJECT_STATE before running the fresh `project_check`; any later repository edit invalidates that evidence and requires a rerun on the new final HEAD.
-- Pre-round-2 self-review additionally made signed-run HMAC verification mandatory before evaluator/CLI arithmetic, persisted Scenario 4/5 recovery-contract evidence as a required assertion, required complete signed reliability regression-guard scenario sets, and made flow objective eligibility require every authoritative metric used by the selected rule. Comparison also rejects self-inconsistent or top-level-mismatched runtime build identities.
-- Current product/tool inspection found no independent reviewer/subagent dispatch action in this ChatGPT surface. The installed `requesting-code-review` workflow explicitly requires subagent dispatch, so no round-2 `Approved` result was fabricated.
-- Final self-review of the revised plan found no undefined named benchmark types, no `TBD`/`TODO`/`FIXME`/placeholder markers, no stale pre-review rules, and exactly one Task 1 creation of `scenarios.ts` with Task 2 explicitly not recreating/modifying it.
-- Only planning documentation changed in this review-resolution turn. No benchmark/runtime/native implementation, installed helper, tunnel, Browser Runtime, public MCP schema, or Chrome process was changed.
-- Implementation tests/builds were not run in this docs-only review-resolution turn; no fresh implementation PASS is claimed.
-- Independent final approval is **not complete** and no `Approved` result is claimed. The user explicitly waived the missing round-2 approval gate on 2026-09-16 and authorized Task 1 implementation to begin. The waiver does not relax any technical, privacy, safety, TDD, verification, or deployment boundary.
+- The design spec passed its independent review and was Approved.
+- Plan A independent review round 1 returned `Needs Changes`; its seven blocking/important findings were resolved in the revised plan.
+- Independent Plan A round-2 approval was not available on this product surface. The user explicitly waived only that pre-implementation review gate on 2026-09-16. No `Approved` result is claimed or implied.
+
+### Plan A implementation Tasks 1–5
+
+- Task 1: `8ff3ed5e1f4d5d6f8984374ddb497c76a9854092` — benchmark contract, scenario registry, closed mappings, canonical signed records, build/machine identity, evaluator/comparison rules.
+- Task 2: `c900ae7ece823952f8e808fe9129c12105979da4` — deterministic web fixtures plus fixture-only native oracle support and package tests.
+- Task 3: `2381c274629e5f2bab7d517240e50c21b7caec12` — loss-aware Agent collector and strict read-only Chrome host oracle.
+- Task 4: `96d86070eb4fdee3cd62782750edcfdf7d213aa2` — scripted Runtime Mode, benchmark-owned native trace, real-Mac harness, recovery-contract evidence, measurement-boundary discipline.
+- Task 5: `a0923e01baf142302fae5767e9a04c4dc4651f96` — deterministic CLI, ignored local result artifacts, signed evaluate/compare flow, reliability guards, operator runbook.
+
+The implementation intentionally extends the deterministic native **fixture only** so Scenario 6 has an independent content-safe completion oracle. Production Computer Runtime/helper/core/host behavior and public `computer_*` contracts were not changed by Plan A. No installed daily-driver helper was replaced or installed during readiness verification.
+
+## Task 6 readiness verification
+
+All commands below were run after Tasks 1–5 were committed at clean implementation code HEAD `a0923e01baf142302fae5767e9a04c4dc4651f96`.
+
+### Focused benchmark/fixture gates
+
+- `npx vitest run tests/computer-use-flow-benchmark-contract.test.ts tests/computer-use-flow-scenarios.test.ts tests/computer-use-flow-identity.test.ts tests/computer-use-flow-web-fixture.test.ts tests/computer-use-flow-native-fixture-oracle.test.ts tests/computer-use-flow-host-oracle.test.ts tests/computer-use-flow-agent-collector.test.ts tests/computer-use-flow-runtime-mode.test.ts tests/computer-use-flow-evaluator.test.ts tests/computer-use-flow-cli.test.ts tests/macos-computer-runtime-fixture-package.test.ts --maxWorkers=1`: PASS — 11/11 test files, 72/72 tests.
+
+### Repository, security, and native gates
+
+- `npx tsc -p benchmarks/computer-use-flow-performance/tsconfig.json --noEmit`: PASS.
+- `npm run build`: PASS.
+- `npm run check`: PASS — 126 test files passed, 2 skipped; 799 tests passed, 3 skipped.
+- `npm audit --omit=dev`: PASS — 0 vulnerabilities.
+- `npm run test:computer:macos`: PASS — 219 Swift/XCTest tests, 0 failures.
+- `npm run build:computer:macos`: PASS.
+- `npm run build:computer-fixture:macos`: PASS.
+- `npm run package:computer-fixture:macos`: PASS; the deterministic fixture bundle was built and staged inside the worktree only.
+- Worktree remained clean after all build/test/package gates.
+
+These gates prove implementation/readiness correctness. They do **not** constitute recorded Plan A baseline results, deployment authorization, installed-helper replacement, or real-Mac acceptance for a future optimized candidate.
+
+## Evidence model and remaining limitations
+
+- Runtime Mode owns exact benchmark direct-call/native-RPC, physical-action, recovery, verification, and safety evidence from benchmark-owned trace boundaries.
+- Scenario 1 Chrome preservation uses the strict read-only `pre ⊆ post` process oracle; raw process identifiers are not persisted.
+- Scenario 6 completion is authoritative only from the independent fixture-owned oracle. Runtime/AX success cannot self-certify it.
+- Agent Mode global audit remains best-effort and positive-only. Missing audit lines prove nothing about absence or exact counts.
+- `computerToolCallCount` remains unavailable with `lossy_audit_source` under the current audit surface.
+- Completeness-dependent absence assertions such as `browser_runtime_absent` remain unavailable from audit silence unless a genuinely lossless trusted source appears.
+- Agent model round trips and Agent end-to-end timing remain unavailable without trustworthy correlation/start evidence.
+- Scenario 4/5 Agent recovery-contract evidence remains unavailable from the current lossy audit unless a lossless `trusted_mcp_trace` exists.
+- Therefore affected Agent gates may be explicitly `incomplete`; unavailable evidence is never converted to zero, success, or synthetic `57/60`.
+- Observed forbidden activity remains authoritative negative evidence and invalidates the run.
 
 ## Blockers / uncertainties
 
-- Independent round-2 review remains unavailable on this product surface; the user explicitly waived only that pre-implementation gate, so this is no longer an implementation blocker.
-- Implementation-level plan defects, if discovered during RED/GREEN execution, remain open uncertainties and must be handled without weakening constraints.
+- Independent Plan A round-2 review remains absent but was explicitly waived for implementation; it must never be rewritten as `Approved`.
+- No recorded baseline has been run yet. The benchmark objective for a future Plan B must be selected only from eligible signed baseline evidence.
+- Deployment, helper replacement, tunnel lifecycle actions, push/PR/merge, and normal Chrome restart remain separately unauthorized.
 
 ## Invariants
 
@@ -88,25 +92,31 @@ No Computer Runtime behavior, installed helper, tunnel process, plugin registrat
 - Preserve all unfamiliar dirty/review worktrees.
 - Do not consume Codex usage for comparative Computer Use runs in this slice.
 - Do not add a second model, hidden planner, Sky dependency, or speculative persistent REPL.
-- Do not weaken authority, TCC, credentials, CAPTCHA, takeover, emergency-stop, stale-target, focus, or verification behavior.
-- Do not silently restart normal Chrome or substitute Browser Runtime for explicit Computer Use.
+- Do not weaken authority, TCC, credentials, CAPTCHA, takeover, emergency-stop, stale-target, focus, verification, or held-input cleanup behavior.
+- Do not silently restart normal Chrome or substitute Browser Runtime/Playwright for explicit Computer Use.
+- Do not use `computer_run_js`, shell/process/filesystem shortcuts, or model-authored success evidence during mandatory Agent baseline runs.
 - Do not push, open a PR, merge, deploy, replace the helper, or restart the healthy tunnel without separate authorization and fresh evidence.
 
 ## Next exact step
 
-1. Treat the missing round-2 independent review as **user-waived, not approved**; retain the exact pre-waiver review target identity `36694d0e4f6d348842353252990487e164c989ae` / SHA-256 `91be19caf98e17fe2d2d94b55655ca3f0f6a962684bd5f8ce8695dfa1f474186` for auditability.
-2. Begin Task 1 from `docs/superpowers/plans/2026-09-16-computer-use-flow-performance-benchmark.md` using inline `superpowers:executing-plans` plus strict RED → GREEN TDD.
-3. First create the four Task 1 test files, run the exact focused Vitest command, and verify RED for the intended missing benchmark modules before creating production benchmark TypeScript.
-4. Implement only the minimal Task 1 contract/mappings/scenarios/canonical/identity/evaluator surface, then run the exact strict typecheck and focused GREEN tests before the Task 1 commit.
-5. Keep push/PR/merge/deployment/helper replacement/tunnel/normal-Chrome restart separately unauthorized.
+After this readiness-state commit receives the required fresh exact-final-HEAD `project_check` and Continuity checkpoint:
+
+**Next exact step: run Plan A baseline batches.**
+
+1. Bind the exact Task 6 readiness HEAD and clean worktree to the baseline build identity without installing or replacing a helper.
+2. Run all six Runtime Mode batches on the real Mac: one discarded warm-up plus ten recorded runs per scenario.
+3. Evaluate the complete Runtime set and require at least `57/60`, every scenario at least `9/10`, every required Runtime assertion authoritative, and zero safety counters.
+4. Run mandatory Agent Mode web S1–S5 batches one controlled fixture at a time through the normal custom-app Computer Use surface, without Browser Runtime, `computer_run_js`, shell/process/filesystem shortcuts, Codex, or model-authored success evidence.
+5. Select one eligible baseline bottleneck plus one preselected future Plan B objective, or record explicit `no_eligible_bottleneck` and return to design.
 
 ## Completion stages
 
-- `design_approved`: complete
-- `plan_a_self_reviewed`: complete for latest revised Plan A at `36694d0e4f6d348842353252990487e164c989ae` / SHA-256 `91be19caf98e17fe2d2d94b55655ca3f0f6a962684bd5f8ce8695dfa1f474186`
-- `plan_a_review_round_1`: `Needs Changes`; seven findings resolved; pre-round-2 self-review hardenings complete; exact round-2 reviewed-content target `36694d0e4f6d348842353252990487e164c989ae`
-- `plan_a_approved`: **not obtained**; pre-implementation round-2 review gate explicitly waived by the user on 2026-09-16; do not report this as `Approved`
-- `benchmark_baseline_complete`: pending
-- `candidate_ready_for_deployment`: pending
-- `real_mac_acceptance_complete`: pending
-- `slice_complete`: pending
+- `design_approved`: complete.
+- `plan_a_self_reviewed`: complete for revised Plan A `36694d0e4f6d348842353252990487e164c989ae` / SHA-256 `91be19caf98e17fe2d2d94b55655ca3f0f6a962684bd5f8ce8695dfa1f474186`.
+- `plan_a_review_round_1`: `Needs Changes`; findings resolved.
+- `plan_a_approved`: **not obtained**; independent round-2 pre-implementation gate explicitly waived by the user; do not report as `Approved`.
+- `plan_a_implementation_ready`: pending final readiness-state commit plus fresh exact-HEAD `project_check`.
+- `benchmark_baseline_complete`: pending.
+- `candidate_ready_for_deployment`: pending.
+- `real_mac_acceptance_complete`: pending.
+- `slice_complete`: pending.
