@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-16
 
-Status: **Plan A benchmark/readiness Tasks 1–5 and both Runtime diagnostic follow-up fixes are committed; repeated Task 6 focused/repository/security/native-test/release-build/fixture-package gates passed on the new implementation code HEAD. The missing independent Plan A round-2 review was explicitly waived by the user and remains recorded as waived, not `Approved`. This document records the implementation code HEAD immediately preceding the readiness-state commit; the final readiness commit must still receive a fresh exact-HEAD `project_check` before baseline execution starts.**
+Status: **Plan A benchmark infrastructure and previous readiness are complete; Task 7 real-Mac baseline is BLOCKED. S1 passed 7/10 runs against the required 9/10. Fixture-transport diagnostics were committed but the Chrome navigation failure is not fixed. Full Runtime/Agent baseline, bottleneck selection, Plan B and final acceptance remain incomplete. Independent Plan A round-2 review was explicitly waived, not Approved.**
 
 This file is a handoff cache, not the sole source of truth. Git/worktree reality and Project Continuity records outrank it.
 
@@ -22,6 +22,8 @@ Live Codex comparison remains deferred. Plan A now provides the measurement/base
 - Exact revised Plan A content: `36694d0e4f6d348842353252990487e164c989ae`
 - Exact revised Plan A SHA-256: `91be19caf98e17fe2d2d94b55655ca3f0f6a962684bd5f8ce8695dfa1f474186`
 - Implementation code HEAD immediately preceding the readiness-state commit: `8613a824396087559b877f0d1e558aad32588ab9`
+- Last verified clean readiness HEAD before Task 7: `2368ee6cc8589b15b24979380256b9cd35757dd7`.
+- Diagnostic code commit: `086f371` — not an accepted baseline or navigation fix; new exact-HEAD readiness is needed before a fresh baseline.
 
 Do not modify, clean, reset, remove, or repurpose other existing worktrees. Do not push, open a PR, merge, deploy, replace the installed helper, restart the healthy tunnel, or restart normal Chrome without separate authorization.
 
@@ -75,6 +77,7 @@ These gates prove implementation/readiness correctness. They do **not** constitu
 
 Two Task 7 diagnostic Runtime collections have failed acceptance and are not accepted baselines. The first six-scenario run exposed completion/recovery/focus defects and led to fix `a46367d3f3ed04202bc99a42544e7bed657b26cc`. A later S1-only signed run on the previous readiness HEAD had 0/10 eligible successes, five completion passes, five failures and one timeout; its missing safety-counter provenance and reused-heading race led to focused RED regressions and fix `8613a824396087559b877f0d1e558aad32588ab9`. No Agent collection started. All previous ignored local artifacts remain diagnostic only; new baseline runs require a new final readiness HEAD/build identity.
 
+Task 7 current evidence: A signed S1 batch on clean readiness `2368ee6cc8589b15b24979380256b9cd35757dd7` recorded 7/10 eligible successes against mandatory 9/10; failures occurred on repetitions 4, 5, 10, without reported safety failures or assertion unavailability. A diagnostic-only one-off observed `documentRequestReceived=false` and `pageReadyEventReceived=false`, so the fixture received no document GET; Chrome navigation cause is not proven. A further physical diagnostic was platform safety-blocked and not rerouted. Diagnostic tests RED then GREEN; focused 36/36 PASS; TypeScript PASS; full repo check 810 passed / 2 skipped; audit 0 vulnerabilities; native 219/219, release builds and fixture package PASS, all before diagnostic commit `086f371` on identical staged source. This does not establish final-HEAD readiness or S1 acceptance. No Agent Mode was started.
 ## Evidence model and remaining limitations
 
 - Runtime Mode owns exact benchmark direct-call/native-RPC, physical-action, recovery, verification, and safety evidence from benchmark-owned trace boundaries.
@@ -107,11 +110,11 @@ Two Task 7 diagnostic Runtime collections have failed acceptance and are not acc
 
 ## Next exact step
 
-After this readiness-state commit receives the required fresh exact-final-HEAD `project_check` and Continuity checkpoint:
+The last accepted readiness was verified on `2368ee6...`, but new diagnostic code/doc commits require a fresh exact-final-HEAD `project_check` before any new baseline. The physical diagnostic was safety-blocked; do not bypass it.
 
-**Next exact step: run Plan A baseline batches.**
+**Next exact step: address the blocked S1 navigation, not another unverified baseline.** Establish why Chrome's completed-unverified `command+l → type_text → return` sometimes produces no fixture GET using permitted categorical evidence, without bypassing the physical diagnostic safety block. Only a proven defect justifies a RED test, minimal fix, fresh clean-HEAD verification and one signed S1 rerun (at least 9/10). If the cause remains unknown or that rerun fails, close the engineering attempt as blocked rather than looping. S2–S6 and Agent S1–S5 remain gated, and no objective is selected without eligible signed baseline evidence.
 
-1. Bind the exact Task 6 readiness HEAD and clean worktree to the baseline build identity without installing or replacing a helper.
+1. Only after the S1 defect is proven and fixed with a fresh clean readiness HEAD, bind that HEAD and installed-helper lineage to a new baseline build identity without installing or replacing the helper.
 2. Run all six Runtime Mode batches on the real Mac: one discarded warm-up plus ten recorded runs per scenario.
 3. Evaluate the complete Runtime set and require at least `57/60`, every scenario at least `9/10`, every required Runtime assertion authoritative, and zero safety counters.
 4. Run mandatory Agent Mode web S1–S5 batches one controlled fixture at a time through the normal custom-app Computer Use surface, without Browser Runtime, `computer_run_js`, shell/process/filesystem shortcuts, Codex, or model-authored success evidence.
@@ -123,7 +126,7 @@ After this readiness-state commit receives the required fresh exact-final-HEAD `
 - `plan_a_self_reviewed`: complete for revised Plan A `36694d0e4f6d348842353252990487e164c989ae` / SHA-256 `91be19caf98e17fe2d2d94b55655ca3f0f6a962684bd5f8ce8695dfa1f474186`.
 - `plan_a_review_round_1`: `Needs Changes`; findings resolved.
 - `plan_a_approved`: **not obtained**; independent round-2 pre-implementation gate explicitly waived by the user; do not report as `Approved`.
-- `plan_a_implementation_ready`: pending final readiness-state commit plus fresh exact-HEAD `project_check`.
+- `plan_a_implementation_ready`: previously verified on clean readiness `2368ee6...`; diagnostic code and this handoff update require fresh final-HEAD verification before any new baseline.
 - `benchmark_baseline_complete`: pending.
 - `candidate_ready_for_deployment`: pending.
 - `real_mac_acceptance_complete`: pending.
