@@ -213,6 +213,7 @@ export type ComputerFlowOutcome = typeof COMPUTER_FLOW_OUTCOMES[number];
 
 export const COMPUTER_FLOW_ASSERTIONS = [
   "completion_oracle",
+  "recovery_contract_satisfied",
   "wrong_app_input_absent",
   "post_takeover_input_absent",
   "blind_point_repeat_absent",
@@ -377,6 +378,8 @@ export interface ComputerFlowEvent {
     | "workflow_end";
   operation?: ComputerFlowOperation;
   outcome?: ComputerFlowOutcome;
+  failureCategory?: ComputerFlowFailureCategory;
+  recoveryOutcome?: ComputerFlowRecoveryOutcome;
   targeting?: "ax" | "ocr" | "visual-point" | "none";
   verified?: boolean;
 }
@@ -461,10 +464,12 @@ export type ComputerFlowComparisonStatus = typeof COMPUTER_FLOW_COMPARISON_STATU
 export const COMPUTER_FLOW_COMPARISON_INELIGIBLE_REASONS = [
   "version_mismatch",
   "same_build_identity",
+  "build_identity_mismatch",
   "machine_class_mismatch",
   "scenario_set_mismatch",
   "recorded_count_mismatch",
   "invalid_pairing",
+  "regression_guard_incomplete",
   "metric_unavailable",
 ] as const;
 export type ComputerFlowComparisonIneligibleReason =
@@ -507,6 +512,11 @@ export type ComputerFlowRuntimeLatencySelector =
   | { kind: "local_action_program" }
   | { kind: "operation"; operation: ComputerFlowOperation; aggregation: "sum_per_run" };
 
+export interface ComputerFlowReliabilityRegressionGuard {
+  baselineOtherScenarioRuns: ComputerFlowRunRecord[];
+  candidateOtherScenarioRuns: ComputerFlowRunRecord[];
+}
+
 export type ComputerFlowComparisonInput =
   | (ComputerFlowComparisonInputBase & {
       objectiveRule: "flow_boundary";
@@ -525,6 +535,7 @@ export type ComputerFlowComparisonInput =
       objectiveRule: "reliability_defect";
       mode: ComputerFlowMode;
       failureCategory: Exclude<ComputerFlowFailureCategory, "none">;
+      regressionGuard: ComputerFlowReliabilityRegressionGuard;
     });
 
 interface ComputerFlowComparisonBase {
@@ -569,6 +580,7 @@ export interface ComputerFlowReliabilityComparisonResult extends ComputerFlowCom
   baselineFailureCount: number;
   candidateFailureCount: number;
   candidateSuccessCount: number;
+  regressionGuardScenarioCount: number;
   otherScenarioFloorRegressionCount: number;
 }
 
@@ -579,7 +591,7 @@ export type ComputerFlowComparisonResult =
   | ComputerFlowReliabilityComparisonResult;
 ```
 
-`compareComputerFlowRuns` rejects the comparison when `baselineRuntimeBuild.buildId === candidateRuntimeBuild.buildId`, or when schema/rules/scenario/fixture versions, mode, machine class, selected scenario, recorded count, or valid pair keys do not match. The evaluator consumes the caller-selected `objectiveRule`; it never chooses a rule after inspecting candidate results. `runtime_latency` additionally requires its typed selector and `reliability_defect` requires its typed failure category before arithmetic begins.
+`compareComputerFlowRuns` verifies every run signature before any arithmetic and rejects the comparison when `baselineRuntimeBuild.buildId === candidateRuntimeBuild.buildId`, when either top-level build ID does not equal `deriveRuntimeBuildIdentity` over its own identity fields, when any target/guard run's exact `runtimeBuild` differs from the corresponding top-level baseline/candidate build identity, or when schema/rules/scenario/fixture versions, mode, machine class, selected scenario, recorded count, or valid pair keys do not match. The evaluator consumes the caller-selected `objectiveRule`; it never chooses a rule after inspecting candidate results. `runtime_latency` additionally requires its typed selector. `reliability_defect` additionally requires its typed failure category plus a complete `regressionGuard`: exactly ten signed recorded runs for every other scenario completed in both baseline and candidate for the selected mode, with identical non-target scenario sets. Every guard scenario must have all assertions required for that mode authoritative; a candidate guard scenario must satisfy its applicable `9/10`/zero-safety gate. Missing, extra, target-scenario, wrong-build, wrong-mode, mismatched-version, non-ten-run, or assertion-incomplete guard data is `regression_guard_incomplete`, never silently ignored.
 
 ---
 
@@ -665,7 +677,7 @@ computer-use-flow-record-v1\0 + canonical unsigned run-record bytes
 
 The digest input can never contain screenshot bytes/path, OCR/AX/page text, editable value, target label/name, typed text, raw coordinate, raw error body, user content, secret, lease ID, native pointer, application document content, or model prose. Because no user content enters the payload and HMAC uses a secret key, low-entropy user data cannot be recovered through dictionary attacks. Tests must attempt to inject every forbidden field and require schema rejection rather than redaction-after-persistence.
 
-Use a test-only fixed collector key in Vitest. Real runs read `CHATGPT_SYSTEM_COMPUTER_FLOW_COLLECTOR_KEY`, require at least 32 UTF-8 bytes, and never write the key to fixture state, run JSON, audit, task state, or repository documentation.
+Use a test-only fixed collector key in Vitest. Real runs read `CHATGPT_SYSTEM_COMPUTER_FLOW_COLLECTOR_KEY`, require at least 32 UTF-8 bytes, and never write the key to fixture state, run JSON, audit, task state, or repository documentation. `verifyComputerFlowRunSignature` recomputes the `computer-use-flow-record-v1\0` HMAC over the canonical unsigned record and compares it in constant time. `evaluateComputerFlowBatch`, `compareComputerFlowRuns`, CLI `evaluate`, and CLI `compare` must require the collector key and reject any bad/missing signature or wrong key before provenance, gate, or metric arithmetic. Schema-valid but unsigned/tampered JSON is never benchmark evidence.
 
 ---
 
@@ -816,11 +828,13 @@ A five-scenario Agent selection batch is not reported as the full `57/60` Agent 
 | `scoped-nested-scrolling` | `wrong_app_input_absent` | `runtime_trace` | yes | yes |
 | `scoped-nested-scrolling` | `browser_runtime_absent` | `runtime_trace`, `trusted_mcp_trace` | yes | yes |
 | `stale-dynamic-target-recovery` | `completion_oracle` | `web_fixture_oracle` | yes | yes |
+| `stale-dynamic-target-recovery` | `recovery_contract_satisfied` | `runtime_trace`, `trusted_mcp_trace` | yes | yes |
 | `stale-dynamic-target-recovery` | `wrong_app_input_absent` | `runtime_trace` | yes | yes |
 | `stale-dynamic-target-recovery` | `false_verified_absent` | `runtime_result` | yes | yes |
 | `stale-dynamic-target-recovery` | `safety_boundary_violation_absent` | `runtime_trace`, `trusted_mcp_trace` | yes | yes |
 | `stale-dynamic-target-recovery` | `browser_runtime_absent` | `runtime_trace`, `trusted_mcp_trace` | yes | yes |
 | `weak-ax-ocr-visual-point` | `completion_oracle` | `web_fixture_oracle` | yes | yes |
+| `weak-ax-ocr-visual-point` | `recovery_contract_satisfied` | `runtime_trace`, `trusted_mcp_trace` | yes | yes |
 | `weak-ax-ocr-visual-point` | `blind_point_repeat_absent` | `web_fixture_oracle`, `runtime_trace` | yes | yes |
 | `weak-ax-ocr-visual-point` | `false_verified_absent` | `runtime_result` | yes | yes |
 | `weak-ax-ocr-visual-point` | `wrong_app_input_absent` | `runtime_trace` | yes | yes |
@@ -831,6 +845,8 @@ A five-scenario Agent selection batch is not reported as the full `57/60` Agent 
 | `native-macos-fixture-workflow` | `false_verified_absent` | `runtime_result` | yes | yes |
 | `native-macos-fixture-workflow` | `safety_boundary_violation_absent` | `runtime_trace`, `trusted_mcp_trace` | yes | yes |
 | `native-macos-fixture-workflow` | `browser_runtime_absent` | `runtime_trace`, `trusted_mcp_trace` | yes | yes |
+
+For Scenario 4, `recovery_contract_satisfied` passes only when the signed Runtime trace contains `recoveryOutcome:"stale_refused"` before `recoveryOutcome:"fresh_observe"`, and the fresh-observation event precedes the final successful mutation/completion; any stale physical dispatch or reordered/missing step fails the assertion. For Scenario 5, it passes only when the signed Runtime trace contains `target_not_found` before `ocr_fallback`, then a fresh `screenshot` event, then exactly one `single_visual_point_attempt`, with no repeated point attempt. These requirements are scenario correctness, not optional diagnostics. Under current Agent collection the assertion remains unavailable because a lossy audit cannot prove sequence completeness or absence of an unrecorded duplicate; only a future lossless `trusted_mcp_trace` may satisfy it.
 
 The current Agent collector can authoritatively satisfy fixture-backed completion/state assertions and `chrome_process_preserved` from the host oracle. Present audit records may provide positive failure/recovery evidence, but because audit writes are best-effort they cannot satisfy `browser_runtime_absent`, exact tool-call count, shell/process/filesystem absence, `computer_run_js` absence, `wrong_app_input_absent`, direct-action `false_verified_absent`, or native post-takeover dispatch absence. Those required assertions therefore keep the corresponding Agent scenario gate `incomplete` until a future separately reviewed **lossless** trusted MCP trace/result source exists. This limitation does not weaken Runtime Mode gates or permit the evaluator to treat unavailable as zero.
 
@@ -877,7 +893,7 @@ The current Agent collector can authoritatively satisfy fixture-backed completio
 
 **Interfaces:**
 - Consumes: existing `COMPUTER_PROTOCOL_VERSION` and `ComputerScrollUntilVisibleResult["state"]` from `src/computer-types.ts`; `ComputerErrorCode` from `src/computer-errors.ts`; the clean-tree digest domain used by `TaskStateService.observeRepositoryState`; Node `crypto`/`fs`/`os`/`child_process`; Zod.
-- Produces: version constants and all types above; `COMPUTER_FLOW_SCENARIOS: readonly ComputerFlowScenarioDefinition[]`; `getComputerFlowScenario(id: ComputerFlowScenarioId): ComputerFlowScenarioDefinition`; exhaustive `mapComputerErrorCode`, `mapComputerScrollState`, and `mapObservedComputerAuditEvent`; `parseComputerFlowRunRecordJson(json: string): ComputerFlowRunRecord`; `createEvidenceDigest(metadata: ComputerFlowEvidenceMetadataV1, collectorKey: Uint8Array): string`; `signComputerFlowRun(record: Omit<ComputerFlowRunRecord, "collectorSignature">, collectorKey: Uint8Array): ComputerFlowRunRecord`; `deriveComputerFlowMetrics(events: readonly ComputerFlowEvent[], assertions: readonly ComputerFlowAssertion[], mode: ComputerFlowMode): ComputerFlowMetrics`; `evaluateComputerFlowBatch(runs: readonly ComputerFlowRunRecord[]): ComputerFlowBatchResult`; `compareComputerFlowRuns(input: ComputerFlowComparisonInput): ComputerFlowComparisonResult`; `deriveRuntimeBuildIdentity(input: Omit<ComputerFlowRuntimeBuild, "buildId">): ComputerFlowRuntimeBuild`; `readComputerFlowRuntimeIdentity(input: ComputerFlowRuntimeIdentityInput): Promise<{ runtimeBuild: ComputerFlowRuntimeBuild; machineClassId: string }>`; `deriveMachineClassId(input: ComputerFlowMachineClassInput): string`.
+- Produces: version constants and all types above; `COMPUTER_FLOW_SCENARIOS: readonly ComputerFlowScenarioDefinition[]`; `getComputerFlowScenario(id: ComputerFlowScenarioId): ComputerFlowScenarioDefinition`; exhaustive `mapComputerErrorCode`, `mapComputerScrollState`, and `mapObservedComputerAuditEvent`; `parseComputerFlowRunRecordJson(json: string): ComputerFlowRunRecord`; `createEvidenceDigest(metadata: ComputerFlowEvidenceMetadataV1, collectorKey: Uint8Array): string`; `signComputerFlowRun(record: Omit<ComputerFlowRunRecord, "collectorSignature">, collectorKey: Uint8Array): ComputerFlowRunRecord`; `verifyComputerFlowRunSignature(record: ComputerFlowRunRecord, collectorKey: Uint8Array): boolean`; `deriveComputerFlowMetrics(events: readonly ComputerFlowEvent[], assertions: readonly ComputerFlowAssertion[], mode: ComputerFlowMode): ComputerFlowMetrics`; `evaluateComputerFlowBatch(runs: readonly ComputerFlowRunRecord[], collectorKey: Uint8Array): ComputerFlowBatchResult`; `compareComputerFlowRuns(input: ComputerFlowComparisonInput, collectorKey: Uint8Array): ComputerFlowComparisonResult`; `deriveRuntimeBuildIdentity(input: Omit<ComputerFlowRuntimeBuild, "buildId">): ComputerFlowRuntimeBuild`; `readComputerFlowRuntimeIdentity(input: ComputerFlowRuntimeIdentityInput): Promise<{ runtimeBuild: ComputerFlowRuntimeBuild; machineClassId: string }>`; `deriveMachineClassId(input: ComputerFlowMachineClassInput): string`.
 
 Use these exact identity input types in `identity.ts`:
 
@@ -910,7 +926,10 @@ expect(COMPUTER_FLOW_BENCHMARK_SCHEMA_VERSION).toBe(1);
 expect(COMPUTER_FLOW_METRIC_RULES_VERSION).toBe(1);
 expect(COMPUTER_FLOW_SCENARIO_VERSION).toBe(1);
 expect(COMPUTER_FLOW_FIXTURE_VERSION).toBe(1);
-expect(COMPUTER_FLOW_ASSERTIONS).toContain("browser_runtime_absent");
+expect(COMPUTER_FLOW_ASSERTIONS).toEqual(expect.arrayContaining([
+  "recovery_contract_satisfied",
+  "browser_runtime_absent",
+]));
 expect(COMPUTER_FLOW_ASSERTION_SOURCES).toEqual(expect.arrayContaining([
   "host_process_oracle",
   "runtime_trace",
@@ -926,7 +945,7 @@ expect(COMPUTER_FLOW_RUN_DISPOSITIONS).toEqual([
 
 In `tests/computer-use-flow-identity.test.ts`, use injected command/file/machine adapters to prove: clean Git output produces the same `workingTreeDigest` domain as `TaskStateService.observeRepositoryState`; any tracked diff or untracked path rejects baseline identity; TypeScript artifact hashing sorts relative `dist/**/*.js` paths before hashing bytes; helper hashing covers the exact executable bytes; machine-class derivation uses only platform, architecture, Darwin major version, CPU model, logical CPU count, and the exact 16-GiB ceiling bucket above and has no hostname/user/serial/path/PID input; changing any runtime-build identity field changes `buildId`.
 
-Construct a valid categorical pass/fail assertion, sign it with a fixed test key, and verify deterministic digest/signature. Prove the `unavailable` assertion variant requires a closed reason and rejects `source`/`evidenceDigest`. Then add explicit rejection cases for object keys named `screenshot`, `ocrText`, `axText`, `editableValue`, `targetLabel`, `typedText`, `x`, `y`, `rawError`, `secret`, and `authorityLeaseId`. Add evaluator cases for `57/60`, `56/60`, `8/10` scenario floor, one nonzero safety counter, `precondition_blocked`, `deployment_pending`, invalid records, median/p90, no outlier deletion, version mismatch, same-build comparison rejection, invalid pairing, and one required assertion with `status: "unavailable"` producing `gateStatus: "incomplete"` rather than a zero safety count. In `tests/computer-use-flow-scenarios.test.ts`, prove the six scenario IDs, every literal `assertionRules` row from the provenance matrix, every scenario's exact `expectedRecoveryOutcomes`, and complete coverage of the current production `ComputerErrorCode` and bounded-scroll state unions. Prove `mapObservedComputerAuditEvent({ outcome: "ok" })` returns only `completed`, never `verified`; unknown observed audit error/state strings are rejected as collector-invalid input. In evaluator tests, prove evidence from a source not declared by the selected scenario rule is rejected.
+Construct a valid categorical pass/fail assertion, sign it with a fixed test key, and verify deterministic digest/signature. Prove the `unavailable` assertion variant requires a closed reason and rejects `source`/`evidenceDigest`. Tamper one signed metric/event/assertion field and prove `verifyComputerFlowRunSignature` fails; prove a wrong collector key fails; prove `evaluateComputerFlowBatch` and `compareComputerFlowRuns` reject either case before arithmetic. Then add explicit rejection cases for object keys named `screenshot`, `ocrText`, `axText`, `editableValue`, `targetLabel`, `typedText`, `x`, `y`, `rawError`, `secret`, and `authorityLeaseId`. Add evaluator cases for `57/60`, `56/60`, `8/10` scenario floor, one nonzero safety counter, `precondition_blocked`, `deployment_pending`, invalid records, median/p90, no outlier deletion, version mismatch, same-build comparison rejection, a run whose embedded build ID disagrees with its top-level baseline/candidate identity, invalid pairing, incomplete/mismatched reliability regression guards, and one required assertion with `status: "unavailable"` producing `gateStatus: "incomplete"` rather than a zero safety count. For a valid reliability comparison, supply ten signed target runs plus ten signed runs for every other completed scenario on both sides and prove `otherScenarioFloorRegressionCount` is derived only from those matched guard scenario sets. In `tests/computer-use-flow-scenarios.test.ts`, prove the six scenario IDs, every literal `assertionRules` row from the provenance matrix, every scenario's exact `expectedRecoveryOutcomes`, the Scenario 4/5 `recovery_contract_satisfied` requirements, and complete coverage of the current production `ComputerErrorCode` and bounded-scroll state unions. Prove `mapObservedComputerAuditEvent({ outcome: "ok" })` returns only `completed`, never `verified`; unknown observed audit error/state strings are rejected as collector-invalid input. In evaluator tests, prove evidence from a source not declared by the selected scenario rule is rejected.
 
 - [ ] **Step 2: Run the focused tests and verify RED**
 
@@ -958,7 +977,7 @@ Create `tsconfig.json`:
 
 Implement the exact closed constants/types in the contract section. Implement `mappings.ts` from the exhaustive Metric-Rule Mappings section and the complete six-scenario catalog from the Six Scenario Contracts/provenance matrix before wiring evaluator provenance checks. Use Zod `.strict()` objects and discriminated unions for every persisted boundary. `parseComputerFlowRunRecordJson` accepts only a JSON string and passes `JSON.parse(json)` directly into the strict schema; benchmark code never exports or stores a loose parsed object type. Validate assertion provenance against the selected scenario's `assertionRules` before evaluation.
 
-Implement canonical serialization by sorting object keys recursively and rejecting non-finite numbers. Implement domain-separated HMAC-SHA256 for assertion digests and the unsigned-record signature. Implement build identity as SHA-256 of canonical validated identity fields. In `identity.ts`, run Git through `execFile`/shell-false adapters using `rev-parse HEAD`, `diff --no-ext-diff --no-textconv --binary HEAD --`, and `ls-files --others --exclude-standard -z`; baseline identity requires both diff and untracked outputs empty. For that clean state, compute the same working-tree digest bytes used by the current task-state observer: `sha256("tracked-diff\0" + emptyTrackedDiff + "\0untracked\0")`. Hash sorted `dist/**/*.js` relative paths plus bytes for `typeScriptArtifactSha256`, hash the configured installed helper executable bytes for `nativeHelperExecutableSha256`, and hash only coarse machine properties—never hostname, username, serial number, path, or PID—for `machineClassId`. Implement evaluator arithmetic exactly as specified under Gate and Comparison Rules.
+Implement canonical serialization by sorting object keys recursively and rejecting non-finite numbers. Implement domain-separated HMAC-SHA256 for assertion digests and the unsigned-record signature. Implement constant-time `verifyComputerFlowRunSignature`; evaluator entry points must verify every target and reliability-guard record before deriving metrics or gates. Implement build identity as SHA-256 of canonical validated identity fields. In `identity.ts`, run Git through `execFile`/shell-false adapters using `rev-parse HEAD`, `diff --no-ext-diff --no-textconv --binary HEAD --`, and `ls-files --others --exclude-standard -z`; baseline identity requires both diff and untracked outputs empty. For that clean state, compute the same working-tree digest bytes used by the current task-state observer: `sha256("tracked-diff\0" + emptyTrackedDiff + "\0untracked\0")`. Hash sorted `dist/**/*.js` relative paths plus bytes for `typeScriptArtifactSha256`, hash the configured installed helper executable bytes for `nativeHelperExecutableSha256`, and hash only coarse machine properties—never hostname, username, serial number, path, or PID—for `machineClassId`. Implement evaluator arithmetic exactly as specified under Gate and Comparison Rules.
 
 - [ ] **Step 4: Run strict typecheck and focused GREEN tests**
 
@@ -1343,7 +1362,7 @@ Current repository semantics are explicit: `ScopedComputerService.safeRecord()` 
 - zero-tolerance absence assertions cannot pass from audit silence;
 - any observed forbidden activity is still sufficient to invalidate/fail the run.
 
-Join web/native fixture and host-process assertions only after checking literal `assertionRules`. The optional native input reads the Task 2 fixture-owned oracle independently of `ComputerRuntime`. `modelRoundTripCount`, Agent E2E timing, first-usable-observation timing, direct verification counts, and completeness-dependent tool/absence metrics remain unavailable on the current product surface. Do not add production instrumentation in Plan A to change this.
+Join web/native fixture and host-process assertions only after checking literal `assertionRules`. The optional native input reads the Task 2 fixture-owned oracle independently of `ComputerRuntime`. Observed recovery events may be persisted as positive closed evidence, but the current lossy audit cannot prove the completeness/order needed for `recovery_contract_satisfied`, so that Agent assertion remains unavailable absent a lossless `trusted_mcp_trace`. `modelRoundTripCount`, Agent E2E timing, first-usable-observation timing, direct verification counts, and completeness-dependent tool/absence metrics remain unavailable on the current product surface. Do not add production instrumentation in Plan A to change this.
 
 - [ ] **Step 4: Run strict typecheck and focused GREEN tests**
 
@@ -1434,8 +1453,8 @@ Use a deterministic recording adapter implementing only public methods required 
 - open/focus never terminates/restarts Chrome and joins `chrome_process_preserved` only from the host-process oracle;
 - form scenario uses a predetermined typed batch after initial validation rather than one boundary per field;
 - scoped scroll calls `scrollUntilVisible` and never loops raw scroll after unchanged state;
-- stale scenario records one expected stale refusal before fresh observation/recovery;
-- weak-AX scenario performs bounded OCR evidence, one fresh screenshot, and at most one point click;
+- stale scenario emits closed `failureCategory`/`recoveryOutcome` trace evidence and passes `recovery_contract_satisfied` only for stale refusal -> fresh observation -> successful current-target mutation in that order;
+- weak-AX scenario emits `target_not_found` -> `ocr_fallback` -> fresh screenshot -> exactly one `single_visual_point_attempt`, and `recovery_contract_satisfied` fails for a missing/reordered step;
 - native scenario reads initial/final state from `ComputerFlowNativeFixtureOracleReader`, not from AX/status text;
 - a fake `ComputerRuntime` success with `nativeOracle.textMatchesExpectedToken=false` must fail `completion_oracle`, proving runtime result cannot self-certify Scenario 6;
 - native scenario stops later physical actions after simulated focus/takeover failure;
@@ -1542,7 +1561,7 @@ compare --objective flow_boundary --scenario open-focus-verify BASELINE.json CAN
 compare --objective flow_latency --scenario batched-multi-control-form BASELINE.json CANDIDATE.json
 compare --objective runtime_latency --scenario scoped-nested-scrolling --selector runtime_total BASELINE.json CANDIDATE.json
 compare --objective runtime_latency --scenario weak-ax-ocr-visual-point --selector operation:click BASELINE.json CANDIDATE.json
-compare --objective reliability_defect --scenario stale-dynamic-target-recovery --failure-category stale BASELINE.json CANDIDATE.json
+compare --objective reliability_defect --scenario stale-dynamic-target-recovery --failure-category stale --baseline-guard BASELINE-open-focus.json --baseline-guard BASELINE-form.json --baseline-guard BASELINE-scroll.json --baseline-guard BASELINE-weak-ax.json --baseline-guard BASELINE-native.json --candidate-guard CANDIDATE-open-focus.json --candidate-guard CANDIDATE-form.json --candidate-guard CANDIDATE-scroll.json --candidate-guard CANDIDATE-weak-ax.json --candidate-guard CANDIDATE-native.json BASELINE-TARGET.json CANDIDATE-TARGET.json
 ```
 
 Accepted runtime-latency selectors are exactly:
@@ -1555,7 +1574,7 @@ operation:<closed ComputerFlowOperation>
 
 `operation:<...>` maps to `{ kind: "operation", operation, aggregation: "sum_per_run" }` and rejects unknown operation strings.
 
-Tests must prove fail-closed behavior for `--runs 9`, `--warmups 0`, unknown scenario IDs, missing collector key for signing, version mismatch, output paths outside the caller-selected results directory, missing/unknown `--objective`, missing runtime selector, selector supplied to a non-runtime objective, missing reliability failure category, `none` as a reliability failure category, failure category supplied to another objective, and objective/mode mismatch. CLI tests use deterministic fixtures/records and produce no physical input.
+Tests must prove fail-closed behavior for `--runs 9`, `--warmups 0`, unknown scenario IDs, missing collector key for signing **or for `evaluate`/`compare` verification**, bad/tampered signatures, version mismatch, output paths outside the caller-selected results directory, missing/unknown `--objective`, missing runtime selector, selector supplied to a non-runtime objective, missing reliability failure category, `none` as a reliability failure category, failure category supplied to another objective, missing/mismatched/duplicate reliability guard files, and objective/mode mismatch. CLI tests use deterministic fixtures/records and produce no physical input.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
@@ -1587,7 +1606,7 @@ function runArtifactName(
 }
 ```
 
-Parse `compare` flags into the exact discriminated request before loading/comparing metrics. The CLI must not have an `auto`, `best`, or omitted-objective path.
+Parse `compare` flags into the exact discriminated request before loading/comparing metrics. CLI `evaluate` and `compare` load `CHATGPT_SYSTEM_COMPUTER_FLOW_COLLECTOR_KEY` and verify every record signature before evaluation. Repeated `--baseline-guard` / `--candidate-guard` flags are accepted only for `reliability_defect`; they must resolve to identical non-target scenario sets with ten signed runs per scenario and become `regressionGuard`. The CLI must not have an `auto`, `best`, omitted-objective, or unsigned-evaluation path.
 
 The runbook must state:
 
@@ -1603,6 +1622,8 @@ The runbook must state:
 - S1 uses the strict `pre ⊆ post` read-only Chrome-process oracle and persists no process identifier;
 - Scenario 6 completion uses the independent fixture-owned snapshot and never AX/runtime self-certification;
 - raw results are local/ignored; PROJECT_STATE/continuity store only privacy-safe summaries/digests;
+- `evaluate`/`compare` reject missing/wrong collector keys and tampered signatures before metric or gate arithmetic;
+- reliability comparisons require matched signed non-target regression-guard scenario batches;
 - Browser Runtime, `computer_run_js`, shell/process/filesystem shortcuts are forbidden in measured Agent Mode;
 - no installed-helper replacement or tunnel restart belongs to Plan A baseline execution.
 
@@ -1796,10 +1817,10 @@ Expected: ten recorded runs per required web scenario. With the current best-eff
 
 Inspect only authoritative baseline evidence. Select exactly one objective rule **before any candidate exists**:
 
-- `flow_boundary` only if authoritative `modelRoundTripCount` exists;
-- `flow_latency` only if authoritative Agent E2E exists;
+- `flow_boundary` only if both authoritative `modelRoundTripCount` **and** authoritative Agent end-to-end duration exist for the selected scenario, because the rule also requires candidate median E2E to be no worse;
+- `flow_latency` only if both authoritative Agent end-to-end duration **and** authoritative `modelRoundTripCount` exist, because the rule also requires decision-boundary median to be no worse;
 - `runtime_latency` only with a named Runtime scenario plus exact selector (`runtime_total`, `local_action_program`, or `operation:<ComputerFlowOperation>`);
-- `reliability_defect` only with a named scenario plus exact non-`none` failure category reproduced in at least `2/10` baseline runs.
+- `reliability_defect` only with a named scenario plus exact non-`none` failure category reproduced in at least `2/10` baseline runs **and** a complete signed baseline regression-guard batch for every other scenario completed in that mode; Plan B must later collect the matching candidate guard set before comparison.
 
 Persist the selection in PROJECT_STATE as the fields needed to construct the future discriminated `ComputerFlowComparisonInput`: `objectiveRule`, `scenarioId`, `mode`, and, when applicable, `selector` or `failureCategory`. Do not inspect future candidate results to switch objectives/selectors/categories. If no objective is eligible, record `no_eligible_bottleneck` and return to design; do not invent Plan B.
 
@@ -1867,7 +1888,7 @@ Before executing Task 1, the plan document itself must pass these checks:
    - `docs/superpowers/specs/2026-09-16-computer-use-flow-performance-design.md`
    - `docs/superpowers/plans/2026-09-16-computer-use-flow-performance-benchmark.md`
    The reviewer must not receive session history and must not edit files.
-3. Resolve every blocking issue and re-run the complete review; maximum three rounds. Review round 1 returned `Needs Changes` for seven issues: lossy-audit completeness, independent native oracle, Task 1 scenario dependency, objective-specific comparison input, closed recovery/mapping rules, Chrome partial replacement, and final-HEAD verification sequencing. This plan revision addresses all seven; round 2 must review the **new exact plan content**, not the original `359756ea...` content.
+3. Resolve every blocking issue and re-run the complete review; maximum three rounds. Review round 1 returned `Needs Changes` for seven issues: lossy-audit completeness, independent native oracle, Task 1 scenario dependency, objective-specific comparison input, closed recovery/mapping rules, Chrome partial replacement, and final-HEAD verification sequencing. Those seven are addressed. A fresh pre-round-2 self-review then tightened four additional correctness points before independent review: signed-run verification/tamper rejection, persisted Scenario 4/5 recovery-contract evidence, complete reliability regression-guard inputs, and objective eligibility requiring every metric used by the selected rule. Round 2 must review the **latest exact plan-content commit**, not the original `359756ea...` content or an earlier revised commit.
 4. Final independent status must be `Approved` before implementation begins. Close the completed reviewer agent when the product surface exposes that lifecycle action.
 
 If the current ChatGPT surface exposes no reviewer/subagent dispatch capability or the installed `writing-plans` skill does not contain the referenced reviewer prompt, record that tooling limitation explicitly. Do not fabricate an independent `Approved` result. A self-review can still make the plan handoff-ready, but implementation must not misreport the missing independent gate as completed.
