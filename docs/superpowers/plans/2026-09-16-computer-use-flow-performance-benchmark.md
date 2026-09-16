@@ -1889,9 +1889,11 @@ Before executing Task 1, the plan document itself must pass these checks:
    - `docs/superpowers/plans/2026-09-16-computer-use-flow-performance-benchmark.md`
    The reviewer must not receive session history and must not edit files.
 3. Resolve every blocking issue and re-run the complete review; maximum three rounds. Review round 1 returned `Needs Changes` for seven issues: lossy-audit completeness, independent native oracle, Task 1 scenario dependency, objective-specific comparison input, closed recovery/mapping rules, Chrome partial replacement, and final-HEAD verification sequencing. Those seven are addressed. A fresh pre-round-2 self-review then tightened four additional correctness points before independent review: signed-run verification/tamper rejection, persisted Scenario 4/5 recovery-contract evidence, complete reliability regression-guard inputs, and objective eligibility requiring every metric used by the selected rule. Round 2 must review the **latest exact plan-content commit**, not the original `359756ea...` content or an earlier revised commit.
-4. Final independent status must be `Approved` before implementation begins. Close the completed reviewer agent when the product surface exposes that lifecycle action.
+4. Final independent status is normally required to be `Approved` before implementation begins. Close the completed reviewer agent when the product surface exposes that lifecycle action.
 
 If the current ChatGPT surface exposes no reviewer/subagent dispatch capability or the installed `writing-plans` skill does not contain the referenced reviewer prompt, record that tooling limitation explicitly. Do not fabricate an independent `Approved` result. A self-review can still make the plan handoff-ready, but implementation must not misreport the missing independent gate as completed.
+
+**User-authorized review-gate waiver (2026-09-16):** the user explicitly instructed the assistant to start coding despite the unavailable independent round-2 reviewer. This waives only the requirement to obtain round-2 `Approved` before Task 1. It does **not** convert the missing review into approval, erase the round-1 history, weaken any technical/safety constraint, authorize push/PR/merge/deploy/helper replacement/tunnel or normal-Chrome restart, or waive task-level TDD/verification. Implementation may proceed inline with `superpowers:executing-plans`; all later review opportunities remain desirable when the product surface exposes them.
 
 ---
 
@@ -1927,4 +1929,4 @@ Plan A approval does not authorize implementation by itself. The next execution 
 - **Inline:** use `superpowers:executing-plans` in this worktree with task-level checkpoints.
 - **Subagent-driven:** only when the user explicitly requests it and the product surface exposes subagent dispatch; use `superpowers:subagent-driven-development` with a fresh worker per task and review between tasks.
 
-Do not start Task 1 automatically after this planning handoff. Do not push, open a PR, merge, deploy, replace the helper, or restart the tunnel.
+The user explicitly selected immediate inline execution on 2026-09-16 and separately waived the still-missing independent round-2 approval gate. Proceed with Task 1 using `superpowers:executing-plans` and TDD. Do not push, open a PR, merge, deploy, replace the helper, or restart the tunnel.
