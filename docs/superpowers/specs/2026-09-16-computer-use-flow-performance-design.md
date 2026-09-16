@@ -1,8 +1,8 @@
 # Computer Use Flow Performance Design
 
-**Date:** 2026-09-16  
-**Branch:** `design/computer-use-flow-performance`  
-**Status:** Approved for implementation planning  
+**Date:** 2026-09-16
+**Branch:** `design/computer-use-flow-performance`
+**Status:** Approved for implementation planning
 **Target surface:** ChatGPT Web/Desktop using the `chatgpt-system` custom app
 
 ## 1. Goal
