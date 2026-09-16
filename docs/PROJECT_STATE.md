@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-16
 
-Status: **Plan A is written and self-reviewed; independent plan review is blocked because this product surface exposes no reviewer/subagent dispatch capability. Implementation has not started.**
+Status: **Plan A review round 1 returned `Needs Changes`; all seven blocking/important findings were addressed in revised Plan A content ending at `2a8e434d14fff70eb86425e35f8f3fedf9aaf386`. Final independent approval is still pending round 2. Implementation has not started.**
 
 This file is a bounded handoff cache. Git/worktree reality and Project Continuity records outrank it.
 
@@ -21,7 +21,9 @@ Live Codex comparison is deferred to conserve the user's Codex usage. This slice
 - Branch: `design/computer-use-flow-performance`
 - Base: clean published `main@96d76b2810c7442a70dae5502065ff5bd15a2f99`
 - Design commits before Plan A: `f7a9fbc`, `710d650`, `6528c04`, `cf35308`, `b811810`
-- Plan A content commit: `359756ea9fc3bec10f5a42b2dac6b0a0a5d86878` (`docs: add computer use flow benchmark plan`)
+- Original Plan A content commit: `359756ea9fc3bec10f5a42b2dac6b0a0a5d86878` (`docs: add computer use flow benchmark plan`)
+- Review-resolution commits: `46cb9a3842e458aca358ed125613bca9b452d442` (`docs: address computer flow plan review`) and `2a8e434d14fff70eb86425e35f8f3fedf9aaf386` (`docs: tighten computer flow plan assertions`)
+- Exact revised Plan A content for round 2: `2a8e434d14fff70eb86425e35f8f3fedf9aaf386`
 
 Do not modify, clean, reset, remove, or repurpose other existing worktrees. This managed worktree is the only worktree owned by the current task.
 
@@ -53,16 +55,18 @@ No Computer Runtime behavior, installed helper, tunnel process, plugin registrat
 ## Plan A status and review evidence
 
 - Plan: `docs/superpowers/plans/2026-09-16-computer-use-flow-performance-benchmark.md`
-- Plan content commit: `359756ea9fc3bec10f5a42b2dac6b0a0a5d86878`
-- Scope remains benchmark/baseline only; no Runtime, MCP, Browser Runtime, or native helper implementation was started.
-- Repository mapping reused the existing Coding Harness patterns, Computer Runtime contracts, categorical audit, and deterministic native fixture.
-- Agent evidence is fail-closed: the existing audit is used only for categories it actually records; missing turn correlation/direct verification evidence is `unavailable`, never inferred as pass. Required unavailable Agent assertions make the scenario gate `incomplete`.
-- Chrome preservation uses a planned benchmark-owned read-only host-process oracle; raw process identifiers remain in memory and are not persisted.
-- Runtime-build identity is bound to exact Git commit, clean working-tree digest domain, TypeScript artifact hash, installed-helper executable hash, protocol version, and a coarse non-identifying machine-class hash.
-- Self-review against the approved spec found and resolved: incomplete Agent-result provenance, missing Chrome process oracle, missing metric fields, objective-comparison type mismatch, optionalized native regression gate, undefined plan interfaces, and underspecified artifact identity.
-- Final self-review scan found no missing required spec coverage, no `TBD`/`TODO`/`FIXME`/placeholder markers, and no undefined named benchmark types.
-- `git diff --cached --check` passed before the Plan A content commit.
-- Independent plan review is **not complete**. The installed `writing-plans` skill has no embedded plan-document-reviewer prompt, and the available reviewer guidance requires dispatching an independent subagent; this chat surface exposes no such dispatch tool. No `Approved` result was fabricated.
+- Original Plan A content commit: `359756ea9fc3bec10f5a42b2dac6b0a0a5d86878`.
+- Independent review round 1 returned `Needs Changes` with seven findings: lossy audit completeness, missing independent native oracle, Task 1/Task 2 scenario dependency, objective-specific comparison request typing, closed recovery/mapping gaps, weak Chrome process-preservation semantics, and stale final-HEAD verification sequencing.
+- Review findings were resolved across `46cb9a3842e458aca358ed125613bca9b452d442` and the final assertion-consistency follow-up `2a8e434d14fff70eb86425e35f8f3fedf9aaf386`. Exact revised Plan A content for round 2 is `2a8e434d14fff70eb86425e35f8f3fedf9aaf386`; the original `359756...` content is obsolete for approval purposes.
+- Agent audit evidence is now explicitly positive-only because `ScopedComputerService.safeRecord()` / `AuditLogger.recordBestEffort()` can lose records without rolling back operations. Exact Agent `computerToolCallCount` and completeness-dependent absence assertions remain `unavailable/lossy_audit_source`; observed forbidden activity still invalidates a run.
+- Scenario 6 now plans a minimally extended fixture-only, content-safe external native oracle; Runtime/Agent completion can no longer self-certify through `ComputerRuntime`/AX observation. Production native helper/core/host behavior remains outside Plan A.
+- Task 1 now owns the six-scenario registry/provenance plus exhaustive versioned error/scroll mappings. Objective comparison input is a caller-preselected discriminated union with required runtime selector or reliability category.
+- Chrome preservation now requires every pre-existing main-process ID to survive (`pre ⊆ post`); partial replacement fails.
+- Tasks 6/7 now commit PROJECT_STATE before running the fresh `project_check`; any later repository edit invalidates that evidence and requires a rerun on the new final HEAD.
+- Final self-review of the revised plan found no undefined named benchmark types, no `TBD`/`TODO`/`FIXME`/placeholder markers, no stale pre-review rules, and exactly one Task 1 creation of `scenarios.ts` with Task 2 explicitly not recreating/modifying it.
+- Only planning documentation changed in this review-resolution turn. No benchmark/runtime/native implementation, installed helper, tunnel, Browser Runtime, public MCP schema, or Chrome process was changed.
+- Implementation tests/builds were not run in this docs-only review-resolution turn; no fresh implementation PASS is claimed.
+- Independent final approval is **not complete**. Round 2 must independently review exact revised Plan A content at `2a8e434d14fff70eb86425e35f8f3fedf9aaf386` and return `Approved` before Task 1 begins.
 
 ## Constraints
 
@@ -76,20 +80,21 @@ No Computer Runtime behavior, installed helper, tunnel process, plugin registrat
 
 ## Next exact step
 
-1. Do not begin Task 1 implementation while the independent Plan A review gate is unresolved.
-2. On a reviewer-capable surface, dispatch an independent reviewer with only:
+1. Do not begin Task 1 implementation while the revised Plan A lacks final independent `Approved` status.
+2. Run independent review round 2 against exact revised Plan A commit `2a8e434d14fff70eb86425e35f8f3fedf9aaf386`, using only:
    - `docs/superpowers/specs/2026-09-16-computer-use-flow-performance-design.md`
    - `docs/superpowers/plans/2026-09-16-computer-use-flow-performance-benchmark.md`
-3. Resolve every blocking reviewer finding and rerun the complete independent review, up to three rounds.
-4. Require final reviewer status `Approved`; do not substitute this self-review for that gate.
-5. After independent approval, reconcile Git/worktree reality, update this state plus `chatgpt-system-computer-flow-performance` continuity, and hand off the explicit execution choice. Do not automatically start implementation from this planning chat.
-6. Push/PR/merge/deployment/helper replacement/tunnel restart remain separately unauthorized.
+3. Reviewer must specifically verify the seven round-1 corrections and the full approved-spec coverage. Do not use the original `359756...` plan content as the reviewed artifact.
+4. If round 2 returns blocking/important findings, resolve them and rerun review; maximum three total rounds. Require final status `Approved`.
+5. After approval, reconcile exact Git/worktree/Continuity reality and hand off the explicit execution choice. Do not auto-start implementation from the planning/review handoff.
+6. Push/PR/merge/deployment/helper replacement/tunnel/normal-Chrome restart remain separately unauthorized.
 
 ## Completion stages
 
 - `design_approved`: complete
-- `plan_a_self_reviewed`: complete at Plan A content commit `359756ea9fc3bec10f5a42b2dac6b0a0a5d86878`
-- `plan_a_approved`: blocked pending independent reviewer capability/status
+- `plan_a_self_reviewed`: complete for revised Plan A at `2a8e434d14fff70eb86425e35f8f3fedf9aaf386`
+- `plan_a_review_round_1`: `Needs Changes`; seven findings resolved; exact reviewed-content target `2a8e434d14fff70eb86425e35f8f3fedf9aaf386`
+- `plan_a_approved`: blocked pending round-2 independent `Approved` status
 - `benchmark_baseline_complete`: pending
 - `candidate_ready_for_deployment`: pending
 - `real_mac_acceptance_complete`: pending
