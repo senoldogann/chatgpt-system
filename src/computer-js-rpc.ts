@@ -33,7 +33,7 @@ const mouseButtonSchema = z.enum(["left", "right", "middle"]);
 const modifierSchema = z.enum(["control", "option", "shift", "command"]);
 const modifiersSchema = z.array(modifierSchema).max(4).refine((values) => new Set(values).size === values.length);
 const verificationTimeoutSchema = z.number().int().min(50).max(10_000);
-const focusTimeoutSchema = z.number().int().min(50).max(5_000);
+const focusTimeoutSchema = z.coerce.number().int().min(50).max(60_000);
 
 const verificationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("ax_changed"), timeoutMs: verificationTimeoutSchema.optional() }).strict(),

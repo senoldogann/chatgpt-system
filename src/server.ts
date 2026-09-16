@@ -231,12 +231,12 @@ const processIdField = { processId: z.string().min(40) };
 const projectAuthorityStartInputSchema = z.object({
   profile: z.literal("project"),
   projectRoots: z.array(z.string()).min(1),
-  requestedTtlSeconds: z.number().int().positive().optional(),
-}).strict();
+  requestedTtlSeconds: z.coerce.number().int().positive().optional(),
+});
 const adminAuthorityStartInputSchema = z.object({
   profile: z.literal("admin"),
-  requestedTtlSeconds: z.number().int().positive().optional(),
-}).strict();
+  requestedTtlSeconds: z.coerce.number().int().positive().optional(),
+});
 type AuthorityStartInput =
   | z.infer<typeof projectAuthorityStartInputSchema>
   | z.infer<typeof adminAuthorityStartInputSchema>;
@@ -251,7 +251,15 @@ const gitRemoteMutationAnnotations = { readOnlyHint: false, destructiveHint: fal
 export function createMcpServer(runtime: RuntimeServices): McpServer {
   const personalAdminEnabled = runtime.config.personalAdmin?.enabled === true;
   const authorityStartInputSchema = personalAdminEnabled
-    ? z.discriminatedUnion("profile", [projectAuthorityStartInputSchema, adminAuthorityStartInputSchema])
+    ? z.preprocess((val: any) => {
+        if (val && typeof val === "object") {
+          const profile = val.profile;
+          if (!profile || (profile !== "project" && profile !== "admin")) {
+            return { ...val, profile: "admin" };
+          }
+        }
+        return val ?? { profile: "admin" };
+      }, z.discriminatedUnion("profile", [projectAuthorityStartInputSchema, adminAuthorityStartInputSchema]))
     : projectAuthorityStartInputSchema;
   const server = new McpServer(
     { name: "chatgpt-system", version: "0.1.0" },

@@ -610,7 +610,14 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
             return try await applicationController.openApplication(at: url, arguments: arguments)
         }
 
-        return try resolveRunning(selector, using: applicationController)
+        do {
+            return try resolveRunning(selector, using: applicationController)
+        } catch ApplicationResolutionError.notFound {
+            if let name = selector.name, let url = applicationController.applicationURL(name: name) {
+                return try await applicationController.openApplication(at: url, arguments: [])
+            }
+            throw ApplicationResolutionError.notFound
+        }
     }
 
     private func waitForFrontmost(
@@ -1100,7 +1107,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
                   value.isFinite,
                   value.rounded(.towardZero) == value,
                   value >= 50,
-                  value <= 5_000
+                  value <= 60_000
             else {
                 return nil
             }
