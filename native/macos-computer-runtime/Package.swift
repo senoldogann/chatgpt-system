@@ -13,9 +13,11 @@ let package = Package(
     targets: [
         .target(name: "ComputerRuntimeCore"),
         .target(name: "ComputerRuntimeHostCore", dependencies: ["ComputerRuntimeCore"]),
+        .target(name: "ComputerRuntimeFixtureOracle"),
         .executableTarget(name: "ComputerRuntimeHost", dependencies: ["ComputerRuntimeCore", "ComputerRuntimeHostCore"]),
-        .executableTarget(name: "ComputerRuntimeFixture"),
+        .executableTarget(name: "ComputerRuntimeFixture", dependencies: ["ComputerRuntimeFixtureOracle"]),
         .testTarget(name: "ComputerRuntimeCoreTests", dependencies: ["ComputerRuntimeCore"]),
         .testTarget(name: "ComputerRuntimeHostCoreTests", dependencies: ["ComputerRuntimeCore", "ComputerRuntimeHostCore"]),
+        .testTarget(name: "ComputerRuntimeFixtureOracleTests", dependencies: ["ComputerRuntimeFixtureOracle"]),
     ]
 )

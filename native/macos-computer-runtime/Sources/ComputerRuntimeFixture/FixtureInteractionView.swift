@@ -1,4 +1,5 @@
 import AppKit
+import ComputerRuntimeFixtureOracle
 
 @MainActor
 final class FixtureInteractionView: NSView, NSTextFieldDelegate {
@@ -8,9 +9,11 @@ final class FixtureInteractionView: NSView, NSTextFieldDelegate {
     private let checkbox = NSButton(checkboxWithTitle: "Fixture Checkbox", target: nil, action: nil)
     private let reorderContainer = NSView(frame: NSRect(x: 30, y: 282, width: 350, height: 36))
     private let visualSubmit = FixtureVisualSubmitView(frame: NSRect(x: 400, y: 236, width: 340, height: 52))
+    private let oracleStore: FixtureOracleStore
     private var reorderGeneration = 0
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, oracleStore: FixtureOracleStore) {
+        self.oracleStore = oracleStore
         super.init(frame: frameRect)
         wantsLayer = true
         buildInterface()
@@ -25,6 +28,7 @@ final class FixtureInteractionView: NSView, NSTextFieldDelegate {
     }
 
     @objc private func buttonPressed(_ sender: NSButton) {
+        try? oracleStore.recordButtonPress()
         setStatus("button-clicked")
     }
 
@@ -43,10 +47,13 @@ final class FixtureInteractionView: NSView, NSTextFieldDelegate {
     }
 
     @objc private func checkboxChanged(_ sender: NSButton) {
-        setStatus(sender.state == .on ? "checkbox:on" : "checkbox:off")
+        let isChecked = sender.state == .on
+        try? oracleStore.recordCheckboxChange(isChecked: isChecked)
+        setStatus(isChecked ? "checkbox:on" : "checkbox:off")
     }
 
     func controlTextDidChange(_ obj: Notification) {
+        try? oracleStore.recordTextEdit(textField.stringValue)
         setStatus("text:\(textField.stringValue)")
     }
 

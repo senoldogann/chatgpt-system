@@ -62,6 +62,47 @@ const fixtureViewPath = path.join(
   "../native/macos-computer-runtime/Sources/ComputerRuntimeFixture/FixtureInteractionView.swift",
 );
 
+
+const fixturePackagePath = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../native/macos-computer-runtime/Package.swift",
+);
+const fixtureMainPath = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../native/macos-computer-runtime/Sources/ComputerRuntimeFixture/main.swift",
+);
+const fixtureDelegatePath = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../native/macos-computer-runtime/Sources/ComputerRuntimeFixture/FixtureAppDelegate.swift",
+);
+
+describe("computer runtime fixture oracle support", () => {
+  it("keeps fixture oracle code isolated in a fixture-only Swift target", async () => {
+    const packageSource = await readFile(fixturePackagePath, "utf8");
+
+    expect(packageSource).toContain('.target(name: "ComputerRuntimeFixtureOracle")');
+    expect(packageSource).toContain('.executableTarget(name: "ComputerRuntimeFixture", dependencies: ["ComputerRuntimeFixtureOracle"])');
+    expect(packageSource).toContain('.testTarget(name: "ComputerRuntimeFixtureOracleTests", dependencies: ["ComputerRuntimeFixtureOracle"])');
+    expect(packageSource).not.toContain('ComputerRuntimeHostCore", dependencies: ["ComputerRuntimeCore", "ComputerRuntimeFixtureOracle"');
+  });
+
+  it("wires the optional benchmark oracle path only into the fixture process and callbacks", async () => {
+    const [mainSource, delegateSource, viewSource] = await Promise.all([
+      readFile(fixtureMainPath, "utf8"),
+      readFile(fixtureDelegatePath, "utf8"),
+      readFile(fixtureViewPath, "utf8"),
+    ]);
+
+    expect(mainSource).toContain("CHATGPT_SYSTEM_COMPUTER_FLOW_FIXTURE_ORACLE_PATH");
+    expect(mainSource).toContain("FixtureOracleStore");
+    expect(delegateSource).toContain("markReady");
+    expect(delegateSource).toContain("FixtureInteractionView");
+    expect(viewSource).toContain("recordTextEdit");
+    expect(viewSource).toContain("recordCheckboxChange");
+    expect(viewSource).toContain("recordButtonPress");
+  });
+});
+
 describe("computer runtime fixture recovery surface", () => {
   it("draws an OCR-only submit target that exposes no accessibility identity", async () => {
     const source = await readFile(fixtureViewPath, "utf8");
