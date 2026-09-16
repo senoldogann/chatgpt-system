@@ -36,16 +36,23 @@ export type ComputerFlowWebOracle =
       pointAttemptCount: number;
     };
 
+export interface ComputerFlowWebSessionDiagnostics {
+  documentRequestReceived: boolean;
+  pageReadyEventReceived: boolean;
+}
+
 export interface ComputerFlowWebFixtureHandle {
   origin: string;
   createSession(scenarioId: ComputerFlowWebFixtureSession["scenarioId"]): Promise<ComputerFlowWebFixtureSession>;
   readOracle(sessionId: string): Promise<ComputerFlowWebOracle>;
+  readSessionDiagnostics(sessionId: string): Promise<ComputerFlowWebSessionDiagnostics>;
   close(): Promise<void>;
 }
 
 interface SessionState {
   session: ComputerFlowWebFixtureSession;
   oracle: ComputerFlowWebOracle;
+  documentRequestReceived: boolean;
 }
 
 const WEB_SCENARIOS = [
@@ -209,6 +216,7 @@ export async function startComputerFlowWebFixture(): Promise<ComputerFlowWebFixt
             send(response, 404);
             return;
           }
+          state.documentRequestReceived = true;
           send(
             response,
             200,
@@ -266,13 +274,23 @@ export async function startComputerFlowWebFixture(): Promise<ComputerFlowWebFixt
         sessionId,
         url: `${origin}/session/${sessionId}`,
       };
-      sessions.set(sessionId, { session, oracle: initialOracle(scenarioId) });
+      sessions.set(sessionId, { session, oracle: initialOracle(scenarioId), documentRequestReceived: false });
       return session;
     },
     async readOracle(sessionId) {
       const state = sessions.get(sessionId);
       if (!state) throw new Error("Unknown computer flow web fixture session.");
       return structuredClone(state.oracle);
+    },
+    async readSessionDiagnostics(sessionId) {
+      const state = sessions.get(sessionId);
+      if (!state || state.oracle.scenarioId !== "open-focus-verify") {
+        throw new Error("Unknown computer flow S1 diagnostic session.");
+      }
+      return {
+        documentRequestReceived: state.documentRequestReceived,
+        pageReadyEventReceived: state.oracle.pageReady,
+      };
     },
     async close() {
       if (closed) return;

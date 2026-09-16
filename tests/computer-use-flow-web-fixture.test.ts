@@ -120,6 +120,21 @@ const scenarioCases: readonly {
 ];
 
 describe("computer flow web fixture", () => {
+  it("distinguishes a requested fixture document from its later page-ready event using only session-scoped categorical state", async () => {
+    const fixture = await startFixture();
+    const first = await fixture.createSession("open-focus-verify");
+    const second = await fixture.createSession("open-focus-verify");
+
+    expect(await fixture.readSessionDiagnostics(first.sessionId)).toEqual({ documentRequestReceived: false, pageReadyEventReceived: false });
+    expect((await fetch(first.url)).status).toBe(200);
+    expect(await fixture.readSessionDiagnostics(first.sessionId)).toEqual({ documentRequestReceived: true, pageReadyEventReceived: false });
+    expect(await fixture.readSessionDiagnostics(second.sessionId)).toEqual({ documentRequestReceived: false, pageReadyEventReceived: false });
+    expect((await postEvent(first, { event: "page_ready" })).status).toBe(204);
+    expect(await fixture.readSessionDiagnostics(first.sessionId)).toEqual({ documentRequestReceived: true, pageReadyEventReceived: true });
+    expect(await fixture.readSessionDiagnostics(second.sessionId)).toEqual({ documentRequestReceived: false, pageReadyEventReceived: false });
+    expect(JSON.stringify(await fixture.readSessionDiagnostics(first.sessionId))).not.toContain(first.sessionId);
+  });
+
   it("binds loopback-only and exposes deterministic isolated sessions for all five web scenarios", async () => {
     const fixture = await startFixture();
     expect(fixture.origin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);

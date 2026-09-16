@@ -28,7 +28,7 @@ import { readComputerFlowRuntimeIdentity } from "./identity.js";
 import { createComputerFlowRuntimeHarness } from "./runtime-harness.js";
 import { runRuntimeScenario } from "./runtime-mode.js";
 import { COMPUTER_FLOW_SCENARIOS, getComputerFlowScenario } from "./scenarios.js";
-import { startComputerFlowWebFixture } from "./web-fixture.js";
+import { startComputerFlowWebFixture, type ComputerFlowWebFixtureHandle } from "./web-fixture.js";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const resultsRoot = path.join(repositoryRoot, "benchmarks", "computer-use-flow-performance", "results");
@@ -210,9 +210,23 @@ async function runRuntimeBatch(tokens: readonly string[]): Promise<void> {
       }
     } else {
       if (!webFixture) throw new Error("Computer flow web fixture was unavailable.");
-      await runRuntimeScenario({ ...common, scenarioId: parsed.scenarioId, repetition: 1, webFixture });
+      let currentSessionId = "";
+      const sessionObservedFixture: ComputerFlowWebFixtureHandle = {
+        ...webFixture,
+        async createSession(scenarioId) {
+          const session = await webFixture.createSession(scenarioId);
+          currentSessionId = session.sessionId;
+          return session;
+        },
+      };
+      await runRuntimeScenario({ ...common, scenarioId: parsed.scenarioId, repetition: 1, webFixture: sessionObservedFixture });
       for (let repetition = 1; repetition <= 10; repetition += 1) {
-        recorded.push(await runRuntimeScenario({ ...common, scenarioId: parsed.scenarioId, repetition, webFixture }));
+        const run = await runRuntimeScenario({ ...common, scenarioId: parsed.scenarioId, repetition, webFixture: sessionObservedFixture });
+        recorded.push(run);
+        if (parsed.scenarioId === "open-focus-verify" && currentSessionId) {
+          const diagnostic = await webFixture.readSessionDiagnostics(currentSessionId);
+          process.stderr.write(`${JSON.stringify({ diagnostic: "s1_fixture_transport", repetition, ...diagnostic })}\n`);
+        }
       }
     }
   } finally {

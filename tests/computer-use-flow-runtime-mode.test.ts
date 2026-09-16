@@ -194,6 +194,7 @@ function fixtureFor(scenarioId: Parameters<ComputerFlowWebFixtureHandle["createS
       return { scenarioId, sessionId: "fixture-session", url: `http://127.0.0.1:43123/session/fixture-session` };
     },
     async readOracle() { return completeWebOracle(scenarioId); },
+    async readSessionDiagnostics() { return { documentRequestReceived: true, pageReadyEventReceived: true }; },
     async close() {},
   };
 }
@@ -210,6 +211,7 @@ function fixtureWithOracleSequence(
       if (requested !== scenarioId) throw new Error("unexpected scenario");
       return { scenarioId, sessionId: "fixture-session", url: `http://127.0.0.1:43123/session/fixture-session` };
     },
+    async readSessionDiagnostics() { return { documentRequestReceived: true, pageReadyEventReceived: true }; },
     async readOracle() {
       const oracle = oracles[Math.min(readCount, oracles.length - 1)];
       readCount += 1;
