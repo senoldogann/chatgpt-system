@@ -17,6 +17,7 @@ import type {
 } from "../src/computer-types.js";
 import { verifyComputerFlowRunSignature } from "../benchmarks/computer-use-flow-performance/canonical.js";
 import { deriveRuntimeBuildIdentity } from "../benchmarks/computer-use-flow-performance/identity.js";
+import { evaluateComputerFlowBatch } from "../benchmarks/computer-use-flow-performance/evaluator.js";
 import type {
   ComputerFlowNativeFixtureOracleReader,
   ComputerFlowNativeFixtureOracleSnapshotV1,
@@ -71,6 +72,7 @@ class RecordingRuntime extends ComputerRuntime {
   readonly observations: unknown[] = [];
   waitForFrontmostFailure: ComputerError | undefined;
   screenshotFailure: ComputerError | undefined;
+  onWaitForText: (() => void) | undefined;
 
   constructor() {
     super(new NullNative(), computerConfig);
@@ -107,6 +109,7 @@ class RecordingRuntime extends ComputerRuntime {
 
   override async waitForText(input: Parameters<ComputerRuntime["waitForText"]>[0]): Promise<unknown> {
     this.calls.push({ method: "waitForText", input });
+    this.onWaitForText?.();
     return { state: "completed" };
   }
 
@@ -317,6 +320,63 @@ describe("scripted Runtime Mode", () => {
     expect(record.assertions).toContainEqual(expect.objectContaining({ assertion: "chrome_process_preserved", status: "pass", source: "host_process_oracle" }));
     expect(record.assertions).toContainEqual(expect.objectContaining({ assertion: "completion_oracle", status: "pass", source: "web_fixture_oracle" }));
     expect(verifyComputerFlowRunSignature(record, collectorKey)).toBe(true);
+  });
+
+  it("derives every Runtime zero-tolerance counter only from its complete trusted non-applicable action trace", async () => {
+    const harness = new RecordingHarness();
+    const record = await runRuntimeScenario({
+      ...baseInput(harness),
+      scenarioId: "open-focus-verify",
+      webFixture: fixtureFor("open-focus-verify"),
+    });
+    for (const name of [
+      "wrongAppInputCount",
+      "blindRepeatedPointCount",
+      "unchangedScrollRepeatCount",
+      "safetyBoundaryViolationCount",
+    ] as const) {
+      expect(record.metrics[name], name).toEqual({ availability: "available", value: 0 });
+    }
+  });
+
+  it("accepts a complete ten-run Runtime S1 batch with all four supported zero safety counters", async () => {
+    const runs = [];
+    for (let repetition = 1; repetition <= 10; repetition += 1) {
+      runs.push(await runRuntimeScenario({
+        ...baseInput(new RecordingHarness(), chromeProvider([101], [101])),
+        repetition,
+        scenarioId: "open-focus-verify",
+        webFixture: fixtureFor("open-focus-verify"),
+      }));
+    }
+    const result = evaluateComputerFlowBatch(runs, collectorKey);
+    expect(result.scenarios[0]).toMatchObject({
+      scenarioId: "open-focus-verify",
+      recordedRunCount: 10,
+      eligibleSuccessCount: 10,
+      gateStatus: "pass",
+      zeroToleranceFailureCount: 0,
+    });
+  });
+
+  it("correlates S1 navigation with the new fixture session before trusting the reused page heading", async () => {
+    const fixture = fixtureWithOracleSequence("open-focus-verify", [
+      { scenarioId: "open-focus-verify", pageReady: false },
+      { scenarioId: "open-focus-verify", pageReady: true },
+    ]);
+    const runtime = new RecordingRuntime();
+    runtime.onWaitForText = () => {
+      if (fixture.readCount < 2) throw new ComputerError("COMPUTER_TIMEOUT");
+    };
+    const harness = new RecordingHarness(runtime);
+    const record = await runRuntimeScenario({
+      ...baseInput(harness, chromeProvider([101], [101])),
+      scenarioId: "open-focus-verify",
+      webFixture: fixture,
+    });
+    expect(fixture.readCount).toBeGreaterThanOrEqual(2);
+    expect(record.failureCategory).toBe("none");
+    expect(record.assertions).toContainEqual(expect.objectContaining({ assertion: "completion_oracle", status: "pass" }));
   });
 
   it("prepares each web fixture session in Chrome before scenario-specific work", async () => {

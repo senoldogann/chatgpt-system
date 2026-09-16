@@ -409,6 +409,7 @@ const physicalNativeMethods = new Set([
 ]);
 
 function metricsFromTrace(
+  scenario: ComputerFlowScenarioDefinition,
   events: readonly ComputerFlowEvent[],
   assertions: readonly ComputerFlowAssertion[],
   nativeTrace: readonly ComputerFlowNativeTraceEvent[] | undefined,
@@ -420,8 +421,32 @@ function metricsFromTrace(
   const localActionDuration = nativeTrace
     ? nativeTrace.filter((event) => physicalNativeMethods.has(event.operation)).reduce((sum, event) => sum + event.durationMs, 0)
     : physical.reduce((sum, event) => sum + (event.durationMs ?? 0), 0);
+  const traceComplete = events.length >= 2
+    && events[0]?.category === "workflow_start"
+    && events.at(-1)?.category === "workflow_end"
+    && events.every((event, index) => event.sequence === index);
+  const noAssertion = (name: ComputerFlowAssertionName) =>
+    !assertions.some((assertion) => assertion.assertion === name);
+  const blindRepeatedPointCount = noAssertion("blind_point_repeat_absent") && traceComplete
+    && !physical.some((event) => event.targeting === "visual-point")
+      ? available(0)
+      : base.blindRepeatedPointCount;
+  const unchangedScrollRepeatCount = noAssertion("unchanged_scroll_repeat_absent") && traceComplete
+    && !boundaries.some((event) => event.operation === "scroll" || event.operation === "scroll_until_visible")
+      ? available(0)
+      : base.unchangedScrollRepeatCount;
+  const safetyBoundaryViolationCount = noAssertion("safety_boundary_violation_absent") && traceComplete
+    && boundaries.every((event) => event.operation !== undefined
+      && scenario.allowedOperations.includes(event.operation)
+      && !scenario.forbiddenOperations.includes(event.operation))
+    && !physical.some((event) => event.failureCategory === "takeover" || event.failureCategory === "permission")
+      ? available(0)
+      : base.safetyBoundaryViolationCount;
   return {
     ...base,
+    blindRepeatedPointCount,
+    unchangedScrollRepeatCount,
+    safetyBoundaryViolationCount,
     runtimeDurationMs: available(runtimeDuration),
     localActionProgramDurationMs: available(localActionDuration),
     computerToolCallCount: available(boundaries.length),
@@ -484,7 +509,7 @@ async function prepareWebFixtureOutsideMeasurement(
 
 async function runOpenFocus(
   trace: RuntimeTraceBuilder,
-  input: ComputerFlowRuntimeScenarioInputBase,
+  input: ComputerFlowRuntimeScenarioInputBase & { webFixture: ComputerFlowWebFixtureHandle },
   session: ComputerFlowWebFixtureSession,
 ): Promise<void> {
   const chrome = { bundleIdentifier: "com.google.Chrome" } as const;
@@ -494,6 +519,10 @@ async function runOpenFocus(
   await trace.boundary("press_key", () => input.harness.computer.pressKey({ ...chrome, key: "l", modifiers: ["command"] }), { semanticCategory: "physical_action", targeting: "none" });
   await trace.boundary("type_text", () => input.harness.computer.typeText({ ...chrome, text: session.url }), { semanticCategory: "physical_action", targeting: "none" });
   await trace.boundary("press_key", () => input.harness.computer.pressKey({ ...chrome, key: "return" }), { semanticCategory: "physical_action", targeting: "none" });
+  const currentSessionOracle = await readCompletedWebOracle(input.webFixture, session, 5_000);
+  if (currentSessionOracle.scenarioId !== "open-focus-verify" || !currentSessionOracle.pageReady) {
+    throw new ComputerError("COMPUTER_TIMEOUT");
+  }
   await trace.boundary("wait_for_text", () => input.harness.computer.waitForText({ text: webFixtureReadyText("open-focus-verify"), timeoutMs: 5_000 }), { semanticCategory: "verification" });
   await trace.boundary("observe", () => input.harness.computer.observe(), { semanticCategory: "observation" });
 }
@@ -653,8 +682,9 @@ async function runSelectedWorkflow(
 async function readCompletedWebOracle(
   fixture: ComputerFlowWebFixtureHandle,
   session: ComputerFlowWebFixtureSession,
+  timeoutMs = 1_000,
 ): Promise<ComputerFlowWebOracle> {
-  const deadline = performance.now() + 1_000;
+  const deadline = performance.now() + timeoutMs;
   let last = await fixture.readOracle(session.sessionId);
   while (!webCompletion(last) && performance.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -768,7 +798,7 @@ export async function runRuntimeScenario(input: ComputerFlowRuntimeScenarioInput
       : nativeTraceAtWorkflowEnd.slice(nativeTraceBefore);
   const assertions = assertionByRule(input, scenario, trace.events, completion, hostAssertion);
   const failureCategory = firstFailureCategory(trace.events);
-  const metrics = metricsFromTrace(trace.events, assertions, nativeTrace);
+  const metrics = metricsFromTrace(scenario, trace.events, assertions, nativeTrace);
   return signComputerFlowRun({
     schemaVersion: COMPUTER_FLOW_BENCHMARK_SCHEMA_VERSION,
     metricRulesVersion: COMPUTER_FLOW_METRIC_RULES_VERSION,
