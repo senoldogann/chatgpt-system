@@ -10,3 +10,4 @@ native/macos-computer-runtime/.build/
 .DS_Store
 .chatgpt-system/
 audit.jsonl
+benchmarks/computer-use-flow-performance/results/
