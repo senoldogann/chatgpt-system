@@ -68,7 +68,8 @@ type RuntimeCall = { method: string; input?: object };
 class RecordingRuntime extends ComputerRuntime {
   readonly calls: RuntimeCall[] = [];
   readonly clickFailures: ComputerError[] = [];
-  focusFailure: ComputerError | undefined;
+  readonly observations: unknown[] = [];
+  waitForFrontmostFailure: ComputerError | undefined;
   screenshotFailure: ComputerError | undefined;
 
   constructor() {
@@ -95,12 +96,12 @@ class RecordingRuntime extends ComputerRuntime {
 
   override async focusApp(input: Parameters<ComputerRuntime["focusApp"]>[0]): Promise<unknown> {
     this.calls.push({ method: "focusApp", input });
-    if (this.focusFailure) throw this.focusFailure;
     return { state: "completed" };
   }
 
   override async waitForFrontmost(input: Parameters<ComputerRuntime["waitForFrontmost"]>[0]): Promise<unknown> {
     this.calls.push({ method: "waitForFrontmost", input });
+    if (this.waitForFrontmostFailure) throw this.waitForFrontmostFailure;
     return { state: "completed" };
   }
 
@@ -111,7 +112,7 @@ class RecordingRuntime extends ComputerRuntime {
 
   override async observe(): Promise<unknown> {
     this.calls.push({ method: "observe" });
-    return { snapshotId: `snapshot-${this.calls.length}`, elements: [], truncated: false };
+    return this.observations.shift() ?? { snapshotId: `snapshot-${this.calls.length}`, elements: [], truncated: false };
   }
 
   override async screenshot(): Promise<ComputerScreenshotResult> {
@@ -190,6 +191,28 @@ function fixtureFor(scenarioId: Parameters<ComputerFlowWebFixtureHandle["createS
       return { scenarioId, sessionId: "fixture-session", url: `http://127.0.0.1:43123/session/fixture-session` };
     },
     async readOracle() { return completeWebOracle(scenarioId); },
+    async close() {},
+  };
+}
+
+function fixtureWithOracleSequence(
+  scenarioId: Parameters<ComputerFlowWebFixtureHandle["createSession"]>[0],
+  oracles: readonly ComputerFlowWebOracle[],
+): ComputerFlowWebFixtureHandle & { readCount: number } {
+  let readCount = 0;
+  return {
+    origin: "http://127.0.0.1:43123",
+    get readCount() { return readCount; },
+    async createSession(requested) {
+      if (requested !== scenarioId) throw new Error("unexpected scenario");
+      return { scenarioId, sessionId: "fixture-session", url: `http://127.0.0.1:43123/session/fixture-session` };
+    },
+    async readOracle() {
+      const oracle = oracles[Math.min(readCount, oracles.length - 1)];
+      readCount += 1;
+      if (!oracle) throw new Error("missing oracle");
+      return oracle;
+    },
     async close() {},
   };
 }
@@ -323,6 +346,106 @@ describe("scripted Runtime Mode", () => {
     }
   });
 
+  it("waits for asynchronous web oracle completion before finalizing a successful workflow", async () => {
+    const harness = new RecordingHarness();
+    const fixture = fixtureWithOracleSequence("batched-multi-control-form", [
+      { scenarioId: "batched-multi-control-form", textFieldsMatch: false, checkboxChecked: false, selectionMatch: false, submitted: false },
+      completeWebOracle("batched-multi-control-form"),
+    ]);
+    const record = await runRuntimeScenario({
+      ...baseInput(harness),
+      scenarioId: "batched-multi-control-form",
+      webFixture: fixture,
+    });
+    expect(fixture.readCount).toBeGreaterThanOrEqual(2);
+    expect(record.assertions).toContainEqual(expect.objectContaining({ assertion: "completion_oracle", status: "pass" }));
+  });
+
+  it("uses the accessible inner scroll panel as the scoped-scroll readiness probe", async () => {
+    const harness = new RecordingHarness();
+    await runRuntimeScenario({
+      ...baseInput(harness),
+      scenarioId: "scoped-nested-scrolling",
+      webFixture: fixtureFor("scoped-nested-scrolling"),
+    });
+    const waits = harness.computer.calls.filter((call) => call.method === "waitForText");
+    expect(waits).toContainEqual(expect.objectContaining({ input: expect.objectContaining({ text: "Fixture Inner Scroll Panel" }) }));
+  });
+
+  it("refreshes runtime observation after rerender before attempting the stale snapshot target", async () => {
+    const runtime = new RecordingRuntime();
+    runtime.clickFailures.push(new ComputerError("COMPUTER_STALE_SNAPSHOT"));
+    const harness = new RecordingHarness(runtime);
+    await runRuntimeScenario({
+      ...baseInput(harness),
+      scenarioId: "stale-dynamic-target-recovery",
+      webFixture: fixtureFor("stale-dynamic-target-recovery"),
+    });
+    const methods = runtime.calls.map((call) => call.method);
+    const runIndex = methods.indexOf("run");
+    const staleClickIndex = methods.indexOf("click", runIndex + 1);
+    const refreshIndex = methods.indexOf("observe", runIndex + 1);
+    expect(refreshIndex).toBeGreaterThan(runIndex);
+    expect(refreshIndex).toBeLessThan(staleClickIndex);
+  });
+
+  it("forces the initial weak-AX semantic miss to be target_not_found before fallback", async () => {
+    const runtime = new RecordingRuntime();
+    runtime.clickFailures.push(new ComputerError("COMPUTER_TARGET_NOT_FOUND"));
+    const harness = new RecordingHarness(runtime);
+    await runRuntimeScenario({
+      ...baseInput(harness),
+      scenarioId: "weak-ax-ocr-visual-point",
+      webFixture: fixtureFor("weak-ax-ocr-visual-point"),
+    });
+    const firstClick = runtime.calls.find((call) => call.method === "click");
+    expect(firstClick?.input).toMatchObject({ target: { by: "label", label: "Activate", exact: true }, retryBudget: 0 });
+  });
+
+  it("uses a fresh post-screenshot observation to derive the single visual point from fixture-canvas bounds", async () => {
+    const runtime = new RecordingRuntime();
+    runtime.clickFailures.push(new ComputerError("COMPUTER_TARGET_NOT_FOUND"));
+    runtime.observations.push(
+      { snapshotId: "initial", elements: [], truncated: false },
+      {
+        snapshotId: "fresh",
+        elements: [{ index: 7, label: "Fixture Canvas", bounds: { x: 100, y: 200, width: 520, height: 220 } }],
+        truncated: false,
+      },
+    );
+    const harness = new RecordingHarness(runtime);
+    await runRuntimeScenario({
+      ...baseInput(harness),
+      scenarioId: "weak-ax-ocr-visual-point",
+      webFixture: fixtureFor("weak-ax-ocr-visual-point"),
+    });
+    const calls = runtime.calls;
+    const screenshotIndex = calls.findIndex((call) => call.method === "screenshot");
+    const freshObserveIndex = calls.findIndex((call, index) => index > screenshotIndex && call.method === "observe");
+    expect(freshObserveIndex).toBeGreaterThan(screenshotIndex);
+    const finalClick = calls.filter((call) => call.method === "click").at(-1);
+    expect(finalClick?.input).toMatchObject({ x: 490, y: 335 });
+  });
+
+  it("waits for the owned native fixture to become frontmost instead of racing a focus request", async () => {
+    const ready: ComputerFlowNativeFixtureOracleSnapshotV1 = {
+      version: 1,
+      ready: true,
+      textMatchesExpectedToken: false,
+      checkboxChecked: false,
+      buttonPressCount: 0,
+      textEditCount: 0,
+      checkboxToggleCount: 0,
+    };
+    const runtime = new RecordingRuntime();
+    const harness = new RecordingHarness(runtime, { nativeOracle: nativeOracle(ready, ready) });
+    await runRuntimeScenario({ ...baseInput(harness), scenarioId: "native-macos-fixture-workflow" });
+    const methods = runtime.calls.map((call) => call.method);
+    expect(methods).not.toContain("focusApp");
+    expect(methods.indexOf("waitForFrontmost")).toBeGreaterThanOrEqual(0);
+    expect(methods.indexOf("waitForFrontmost")).toBeLessThan(methods.indexOf("click"));
+  });
+
   it("keeps measured Runtime events within each scenario's declared operation surface", async () => {
     for (const scenarioId of [
       "batched-multi-control-form",
@@ -397,6 +520,14 @@ describe("scripted Runtime Mode", () => {
   it("records target_not_found -> OCR fallback -> fresh screenshot -> exactly one visual-point attempt", async () => {
     const runtime = new RecordingRuntime();
     runtime.clickFailures.push(new ComputerError("COMPUTER_TARGET_NOT_FOUND"));
+    runtime.observations.push(
+      { snapshotId: "initial", elements: [], truncated: false },
+      {
+        snapshotId: "fresh",
+        elements: [{ index: 1, label: "Fixture Canvas", bounds: { x: 100, y: 200, width: 520, height: 220 } }],
+        truncated: false,
+      },
+    );
     const harness = new RecordingHarness(runtime);
     const record = await runRuntimeScenario({
       ...baseInput(harness),
@@ -468,7 +599,7 @@ describe("scripted Runtime Mode", () => {
   it("stops later native physical actions after focus/takeover failure while still releasing input and closing the fixture", async () => {
     for (const code of ["COMPUTER_FOCUS_FAILED", "COMPUTER_USER_TAKEOVER"] as const) {
       const runtime = new RecordingRuntime();
-      runtime.focusFailure = new ComputerError(code);
+      runtime.waitForFrontmostFailure = new ComputerError(code);
       const ready: ComputerFlowNativeFixtureOracleSnapshotV1 = {
         version: 1,
         ready: true,
@@ -481,7 +612,8 @@ describe("scripted Runtime Mode", () => {
       const harness = new RecordingHarness(runtime, { nativeOracle: nativeOracle(ready, ready) });
       const record = await runRuntimeScenario({ ...baseInput(harness), scenarioId: "native-macos-fixture-workflow" });
       const methods = runtime.calls.map((call) => call.method);
-      expect(methods).toContain("focusApp");
+      expect(methods).toContain("waitForFrontmost");
+      expect(methods).not.toContain("focusApp");
       expect(methods).not.toContain("typeText");
       expect(methods).not.toContain("click");
       expect(methods.at(-1)).toBe("releaseInputs");

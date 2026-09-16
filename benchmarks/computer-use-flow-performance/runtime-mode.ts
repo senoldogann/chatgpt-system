@@ -291,30 +291,51 @@ function observationSnapshotTarget(observation: unknown): ComputerTarget {
   return { by: "label", label: "Dynamic Target Generation 0", exact: true };
 }
 
-function visualPointFromObservation(observation: unknown): { x: number; y: number } {
-  if (typeof observation === "object" && observation !== null && !Array.isArray(observation)) {
-    const perception = (observation as Record<string, object | string | boolean | number | null | undefined>).perception;
-    if (typeof perception === "object" && perception !== null && !Array.isArray(perception)) {
-      const candidates = (perception as Record<string, object | string | boolean | number | null | undefined>).ocrCandidates;
-      if (Array.isArray(candidates)) {
-        for (const candidate of candidates) {
-          if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) continue;
-          const row = candidate as Record<string, object | string | boolean | number | null | undefined>;
-          if (typeof row.text !== "string" || !row.text.includes("Activate")) continue;
-          const bounds = row.bounds;
-          if (typeof bounds !== "object" || bounds === null || Array.isArray(bounds)) continue;
-          const box = bounds as Record<string, object | string | boolean | number | null | undefined>;
-          if ([box.x, box.y, box.width, box.height].every((value) => typeof value === "number" && Number.isFinite(value))) {
-            return {
-              x: (box.x as number) + (box.width as number) / 2,
-              y: (box.y as number) + (box.height as number) / 2,
-            };
-          }
+function visualPointFromObservation(observation: unknown): { x: number; y: number } | undefined {
+  if (typeof observation !== "object" || observation === null || Array.isArray(observation)) return undefined;
+  const record = observation as Record<string, unknown>;
+  const perception = record.perception;
+  if (typeof perception === "object" && perception !== null && !Array.isArray(perception)) {
+    const candidates = (perception as Record<string, unknown>).ocrCandidates;
+    if (Array.isArray(candidates)) {
+      for (const candidate of candidates) {
+        if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) continue;
+        const row = candidate as Record<string, unknown>;
+        if (typeof row.text !== "string" || !row.text.includes("Activate")) continue;
+        const bounds = row.bounds;
+        if (typeof bounds !== "object" || bounds === null || Array.isArray(bounds)) continue;
+        const box = bounds as Record<string, unknown>;
+        if ([box.x, box.y, box.width, box.height].every((value) => typeof value === "number" && Number.isFinite(value))) {
+          return {
+            x: (box.x as number) + (box.width as number) / 2,
+            y: (box.y as number) + (box.height as number) / 2,
+          };
         }
       }
     }
   }
-  return { x: 390, y: 135 };
+
+  const elements = record.elements;
+  if (!Array.isArray(elements)) return undefined;
+  for (const candidate of elements) {
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) continue;
+    const element = candidate as Record<string, unknown>;
+    const strings = [element.title, element.name, element.label, element.description]
+      .filter((value): value is string => typeof value === "string");
+    if (!strings.some((value) => value.includes("Fixture Canvas"))) continue;
+    const bounds = element.bounds;
+    if (typeof bounds !== "object" || bounds === null || Array.isArray(bounds)) continue;
+    const box = bounds as Record<string, unknown>;
+    if (![box.x, box.y, box.width, box.height].every((value) => typeof value === "number" && Number.isFinite(value))) continue;
+    const width = box.width as number;
+    const height = box.height as number;
+    if (width <= 0 || height <= 0) continue;
+    return {
+      x: (box.x as number) + width * (390 / 520),
+      y: (box.y as number) + height * (135 / 220),
+    };
+  }
+  return undefined;
 }
 
 function expectedRecoverySatisfied(scenarioId: ComputerFlowScenarioId, events: readonly ComputerFlowEvent[]): boolean {
@@ -426,7 +447,7 @@ function webFixtureReadyText(scenarioId: Exclude<ComputerFlowScenarioId, "native
   switch (scenarioId) {
     case "open-focus-verify": return "Computer Flow Fixture Ready";
     case "batched-multi-control-form": return "Alpha Field";
-    case "scoped-nested-scrolling": return "Keep the outer container stationary.";
+    case "scoped-nested-scrolling": return "Fixture Inner Scroll Panel";
     case "stale-dynamic-target-recovery": return "Re-render Dynamic Target";
     case "weak-ax-ocr-visual-point": return "Weak AX Visual Fixture";
   }
@@ -533,6 +554,7 @@ async function runStaleRecovery(
     actions: [{ type: "click", target: { by: "label", label: "Re-render Dynamic Target", exact: true } }],
     finalObservation: "none",
   }), { semanticCategory: "physical_action", targeting: "ax" });
+  await trace.boundary("observe", () => input.harness.computer.observe(), { semanticCategory: "observation" });
   try {
     await trace.boundary("click", () => input.harness.computer.click({ target: observationSnapshotTarget(initial) }), {
       semanticCategory: "physical_action",
@@ -555,9 +577,12 @@ async function runWeakAxRecovery(
   trace: RuntimeTraceBuilder,
   input: ComputerFlowRuntimeScenarioInputBase,
 ): Promise<void> {
-  const initial = await trace.boundary("observe", () => input.harness.computer.observe(), { semanticCategory: "observation" });
+  await trace.boundary("observe", () => input.harness.computer.observe(), { semanticCategory: "observation" });
   try {
-    await trace.boundary("click", () => input.harness.computer.click({ target: { by: "label", label: "Activate", exact: true } }), {
+    await trace.boundary("click", () => input.harness.computer.click({
+      target: { by: "label", label: "Activate", exact: true },
+      retryBudget: 0,
+    }), {
       semanticCategory: "physical_action",
       targeting: "ax",
     });
@@ -570,7 +595,9 @@ async function runWeakAxRecovery(
   } catch {
     return;
   }
-  const point = visualPointFromObservation(initial);
+  const fresh = await trace.boundary("observe", () => input.harness.computer.observe(), { semanticCategory: "observation" });
+  const point = visualPointFromObservation(fresh);
+  if (!point) return;
   await trace.boundary("click", () => input.harness.computer.click(point), {
     semanticCategory: "physical_action",
     targeting: "visual-point",
@@ -584,7 +611,6 @@ async function runNativeFixture(
 ): Promise<void> {
   const fixture = { bundleIdentifier: "com.senoldogann.chatgpt-system.computer-runtime.fixture" } as const;
   try {
-    await trace.boundary("focus_app", () => input.harness.computer.focusApp(fixture), { semanticCategory: "physical_action", targeting: "none" });
     await trace.boundary("wait_for_frontmost", () => input.harness.computer.waitForFrontmost(fixture), { semanticCategory: "verification" });
     await trace.boundary("click", () => input.harness.computer.click({ target: { by: "label", label: "Fixture Text Field", exact: true } }), {
       semanticCategory: "physical_action",
@@ -622,6 +648,19 @@ async function runSelectedWorkflow(
     case "weak-ax-ocr-visual-point": return runWeakAxRecovery(trace, input);
     case "native-macos-fixture-workflow": return runNativeFixture(trace, input);
   }
+}
+
+async function readCompletedWebOracle(
+  fixture: ComputerFlowWebFixtureHandle,
+  session: ComputerFlowWebFixtureSession,
+): Promise<ComputerFlowWebOracle> {
+  const deadline = performance.now() + 1_000;
+  let last = await fixture.readOracle(session.sessionId);
+  while (!webCompletion(last) && performance.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    last = await fixture.readOracle(session.sessionId);
+  }
+  return last;
 }
 
 export async function runRuntimeScenario(input: ComputerFlowRuntimeScenarioInput): Promise<ComputerFlowRunRecord> {
@@ -698,7 +737,7 @@ export async function runRuntimeScenario(input: ComputerFlowRuntimeScenarioInput
       }
     } else if (!setupFailure && input.scenarioId !== "native-macos-fixture-workflow" && webSession) {
       try {
-        const oracle = await input.webFixture.readOracle(webSession.sessionId);
+        const oracle = await readCompletedWebOracle(input.webFixture, webSession);
         if (oracle.scenarioId !== input.scenarioId) throw new Error("Computer flow web oracle scenario mismatch.");
         completion = { status: webCompletion(oracle) ? "pass" : "fail", source: "web_fixture_oracle" };
       } catch {
