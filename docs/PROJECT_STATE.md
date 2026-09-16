@@ -43,9 +43,13 @@ Do not modify, clean, reset, remove, or repurpose other existing worktrees. Do n
 - Task 4: `96d86070eb4fdee3cd62782750edcfdf7d213aa2` — scripted Runtime Mode, benchmark-owned native trace, real-Mac harness, recovery-contract evidence, measurement-boundary discipline.
 - Task 5: `a0923e01baf142302fae5767e9a04c4dc4651f96` — deterministic CLI, ignored local result artifacts, signed evaluate/compare flow, reliability guards, operator runbook.
 
+## Current state
+
 The implementation intentionally extends the deterministic native **fixture only** so Scenario 6 has an independent content-safe completion oracle. Production Computer Runtime/helper/core/host behavior and public `computer_*` contracts were not changed by Plan A. No installed daily-driver helper was replaced or installed during readiness verification.
 
-## Task 6 readiness verification
+## Verification
+
+### Task 6 readiness verification
 
 All commands below were run after Tasks 1–5 were committed at clean implementation code HEAD `a0923e01baf142302fae5767e9a04c4dc4651f96`.
 
