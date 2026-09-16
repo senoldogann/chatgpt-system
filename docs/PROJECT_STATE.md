@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-16
 
-Status: **Plan A benchmark/readiness implementation Tasks 1–5 are committed and all Task 6 pre-readiness verification gates are green. The missing independent Plan A round-2 review was explicitly waived by the user and remains recorded as waived, not `Approved`. This document records the implementation code HEAD immediately preceding the readiness-state commit; the final readiness commit must still receive a fresh exact-HEAD `project_check` before baseline execution starts.**
+Status: **Plan A benchmark/readiness implementation Tasks 1–5 plus the Task 7-discovered Runtime baseline hardening follow-up are committed and all repeated Task 6 pre-readiness verification gates are green. The missing independent Plan A round-2 review was explicitly waived by the user and remains recorded as waived, not `Approved`. This document records the implementation code HEAD immediately preceding the readiness-state commit; the final readiness commit must still receive a fresh exact-HEAD `project_check` before baseline execution starts.**
 
 This file is a handoff cache, not the sole source of truth. Git/worktree reality and Project Continuity records outrank it.
 
@@ -21,7 +21,7 @@ Live Codex comparison remains deferred. Plan A now provides the measurement/base
 - Base: clean published `main@96d76b2810c7442a70dae5502065ff5bd15a2f99`
 - Exact revised Plan A content: `36694d0e4f6d348842353252990487e164c989ae`
 - Exact revised Plan A SHA-256: `91be19caf98e17fe2d2d94b55655ca3f0f6a962684bd5f8ce8695dfa1f474186`
-- Implementation code HEAD immediately preceding the readiness-state commit: `a0923e01baf142302fae5767e9a04c4dc4651f96`
+- Implementation code HEAD immediately preceding the readiness-state commit: `a46367d3f3ed04202bc99a42544e7bed657b26cc`
 
 Do not modify, clean, reset, remove, or repurpose other existing worktrees. Do not push, open a PR, merge, deploy, replace the installed helper, restart the healthy tunnel, or restart normal Chrome without separate authorization.
 
@@ -41,6 +41,7 @@ Do not modify, clean, reset, remove, or repurpose other existing worktrees. Do n
 - Task 2: `c900ae7ece823952f8e808fe9129c12105979da4` — deterministic web fixtures plus fixture-only native oracle support and package tests.
 - Task 3: `2381c274629e5f2bab7d517240e50c21b7caec12` — loss-aware Agent collector and strict read-only Chrome host oracle.
 - Task 4: `96d86070eb4fdee3cd62782750edcfdf7d213aa2` — scripted Runtime Mode, benchmark-owned native trace, real-Mac harness, recovery-contract evidence, measurement-boundary discipline.
+- Task 4 Runtime baseline hardening follow-up: `a46367d3f3ed04202bc99a42544e7bed657b26cc` — bounded asynchronous web-oracle completion polling, accessible scoped-scroll readiness, stale-cache refresh before stale refusal, fresh bounded weak-AX visual-point derivation, and native self-activation/frontmost synchronization. This followed a failed diagnostic Runtime baseline and changes no production helper/core/host behavior.
 - Task 5: `a0923e01baf142302fae5767e9a04c4dc4651f96` — deterministic CLI, ignored local result artifacts, signed evaluate/compare flow, reliability guards, operator runbook.
 
 ## Current state
@@ -51,17 +52,17 @@ The implementation intentionally extends the deterministic native **fixture only
 
 ### Task 6 readiness verification
 
-All commands below were run after Tasks 1–5 were committed at clean implementation code HEAD `a0923e01baf142302fae5767e9a04c4dc4651f96`.
+All commands below were rerun after the Runtime baseline hardening follow-up was committed at clean implementation code HEAD `a46367d3f3ed04202bc99a42544e7bed657b26cc`.
 
 ### Focused benchmark/fixture gates
 
-- `npx vitest run tests/computer-use-flow-benchmark-contract.test.ts tests/computer-use-flow-scenarios.test.ts tests/computer-use-flow-identity.test.ts tests/computer-use-flow-web-fixture.test.ts tests/computer-use-flow-native-fixture-oracle.test.ts tests/computer-use-flow-host-oracle.test.ts tests/computer-use-flow-agent-collector.test.ts tests/computer-use-flow-runtime-mode.test.ts tests/computer-use-flow-evaluator.test.ts tests/computer-use-flow-cli.test.ts tests/macos-computer-runtime-fixture-package.test.ts --maxWorkers=1`: PASS — 11/11 test files, 72/72 tests.
+- `npx vitest run tests/computer-use-flow-benchmark-contract.test.ts tests/computer-use-flow-scenarios.test.ts tests/computer-use-flow-identity.test.ts tests/computer-use-flow-web-fixture.test.ts tests/computer-use-flow-native-fixture-oracle.test.ts tests/computer-use-flow-host-oracle.test.ts tests/computer-use-flow-agent-collector.test.ts tests/computer-use-flow-runtime-mode.test.ts tests/computer-use-flow-evaluator.test.ts tests/computer-use-flow-cli.test.ts tests/macos-computer-runtime-fixture-package.test.ts --maxWorkers=1`: PASS — 11/11 test files, 78/78 tests.
 
 ### Repository, security, and native gates
 
 - `npx tsc -p benchmarks/computer-use-flow-performance/tsconfig.json --noEmit`: PASS.
 - `npm run build`: PASS.
-- `npm run check`: PASS — 126 test files passed, 2 skipped; 799 tests passed, 3 skipped.
+- `npm run check`: PASS — 126 test files passed, 2 skipped; 805 tests passed, 3 skipped.
 - `npm audit --omit=dev`: PASS — 0 vulnerabilities.
 - `npm run test:computer:macos`: PASS — 219 Swift/XCTest tests, 0 failures.
 - `npm run build:computer:macos`: PASS.
@@ -70,6 +71,8 @@ All commands below were run after Tasks 1–5 were committed at clean implementa
 - Worktree remained clean after all build/test/package gates.
 
 These gates prove implementation/readiness correctness. They do **not** constitute recorded Plan A baseline results, deployment authorization, installed-helper replacement, or real-Mac acceptance for a future optimized candidate.
+
+The first Task 7 Runtime collection on the earlier readiness HEAD was diagnostic only: signed evaluation exposed completion/recovery/focus defects, Agent collection was not started, and those ignored local artifacts are not an accepted baseline. The defects were reproduced under focused RED tests and fixed in `a46367d3f3ed04202bc99a42544e7bed657b26cc`; a fresh baseline must use the new final readiness HEAD/build identity.
 
 ## Evidence model and remaining limitations
 
