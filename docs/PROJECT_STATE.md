@@ -4,7 +4,7 @@ Last updated: 2026-09-16
 
 Status: **Plan A round-2 independent approval was not obtained because this ChatGPT surface exposes no reviewer/subagent dispatch capability. On 2026-09-16 the user explicitly waived that pre-implementation review gate and ordered implementation to start. The waiver is recorded without claiming `Approved`; Task 1 TDD implementation is now authorized.**
 
-This file is a bounded handoff cache. Git/worktree reality and Project Continuity records outrank it.
+This file is a handoff cache, not the sole source of truth. Git/worktree reality and Project Continuity records outrank it.
 
 ## Current goal
 
@@ -12,7 +12,7 @@ Make ChatGPT Web/Desktop Computer Use fast and fluid through measurement-first, 
 
 Live Codex comparison is deferred to conserve the user's Codex usage. This slice uses absolute reliability, latency, boundary-count, and safety gates.
 
-## Active worktree
+## Active workspace
 
 - Authoritative checkout: `/Users/dogan/Desktop/chatgpt-system`
 - Continuity alias: `chatgpt-system-desktop`
@@ -28,7 +28,9 @@ Live Codex comparison is deferred to conserve the user's Codex usage. This slice
 
 Do not modify, clean, reset, remove, or repurpose other existing worktrees. This managed worktree is the only worktree owned by the current task.
 
-## Approved design
+## Completed
+
+### Approved design
 
 - Spec: `docs/superpowers/specs/2026-09-16-computer-use-flow-performance-design.md`
 - Target surface: ChatGPT Web/Desktop custom app
@@ -42,7 +44,9 @@ Do not modify, clean, reset, remove, or repurpose other existing worktrees. This
 
 The spec passed an independent three-turn review. The final review status was Approved with no blocking issues.
 
-## Baseline evidence
+## Verification
+
+### Baseline evidence
 
 From the clean managed worktree before task changes:
 
@@ -53,7 +57,9 @@ From the clean managed worktree before task changes:
 
 No Computer Runtime behavior, installed helper, tunnel process, plugin registration, or public MCP schema has been changed.
 
-## Plan A status and review evidence
+## Current state
+
+### Plan A status and review evidence
 
 - Plan: `docs/superpowers/plans/2026-09-16-computer-use-flow-performance-benchmark.md`
 - Original Plan A content commit: `359756ea9fc3bec10f5a42b2dac6b0a0a5d86878`.
@@ -71,7 +77,12 @@ No Computer Runtime behavior, installed helper, tunnel process, plugin registrat
 - Implementation tests/builds were not run in this docs-only review-resolution turn; no fresh implementation PASS is claimed.
 - Independent final approval is **not complete** and no `Approved` result is claimed. The user explicitly waived the missing round-2 approval gate on 2026-09-16 and authorized Task 1 implementation to begin. The waiver does not relax any technical, privacy, safety, TDD, verification, or deployment boundary.
 
-## Constraints
+## Blockers / uncertainties
+
+- Independent round-2 review remains unavailable on this product surface; the user explicitly waived only that pre-implementation gate, so this is no longer an implementation blocker.
+- Implementation-level plan defects, if discovered during RED/GREEN execution, remain open uncertainties and must be handled without weakening constraints.
+
+## Invariants
 
 - Do not develop on `main`.
 - Preserve all unfamiliar dirty/review worktrees.
