@@ -42,12 +42,15 @@ protocol ApplicationControlling: Sendable {
     func runningApplications() -> [WorkspaceApplication]
     func frontmostApplication() -> WorkspaceApplication?
     func applicationURL(bundleIdentifier: String) -> URL?
+    func applicationURL(name: String) -> URL?
     func openApplication(at url: URL) async throws -> WorkspaceApplication
     func openApplication(at url: URL, arguments: [String]) async throws -> WorkspaceApplication
     func activate(_ application: WorkspaceApplication) async -> Bool
 }
 
 extension ApplicationControlling {
+    func applicationURL(name: String) -> URL? { nil }
+
     func openApplication(at url: URL, arguments: [String]) async throws -> WorkspaceApplication {
         try await openApplication(at: url)
     }

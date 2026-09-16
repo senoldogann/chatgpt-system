@@ -430,7 +430,7 @@ function preparedAction(action: ComputerAction, maxRetries: number): PreparedCom
     case "open_app":
     case "focus_app": {
       const params = selectorParams(action);
-      if (action.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(action.timeoutMs, 5_000);
+      if (action.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(action.timeoutMs, 60_000);
       return { type: action.type, method: action.type, params, physical: true };
     }
     case "move_mouse": {
@@ -732,13 +732,13 @@ export class ComputerRuntime {
 
   async openApp(input: ComputerApplicationSelector & { timeoutMs?: number | undefined }): Promise<unknown> {
     const params = selectorParams(input);
-    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 5_000);
+    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 60_000);
     return this.physical("open_app", params);
   }
 
   async focusApp(input: ComputerApplicationSelector & { timeoutMs?: number | undefined }): Promise<unknown> {
     const params = selectorParams(input);
-    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 5_000);
+    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 60_000);
     return this.physical("focus_app", params);
   }
 

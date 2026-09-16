@@ -102,6 +102,29 @@ public struct SystemAccessibilityReader: AccessibilityReading {
         )
     }
 
+    private static func isUninformativeContainer(
+        role: String,
+        subrole: String?,
+        title: String?,
+        description: String?,
+        focused: Bool?,
+        selected: Bool?,
+        metadata: InteractionMetadata,
+        depth: Int
+    ) -> Bool {
+        guard depth > 0 else { return false }
+        let isGenericRole = role == "AXGroup" || role == "AXGenericElement" || role == "AXUnknown"
+        guard isGenericRole else { return false }
+        let hasText = (title != nil && !title!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ||
+                      (description != nil && !description!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        guard !hasText else { return false }
+        guard subrole == nil || subrole!.isEmpty else { return false }
+        guard metadata.actions.isEmpty else { return false }
+        guard !metadata.scroll.scrollable else { return false }
+        guard focused != true && selected != true else { return false }
+        return true
+    }
+
     private func traverse(
         _ element: AXUIElement,
         parentIndex: Int?,
@@ -115,31 +138,54 @@ public struct SystemAccessibilityReader: AccessibilityReading {
             return
         }
 
-        let index = elements.count
         let role = boundedText(try stringAttribute(Attribute.role, from: element)) ?? "AXUnknown"
+        let subrole = boundedText(try stringAttribute(Attribute.subrole, from: element))
+        let title = boundedText(try stringAttribute(Attribute.title, from: element))
+        let description = boundedText(try stringAttribute(Attribute.description, from: element))
+        let focused = try boolAttribute(Attribute.focused, from: element)
+        let enabled = try boolAttribute(Attribute.enabled, from: element)
+        let selected = try boolAttribute(Attribute.selected, from: element)
         let bounds = try bounds(for: element)
         let metadata = Self.interactionMetadata(
             role: role,
             actionNames: try actionNames(from: element)
         )
 
-        elements.append(
-            ComputerElementView(
-                index: index,
-                parentIndex: parentIndex,
-                depth: depth,
-                role: role,
-                subrole: boundedText(try stringAttribute(Attribute.subrole, from: element)),
-                title: boundedText(try stringAttribute(Attribute.title, from: element)),
-                description: boundedText(try stringAttribute(Attribute.description, from: element)),
-                focused: try boolAttribute(Attribute.focused, from: element),
-                enabled: try boolAttribute(Attribute.enabled, from: element),
-                selected: try boolAttribute(Attribute.selected, from: element),
-                bounds: bounds,
-                actions: metadata.actions,
-                scroll: metadata.scroll
-            )
+        let isPrunable = Self.isUninformativeContainer(
+            role: role,
+            subrole: subrole,
+            title: title,
+            description: description,
+            focused: focused,
+            selected: selected,
+            metadata: metadata,
+            depth: depth
         )
+
+        let currentIndex: Int?
+        if !isPrunable {
+            let index = elements.count
+            elements.append(
+                ComputerElementView(
+                    index: index,
+                    parentIndex: parentIndex,
+                    depth: depth,
+                    role: role,
+                    subrole: subrole,
+                    title: title,
+                    description: description,
+                    focused: focused,
+                    enabled: enabled,
+                    selected: selected,
+                    bounds: bounds,
+                    actions: metadata.actions,
+                    scroll: metadata.scroll
+                )
+            )
+            currentIndex = index
+        } else {
+            currentIndex = parentIndex
+        }
 
         let children = try childrenAttribute(from: element)
         guard depth < limits.maxDepth else {
@@ -156,7 +202,7 @@ public struct SystemAccessibilityReader: AccessibilityReading {
             }
             try traverse(
                 child,
-                parentIndex: index,
+                parentIndex: currentIndex,
                 depth: depth + 1,
                 limits: limits,
                 elements: &elements,

@@ -161,6 +161,16 @@ export class AuthorityManager {
     return { leaseId, ...cloneContext(stored) };
   }
 
+  findActiveAdminLease(): AuthorityContext | undefined {
+    const nowMs = this.now();
+    for (const stored of this.leases.values()) {
+      if (stored.profile === "admin" && nowMs <= stored.expiresAtMs) {
+        return cloneContext(stored);
+      }
+    }
+    return undefined;
+  }
+
   resolve(leaseId: string): AuthorityContext {
     const stored = this.lookup(leaseId);
     return cloneContext(stored);

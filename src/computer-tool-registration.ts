@@ -86,8 +86,8 @@ const computerKeyInputSchema = z.enum(COMPUTER_KEY_INPUT_VALUES).transform((valu
   if (!normalized) throw new Error("Unreachable computer key normalization failure.");
   return normalized;
 });
-const verificationTimeoutSchema = z.number().int().min(50).max(10_000);
-const focusTimeoutSchema = z.number().int().min(50).max(5_000);
+const verificationTimeoutSchema = z.coerce.number().int().min(50).max(60_000);
+const focusTimeoutSchema = z.coerce.number().int().min(50).max(60_000);
 
 const verificationSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -234,10 +234,18 @@ const pressKeyActionSchema = z.object({
   ...selectorFields,
   verify: verificationSchema.optional(),
 }).strict();
-const waitActionSchema = z.object({
+const waitActionSchema = z.preprocess((val: any) => {
+  if (val && typeof val === "object") {
+    const ms = val.durationMs ?? val.milliseconds ?? val.ms ?? val.duration;
+    if (ms !== undefined) {
+      return { ...val, durationMs: Number(ms) };
+    }
+  }
+  return val;
+}, z.object({
   type: z.literal("wait"),
-  durationMs: z.number().int().nonnegative(),
-}).strict();
+  durationMs: z.coerce.number().int().nonnegative(),
+}));
 const waitForFrontmostActionSchema = z.object({
   type: z.literal("wait_for_frontmost"),
   ...selectorFields,
@@ -365,8 +373,20 @@ async function safeCall<T extends object>(fn: () => Promise<T>) {
   }
 }
 
-function computerFor(runtime: ComputerToolRuntime, authorityLeaseId: string) {
-  const authority = runtime.authority.resolve(authorityLeaseId);
+async function computerFor(runtime: ComputerToolRuntime, authorityLeaseId?: string) {
+  if (authorityLeaseId) {
+    const authority = runtime.authority.resolve(authorityLeaseId);
+    return createScopedRuntime(runtime, authority).computer;
+  }
+  if (runtime.config.personalAdmin?.enabled) {
+    const active = runtime.authority.findActiveAdminLease();
+    if (active) {
+      return createScopedRuntime(runtime, active).computer;
+    }
+    const lease = await runtime.authority.start({ profile: "admin", requestedTtlSeconds: 3600 });
+    return createScopedRuntime(runtime, runtime.authority.resolve(lease.leaseId)).computer;
+  }
+  const authority = runtime.authority.resolve("");
   return createScopedRuntime(runtime, authority).computer;
 }
 
@@ -398,7 +418,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerObservationOutputSchema,
       annotations: computerReadAnnotations,
     },
-    async ({ authorityLeaseId }) => safeCall(() => computerFor(runtime, authorityLeaseId).observe() as Promise<object>),
+    async ({ authorityLeaseId }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).observe() as Promise<object>),
   );
 
   server.registerTool(
@@ -411,7 +431,8 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
     },
     async ({ authorityLeaseId }) => {
       try {
-        const screenshot = await computerFor(runtime, authorityLeaseId).screenshot();
+        const computer = await computerFor(runtime, authorityLeaseId);
+        const screenshot = await computer.screenshot();
         return {
           content: [{ type: "image" as const, data: screenshot.pngBase64, mimeType: "image/png" }],
           structuredContent: {
@@ -437,14 +458,14 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerPointResultOutputSchema,
       annotations: computerReadAnnotations,
     },
-    async ({ authorityLeaseId }) => safeCall(() => computerFor(runtime, authorityLeaseId).pointerPosition() as Promise<object>),
+    async ({ authorityLeaseId }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).pointerPosition() as Promise<object>),
   );
 
   for (const [name, method] of [["computer_open_app", "openApp"], ["computer_focus_app", "focusApp"]] as const) {
     server.registerTool(
       name,
       {
-        description: `${COMPUTER_USE_ROUTING_GUIDANCE} ${name === "computer_open_app" ? "Open or" : ""} focus one macOS application by bundle identifier or exact running name. Requires Admin authority.`,
+        description: `${COMPUTER_USE_ROUTING_GUIDANCE} ${name === "computer_open_app" ? "Open or" : ""} focus one macOS application by bundle identifier (preferred, e.g. com.apple.Safari, com.apple.calculator, com.google.Chrome) or application name. Supports timeoutMs up to 60000. Requires Admin authority.`,
         inputSchema: z.object({
           ...authorityLeaseField,
           ...selectorFields,
@@ -453,8 +474,8 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         outputSchema: computerApplicationResultOutputSchema,
         annotations: computerMutationAnnotations,
       },
-      async ({ authorityLeaseId, bundleIdentifier, name: appName, timeoutMs }) => safeCall(() =>
-        computerFor(runtime, authorityLeaseId)[method](compact({ bundleIdentifier, name: appName, timeoutMs }) as never) as Promise<object>),
+      async ({ authorityLeaseId, bundleIdentifier, name: appName, timeoutMs }) => safeCall(async () =>
+        (await computerFor(runtime, authorityLeaseId))[method](compact({ bundleIdentifier, name: appName, timeoutMs }) as never) as Promise<object>),
     );
   }
 
@@ -481,7 +502,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).moveMouse(compact(input) as never) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).moveMouse(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(
@@ -509,7 +530,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).click(compact(input) as never) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).click(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(
@@ -533,7 +554,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).drag(compact(input) as never) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).drag(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(
@@ -561,7 +582,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).scroll(compact(input) as never) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).scroll(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(
@@ -579,8 +600,8 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerScrollUntilVisibleOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() =>
-      computerFor(runtime, authorityLeaseId).scrollUntilVisible(compact(input) as never) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () =>
+      (await computerFor(runtime, authorityLeaseId)).scrollUntilVisible(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(
@@ -596,7 +617,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).typeText(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).typeText(input) as Promise<object>),
   );
 
   server.registerTool(
@@ -613,7 +634,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).pressKey(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).pressKey(input) as Promise<object>),
   );
 
   server.registerTool(
@@ -624,7 +645,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerActionResultOutputSchema,
       annotations: computerIdempotentMutationAnnotations,
     },
-    async ({ authorityLeaseId }) => safeCall(() => computerFor(runtime, authorityLeaseId).releaseInputs() as Promise<object>),
+    async ({ authorityLeaseId }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).releaseInputs() as Promise<object>),
   );
 
   server.registerTool(
@@ -639,7 +660,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerApplicationResultOutputSchema,
       annotations: computerReadAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).waitForFrontmost(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).waitForFrontmost(input) as Promise<object>),
   );
 
   server.registerTool(
@@ -655,7 +676,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerWaitResultOutputSchema,
       annotations: computerReadAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).waitForText(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).waitForText(input) as Promise<object>),
   );
 
   server.registerTool(
@@ -670,13 +691,13 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerChangedDigestOutputSchema,
       annotations: computerReadAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).waitUntilChanged(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).waitUntilChanged(input) as Promise<object>),
   );
 
   server.registerTool(
     "computer_run",
     {
-      description: `${COMPUTER_USE_ROUTING_GUIDANCE} Execute a validated typed Computer Runtime action program under one physical-input lane for physical mouse and keyboard actions. No automatic retry or UI rollback is implied.`,
+      description: `${COMPUTER_USE_ROUTING_GUIDANCE} Execute a validated typed Computer Runtime action program under one physical-input lane for physical mouse and keyboard actions. Highly recommended for batching 2-10 sequential actions (e.g. click, type, press key) with a single user approval. Set finalObservation: "observe" to receive the updated perception observation immediately after the batch completes.`,
       inputSchema: z.object({
         ...authorityLeaseField,
         actions: z.array(computerActionSchema).min(1),
@@ -686,8 +707,8 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerRunOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, actions, finalObservation, timeoutMs }, ctx) => safeCall(() =>
-      computerFor(runtime, authorityLeaseId).run(
+    async ({ authorityLeaseId, actions, finalObservation, timeoutMs }, ctx) => safeCall(async () =>
+      (await computerFor(runtime, authorityLeaseId)).run(
         compact({
           actions: actions as ComputerAction[],
           finalObservation,
