@@ -13,7 +13,7 @@ import {
 import path from "node:path";
 import { applyPatch as applyUnifiedPatch } from "diff";
 import { AuditLogger } from "./audit.js";
-import { ConflictError, LimitError, PolicyError } from "./errors.js";
+import { ConflictError, LimitError, NotFoundError, PolicyError } from "./errors.js";
 import type { LimitsConfig } from "./config.js";
 import { withPathLock, withPathLocks } from "./path-lock.js";
 import { PathPolicy } from "./policy.js";
@@ -63,7 +63,10 @@ export class FileSystemService {
   async stat(input: string): Promise<Record<string, unknown>> {
     const resolved = await this.policy.resolve(input);
     return this.audit.run("fs.stat", this.policy.display(resolved), async () => {
-      const info = await lstat(resolved);
+      const info = await lstat(resolved).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") throw new NotFoundError();
+        throw error;
+      });
       const result: Record<string, unknown> = {
         path: this.policy.display(resolved),
         type: info.isDirectory() ? "directory" : info.isFile() ? "file" : info.isSymbolicLink() ? "symlink" : "other",

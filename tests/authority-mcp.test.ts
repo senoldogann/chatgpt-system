@@ -270,6 +270,22 @@ describe("session authority MCP tools", () => {
     }
   });
 
+  it("returns NOT_FOUND for a missing fs_stat path through the MCP protocol", async () => {
+    const { root, client, transport } = await fixture();
+    try {
+      const leaseId = await startProjectLease(client, root);
+      const missing = await client.callTool({
+        name: "fs_stat",
+        arguments: { authorityLeaseId: leaseId, path: "missing.txt" },
+      });
+      expect(missing.isError).toBe(true);
+      expect(textContent(missing)).toContain("NOT_FOUND");
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
   it("confines project lease reads and rejects all terminal execution", async () => {
     const { root, sibling, client, transport } = await fixture();
     try {
