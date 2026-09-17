@@ -27,6 +27,7 @@ import type {
   StoredProjectVerification,
 } from "./project-check-types.js";
 import { TaskStateService } from "./task-state-service.js";
+import { discoverNativeSwiftTestChecks } from "./project-native-checks.js";
 import type { RepositoryStateObservation } from "./task-state-types.js";
 
 const STORE_VERSION = 1;
@@ -214,8 +215,9 @@ export class ProjectCheckService {
     const scripts = packageJson.scripts;
     if (!scripts || typeof scripts !== "object" || Array.isArray(scripts)) return [];
     const manager = await detectPackageManager(repositoryRoot, packageJson);
+    const nativeChecks = await discoverNativeSwiftTestChecks(repositoryRoot, scripts);
 
-    if (scriptValue(scripts, "check")) return [check("check", manager, "check")];
+    if (scriptValue(scripts, "check")) return [check("check", manager, "check"), ...nativeChecks].slice(0, MAX_CHECKS);
 
     const result: DetectedProjectCheck[] = [];
     if (scriptValue(scripts, "typecheck")) result.push(check("typecheck", manager, "typecheck"));
@@ -223,7 +225,7 @@ export class ProjectCheckService {
     if (scriptValue(scripts, "lint")) result.push(check("lint", manager, "lint"));
     if (scriptValue(scripts, "test")) result.push(check("test", manager, "test"));
     if (scriptValue(scripts, "build")) result.push(check("build", manager, "build"));
-    return result.slice(0, MAX_CHECKS);
+    return [...result, ...nativeChecks].slice(0, MAX_CHECKS);
   }
 
   private async detectSwiftPMChecks(repositoryRoot: string): Promise<DetectedProjectCheck[]> {
@@ -408,7 +410,11 @@ export class ProjectCheckService {
     if (checkIds !== undefined && (checkIds.length < 1 || checkIds.length > MAX_CHECKS)) {
       throw new PolicyError("Project verification checkIds must contain 1-32 entries when provided.");
     }
-    const requested = checkIds === undefined ? detected : checkIds.map((id) => {
+    // Mixed projects keep ordinary sandbox checks runnable without Admin;
+    // native checks remain NOT_RUN until explicitly selected.
+    const implicitChecks = detected.some((item) => item.execution === "project-sandbox")
+      ? detected.filter((item) => item.execution === "project-sandbox") : detected;
+    const requested = checkIds === undefined ? implicitChecks : checkIds.map((id) => {
       const found = detected.find((item) => item.checkId === id);
       if (!found) throw new PolicyError("Project verification requested an unknown detected check ID.");
       return found;

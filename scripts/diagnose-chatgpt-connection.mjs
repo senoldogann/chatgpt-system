@@ -37,6 +37,8 @@ export function summarizeTunnelLog(stdoutText, { nowMs = Date.now(), windowMs } 
   let warningCount = 0;
   let errorCount = 0;
   let stdioFailureCount = 0;
+  let recoveredPollBackoffCount = 0;
+  let pendingPollBackoffCount = 0;
   let recentActivity = false;
 
   for (const line of String(stdoutText ?? "").split(/\r?\n/)) {
@@ -60,6 +62,16 @@ export function summarizeTunnelLog(stdoutText, { nowMs = Date.now(), windowMs } 
     if (/stdio MCP command failed|stdio MCP command stdout closed|unexpected EOF/i.test(message)) {
       stdioFailureCount += 1;
     }
+    // A poll backoff that the poller itself recovers from is transient hosted-side
+    // evidence, not a local failure that justifies restarting a healthy tunnel.
+    // The poller retries with more than one wording ("timed out" and "failed"), and only the
+    // recovery line below decides whether a backoff is counted as recovered, so every retry
+    // wording it heals from belongs here.
+    if (level === "WARN" && /poll (?:failed|timed out); backing off/i.test(message)) pendingPollBackoffCount += 1;
+    if (/poller recovered; polling operational/i.test(message)) {
+      recoveredPollBackoffCount += pendingPollBackoffCount;
+      pendingPollBackoffCount = 0;
+    }
   }
 
   return {
@@ -67,6 +79,7 @@ export function summarizeTunnelLog(stdoutText, { nowMs = Date.now(), windowMs } 
     warningCount,
     errorCount,
     stdioFailureCount,
+    recoveredPollBackoffCount,
     recentActivity,
   };
 }
@@ -96,6 +109,25 @@ export function classifyRuntimeSource(commandPath, homeDir = homedir()) {
   return "other";
 }
 
+/**
+ * Attribute a missing-dependency crash to the *active* runtime only.
+ *
+ * The retained stderr window is shared across restarts, so it still holds failures from whatever
+ * runtime the tunnel targeted before. Matching that text without checking the failing module's own
+ * import path reports a dependency failure the active runtime never had.
+ */
+export function detectRuntimeDependencyFailure(stderrText, runtimeRoot) {
+  const root = typeof runtimeRoot === "string" && runtimeRoot.trim() ? path.resolve(runtimeRoot) : undefined;
+  if (!root) return false;
+  const prefix = `${root}${path.sep}`;
+  for (const line of String(stderrText ?? "").split(/\r?\n/)) {
+    const match = line.match(/ERR_MODULE_NOT_FOUND\]:.*Cannot find (?:package|module) ['"]zod['"].*imported from\s+(\S+)/);
+    if (!match) continue;
+    if (path.resolve(match[1]).startsWith(prefix)) return true;
+  }
+  return false;
+}
+
 export function classifyConnectionEvidence(evidence) {
   if (!evidence.dailyDriver.loaded || !evidence.dailyDriver.running) return "DAILY_DRIVER_UNAVAILABLE";
 
@@ -109,7 +141,7 @@ export function classifyConnectionEvidence(evidence) {
   if (
     evidence.tunnel.stdioFailureCount > 0
     || evidence.tunnel.errorCount > 0
-    || evidence.tunnel.warningCount > 0
+    || evidence.tunnel.warningCount - evidence.tunnel.recoveredPollBackoffCount > 0
   ) {
     return "LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE";
   }
@@ -260,9 +292,7 @@ function collectEvidence({ nowMs = Date.now(), windowMinutes, homeDir = homedir(
   const stderrText = stderrRecent ? readBoundedText(stderrPath) : "";
   const stderr = {
     recent: stderrRecent,
-    dependencyFailureSignature: stderrRecent
-      && /ERR_MODULE_NOT_FOUND/.test(stderrText)
-      && /Cannot find package ['\"]zod['\"]|package ['\"]zod['\"]/i.test(stderrText),
+    dependencyFailureSignature: stderrRecent && detectRuntimeDependencyFailure(stderrText, runtimeRoot),
   };
 
   return { dailyDriver, tunnel, runtime, stderr };

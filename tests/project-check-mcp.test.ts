@@ -7,6 +7,9 @@ import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AppConfig } from "../src/config.js";
+import type { ContinuityResumeContext } from "../src/continuity-resume-registry.js";
+import { createProjectCheckService } from "../src/project-check-factory.js";
+import { ProjectPublishGate } from "../src/project-publish-gate.js";
 import { CommandTimeoutError, ExecutableNotFoundError, SandboxUnavailableError } from "../src/errors.js";
 import type {
   ProjectCheckCommandResult,
@@ -133,6 +136,18 @@ async function projectLease(client: Client, root: string): Promise<string> {
   return (result.structuredContent as { leaseId: string }).leaseId;
 }
 
+function resumedContext(canonicalWorktree: string): ContinuityResumeContext {
+  return {
+    projectId: "project-1",
+    alias: "Project-X",
+    recordVersion: 4,
+    canonicalWorktree,
+    repositoryRoot: canonicalWorktree,
+    repositoryIdentity: "c".repeat(64),
+    expiresAt: "2030-01-01T00:00:00.000Z",
+  };
+}
+
 async function adminLease(client: Client): Promise<string> {
   const result = await client.callTool({
     name: "session_authority_start",
@@ -165,6 +180,7 @@ async function fixture(projectExecEnabled = true, kind: FixtureKind = "node") {
         check: "npm run build && npm test",
         build: "tsc -p tsconfig.json",
         test: "vitest run",
+        ...(kind === "mixed" ? { "test:macos": "swift test" } : {}),
       },
     }, null, 2)}\n`, "utf8");
   }
@@ -302,11 +318,126 @@ describe("project_check MCP tool", () => {
       });
       expect(detected.isError).not.toBe(true);
       const body = detected.structuredContent as unknown as ProjectCheckView;
-      expect(body.checks).toHaveLength(1);
+      expect(body.checks).toHaveLength(2);
       expect(body.checks[0]).toMatchObject({
         checkId: "package-script:check",
         execution: "project-sandbox",
       });
+      expect(body.checks[1]).toMatchObject({
+        checkId: "package-script:test:macos",
+        command: "swift",
+        args: ["test"],
+        execution: "admin-host",
+      });
+      const defaultRun = await connected.client.callTool({
+        name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "run", cwd: connected.root },
+      });
+      expect(defaultRun.isError).not.toBe(true);
+      expect((defaultRun.structuredContent as unknown as ProjectCheckView).overallStatus).toBe("NOT_RUN");
+      expect(connected.backend.requests).toHaveLength(1);
+      expect(connected.host.requests).toHaveLength(0);
+      const denied = await connected.client.callTool({
+        name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "run", cwd: connected.root,
+          checkIds: ["package-script:test:macos"] },
+      });
+      expect(denied.isError).toBe(true);
+      expect(resultText(denied)).toContain("AUTHORITY_DENIED");
+      const adminId = await adminLease(connected.client);
+      const nativeRun = await connected.client.callTool({
+        name: "project_check",
+        arguments: {
+          authorityLeaseId: leaseId, adminAuthorityLeaseId: adminId,
+          operation: "run", cwd: connected.root,
+          checkIds: ["package-script:test:macos"],
+        },
+      });
+      expect(nativeRun.isError).not.toBe(true);
+      expect((nativeRun.structuredContent as unknown as ProjectCheckView).overallStatus).toBe("PASS");
+      expect(connected.host.requests).toHaveLength(1);
+      expect(connected.host.requests[0]).toEqual({
+        command: "swift", args: ["test"],
+        cwd: await realpath(connected.root), timeoutMs: 10_000,
+      });
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it("refuses to publish a mixed repository until the native lane has run", async () => {
+    const connected = await fixture(true, "mixed");
+    try {
+      git(connected.root, ["checkout", "-q", "-b", "feature/native-pending"]);
+      const repositoryRoot = await realpath(connected.root);
+      const projectCheck = createProjectCheckService(
+        connected.runtime,
+        await projectLease(connected.client, connected.root),
+      );
+      // The typified flow verifies first. The sandbox lane is authoritative on its own here, and the
+      // declared native lane is never selected implicitly.
+      const executed = await projectCheck.run(connected.root);
+      expect(executed.checks.map((check) => [check.checkId, check.status])).toEqual([
+        ["package-script:check", "PASS"],
+        ["package-script:test:macos", "NOT_RUN"],
+      ]);
+      expect(executed.overallStatus).toBe("NOT_RUN");
+      expect((await projectCheck.report(connected.root)).overallStatus).toBe("NOT_RUN");
+
+      const pushes: string[] = [];
+      const gate = new ProjectPublishGate({
+        projectGit: connected.runtime.git,
+        adminGit: {
+          push: async () => {
+            pushes.push("push");
+            return { cwd: repositoryRoot, exitCode: 0, stdout: "", stderr: "" };
+          },
+        },
+        projectCheck,
+      });
+
+      // A mixed repository therefore cannot be published on a sandbox-only verification pass,
+      // and it must be refused on the exact status the report produced.
+      await expect(gate.push({ cwd: connected.root, resumeContext: resumedContext(repositoryRoot) }))
+        .rejects.toMatchObject({ code: "LOCAL_VERIFICATION_REQUIRED", details: { overallStatus: "NOT_RUN" } });
+      expect(pushes).toEqual([]);
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it("publishes a sandbox-verified repository at the verified HEAD", async () => {
+    const connected = await fixture(true, "node");
+    try {
+      git(connected.root, ["checkout", "-q", "-b", "feature/sandbox-verified"]);
+      const repositoryRoot = await realpath(connected.root);
+      const projectCheck = createProjectCheckService(
+        connected.runtime,
+        await projectLease(connected.client, connected.root),
+      );
+      await projectCheck.run(connected.root);
+      const verification = await projectCheck.report(connected.root);
+      expect(verification.overallStatus).toBe("PASS");
+
+      const pushes: Array<{ cwd: string | undefined; expected: { branch: string; head: string } | undefined }> = [];
+      const gate = new ProjectPublishGate({
+        projectGit: connected.runtime.git,
+        adminGit: {
+          push: async (cwd, expected) => {
+            pushes.push({ cwd, expected });
+            return { cwd: repositoryRoot, exitCode: 0, stdout: "", stderr: "" };
+          },
+        },
+        projectCheck,
+      });
+
+      await gate.push({ cwd: connected.root, resumeContext: resumedContext(repositoryRoot) });
+      expect(pushes).toEqual([{
+        cwd: connected.root,
+        expected: { branch: "feature/sandbox-verified", head: verification.observed.head },
+      }]);
     } finally {
       await connected.transport.terminateSession();
       await connected.client.close();
