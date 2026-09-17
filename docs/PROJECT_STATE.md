@@ -1,22 +1,22 @@
 # chatgpt-system — Active Project State
 
 Last updated: 2026-09-17
-Status: **`fix/authority-denial-audit-20260917` is locally complete and fully verified in an isolated worktree. It is unpublished and awaiting hosted CI. Acceptance A remains precondition-gated and Acceptance C remains blocked by the current product/account UI surface.**
+Status: **`fix/diagnose-runtime-scoped-dependency-signature-20260917` is locally complete and fully verified in an isolated worktree. It is unpublished and awaiting hosted CI. `main` is `a83dfe6` and the live MCP runtime has been repointed onto it. Acceptance A remains precondition-gated and Acceptance C remains blocked by the current product/account UI surface.**
 
 This file is a handoff cache, not the sole source of truth. Git/worktree reality and Project Continuity records outrank this file. Resume the exact alias named below before acting.
 
 ## Current goal
 
-Publish `fix/authority-denial-audit-20260917` only through the authorized path: push, PR, hosted checks green on the PR's exact head, merge, then verified cleanup. Do not weaken any authority boundary, do not touch the live runtime, tunnel or LaunchAgent, and keep the still-unclassifiable hosted MCP failure class reported rather than guessed.
+Publish `fix/diagnose-runtime-scoped-dependency-signature-20260917` only through the authorized path: push, PR, hosted checks green on the PR's exact head, merge, then verified cleanup. Keep the change to diagnostic accuracy — the dependency-failure signature must belong to the active runtime — and keep the still-unclassifiable hosted MCP failure class reported rather than guessed. The live runtime is already repointed at `a83dfe6`; do not touch the tunnel profile, LaunchAgent, Chrome profile, or Computer Runtime.
 
 ## Active workspace
 
 - Authoritative checkout: `/Users/dogan/Desktop/chatgpt-system`, currently equal to `origin/main`.
 - Project Continuity alias: `chatgpt-system-desktop`.
-- Active worktree: `~/.chatgpt-system/agent-worktrees/authority-denial-audit` on branch `fix/authority-denial-audit-20260917`, branched from `main@3cc8fb8`.
+- Active worktree: `~/.chatgpt-system/agent-worktrees/diagnose-runtime-signature` on branch `fix/diagnose-runtime-scoped-dependency-signature-20260917`, branched from `main@a83dfe6`.
 - Read the current HEAD from Git; never infer it from this file. The evidence below was produced on the branch tip and must be re-run after any further HEAD or worktree change.
 - Superseded clean worktrees `fix/project-check-native-routing-20260916` (`df20759`) and `fix/git-diff-check-20260917` (`5c5c62e`) remain present. Their contribution is already in `main` via PR #57; they are not content-equivalent to `main` and deleting them would need a force delete, so they were left alone.
-- Detached merged-runtime worktree `~/.chatgpt-system/runtime/chatgpt-system-main` and the preserved dirty `feat/computer-use-perception-reliability` worktree remain intentionally present. Do not repurpose, clean, or delete them.
+- Detached runtime worktree `~/.chatgpt-system/runtime/chatgpt-system-main` is the tunnel target and is now checked out at `a83dfe6` with `dist` rebuilt from that source and the daily-driver restarted onto it, under explicit user authorization. The merged PR branches that are not content-equivalent to `main` need a force delete, so they were left alone. The preserved dirty `feat/computer-use-perception-reliability` worktree also remains intentionally present. Do not repurpose, clean, or delete any of them.
 - `origin/feat/computer-use-bridge` remains intentionally retained.
 
 ## Continuity tooling limitation
@@ -26,7 +26,9 @@ The client that produced this state had no `project_resume`, `project_check`, `p
 ## Completed
 
 - PR #57 merged the native Admin-host check lane, the `git_diff` whitespace check, the typed `fs_patch` conflict, the recovered poll-backoff classification and the `bun` bare-script sandbox refusal as `main@3cc8fb8`, verified independently after merge.
-- Authority lease-resolution denials are now auditable, closing the last locally measurable gap in the MCP failure-boundary classification.
+- PR #58 merged the auditable authority lease-resolution denials as `main@a83dfe6`, making the local authority-refusal class measurable from the audit file.
+- The live MCP runtime was repointed from `96d76b2` to `main@a83dfe6`: the stable runtime worktree was checked out at `a83dfe6`, `dist` was rebuilt from it, and the daily-driver was restarted onto it (MCP child started after the build), under explicit user authorization.
+- `diagnose:chatgpt` no longer reports a missing-dependency failure that belongs to a different runtime than the active one.
 - Every defect so far was reproduced RED before its fix.
 - `native/`, `docker/` and `.github/` are untouched by this branch.
 
@@ -41,6 +43,7 @@ The client that produced this state had no `project_resume`, `project_check`, `p
 7. Blank and unknown lease ids emit an `authority.denied` audit event carrying only a coarse reason (`missing` or `unknown`), a count and a window start — never a lease id, lease digest, scope or caller data. The refusal, its ordering and the authority model are unchanged, and audit failures stay swallowed so enforcement remains fail-closed.
 8. Denials are coalesced per reason into one window-opening record plus one window-summary record per 60-second window, so a forged-lease flood cannot grow the audit file without bound. The runtime logger writes them with `outcome: "error"` and `errorCode: "AUTHORITY_REQUIRED"`, so they appear in ordinary audit error-code analysis.
 9. TCC, user takeover, emergency chord, input release, CAPTCHA/anti-bot, Browser-vs-Computer routing, and authority boundaries remain fail-closed and unchanged.
+10. `diagnose:chatgpt` attributes `dependencyFailureSignature` to the active runtime only: it counts an `ERR_MODULE_NOT_FOUND` for `zod` only when the failing module's own import path lies inside the running runtime root, and it reports nothing when no runtime root could be resolved. The retained stderr window is shared across restarts and still holds failures from whatever the tunnel targeted before, so the unscoped match previously reported a dependency failure the active runtime never had. Classification priority, the report shape and every authority path are unchanged.
 
 ## Verification
 
@@ -53,7 +56,10 @@ Evidence is bound to the integration branch tip:
 - live Admin-host lane check against this repository through a local `--owner-workstation` stdio server: detection returned `package-script:test:computer:macos` as `admin-host`; the run was refused with `AUTHORITY_DENIED` without an Admin lease and reported `PASS` with one, while the unrequested sandbox check correctly stayed `NOT_RUN` and held `overallStatus` at `NOT_RUN`;
 - the `fs_patch` defect was reproduced RED (untyped `Error: Hunk at line 3 has more lines than expected`) before the fix and is GREEN after it;
 - the `diagnose:chatgpt` misclassification was reproduced against the live tunnel log before the fix and re-verified after it on the same window;
-- the missing denial audit was reproduced RED, and a live runtime run then refused 20,001 forged or blank leases while writing **2 `authority.denied` records in an 853-byte audit file**, with neither the real lease id nor the forged ids present.
+- the missing denial audit was reproduced RED, and a live runtime run then refused 20,001 forged or blank leases while writing **2 `authority.denied` records in an 853-byte audit file**, with neither the real lease id nor the forged ids present;
+- the unscoped dependency signature was reproduced against the live stderr log: on the same machine, log and 30-minute window, `main` reported `stderr.dependencyFailureSignature: true` while the only matching line pointed at `~/.chatgpt-system/worktrees/.../03a798c1-.../dist/control-protocol.js` and the active runtime was `runtime/chatgpt-system-main`; the fixed branch reports `false` on that same window. No line in the log references the active runtime path;
+- the deployed artifact (`runtime/chatgpt-system-main/dist/cli.js`, the exact script path in the running MCP child's command line, started after the `dist` rebuild) was driven over local stdio: **10/10 checks passed** — `git_diff` advertises `check`, a schema-valid forged lease is refused with `AUTHORITY_REQUIRED`, that denial lands in the audit as `authority.denied` carrying only `reason`/`deniedCount`/`windowStartedAt`, `git diff --check` returns exit 2 with `trailing whitespace` on a dirty tree and 0 on a clean one, and a malformed or hunk-less patch fails as typed `CONFLICT` while the file stays unchanged;
+- the live audit file contains two post-repoint `authority.denied` records (`09:23:16Z` and `09:27:24Z`) with `outcome: "error"` and `errorCode: "AUTHORITY_REQUIRED"`;
 
 Not run: hosted CI, `npm audit`, runtime/fixture packaging, codesign verification, and freshness-bound typed `project_check`. Those belong to the publication pass and must not be reported as passing.
 
@@ -63,6 +69,7 @@ Not run: hosted CI, `npm audit`, runtime/fixture packaging, codesign verificatio
 - Audit activity at `08:40Z` and `08:43Z` post-dates that last forwarded command, so those calls reached the MCP server from a non-tunnel local client. The last tunnel command and the last audit record do **not** correspond.
 - `fs.patch` accounts for 171 of 214 recorded `INTERNAL_ERROR` audit entries. That class is now a local defect with a typed fix, not a hosted block.
 - Lease-resolution denials are now inside audit coverage as `authority.denied` / `AUTHORITY_REQUIRED`, so the local authority-refusal class is measurable from the audit file without weakening the authority model.
+- A dependency signature sitting in the retained stderr window is not by itself runtime evidence. The diagnostic did not scope it to the active runtime and produced a false `dependencyFailureSignature: true` while `runtime.source` was `stable-runtime` and `zodPresent` was true. That false positive is fixed; the hosted product-surface class is still unclassified.
 - The hosted product-surface class cannot be proven from local artifacts. No root cause is asserted for it without the exact blocked-call UI text and its local timestamp.
 
 ## Blockers / uncertainties
@@ -73,7 +80,9 @@ Not run: hosted CI, `npm audit`, runtime/fixture packaging, codesign verificatio
 
 ## Next exact step
 
-Push `fix/authority-denial-audit-20260917`, open a PR, and merge only if the PR's exact head passes the required hosted checks. Re-run the full local gate first if HEAD or the working tree changed. After merge, sync local `main`, confirm `main == origin/main`, and delete only merged, clean, provably agent-owned branches and worktrees. Do not redeploy the live runtime, tunnel profile, or LaunchAgent as part of this work; that needs separate authorization.
+Push `fix/diagnose-runtime-scoped-dependency-signature-20260917`, open a PR, and merge only if the PR's exact head passes the required hosted checks. Re-run the full local gate first if HEAD or the working tree changed. After merge, sync local `main`, confirm `main == origin/main`, and delete only merged, clean, provably agent-owned branches and worktrees. Leave the live runtime repointed at the merged `main`; redeploying it again, or touching the tunnel profile or LaunchAgent, needs separate authorization.
+
+Still open and deliberately unaddressed here: a default `project_check` run leaves the declared native check `NOT_RUN` in a mixed repository, so a typified `git_push` fails closed without a fresh Admin-host run — that publish-gate contract is not pinned by a test (`tests/project-publish-gate.test.ts` is untouched); and the hosted product-surface class stays unclassified until the exact blocked-call UI text and its local timestamp are captured.
 
 ## Invariants
 
