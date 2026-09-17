@@ -7,6 +7,9 @@ import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AppConfig } from "../src/config.js";
+import type { ContinuityResumeContext } from "../src/continuity-resume-registry.js";
+import { createProjectCheckService } from "../src/project-check-factory.js";
+import { ProjectPublishGate } from "../src/project-publish-gate.js";
 import { CommandTimeoutError, ExecutableNotFoundError, SandboxUnavailableError } from "../src/errors.js";
 import type {
   ProjectCheckCommandResult,
@@ -131,6 +134,18 @@ async function projectLease(client: Client, root: string): Promise<string> {
   });
   expect(result.isError).not.toBe(true);
   return (result.structuredContent as { leaseId: string }).leaseId;
+}
+
+function resumedContext(canonicalWorktree: string): ContinuityResumeContext {
+  return {
+    projectId: "project-1",
+    alias: "Project-X",
+    recordVersion: 4,
+    canonicalWorktree,
+    repositoryRoot: canonicalWorktree,
+    repositoryIdentity: "c".repeat(64),
+    expiresAt: "2030-01-01T00:00:00.000Z",
+  };
 }
 
 async function adminLease(client: Client): Promise<string> {
@@ -345,6 +360,84 @@ describe("project_check MCP tool", () => {
         command: "swift", args: ["test"],
         cwd: await realpath(connected.root), timeoutMs: 10_000,
       });
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it("refuses to publish a mixed repository until the native lane has run", async () => {
+    const connected = await fixture(true, "mixed");
+    try {
+      git(connected.root, ["checkout", "-q", "-b", "feature/native-pending"]);
+      const repositoryRoot = await realpath(connected.root);
+      const projectCheck = createProjectCheckService(
+        connected.runtime,
+        await projectLease(connected.client, connected.root),
+      );
+      // The typified flow verifies first. The sandbox lane is authoritative on its own here, and the
+      // declared native lane is never selected implicitly.
+      const executed = await projectCheck.run(connected.root);
+      expect(executed.checks.map((check) => [check.checkId, check.status])).toEqual([
+        ["package-script:check", "PASS"],
+        ["package-script:test:macos", "NOT_RUN"],
+      ]);
+      expect(executed.overallStatus).toBe("NOT_RUN");
+      expect((await projectCheck.report(connected.root)).overallStatus).toBe("NOT_RUN");
+
+      const pushes: string[] = [];
+      const gate = new ProjectPublishGate({
+        projectGit: connected.runtime.git,
+        adminGit: {
+          push: async () => {
+            pushes.push("push");
+            return { cwd: repositoryRoot, exitCode: 0, stdout: "", stderr: "" };
+          },
+        },
+        projectCheck,
+      });
+
+      // A mixed repository therefore cannot be published on a sandbox-only verification pass,
+      // and it must be refused on the exact status the report produced.
+      await expect(gate.push({ cwd: connected.root, resumeContext: resumedContext(repositoryRoot) }))
+        .rejects.toMatchObject({ code: "LOCAL_VERIFICATION_REQUIRED", details: { overallStatus: "NOT_RUN" } });
+      expect(pushes).toEqual([]);
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it("publishes a sandbox-verified repository at the verified HEAD", async () => {
+    const connected = await fixture(true, "node");
+    try {
+      git(connected.root, ["checkout", "-q", "-b", "feature/sandbox-verified"]);
+      const repositoryRoot = await realpath(connected.root);
+      const projectCheck = createProjectCheckService(
+        connected.runtime,
+        await projectLease(connected.client, connected.root),
+      );
+      await projectCheck.run(connected.root);
+      const verification = await projectCheck.report(connected.root);
+      expect(verification.overallStatus).toBe("PASS");
+
+      const pushes: Array<{ cwd: string | undefined; expected: { branch: string; head: string } | undefined }> = [];
+      const gate = new ProjectPublishGate({
+        projectGit: connected.runtime.git,
+        adminGit: {
+          push: async (cwd, expected) => {
+            pushes.push({ cwd, expected });
+            return { cwd: repositoryRoot, exitCode: 0, stdout: "", stderr: "" };
+          },
+        },
+        projectCheck,
+      });
+
+      await gate.push({ cwd: connected.root, resumeContext: resumedContext(repositoryRoot) });
+      expect(pushes).toEqual([{
+        cwd: connected.root,
+        expected: { branch: "feature/sandbox-verified", head: verification.observed.head },
+      }]);
     } finally {
       await connected.transport.terminateSession();
       await connected.client.close();

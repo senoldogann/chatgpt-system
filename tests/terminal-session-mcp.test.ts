@@ -32,8 +32,13 @@ async function fixture(ownerRuntimeEnabled: boolean) {
   const root = await mkdtemp(path.join(tmpdir(), "chatgpt-system-terminal-mcp-"));
   cleanups.push(root);
   const token = "terminal-session-mcp-token-0123456789";
+  // Keep the operator's real audit log out of the test suite; the default path is
+  // ~/.chatgpt-system/audit.jsonl and we use that file as failure-boundary evidence.
+  const auditDir = await mkdtemp(path.join(tmpdir(), "chatgpt-system-terminal-audit-"));
+  cleanups.push(auditDir);
   const config = await loadConfig({
     roots: [root],
+    auditFile: path.join(auditDir, "audit.jsonl"),
     personalAdminEnabled: true,
     ownerRuntimeEnabled,
     ownerShellPath: "/bin/sh",
