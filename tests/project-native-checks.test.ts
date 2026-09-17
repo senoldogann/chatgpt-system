@@ -8,7 +8,11 @@ describe("native project-check discovery", () => {
   it("classifies macOS package-manager scripts without reclassifying portable checks", () => {
     expect(isNativeMacosScriptInvocation("npm", ["run", "test:computer:macos"])).toBe(true);
     expect(isNativeMacosScriptInvocation("pnpm", ["run", "build:macos"])).toBe(true);
+    expect(isNativeMacosScriptInvocation("yarn", ["test:computer:macos"])).toBe(true);
+    expect(isNativeMacosScriptInvocation("bun", ["test:computer:macos"])).toBe(true);
     expect(isNativeMacosScriptInvocation("npm", ["run", "check"])).toBe(false);
+    expect(isNativeMacosScriptInvocation("bun", ["install"])).toBe(false);
+    expect(isNativeMacosScriptInvocation("bun", ["test"])).toBe(false);
     expect(isNativeMacosScriptInvocation("swift", ["test"])).toBe(false);
   });
 

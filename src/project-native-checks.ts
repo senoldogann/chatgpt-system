@@ -9,8 +9,9 @@ const SWIFT_TEST = /^swift test(?: --package-path ([a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9
 
 export function isNativeMacosScriptInvocation(command: string, args: readonly string[]): boolean {
   if (!["npm", "pnpm", "yarn", "bun"].includes(command)) return false;
+  // yarn and bun also run a package script without an explicit `run` subcommand.
   const name = (args[0] === "run" || args[0] === "run-script")
-    ? args[1] : (command === "yarn" ? args[0] : undefined);
+    ? args[1] : (command === "yarn" || command === "bun" ? args[0] : undefined);
   return typeof name === "string" && name.length <= 100 && /^[a-z][a-z0-9:_-]*:macos$/.test(name);
 }
 

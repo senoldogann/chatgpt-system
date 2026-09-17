@@ -7,7 +7,10 @@ import { discoverNativeSwiftTestChecks, isNativeMacosScriptInvocation } from '..
 
 assert.equal(isNativeMacosScriptInvocation('npm', ['run', 'test:computer:macos']), true);
 assert.equal(isNativeMacosScriptInvocation('pnpm', ['run', 'build:macos']), true);
+assert.equal(isNativeMacosScriptInvocation('yarn', ['test:computer:macos']), true);
+assert.equal(isNativeMacosScriptInvocation('bun', ['test:computer:macos']), true);
 assert.equal(isNativeMacosScriptInvocation('npm', ['run', 'check']), false);
+assert.equal(isNativeMacosScriptInvocation('bun', ['install']), false);
 assert.equal(isNativeMacosScriptInvocation('node', ['test:macos']), false);
 assert.equal(isNativeMacosScriptInvocation('swift', ['test']), false);
 const root = await mkdtemp(path.join(os.tmpdir(), 'native-check-discovery-'));
