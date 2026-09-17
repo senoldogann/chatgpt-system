@@ -37,6 +37,8 @@ export function summarizeTunnelLog(stdoutText, { nowMs = Date.now(), windowMs } 
   let warningCount = 0;
   let errorCount = 0;
   let stdioFailureCount = 0;
+  let recoveredPollBackoffCount = 0;
+  let pendingPollBackoffCount = 0;
   let recentActivity = false;
 
   for (const line of String(stdoutText ?? "").split(/\r?\n/)) {
@@ -60,6 +62,13 @@ export function summarizeTunnelLog(stdoutText, { nowMs = Date.now(), windowMs } 
     if (/stdio MCP command failed|stdio MCP command stdout closed|unexpected EOF/i.test(message)) {
       stdioFailureCount += 1;
     }
+    // A poll backoff that the poller itself recovers from is transient hosted-side
+    // evidence, not a local failure that justifies restarting a healthy tunnel.
+    if (level === "WARN" && /poll timed out; backing off/i.test(message)) pendingPollBackoffCount += 1;
+    if (/poller recovered; polling operational/i.test(message)) {
+      recoveredPollBackoffCount += pendingPollBackoffCount;
+      pendingPollBackoffCount = 0;
+    }
   }
 
   return {
@@ -67,6 +76,7 @@ export function summarizeTunnelLog(stdoutText, { nowMs = Date.now(), windowMs } 
     warningCount,
     errorCount,
     stdioFailureCount,
+    recoveredPollBackoffCount,
     recentActivity,
   };
 }
@@ -109,7 +119,7 @@ export function classifyConnectionEvidence(evidence) {
   if (
     evidence.tunnel.stdioFailureCount > 0
     || evidence.tunnel.errorCount > 0
-    || evidence.tunnel.warningCount > 0
+    || evidence.tunnel.warningCount - evidence.tunnel.recoveredPollBackoffCount > 0
   ) {
     return "LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE";
   }
