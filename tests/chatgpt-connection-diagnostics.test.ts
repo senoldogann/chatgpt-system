@@ -112,6 +112,51 @@ describe("ChatGPT connection diagnostics", () => {
       .toBe("LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE");
   });
 
+  it("treats every poller retry wording it actually recovers from as transient", () => {
+    const dailyDriver = { loaded: true, running: true, neverExited: true };
+    const runtime = { source: "stable-runtime" as const, distCliPresent: true, nodeModulesPresent: true, zodPresent: true };
+    const stderr = { recent: false, dependencyFailureSignature: false };
+    const forwarded = JSON.stringify({
+      time: "2026-09-15T10:20:00.000Z",
+      level: "INFO",
+      msg: "dispatcher forwarded command to MCP server",
+    });
+    const recovered = JSON.stringify({
+      time: "2026-09-15T10:21:30.000Z",
+      level: "INFO",
+      msg: "poller recovered; polling operational",
+    });
+    // Regression: the live tunnel logged this wording eight times in the retained window and
+    // recovered from each one, but only the "timed out" variant was recognised, so a healed
+    // backoff still reported LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE.
+    const failed = JSON.stringify({
+      time: "2026-09-15T10:21:00.000Z",
+      level: "WARN",
+      msg: "poll failed; backing off",
+    });
+
+    const healed = summarizeTunnelLog([forwarded, failed, recovered].join("\n"), { nowMs: NOW, windowMs: 15 * MINUTE });
+    expect(healed).toMatchObject({ warningCount: 1, recoveredPollBackoffCount: 1, errorCount: 0, stdioFailureCount: 0 });
+    expect(classifyConnectionEvidence({ dailyDriver, runtime, tunnel: healed, stderr }))
+      .toBe("LOCAL_HEALTHY_NO_LOCAL_FAILURE_EVIDENCE");
+
+    const stillBackingOff = summarizeTunnelLog([forwarded, failed].join("\n"), { nowMs: NOW, windowMs: 15 * MINUTE });
+    expect(stillBackingOff).toMatchObject({ warningCount: 1, recoveredPollBackoffCount: 0 });
+    expect(classifyConnectionEvidence({ dailyDriver, runtime, tunnel: stillBackingOff, stderr }))
+      .toBe("LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE");
+
+    // A poller retry wording that is not a backoff must keep its failure weight.
+    const otherWarning = JSON.stringify({
+      time: "2026-09-15T10:21:00.000Z",
+      level: "WARN",
+      msg: "poll response already fulfilled or unknown request",
+    });
+    const unrelated = summarizeTunnelLog([forwarded, otherWarning, recovered].join("\n"), { nowMs: NOW, windowMs: 15 * MINUTE });
+    expect(unrelated).toMatchObject({ warningCount: 1, recoveredPollBackoffCount: 0 });
+    expect(classifyConnectionEvidence({ dailyDriver, runtime, tunnel: unrelated, stderr }))
+      .toBe("LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE");
+  });
+
   it("parses launchd state without exposing process identifiers", () => {
     const status = parseLaunchAgentStatus(`
       state = running
