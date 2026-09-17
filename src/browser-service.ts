@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import type { BrowserBackend, BrowserTargetMetadata } from "./browser-backend.js";
 import type {
   BrowserConsoleResult,
@@ -243,14 +244,20 @@ export class BrowserService {
   }
 
   private async assertUniqueTarget(pageId: string, target: BrowserTarget): Promise<void> {
-    const count = await this.backend.targetCount(pageId, target);
-    if (count === 0) {
-      throw new BrowserError("BROWSER_TARGET_NOT_FOUND", "The browser target was not found.");
-    }
-    if (count !== 1) {
-      throw new BrowserError("BROWSER_TARGET_AMBIGUOUS", "The browser target matched more than one element.", {
-        matchCount: count,
-      });
+    const deadline = performance.now() + Math.min(this.timeoutMs, 1_000);
+    while (true) {
+      const count = await this.backend.targetCount(pageId, target);
+      if (count === 1) return;
+      if (count !== 0) {
+        throw new BrowserError("BROWSER_TARGET_AMBIGUOUS", "The browser target matched more than one element.", {
+          matchCount: count,
+        });
+      }
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) {
+        throw new BrowserError("BROWSER_TARGET_NOT_FOUND", "The browser target was not found.");
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, Math.min(50, remaining)));
     }
   }
 
