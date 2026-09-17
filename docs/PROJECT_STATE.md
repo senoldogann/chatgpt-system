@@ -14,8 +14,7 @@ Publish `feat/mcp-verification-diagnostics-20260917` only through the authorized
 - Authoritative checkout: `/Users/dogan/Desktop/chatgpt-system`, currently equal to `origin/main`.
 - Project Continuity alias: `chatgpt-system-desktop`.
 - Integration worktree: `~/.chatgpt-system/agent-worktrees/mcp-verification-diagnostics` on branch `feat/mcp-verification-diagnostics-20260917`, branched from `main@1080cbe`.
-- Verified code HEAD for the evidence below: `63295f7` (this documentation commit sits on top of it and changes no source).
-- Read the current HEAD from Git; never infer it from this file.
+- Read the current HEAD from Git; never infer it from this file. The evidence below was produced on the branch tip and must be re-run after any further HEAD or worktree change.
 - Source branches `fix/project-check-native-routing-20260916` (`df20759`) and `fix/git-diff-check-20260917` (`5c5c62e`) hold the same code as branch-local lineage. Their worktrees are clean and their `docs/PROJECT_STATE.md` handoff notes were intentionally not carried into integration; this file supersedes them.
 - Detached merged-runtime worktree `~/.chatgpt-system/runtime/chatgpt-system-main` and the preserved dirty `feat/computer-use-perception-reliability` worktree remain intentionally present. Do not repurpose, clean, or delete them.
 - `origin/feat/computer-use-bridge` remains intentionally retained.
@@ -35,7 +34,7 @@ The client that produced this state had no `project_resume`, `project_check`, `p
 
 1. `project_check` discovers explicitly declared `*:macos` Swift test scripts as separate `admin-host` checks. Discovery reads package metadata only: the script value must match the fixed `swift test [--package-path <dir>]` form, the package directory must be a real in-repository directory holding a regular `Package.swift`, and symlinked or traversing paths are rejected.
 2. Native checks are never selected implicitly. A default run leaves them `NOT_RUN`; running one requires an explicit `checkId` plus an active Admin lease, and is refused with `AUTHORITY_DENIED` otherwise.
-3. The Project Docker sandbox refuses macOS-specific package scripts instead of executing them on Linux.
+3. The Project Docker sandbox refuses macOS-specific package scripts instead of executing them on Linux, including the bare-script forms `yarn <script>` and `bun <script>` that take no `run` subcommand.
 4. `git_diff` accepts an optional boolean `check` that routes to `git diff --check` (with `staged` for `--cached --check`). Diff arguments come from a fixed builder, so callers still cannot supply Git options, and the Project lease, PathPolicy and the `--no-ext-diff`/`--no-textconv` allowlist are unchanged.
 5. `fs_patch` validates unified-diff structure before applying. Malformed patch text now fails closed as `CONFLICT`; previously it surfaced as an untyped `INTERNAL_ERROR`, and patch text carrying no hunks silently reported success while leaving the file unchanged. `fs_apply_patch_set` and `fs_patch` share one validator.
 6. `diagnose:chatgpt` counts recovered poll backoffs separately and excludes them from failure classification, so a `poll timed out; backing off` that the poller itself recovers from no longer reports `LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE`. Unrecovered backoffs, stdio failures and ERROR records keep their previous classification, and recovered backoffs stay visible in the report so flapping remains observable.
@@ -43,9 +42,9 @@ The client that produced this state had no `project_resume`, `project_check`, `p
 
 ## Verification
 
-Evidence is bound to code HEAD `63295f7` in the integration worktree:
+Evidence is bound to the integration branch tip:
 
-- full `npm run check` (build + Vitest): exit 0, **740 passed, 2 skipped, 0 failures** across 118 test files;
+- full `npm run check` (build + Vitest): exit 0, **741 passed, 2 skipped, 0 failures** across 118 test files;
 - native macOS Computer Runtime suite (`npm run test:computer:macos`): **215/215 passed**, exit 0;
 - real `git diff --check`: exit 0;
 - dependency-free smokes `native-check-routing-smoke.mjs` and `git-diff-check-smoke.mjs`: PASS;
