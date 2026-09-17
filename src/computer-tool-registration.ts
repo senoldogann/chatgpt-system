@@ -29,6 +29,17 @@ const selectorFields = {
   bundleIdentifier: z.string().min(1).max(4_096).optional(),
   name: z.string().min(1).max(4_096).optional(),
 };
+// MCP validation accepts selector-less payloads, but the runtime rejects them
+// with COMPUTER_PROTOCOL_INVALID (selectorParams requires bundleIdentifier or
+// name). Refine at the MCP boundary so the model gets an actionable schema
+// error instead of a sub-millisecond protocol failure.
+const appSelectorRequired = (value: {
+  bundleIdentifier?: string | undefined;
+  name?: string | undefined;
+}): boolean => value.bundleIdentifier !== undefined || value.name !== undefined;
+const appSelectorRequirement = {
+  message: "Provide bundleIdentifier or name; the runtime requires an app selector.",
+};
 const pointFields = { x: z.number(), y: z.number() };
 const retryBudgetSchema = z.number().int().min(0).max(2);
 const computerTargetScopeSchema = z.union([
@@ -116,12 +127,12 @@ const openActionSchema = z.object({
   type: z.literal("open_app"),
   ...selectorFields,
   timeoutMs: focusTimeoutSchema.optional(),
-}).strict();
+}).strict().refine(appSelectorRequired, appSelectorRequirement);
 const focusActionSchema = z.object({
   type: z.literal("focus_app"),
   ...selectorFields,
   timeoutMs: focusTimeoutSchema.optional(),
-}).strict();
+}).strict().refine(appSelectorRequired, appSelectorRequirement);
 const moveActionSchema = z.union([
   z.object({
     type: z.literal("move_mouse"),
@@ -226,14 +237,14 @@ const typeTextActionSchema = z.object({
   text: z.string().max(16_384),
   ...selectorFields,
   verify: verificationSchema.optional(),
-}).strict();
+}).strict().refine(appSelectorRequired, appSelectorRequirement);
 const pressKeyActionSchema = z.object({
   type: z.literal("press_key"),
   key: computerKeyInputSchema,
   modifiers: modifiersSchema.optional(),
   ...selectorFields,
   verify: verificationSchema.optional(),
-}).strict();
+}).strict().refine(appSelectorRequired, appSelectorRequirement);
 const waitActionSchema = z.preprocess((val: any) => {
   if (val && typeof val === "object") {
     const ms = val.durationMs ?? val.milliseconds ?? val.ms ?? val.duration;
@@ -250,7 +261,7 @@ const waitForFrontmostActionSchema = z.object({
   type: z.literal("wait_for_frontmost"),
   ...selectorFields,
   timeoutMs: verificationTimeoutSchema.optional(),
-}).strict();
+}).strict().refine(appSelectorRequired, appSelectorRequirement);
 const waitForTextActionSchema = z.object({
   type: z.literal("wait_for_text"),
   text: z.string().min(1).max(4_096),
@@ -465,12 +476,12 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
     server.registerTool(
       name,
       {
-        description: `${COMPUTER_USE_ROUTING_GUIDANCE} ${name === "computer_open_app" ? "Open or" : ""} focus one macOS application by bundle identifier (preferred, e.g. com.apple.Safari, com.apple.calculator, com.google.Chrome) or application name. Supports timeoutMs up to 60000. Requires Admin authority.`,
+        description: `${COMPUTER_USE_ROUTING_GUIDANCE} ${name === "computer_open_app" ? "Open or" : ""} focus one macOS application by bundle identifier (preferred, e.g. com.apple.Safari, com.apple.calculator, com.google.Chrome) or application name. Requires bundleIdentifier or name. Supports timeoutMs up to 60000. Requires Admin authority.`,
         inputSchema: z.object({
           ...authorityLeaseField,
           ...selectorFields,
           timeoutMs: focusTimeoutSchema.optional(),
-        }).strict(),
+        }).strict().refine(appSelectorRequired, appSelectorRequirement),
         outputSchema: computerApplicationResultOutputSchema,
         annotations: computerMutationAnnotations,
       },
@@ -607,13 +618,13 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_type_text",
     {
-      description: "Type bounded Unicode text into the expected frontmost application. Requires Admin authority.",
+      description: "Type bounded Unicode text into the expected frontmost application. Requires bundleIdentifier or name to select the target application. Requires Admin authority.",
       inputSchema: z.object({
         ...authorityLeaseField,
         text: z.string().max(16_384),
         ...selectorFields,
         verify: verificationSchema.optional(),
-      }).strict(),
+      }).strict().refine(appSelectorRequired, appSelectorRequirement),
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
@@ -623,14 +634,14 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_press_key",
     {
-      description: "Press a named key with optional modifiers in the expected frontmost application. Requires Admin authority.",
+      description: "Press a named key with optional modifiers in the expected frontmost application. Requires bundleIdentifier or name to select the target application. Requires Admin authority.",
       inputSchema: z.object({
         ...authorityLeaseField,
         key: computerKeyInputSchema,
         modifiers: modifiersSchema.optional(),
         ...selectorFields,
         verify: verificationSchema.optional(),
-      }).strict(),
+      }).strict().refine(appSelectorRequired, appSelectorRequirement),
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
@@ -651,12 +662,12 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_wait_for_frontmost",
     {
-      description: "Wait for the selected application to become frontmost. Requires Admin authority.",
+      description: "Wait for the selected application to become frontmost. Requires bundleIdentifier or name. Requires Admin authority.",
       inputSchema: z.object({
         ...authorityLeaseField,
         ...selectorFields,
         timeoutMs: verificationTimeoutSchema.optional(),
-      }).strict(),
+      }).strict().refine(appSelectorRequired, appSelectorRequirement),
       outputSchema: computerApplicationResultOutputSchema,
       annotations: computerReadAnnotations,
     },
