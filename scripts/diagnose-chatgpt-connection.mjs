@@ -64,7 +64,10 @@ export function summarizeTunnelLog(stdoutText, { nowMs = Date.now(), windowMs } 
     }
     // A poll backoff that the poller itself recovers from is transient hosted-side
     // evidence, not a local failure that justifies restarting a healthy tunnel.
-    if (level === "WARN" && /poll timed out; backing off/i.test(message)) pendingPollBackoffCount += 1;
+    // The poller retries with more than one wording ("timed out" and "failed"), and only the
+    // recovery line below decides whether a backoff is counted as recovered, so every retry
+    // wording it heals from belongs here.
+    if (level === "WARN" && /poll (?:failed|timed out); backing off/i.test(message)) pendingPollBackoffCount += 1;
     if (/poller recovered; polling operational/i.test(message)) {
       recoveredPollBackoffCount += pendingPollBackoffCount;
       pendingPollBackoffCount = 0;
