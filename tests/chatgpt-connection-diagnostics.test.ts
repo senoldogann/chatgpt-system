@@ -4,6 +4,7 @@ import {
   buildDiagnosticReport,
   classifyConnectionEvidence,
   classifyRuntimeSource,
+  detectRuntimeDependencyFailure,
   parseDiagnosticArgs,
   parseLaunchAgentStatus,
   summarizeTunnelLog,
@@ -136,6 +137,35 @@ describe("ChatGPT connection diagnostics", () => {
     )).toBe("managed-worktree");
     expect(classifyRuntimeSource("/opt/custom/chatgpt-system/dist/cli.js", home)).toBe("other");
     expect(classifyRuntimeSource(undefined, home)).toBe("unknown");
+  });
+
+  it("attributes a dependency failure signature only to the active runtime", () => {
+    const runtimeRoot = "/Users/example/.chatgpt-system/runtime/chatgpt-system-main";
+    const foreignFailure = [
+      "Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'zod' imported from /Users/example/.chatgpt-system/worktrees/abc/def/dist/control-protocol.js",
+      "    at packageResolve (node:internal/modules/esm/resolve:873:9)",
+      "  code: 'ERR_MODULE_NOT_FOUND'",
+    ].join("\n");
+    // Regression: the bounded stderr window keeps stale failures from a previous tunnel target,
+    // so an unscoped signature reported a dependency failure the active runtime never had.
+    expect(detectRuntimeDependencyFailure(foreignFailure, runtimeRoot)).toBe(false);
+
+    const ownFailure = foreignFailure.replace(
+      "/Users/example/.chatgpt-system/worktrees/abc/def/dist/control-protocol.js",
+      `${runtimeRoot}/dist/control-protocol.js`,
+    );
+    expect(detectRuntimeDependencyFailure(ownFailure, runtimeRoot)).toBe(true);
+
+    expect(detectRuntimeDependencyFailure("", runtimeRoot)).toBe(false);
+    expect(detectRuntimeDependencyFailure(ownFailure, undefined)).toBe(false);
+    expect(detectRuntimeDependencyFailure(ownFailure, "")).toBe(false);
+
+    // A sibling directory that merely shares the prefix is not the active runtime.
+    expect(detectRuntimeDependencyFailure(ownFailure.replace(runtimeRoot, `${runtimeRoot}-old`), runtimeRoot)).toBe(false);
+    // An unrelated missing module is not the known runtime dependency failure.
+    expect(detectRuntimeDependencyFailure(ownFailure.replace("'zod'", "'left-pad'"), runtimeRoot)).toBe(false);
+    // A stray mention without a resolvable import path cannot be attributed.
+    expect(detectRuntimeDependencyFailure("Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'zod'", runtimeRoot)).toBe(false);
   });
 
   it("uses fail-safe classification priority", () => {
