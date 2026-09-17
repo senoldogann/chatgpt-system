@@ -511,12 +511,12 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "git_diff",
     {
-      description: "Read a git diff inside the active authority lease scope with external diff/textconv disabled.",
-      inputSchema: z.object({ ...authorityLeaseField, cwd: z.string().default("."), staged: z.boolean().default(false) }),
+      description: "Read a git diff or check it for whitespace errors inside the active authority lease scope with external diff/textconv disabled. Set check=true for git diff --check; combine with staged=true for git diff --cached --check. Nonzero exitCode means the check found errors; it does not bypass Git safety checks.",
+      inputSchema: z.object({ ...authorityLeaseField, cwd: z.string().default("."), staged: z.boolean().default(false), check: z.boolean().default(false) }),
       outputSchema: gitResultOutputSchema,
       annotations: readAnnotations,
     },
-    async ({ authorityLeaseId, cwd, staged }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.diff(cwd, staged)),
+    async ({ authorityLeaseId, cwd, staged, check }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.diff(cwd, staged, check)),
   );
 
   server.registerTool(

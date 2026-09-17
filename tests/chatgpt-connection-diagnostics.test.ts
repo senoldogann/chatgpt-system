@@ -57,6 +57,7 @@ describe("ChatGPT connection diagnostics", () => {
     expect(summary).toEqual({
       forwardedCommandCount: 1,
       warningCount: 1,
+      recoveredPollBackoffCount: 0,
       errorCount: 1,
       stdioFailureCount: 1,
       recentActivity: true,
@@ -65,6 +66,49 @@ describe("ChatGPT connection diagnostics", () => {
     expect(serialized).not.toContain("secret-request");
     expect(serialized).not.toContain("secret-tunnel");
     expect(serialized).not.toContain("secret-client");
+  });
+
+  it("separates a recovered poll backoff from unrecovered tunnel warnings", () => {
+    const healthyLocal = {
+      dailyDriver: { loaded: true, running: true, neverExited: true },
+      runtime: { source: "stable-runtime" as const, distCliPresent: true, nodeModulesPresent: true, zodPresent: true },
+      stderr: { recent: false, dependencyFailureSignature: false },
+    };
+    const forwarded = JSON.stringify({
+      time: "2026-09-15T10:20:00.000Z",
+      level: "INFO",
+      msg: "dispatcher forwarded command to MCP server",
+    });
+    const backoff = JSON.stringify({
+      time: "2026-09-15T10:21:00.000Z",
+      level: "WARN",
+      msg: "poll timed out; backing off",
+    });
+    const recovered = JSON.stringify({
+      time: "2026-09-15T10:21:30.000Z",
+      level: "INFO",
+      msg: "poller recovered; polling operational",
+    });
+
+    const healed = summarizeTunnelLog([forwarded, backoff, recovered].join("\n"), { nowMs: NOW, windowMs: 15 * MINUTE });
+    expect(healed).toMatchObject({ warningCount: 1, recoveredPollBackoffCount: 1, errorCount: 0, stdioFailureCount: 0 });
+    expect(classifyConnectionEvidence({ ...healthyLocal, tunnel: healed }))
+      .toBe("LOCAL_HEALTHY_NO_LOCAL_FAILURE_EVIDENCE");
+
+    const stillBackingOff = summarizeTunnelLog([forwarded, backoff].join("\n"), { nowMs: NOW, windowMs: 15 * MINUTE });
+    expect(stillBackingOff).toMatchObject({ warningCount: 1, recoveredPollBackoffCount: 0 });
+    expect(classifyConnectionEvidence({ ...healthyLocal, tunnel: stillBackingOff }))
+      .toBe("LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE");
+
+    const unrelatedWarning = summarizeTunnelLog([
+      forwarded,
+      backoff,
+      recovered,
+      JSON.stringify({ time: "2026-09-15T10:22:00.000Z", level: "WARN", msg: "stdio MCP command failed; requesting tunnel-client shutdown" }),
+    ].join("\n"), { nowMs: NOW, windowMs: 15 * MINUTE });
+    expect(unrelatedWarning).toMatchObject({ warningCount: 2, recoveredPollBackoffCount: 1 });
+    expect(classifyConnectionEvidence({ ...healthyLocal, tunnel: unrelatedWarning }))
+      .toBe("LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE");
   });
 
   it("parses launchd state without exposing process identifiers", () => {
@@ -97,7 +141,7 @@ describe("ChatGPT connection diagnostics", () => {
   it("uses fail-safe classification priority", () => {
     const healthy = {
       dailyDriver: { loaded: true, running: true, neverExited: true },
-      tunnel: { forwardedCommandCount: 12, warningCount: 0, errorCount: 0, stdioFailureCount: 0, recentActivity: true },
+      tunnel: { forwardedCommandCount: 12, warningCount: 0, recoveredPollBackoffCount: 0, errorCount: 0, stdioFailureCount: 0, recentActivity: true },
       runtime: { source: "stable-runtime" as const, distCliPresent: true, nodeModulesPresent: true, zodPresent: true },
       stderr: { recent: false, dependencyFailureSignature: false },
     };
@@ -128,7 +172,7 @@ describe("ChatGPT connection diagnostics", () => {
   it("builds a bounded public report with no raw local identifiers", () => {
     const report = buildDiagnosticReport({
       dailyDriver: { loaded: true, running: true, neverExited: true },
-      tunnel: { forwardedCommandCount: 4, warningCount: 0, errorCount: 0, stdioFailureCount: 0, recentActivity: true },
+      tunnel: { forwardedCommandCount: 4, warningCount: 0, recoveredPollBackoffCount: 0, errorCount: 0, stdioFailureCount: 0, recentActivity: true },
       runtime: { source: "managed-worktree", distCliPresent: true, nodeModulesPresent: true, zodPresent: true },
       stderr: { recent: false, dependencyFailureSignature: false },
     }, 15);
