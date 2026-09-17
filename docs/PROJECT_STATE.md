@@ -1,5 +1,12 @@
 # chatgpt-system — Active Project State
 
+> **Branch-local handoff 2026-09-17:** `fix/project-check-native-routing-20260916` is an isolated unpublished worktree from `main@1080cbe`; main and the other agent's Personal Admin worktree are untouched.
+> Scope: discover exact declared Swift macOS test scripts as separate Admin-host checks, keep Node tests in Docker, and reject macOS-specific package scripts from `project_exec` rather than run them in Linux.
+> Evidence: dependency-free smoke RED then GREEN; 2026-09-17 focused tests 24/24 PASS; fresh `npm run check` build + Vitest exit 0, 736 passed / 3 skipped in Docker; fresh `project_check` PASS for pre-handoff working-tree digest. The unrelated Personal Admin Swift suite passed 216/216 on the user's Mac, not on this branch.
+> Remaining gates: `git diff --check` cannot access worktree Git metadata from Docker (exit 128); run it on Mac or use an authorized native verification surface. Native host execution of this branch remains unverified because hosted Admin authorization was previously blocked. Rerun full verification after this handoff edit before committing.
+> Next exact step: check `git diff --check` on Mac, review changes in this isolated worktree, rerun freshness-bound full verification after this edit and commit only this branch if every required local gate is met; obtain separate authorization for publication and live runtime changes.
+> OpenAI's Admin safety block is unchanged; no authority bypass, host fallback, restart, Refresh, deployment, or publication was performed.
+> Independent cross-chat personal-session proposal is blocked at authenticated caller/connector identity: static HTTP Bearer and current stdio bridge do not demonstrate a reliable per-connector principal. Do not bind a shared Admin lease until a supported, verified identity contract and separate design approval exist.
 Last updated: 2026-09-15
 Status: **Computer Use perception-reliability is merged and independently verified on published `main`; integration cleanup is complete. Acceptance A remains precondition-gated and Acceptance C remains blocked by the current product/account UI surface.**
 

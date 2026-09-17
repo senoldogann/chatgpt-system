@@ -165,6 +165,7 @@ async function fixture(projectExecEnabled = true, kind: FixtureKind = "node") {
         check: "npm run build && npm test",
         build: "tsc -p tsconfig.json",
         test: "vitest run",
+        ...(kind === "mixed" ? { "test:macos": "swift test" } : {}),
       },
     }, null, 2)}\n`, "utf8");
   }
@@ -302,10 +303,47 @@ describe("project_check MCP tool", () => {
       });
       expect(detected.isError).not.toBe(true);
       const body = detected.structuredContent as unknown as ProjectCheckView;
-      expect(body.checks).toHaveLength(1);
+      expect(body.checks).toHaveLength(2);
       expect(body.checks[0]).toMatchObject({
         checkId: "package-script:check",
         execution: "project-sandbox",
+      });
+      expect(body.checks[1]).toMatchObject({
+        checkId: "package-script:test:macos",
+        command: "swift",
+        args: ["test"],
+        execution: "admin-host",
+      });
+      const defaultRun = await connected.client.callTool({
+        name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "run", cwd: connected.root },
+      });
+      expect(defaultRun.isError).not.toBe(true);
+      expect((defaultRun.structuredContent as unknown as ProjectCheckView).overallStatus).toBe("NOT_RUN");
+      expect(connected.backend.requests).toHaveLength(1);
+      expect(connected.host.requests).toHaveLength(0);
+      const denied = await connected.client.callTool({
+        name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "run", cwd: connected.root,
+          checkIds: ["package-script:test:macos"] },
+      });
+      expect(denied.isError).toBe(true);
+      expect(resultText(denied)).toContain("AUTHORITY_DENIED");
+      const adminId = await adminLease(connected.client);
+      const nativeRun = await connected.client.callTool({
+        name: "project_check",
+        arguments: {
+          authorityLeaseId: leaseId, adminAuthorityLeaseId: adminId,
+          operation: "run", cwd: connected.root,
+          checkIds: ["package-script:test:macos"],
+        },
+      });
+      expect(nativeRun.isError).not.toBe(true);
+      expect((nativeRun.structuredContent as unknown as ProjectCheckView).overallStatus).toBe("PASS");
+      expect(connected.host.requests).toHaveLength(1);
+      expect(connected.host.requests[0]).toEqual({
+        command: "swift", args: ["test"],
+        cwd: await realpath(connected.root), timeoutMs: 10_000,
       });
     } finally {
       await connected.transport.terminateSession();
