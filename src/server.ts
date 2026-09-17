@@ -108,6 +108,21 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     commands: config.terminal.commands,
     terminalEnabled: config.terminal.enabled,
     audit: async (event) => {
+      if (event.event === "authority.denied") {
+        // Recorded as an error so lease-resolution refusals show up in ordinary audit error-code analysis.
+        await audit.record({
+          action: event.event,
+          outcome: "error",
+          durationMs: 0,
+          metadata: {
+            reason: event.reason,
+            deniedCount: event.deniedCount,
+            windowStartedAt: event.windowStartedAt,
+            errorCode: "AUTHORITY_REQUIRED",
+          },
+        });
+        return;
+      }
       await audit.record({
         action: event.event,
         outcome: "ok",

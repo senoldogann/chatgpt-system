@@ -28,13 +28,25 @@ export interface AuthorityLeaseView extends AuthorityContext {
   leaseId: string;
 }
 
-export interface AuthorityAuditEvent {
+export interface AuthorityLifecycleAuditEvent {
   event: "authority.start" | "authority.end" | "authority.expired";
   profile: AuthorityProfile;
   rootCount: number;
   scopeDigest: string;
   expiresAt?: string;
 }
+
+/** A lease that never resolved has no profile or scope to report, only a coarse reason and count. */
+export type AuthorityDenialReason = "missing" | "unknown";
+
+export interface AuthorityDenialAuditEvent {
+  event: "authority.denied";
+  reason: AuthorityDenialReason;
+  deniedCount: number;
+  windowStartedAt: string;
+}
+
+export type AuthorityAuditEvent = AuthorityLifecycleAuditEvent | AuthorityDenialAuditEvent;
 
 export interface AuthorityManagerOptions {
   homeDir: string;
@@ -46,6 +58,16 @@ export interface AuthorityManagerOptions {
 
 interface StoredLease extends AuthorityContext {
   expiresAtMs: number;
+}
+
+// Denials are attacker-triggerable, so they are coalesced per reason into at most
+// one window-opening record plus one window-summary record per window.
+const DENIAL_WINDOW_MS = 60_000;
+
+interface DenialWindow {
+  startedAtMs: number;
+  startedAt: string;
+  pending: number;
 }
 
 const PROFILE_MAX_TTL_SECONDS: Record<AuthorityProfile, number> = {
@@ -126,6 +148,7 @@ export class AuthorityManager {
   private readonly commands: string[];
   private readonly terminalGateEnabled: boolean;
   private readonly audit: ((event: AuthorityAuditEvent) => void | Promise<void>) | undefined;
+  private readonly denialWindows = new Map<AuthorityDenialReason, DenialWindow>();
   private auditChain: Promise<void> = Promise.resolve();
 
   constructor(options: AuthorityManagerOptions) {
@@ -184,7 +207,10 @@ export class AuthorityManager {
   end(leaseId: string): { ended: true } {
     const key = this.requireLeaseKey(leaseId);
     const stored = this.leases.get(key);
-    if (!stored) throw new AuthorityRequiredError();
+    if (!stored) {
+      this.recordDenial("unknown");
+      throw new AuthorityRequiredError();
+    }
     this.leases.delete(key);
     this.emitAudit(stored, "authority.end", false);
     return { ended: true };
@@ -197,7 +223,10 @@ export class AuthorityManager {
   private lookup(leaseId: string): StoredLease {
     const key = this.requireLeaseKey(leaseId);
     const stored = this.leases.get(key);
-    if (!stored) throw new AuthorityRequiredError();
+    if (!stored) {
+      this.recordDenial("unknown");
+      throw new AuthorityRequiredError();
+    }
     if (this.now() > stored.expiresAtMs) {
       this.leases.delete(key);
       this.emitAudit(stored, "authority.expired", false);
@@ -207,24 +236,50 @@ export class AuthorityManager {
   }
 
   private requireLeaseKey(leaseId: string): string {
-    if (!leaseId.trim()) throw new AuthorityRequiredError();
+    if (!leaseId.trim()) {
+      this.recordDenial("missing");
+      throw new AuthorityRequiredError();
+    }
     return digestLease(leaseId);
+  }
+
+  /** Coalesce attacker-triggerable denials so a forged-lease flood cannot grow the audit file without bound. */
+  private recordDenial(reason: AuthorityDenialReason): void {
+    const nowMs = this.now();
+    const open = this.denialWindows.get(reason);
+    if (!open) {
+      const startedAt = new Date(nowMs).toISOString();
+      this.denialWindows.set(reason, { startedAtMs: nowMs, startedAt, pending: 0 });
+      this.queueAudit({ event: "authority.denied", reason, deniedCount: 1, windowStartedAt: startedAt });
+      return;
+    }
+    open.pending += 1;
+    if (nowMs - open.startedAtMs < DENIAL_WINDOW_MS) return;
+    this.queueAudit({
+      event: "authority.denied",
+      reason,
+      deniedCount: open.pending,
+      windowStartedAt: open.startedAt,
+    });
+    this.denialWindows.delete(reason);
   }
 
   private emitAudit(
     lease: StoredLease,
-    event: AuthorityAuditEvent["event"],
+    event: AuthorityLifecycleAuditEvent["event"],
     includeExpiry: boolean,
   ): void {
-    if (!this.audit) return;
-
-    const record: AuthorityAuditEvent = {
+    this.queueAudit({
       event,
       profile: lease.profile,
       rootCount: lease.roots.length,
       scopeDigest: digestScope(lease.roots),
       ...(includeExpiry ? { expiresAt: lease.expiresAt } : {}),
-    };
+    });
+  }
+
+  private queueAudit(record: AuthorityAuditEvent): void {
+    if (!this.audit) return;
 
     this.auditChain = this.auditChain.then(async () => {
       try {
