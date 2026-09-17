@@ -656,6 +656,46 @@ describe("computer MCP tools", () => {
     }
   });
 
+  it("rejects app-selector-less calls at the MCP boundary before reaching the runtime", async () => {
+    const { runtime, fake, client, transport } = await fixture();
+    try {
+      const admin = await runtime.authority.start({ profile: "admin" });
+      const callsBefore = fake.calls.length;
+      for (const args of [
+        { name: "computer_type_text", arguments: { authorityLeaseId: admin.leaseId, text: "hi" } },
+        { name: "computer_press_key", arguments: { authorityLeaseId: admin.leaseId, key: "return" } },
+        { name: "computer_open_app", arguments: { authorityLeaseId: admin.leaseId } },
+        { name: "computer_focus_app", arguments: { authorityLeaseId: admin.leaseId } },
+        { name: "computer_wait_for_frontmost", arguments: { authorityLeaseId: admin.leaseId } },
+        {
+          name: "computer_run",
+          arguments: {
+            authorityLeaseId: admin.leaseId,
+            finalObservation: "none",
+            actions: [{ type: "type_text", text: "hi" }],
+          },
+        },
+      ]) {
+        const result = await client.callTool(args);
+        expect(result.isError).toBe(true);
+      }
+      expect(fake.calls).toHaveLength(callsBefore);
+
+      const ok = await client.callTool({
+        name: "computer_type_text",
+        arguments: {
+          authorityLeaseId: admin.leaseId,
+          text: "hi",
+          bundleIdentifier: "com.example.fixture",
+        },
+      });
+      expect(ok.isError).not.toBe(true);
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
   it("enforces strict bounded-scroll schema and routes a valid semantic request", async () => {
     const { runtime, fake, client, transport } = await fixture();
     try {
