@@ -17,6 +17,7 @@ import { ConflictError, LimitError, PolicyError } from "./errors.js";
 import type { LimitsConfig } from "./config.js";
 import { withPathLock, withPathLocks } from "./path-lock.js";
 import { PathPolicy } from "./policy.js";
+import { validateUnifiedPatch } from "./unified-patch.js";
 
 function sha256(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
@@ -164,6 +165,7 @@ export class FileSystemService {
     return this.audit.run("fs.patch", this.policy.display(resolved), async () => withPathLock(resolved, async () => {
       await this.verifyExpectedHash(resolved, expectedSha256);
       const source = await readFile(resolved, "utf8");
+      validateUnifiedPatch(patchText);
       const result = applyUnifiedPatch(source, patchText);
       if (result === false) throw new ConflictError("Patch does not apply cleanly to the current file.");
       const buffer = Buffer.from(result, "utf8");

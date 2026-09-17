@@ -12,12 +12,13 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { applyPatch as applyUnifiedPatch, parsePatch } from "diff";
+import { applyPatch as applyUnifiedPatch } from "diff";
 import type { AuditLogger } from "./audit.js";
 import type { LimitsConfig } from "./config.js";
 import { ConflictError, LimitError, PolicyError, RecoveryRequiredError } from "./errors.js";
 import { withPathLocks } from "./path-lock.js";
 import { PathPolicy } from "./policy.js";
+import { validateUnifiedPatch } from "./unified-patch.js";
 
 const MAX_PATCH_COUNT = 100;
 const MAX_TOTAL_PATCH_BYTES = 4 * 1024 * 1024;
@@ -116,29 +117,6 @@ async function readRegularNoFollow(candidate: string, maxBytes: number): Promise
     throw error;
   } finally {
     await handle?.close();
-  }
-}
-
-function validateUnifiedPatch(patchText: string): void {
-  let parsed;
-  try {
-    parsed = parsePatch(patchText);
-  } catch {
-    throw new ConflictError("Patch is not a valid unified diff.");
-  }
-  if (parsed.length !== 1 || parsed[0]!.hunks.length < 1) {
-    throw new ConflictError("Patch must contain exactly one unified-diff file with at least one hunk.");
-  }
-  for (const hunk of parsed[0]!.hunks) {
-    if (!Number.isInteger(hunk.oldStart)
-      || !Number.isInteger(hunk.oldLines)
-      || !Number.isInteger(hunk.newStart)
-      || !Number.isInteger(hunk.newLines)
-      || hunk.oldLines < 0
-      || hunk.newLines < 0
-      || hunk.lines.length < 1) {
-      throw new ConflictError("Patch contains an invalid unified-diff hunk.");
-    }
   }
 }
 
