@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { lstat } from "node:fs/promises";
 import path from "node:path";
 import { AuditLogger } from "./audit.js";
+import { buildGitDiffArgs } from "./git-diff-command.js";
 import type { AppConfig } from "./config.js";
 import { LocalVerificationStaleError, PolicyError } from "./errors.js";
 import { PathPolicy } from "./policy.js";
@@ -269,12 +270,12 @@ export class GitService {
     return this.run(cwd, ["status", "--porcelain=v1", "--branch"], "git.read", { operation: "status" });
   }
 
-  async diff(cwd = ".", staged = false): Promise<GitResult> {
+  async diff(cwd = ".", staged = false, check = false): Promise<GitResult> {
     return this.run(
       cwd,
-      ["diff", "--no-ext-diff", "--no-textconv", ...(staged ? ["--cached"] : [])],
+      buildGitDiffArgs(staged, check),
       "git.read",
-      { operation: "diff", staged },
+      { operation: check ? "diff_check" : "diff", staged },
     );
   }
 

@@ -56,6 +56,24 @@ async function fixture(remoteWriteEnabled = false, allowLocalRemote = false) {
 }
 
 describe("typed Git mutations", () => {
+  it("checks staged and unstaged whitespace without altering existing diff output", async () => {
+    const { repo, service } = await fixture();
+    await writeFile(path.join(repo, "README.md"), "staged whitespace  \n", "utf8");
+    expect((await service.stagePaths(".", ["README.md"])).exitCode).toBe(0);
+
+    const stagedCheck = await service.diff(".", true, true);
+    expect(stagedCheck.exitCode).not.toBe(0);
+    expect(stagedCheck.stdout).toContain("trailing whitespace");
+    expect((await service.diff(".", false, true)).exitCode).toBe(0);
+    expect((await service.diff(".", true)).stdout).toContain("+staged whitespace");
+
+    await writeFile(path.join(repo, "README.md"), "clean\n", "utf8");
+    expect((await service.diff(".", false, true)).exitCode).toBe(0);
+    expect((await service.diff(".", true, true)).exitCode).not.toBe(0);
+    expect((await service.stagePaths(".", ["README.md"])).exitCode).toBe(0);
+    expect((await service.diff(".", true, true)).exitCode).toBe(0);
+  });
+
   it("creates, stages, commits, switches, and merges without arbitrary Git arguments", async () => {
     const { repo, service } = await fixture();
 

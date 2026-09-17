@@ -1,4 +1,11 @@
 # chatgpt-system — Active Project State
+> **Branch-local handoff 2026-09-17:** `fix/git-diff-check-20260917` is an isolated, unpublished worktree from `main@1080cbe`; main and the staged native-routing worktree are untouched.
+> Worktree: `~/.chatgpt-system/worktrees/e4eaca835975a22d75cc3e7778bb895500595d13b544a96d350c557d9edad976/5fa7dc41-1727-4d79-8952-fcc493e001ab`.
+> Draft: optional boolean `git_diff.check` routes through existing Project authority and Git safety checks to `git diff --check` or `git diff --cached --check`, preserving default diff behavior; unit/MCP regressions added.
+> Evidence: dependency-free smoke RED (missing helper) then GREEN (`GIT_DIFF_CHECK_SMOKE_PASS`); edited service, server, and two test files passed Node TypeScript syntax checks. Full `npm run check` cannot run in fresh worktree: missing `tsc`, `npm ci --offline` returned `ENOTCACHED`.
+> Blocker: attempt to run focused `npm test -- tests/git-service.test.ts tests/git-authority-boundary.test.ts` was blocked by OpenAI safety before execution. Stop; do not retry the blocked test by another tool or invoke Admin by another route.
+> Next exact step: use a future officially permitted environment to install dependencies and run focused and full checks, then Git whitespace check and local review; do not claim release-ready or commit before verified checks. Deploy/push/PR/merge require separate authorization.
+> Current MCP runtime has NOT loaded this draft. Cross-chat shared Admin is separately blocked by absent verified caller identity. No runtime, tunnel, Computer Use, Admin, main, or other worktree changes.
 
 Last updated: 2026-09-15
 Status: **Computer Use perception-reliability is merged and independently verified on published `main`; integration cleanup is complete. Acceptance A remains precondition-gated and Acceptance C remains blocked by the current product/account UI surface.**

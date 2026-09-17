@@ -86,6 +86,33 @@ function initRepository(repository: string): void {
 }
 
 describe("git authority boundary", () => {
+  it("exposes staged Git whitespace checks under the same Project lease without arbitrary options", async () => {
+    const base = await tempBase();
+    const root = path.join(base, "project");
+    await mkdir(root);
+    initRepository(root);
+    await writeFile(path.join(root, "fixture.txt"), "initial\n", "utf8");
+    git(root, ["add", "fixture.txt"]);
+    git(root, ["commit", "-q", "-m", "initial"]);
+    const { client, authorityLeaseId } = await leasedClient(base, root);
+    await writeFile(path.join(root, "fixture.txt"), "bad trailing  \n", "utf8");
+    git(root, ["add", "fixture.txt"]);
+    const bad = await client.callTool({
+      name: "git_diff", arguments: { authorityLeaseId, staged: true, check: true },
+    });
+    expect(bad.isError).not.toBe(true);
+    expect((bad.structuredContent as { exitCode: number; stdout: string }).exitCode).not.toBe(0);
+    expect((bad.structuredContent as { stdout: string }).stdout).toContain("trailing whitespace");
+    const noLease = await client.callTool({ name: "git_diff", arguments: { check: true, staged: true } });
+    expect(noLease.isError).toBe(true);
+    await writeFile(path.join(root, "fixture.txt"), "clean\n", "utf8");
+    git(root, ["add", "fixture.txt"]);
+    const clean = await client.callTool({
+      name: "git_diff", arguments: { authorityLeaseId, staged: true, check: true },
+    });
+    expect((clean.structuredContent as { exitCode: number }).exitCode).toBe(0);
+  });
+
   it("refuses git mutations when repository config can run external commands", async () => {
     const base = await tempBase();
     const root = path.join(base, "project");
