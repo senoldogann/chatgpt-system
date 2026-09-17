@@ -1,19 +1,19 @@
 # chatgpt-system — Active Project State
 
 Last updated: 2026-09-17
-Status: **`fix/diagnose-runtime-scoped-dependency-signature-20260917` is locally complete and fully verified in an isolated worktree. It is unpublished and awaiting hosted CI. `main` is `a83dfe6` and the live MCP runtime has been repointed onto it. Acceptance A remains precondition-gated and Acceptance C remains blocked by the current product/account UI surface.**
+Status: **`main` is `c3fa7a7` and the working tree is clean. PR #58 and PR #59 are merged and their branches are deleted. The live MCP runtime is repointed at `a83dfe6`; that is one commit behind `main`, but only docs, scripts and tests changed after it, so the deployed `dist` is byte-for-byte the same source and no redeploy is needed. Acceptance A remains precondition-gated and Acceptance C remains blocked by the current product/account UI surface.**
 
 This file is a handoff cache, not the sole source of truth. Git/worktree reality and Project Continuity records outrank this file. Resume the exact alias named below before acting.
 
 ## Current goal
 
-Publish `fix/diagnose-runtime-scoped-dependency-signature-20260917` only through the authorized path: push, PR, hosted checks green on the PR's exact head, merge, then verified cleanup. Keep the change to diagnostic accuracy — the dependency-failure signature must belong to the active runtime — and keep the still-unclassifiable hosted MCP failure class reported rather than guessed. The live runtime is already repointed at `a83dfe6`; do not touch the tunnel profile, LaunchAgent, Chrome profile, or Computer Runtime.
+No branch is currently in flight. The next milestone should be chosen from the open items below and recorded here before work starts. The highest-value candidate is pinning the mixed-repository publish-gate contract with a test, because a default `project_check` run leaves the declared native check `NOT_RUN` and a typified `git_push` therefore fails closed with no test asserting that intent. Keep the still-unclassifiable hosted MCP failure class reported rather than guessed. Do not redeploy the live runtime for changes that touch only docs, scripts or tests; touching the tunnel profile, LaunchAgent, Chrome profile or Computer Runtime needs its own explicit authorization.
 
 ## Active workspace
 
 - Authoritative checkout: `/Users/dogan/Desktop/chatgpt-system`, currently equal to `origin/main`.
 - Project Continuity alias: `chatgpt-system-desktop`.
-- Active worktree: `~/.chatgpt-system/agent-worktrees/diagnose-runtime-signature` on branch `fix/diagnose-runtime-scoped-dependency-signature-20260917`, branched from `main@a83dfe6`.
+- No in-flight feature work. The `diagnose-runtime-signature` worktree and branch were removed after their content was proven equivalent to the squash commit `main` received. This `state-post-merge` worktree exists only to land this handoff update and is removed once it is merged.
 - Read the current HEAD from Git; never infer it from this file. The evidence below was produced on the branch tip and must be re-run after any further HEAD or worktree change.
 - Superseded clean worktrees `fix/project-check-native-routing-20260916` (`df20759`) and `fix/git-diff-check-20260917` (`5c5c62e`) remain present. Their contribution is already in `main` via PR #57; they are not content-equivalent to `main` and deleting them would need a force delete, so they were left alone.
 - Detached runtime worktree `~/.chatgpt-system/runtime/chatgpt-system-main` is the tunnel target and is now checked out at `a83dfe6` with `dist` rebuilt from that source and the daily-driver restarted onto it, under explicit user authorization. The merged PR branches that are not content-equivalent to `main` need a force delete, so they were left alone. The preserved dirty `feat/computer-use-perception-reliability` worktree also remains intentionally present. Do not repurpose, clean, or delete any of them.
@@ -28,6 +28,7 @@ The client that produced this state had no `project_resume`, `project_check`, `p
 - PR #57 merged the native Admin-host check lane, the `git_diff` whitespace check, the typed `fs_patch` conflict, the recovered poll-backoff classification and the `bun` bare-script sandbox refusal as `main@3cc8fb8`, verified independently after merge.
 - PR #58 merged the auditable authority lease-resolution denials as `main@a83dfe6`, making the local authority-refusal class measurable from the audit file.
 - The live MCP runtime was repointed from `96d76b2` to `main@a83dfe6`: the stable runtime worktree was checked out at `a83dfe6`, `dist` was rebuilt from it, and the daily-driver was restarted onto it (MCP child started after the build), under explicit user authorization.
+- PR #59 merged the runtime-scoped dependency signature as `main@c3fa7a7` (squash of the exact CI-verified head `c75cabf`) and realigned this file with the repointed runtime.
 - `diagnose:chatgpt` no longer reports a missing-dependency failure that belongs to a different runtime than the active one.
 - Every defect so far was reproduced RED before its fix.
 - `native/`, `docker/` and `.github/` are untouched by this branch.
@@ -61,7 +62,7 @@ Evidence is bound to the integration branch tip:
 - the deployed artifact (`runtime/chatgpt-system-main/dist/cli.js`, the exact script path in the running MCP child's command line, started after the `dist` rebuild) was driven over local stdio: **10/10 checks passed** — `git_diff` advertises `check`, a schema-valid forged lease is refused with `AUTHORITY_REQUIRED`, that denial lands in the audit as `authority.denied` carrying only `reason`/`deniedCount`/`windowStartedAt`, `git diff --check` returns exit 2 with `trailing whitespace` on a dirty tree and 0 on a clean one, and a malformed or hunk-less patch fails as typed `CONFLICT` while the file stays unchanged;
 - the live audit file contains two post-repoint `authority.denied` records (`09:23:16Z` and `09:27:24Z`) with `outcome: "error"` and `errorCode: "AUTHORITY_REQUIRED"`;
 
-Not run: hosted CI, `npm audit`, runtime/fixture packaging, codesign verification, and freshness-bound typed `project_check`. Those belong to the publication pass and must not be reported as passing.
+Not run: `npm audit`, runtime/fixture packaging, codesign verification, and a freshness-bound typed `project_check`. Hosted CI is now green on the exact merged head (`macos-native`, Node 22 and Node 24 all passed on `c75cabf`), so only the remaining items above still must not be reported as passing.
 
 ## MCP failure-boundary classification
 
@@ -80,9 +81,9 @@ Not run: hosted CI, `npm audit`, runtime/fixture packaging, codesign verificatio
 
 ## Next exact step
 
-Push `fix/diagnose-runtime-scoped-dependency-signature-20260917`, open a PR, and merge only if the PR's exact head passes the required hosted checks. Re-run the full local gate first if HEAD or the working tree changed. After merge, sync local `main`, confirm `main == origin/main`, and delete only merged, clean, provably agent-owned branches and worktrees. Leave the live runtime repointed at the merged `main`; redeploying it again, or touching the tunnel profile or LaunchAgent, needs separate authorization.
+Read the current HEAD from Git, confirm the working tree is clean, and pick the next milestone from the still-open items. The recommended first step is to pin the mixed-repository publish-gate contract: assert, with a test, that a default `project_check` run leaves the declared native check `NOT_RUN` and that a typified `git_push` consequently fails closed, so the behaviour introduced by PR #57 is intentional rather than accidental. Then publish it through the usual path (non-`main` branch, full local gate, PR, hosted checks green on the PR's exact head, merge, verified cleanup). Re-run the full local gate first if HEAD or the working tree changed, and do not redeploy the live runtime unless `src/` changed.
 
-Still open and deliberately unaddressed here: a default `project_check` run leaves the declared native check `NOT_RUN` in a mixed repository, so a typified `git_push` fails closed without a fresh Admin-host run — that publish-gate contract is not pinned by a test (`tests/project-publish-gate.test.ts` is untouched); and the hosted product-surface class stays unclassified until the exact blocked-call UI text and its local timestamp are captured.
+Still open and deliberately unaddressed here: the publish-gate contract above is not pinned by a test (`tests/project-publish-gate.test.ts` is untouched); the hosted product-surface class stays unclassified until the exact blocked-call UI text and its local timestamp are captured; and Acceptance C stays blocked until the account/workspace exposes a supported Refresh surface.
 
 ## Invariants
 
