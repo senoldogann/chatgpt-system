@@ -217,6 +217,7 @@ export const gitInventoryOutputSchema = z.object({
   entries: z.array(z.object({
     path: z.string(),
     category: z.enum(["modified", "untracked", "deleted", "ignored"]),
+    risk: z.enum(["none", "secret", "binary", "artifact"]),
     indexStatus: z.string().optional(),
     worktreeStatus: z.string().optional(),
   }).strict()),
