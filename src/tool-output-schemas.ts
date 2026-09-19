@@ -39,6 +39,10 @@ export const systemCapabilitiesOutputSchema = z.object({
     enabled: z.boolean(),
     adminLeaseMaxTtlSeconds: z.literal(3600),
   }),
+  persistentOwnerMode: z.object({
+    enabled: z.boolean(),
+    expiresAt: z.literal("never"),
+  }),
   ownerRuntime: z.object({
     enabled: z.boolean(),
   }),
@@ -102,6 +106,14 @@ export const authorityRequestStatusOutputSchema = authorityRequestBaseOutputSche
 
 export const authorityEndOutputSchema = z.object({
   ended: z.literal(true),
+});
+
+export const persistentOwnerModeOutputSchema = z.object({
+  enabled: z.boolean(),
+  leaseId: z.string().optional(),
+  profile: z.literal("admin"),
+  createdAt: z.string().optional(),
+  expiresAt: z.literal("never"),
 });
 
 export const executableResolutionOutputSchema = z.object({
@@ -199,6 +211,32 @@ export const gitResultOutputSchema = z.object({
   stdout: z.string(),
   stderr: z.string(),
 });
+
+export const gitInventoryOutputSchema = z.object({
+  cwd: z.string(),
+  entries: z.array(z.object({
+    path: z.string(),
+    category: z.enum(["modified", "untracked", "deleted", "ignored"]),
+    indexStatus: z.string().optional(),
+    worktreeStatus: z.string().optional(),
+  }).strict()),
+  cursor: z.number().int().nonnegative(),
+  snapshot: sha256Schema,
+  nextCursor: z.number().int().nonnegative().optional(),
+  complete: z.boolean(),
+}).strict();
+
+export const gitFileReviewOutputSchema = z.object({
+  cwd: z.string(),
+  path: z.string(),
+  diff: z.string(),  diffBytes: nonNegativeInt,
+  diffSha256: sha256Schema,
+  contentSha256: sha256Schema.nullable(),
+  deletion: z.boolean(),
+  deletionEvidence: z.enum(["worktree-path-missing", "not-deleted"]),
+  risk: z.enum(["none", "secret", "binary", "artifact"]),
+  contentEncoding: z.enum(["utf8", "base64"]),
+}).strict();
 
 export const gitWorktreeOutputSchema = z.object({
   operation: z.enum(["create", "status", "remove"]),
@@ -436,7 +474,9 @@ export const processSummaryOutputSchema = z.object({
   command: z.string(),
   argCount: nonNegativeInt,
   cwd: z.string(),
-  state: z.enum(["running", "exited", "stopped"]),
+  state: z.enum(["running", "stopping", "exited", "stopped", "unknown"]),
+  jobId: z.string(),
+  status: z.enum(["running", "stopping", "completed", "failed", "cancelled", "unknown"]),
   startedAt: z.string(),
   exitedAt: z.string().optional(),
   exitCode: z.number().int().nullable().optional(),
@@ -455,8 +495,9 @@ const processLogStreamOutputSchema = z.object({
 
 export const processLogsOutputSchema = z.object({
   processId: z.string(),
-  stdout: processLogStreamOutputSchema,
-  stderr: processLogStreamOutputSchema,
+  cursor: z.number().int().nonnegative().optional(),
+  stdout: processLogStreamOutputSchema.extend({ nextCursor: z.number().int().nonnegative().optional() }),
+  stderr: processLogStreamOutputSchema.extend({ nextCursor: z.number().int().nonnegative().optional() }),
 });
 
 const browserPageIdSchema = z.string().min(40).max(128);

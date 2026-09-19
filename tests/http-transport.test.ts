@@ -19,6 +19,7 @@ const expectedAnnotations = {
   session_authority_start: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   session_authority_status: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   session_authority_end: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  persistent_owner_mode: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   fs_list: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   fs_stat: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   fs_read: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -29,6 +30,8 @@ const expectedAnnotations = {
   fs_move: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   fs_remove: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   git_status: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  git_inventory: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  git_file_review: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   git_diff: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   git_log: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   git_create_branch: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -250,6 +253,9 @@ describe("HTTP MCP transport", () => {
         ...continuityV1ToolNames,
         ...computerReliabilityV2ToolNames,
         ...ownerRuntimeToolNames,
+        "persistent_owner_mode",
+        "git_inventory",
+        "git_file_review",
       ]);
       const legacyNames = currentNames.filter((name) => !featureNames.has(name)).sort();
       const currentHarnessNames = currentNames.filter((name) => harnessNames.has(name)).sort();

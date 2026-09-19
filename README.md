@@ -187,6 +187,16 @@ All other browser tools require an active Admin lease because tabs, URLs, page c
 
 Project and User leases therefore cannot inspect or mutate browser content.
 
+### Local action review (review only)
+
+The local CLI can separately authenticate the macOS user and ask for confirmation of a caller-supplied, exact CLICK scope:
+
+```bash
+node dist/cli.js review-action --task-id task-1 --context-id context-1 --page-id page-1 --origin https://example.test --epoch 4 --target role:button:Submit
+```
+
+This requires a real interactive terminal and an installed, trusted macOS authority helper. The helper authenticates the **User profile only**; the terminal then asks for a separate, exact-scope review. The one-use result is consumed inside the CLI and is **not** an Admin/User lease, an MCP grant, proof of a ChatGPT conversation's intent, verification of actual browser state, or permission to click. The command never opens a browser or issues input. Without an interactive terminal, authentication, or explicit agreement it denies. Never pass `yes` by script or substitute this review for the unproven browser dispatch-time identity and uniqueness gate.
+
 ### Browser target model
 
 Browser actions accept semantic targets only:

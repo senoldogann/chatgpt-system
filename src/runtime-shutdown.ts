@@ -24,7 +24,8 @@ export async function closeRuntimeResources(input: {
   await attempt("computer", () => input.runtime.computer.close());
   await attempt("terminal-sessions", () => input.runtime.terminalSessionSupervisor.close());
   await attempt("owner-shell", () => input.runtime.ownerShellSupervisor.close());
-  await attempt("processes", () => input.runtime.processSupervisor.close());
+  // Persistent managed jobs intentionally survive a daemon restart; their metadata and redirected logs remain queryable.
+  await attempt("processes", () => input.runtime.processSupervisor.close(true));
   await attempt("browser", async () => {
     await input.runtime.browser.close();
   });
