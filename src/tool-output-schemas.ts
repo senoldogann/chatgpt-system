@@ -634,6 +634,23 @@ export const computerObservationOutputSchema = z.object({
   perception: computerPerceptionOutputSchema,
 }).strict();
 
+export const computerSemanticTargetResolutionOutputSchema = z.discriminatedUnion("outcome", [
+  z.object({
+    outcome: z.literal("resolved"),
+    target: z.object({
+      by: z.literal("index"),
+      snapshotId: z.string(),
+      index: z.number().int().nonnegative(),
+    }).strict(),
+    confidence: z.number().min(0).max(1),
+  }).strict(),
+  z.object({
+    outcome: z.literal("unresolved"),
+    reason: z.enum(["no_match", "low_confidence", "ambiguous_duplicate"]),
+    confidence: z.number().min(0).max(1),
+  }).strict(),
+]);
+
 export const computerActionResultOutputSchema = z.object({
   state: z.enum(["verified", "completed_unverified"]),
   pointer: computerPointOutputSchema.optional(),

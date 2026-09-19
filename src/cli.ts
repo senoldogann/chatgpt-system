@@ -28,6 +28,7 @@ Server options:
   --enable-browser                 Enable the Admin-only Playwright browser runtime. Disabled by default.
   --enable-computer-use            Enable the Admin-only native Computer Runtime. Disabled by default.
   --enable-full-host-js            Enable full-host Node.js for Computer Runtime; requires --enable-computer-use. Disabled by default.
+  --enable-jev-targeting           Enable Admin-only Jev semantic target resolution; requires --enable-computer-use and TYPESAFE_API_KEY. Disabled by default.
   --browser-headless               Run the enabled browser headlessly. Headed is the default when browser is enabled.
   --browser-existing-chrome        Attach to the user's already-running Chrome session; requires --enable-browser.
   --browser-existing-chrome-user-data-dir <path>
@@ -53,6 +54,7 @@ Security:
   Project execution is a separate explicit opt-in Docker sandbox with network disabled and no host fallback.
   Browser automation is an explicit runtime opt-in and remains Admin-only. Raw CSS/XPath/JavaScript selectors are not exposed.
   Computer Runtime is a separate explicit opt-in; health is categorical and all screen/actuation tools remain Admin-only.
+  Jev semantic targeting is a separate explicit opt-in, Admin-only, read-only (it never clicks), and fails closed without an API key.
   Browser input into password, OTP, and payment-credential-shaped fields is refused.
   Personal Admin is an explicit private-workstation opt-in and does not bypass the runtime terminal or browser gates.
   Managed process tools expose opaque IDs only; callers cannot provide OS PIDs, signals, shell mode, or child environments.
@@ -120,14 +122,14 @@ async function main(): Promise<void> {
         reportError: reportShutdownError,
       }));
       console.error(
-        `[chatgpt-system] stdio ready; roots=${config.roots.join(",")}; terminal=${config.terminal.enabled ? "enabled" : "disabled"}; owner-runtime=${config.ownerRuntime.enabled ? "enabled" : "disabled"}; project-exec=${config.projectExec.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`,
+        `[chatgpt-system] stdio ready; roots=${config.roots.join(",")}; terminal=${config.terminal.enabled ? "enabled" : "disabled"}; owner-runtime=${config.ownerRuntime.enabled ? "enabled" : "disabled"}; project-exec=${config.projectExec.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; jev-targeting=${config.jevTargeting.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`,
       );
       return;
     }
 
     const server = startHttp(runtime);
     server.once("listening", () => {
-      console.error(`[chatgpt-system] HTTP MCP listening on http://${config.http.host}:${config.http.port}/mcp; owner-runtime=${config.ownerRuntime.enabled ? "enabled" : "disabled"}; project-exec=${config.projectExec.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`);
+      console.error(`[chatgpt-system] HTTP MCP listening on http://${config.http.host}:${config.http.port}/mcp; owner-runtime=${config.ownerRuntime.enabled ? "enabled" : "disabled"}; project-exec=${config.projectExec.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; jev-targeting=${config.jevTargeting.enabled ? "enabled" : "disabled"}; control=${config.control.enabled ? config.control.socketPath : "disabled"}`);
     });
     installShutdown(() => closeRuntimeResources({
       runtime,

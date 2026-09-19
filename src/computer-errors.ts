@@ -17,6 +17,8 @@ export const COMPUTER_ERROR_MESSAGES = {
   COMPUTER_JS_DISABLED: "Full-host computer JavaScript is disabled.",
   COMPUTER_JS_FAILED: "Full-host computer JavaScript failed.",
   COMPUTER_JS_TIMEOUT: "Full-host computer JavaScript timed out.",
+  JEV_TARGETING_UNAVAILABLE: "Jev semantic targeting is disabled or not configured.",
+  JEV_TARGETING_FAILED: "Jev semantic targeting request failed.",
 } as const;
 
 export type ComputerErrorCode = keyof typeof COMPUTER_ERROR_MESSAGES;

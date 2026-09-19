@@ -7,6 +7,8 @@ import type { ComputerAction } from "./computer-types.js";
 import { AppError } from "./errors.js";
 import { createScopedRuntime, type ScopedRuntimeBase } from "./scoped-runtime.js";
 import { ScopedComputerService } from "./scoped-computer-service.js";
+import { JevApiError, JevClient, JEV_BASE_URL } from "./jev-client.js";
+import { JEV_MAX_ATTEMPTS, resolveSemanticTarget } from "./jev-target-resolver.js";
 import {
   computerActionResultOutputSchema,
   computerApplicationResultOutputSchema,
@@ -17,6 +19,7 @@ import {
   computerRunOutputSchema,
   computerScreenshotMetadataOutputSchema,
   computerScrollUntilVisibleOutputSchema,
+  computerSemanticTargetResolutionOutputSchema,
   computerWaitResultOutputSchema,
 } from "./tool-output-schemas.js";
 
@@ -350,6 +353,7 @@ function safeErrorDetails(error: ComputerError): Record<string, unknown> | undef
     safe.failedActionType = details.failedActionType;
   }
   if (Number.isInteger(details.completedCount)) safe.completedCount = details.completedCount;
+  if (Number.isInteger(details.jevStatusCode)) safe.jevStatusCode = details.jevStatusCode;
   if (Number.isInteger(details.actionCount)) safe.actionCount = details.actionCount;
   return Object.keys(safe).length > 0 ? safe : undefined;
 }
@@ -430,6 +434,42 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       annotations: computerReadAnnotations,
     },
     async ({ authorityLeaseId }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).observe() as Promise<object>),
+  );
+
+  server.registerTool(
+    "computer_resolve_semantic_target",
+    {
+      description: `${COMPUTER_USE_ROUTING_GUIDANCE} Resolve a natural-language instruction to one element from a fresh accessibility observation using Jev semantic target resolution. Read-only: it never clicks, types, or moves input. On outcome "resolved", pass the returned target directly to computer_click/computer_run/computer_move_mouse. On "unresolved", re-observe, ask the user, or fall back to computer_observe's perception.recommendedTargeting instead of guessing. Requires Admin authority, --enable-jev-targeting, and TYPESAFE_API_KEY.`,
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        instruction: z.string().min(1).max(2_000),
+      }).strict(),
+      outputSchema: computerSemanticTargetResolutionOutputSchema,
+      annotations: computerReadAnnotations,
+    },
+    async ({ authorityLeaseId, instruction }) => safeCall(async () => {
+      const computer = await computerFor(runtime, authorityLeaseId);
+      // Yetki/kapsam denetimi computer.observe() içinde gerçekleşiyor (diğer
+      // computer_* araçlarıyla aynı yol); Jev gate kontrolü ondan sonra gelir
+      // ki yetkisiz bir lease, feature'ın açık olup olmadığını hiç öğrenemesin.
+      const observation = computerObservationOutputSchema.parse(await computer.observe());
+      if (!runtime.config.jevTargeting.enabled || runtime.config.jevTargeting.apiKey === null) {
+        throw new ComputerError("JEV_TARGETING_UNAVAILABLE");
+      }
+      const client = new JevClient(runtime.config.jevTargeting.apiKey, JEV_BASE_URL);
+      try {
+        return await resolveSemanticTarget(
+          observation,
+          instruction,
+          (request) => client.ask(request, JEV_MAX_ATTEMPTS),
+        );
+      } catch (error) {
+        if (error instanceof JevApiError) {
+          throw new ComputerError("JEV_TARGETING_FAILED", { jevStatusCode: error.statusCode });
+        }
+        throw new ComputerError("JEV_TARGETING_FAILED");
+      }
+    }),
   );
 
   server.registerTool(
