@@ -121,6 +121,7 @@ export interface ConfigOverrides {
   computerUseEnabled?: boolean;
   fullHostJsEnabled?: boolean;
   jevTargetingEnabled?: boolean;
+  typesafeApiKey?: string;
   continuityDatabasePath?: string;
   commands?: string[];
   browserEnabled?: boolean;
@@ -380,7 +381,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     },
     jevTargeting: {
       enabled: jevTargetingEnabled,
-      apiKey: env.TYPESAFE_API_KEY ?? null,
+      apiKey: effectiveOverrides.typesafeApiKey ?? env.TYPESAFE_API_KEY ?? null,
     },
     continuity: {
       databasePath: continuityDatabasePath,
