@@ -53,4 +53,16 @@ describe("Jev semantic targeting configuration", () => {
       })).rejects.toThrow(/TYPESAFE_API_KEY/);
     });
   });
+
+  it("accepts typesafeApiKey via config overrides", async () => {
+    await withEnv({ TYPESAFE_API_KEY: undefined }, async () => {
+      const config = await loadConfig({
+        roots: [process.cwd()],
+        computerUseEnabled: true,
+        jevTargetingEnabled: true,
+        typesafeApiKey: "override-key",
+      });
+      expect(config.jevTargeting).toEqual({ enabled: true, apiKey: "override-key" });
+    });
+  });
 });
