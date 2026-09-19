@@ -185,6 +185,7 @@ async function fixture() {
       maxJsRuntimeMs: 30_000,
       maxJsOutputBytes: 1_048_576,
     },
+    jevTargeting: { enabled: false, apiKey: null },
     browser: { enabled: false, headless: true, timeoutMs: 2_000, userDataDir: path.join(base, "browser") },
     control: { enabled: false, socketPath: path.join(base, "control.sock") },
     http: { host: "127.0.0.1", port: 0, allowNonLoopback: false, token },
@@ -818,6 +819,69 @@ describe("computer MCP tools", () => {
       expect(textContent(failed)).toContain("INTERNAL_ERROR");
       expect(textContent(failed)).not.toContain("NATIVE_STDERR_CANARY");
       expect(textContent(failed)).not.toContain("REQUEST_ID_CANARY");
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+});
+
+describe("computer_resolve_semantic_target", () => {
+  it("is read-only, Admin-scoped, and requires an instruction", async () => {
+    const { client, transport } = await fixture();
+    try {
+      const { tools } = await client.listTools();
+      const tool = tools.find((item) => item.name === "computer_resolve_semantic_target");
+      expect(tool).toBeDefined();
+      expect(tool?.annotations).toMatchObject({ readOnlyHint: true });
+      const schema = tool?.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
+      expect(schema.properties).toHaveProperty("authorityLeaseId");
+      expect(schema.properties).toHaveProperty("instruction");
+      expect(schema.required).toContain("authorityLeaseId");
+      expect(schema.required).toContain("instruction");
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("denies Project and User leases before ever consulting Jev", async () => {
+    const { root, runtime, fake, client, transport } = await fixture();
+    try {
+      const project = await runtime.authority.start({ profile: "project", projectRoots: [root] });
+      const projectResult = await client.callTool({
+        name: "computer_resolve_semantic_target",
+        arguments: { authorityLeaseId: project.leaseId, instruction: "Click Send" },
+      });
+      expect(projectResult.isError).toBe(true);
+      expect(textContent(projectResult)).toContain("POLICY_DENIED");
+
+      const user = await runtime.authority.start({ profile: "user" });
+      const userResult = await client.callTool({
+        name: "computer_resolve_semantic_target",
+        arguments: { authorityLeaseId: user.leaseId, instruction: "Click Send" },
+      });
+      expect(userResult.isError).toBe(true);
+      expect(textContent(userResult)).toContain("POLICY_DENIED");
+
+      expect(fake.calls).toEqual([]);
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("fails closed as JEV_TARGETING_UNAVAILABLE for an Admin lease when the gate is off", async () => {
+    const { runtime, fake, client, transport } = await fixture();
+    try {
+      const admin = await runtime.authority.start({ profile: "admin" });
+      const result = await client.callTool({
+        name: "computer_resolve_semantic_target",
+        arguments: { authorityLeaseId: admin.leaseId, instruction: "Click Send" },
+      });
+      expect(result.isError).toBe(true);
+      expect(textContent(result)).toContain("JEV_TARGETING_UNAVAILABLE");
+      expect(fake.calls.map((call) => call.method)).toEqual(["observe"]);
     } finally {
       await transport.terminateSession();
       await client.close();

@@ -80,6 +80,7 @@ const expectedAnnotations = {
   browser_close: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   computer_health: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   computer_observe: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  computer_resolve_semantic_target: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   computer_screenshot: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   computer_pointer_position: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   computer_open_app: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
@@ -109,6 +110,7 @@ const codingHarnessV2ToolNames = [
 ] as const;
 const computerReliabilityV2ToolNames = [
   "computer_scroll_until_visible",
+  "computer_resolve_semantic_target",
 ] as const;
 const ownerRuntimeToolNames = [
   "shell_run",

@@ -24,6 +24,7 @@ Secure local MCP authority gateway for controlled filesystem, Git, process, and 
 | **Admin / Owner execution** | Allowlisted `shell=false` commands plus explicitly gated unrestricted `shell_run` and persistent interactive PTY sessions |
 | **Browser Runtime** | Admin-only semantic Playwright automation, screenshots, and bounded browser diagnostics |
 | **Computer Runtime v2 Slice 4** | Slice 3 native control plus Admin-only bounded full-host Node.js execution behind a separate explicit gate, private computer RPC, process containment, takeover safety, and redacted audit |
+| **Jev semantic target resolution** | Admin-only, read-only, explicitly gated: resolves a natural-language instruction to an observed element index using TypeSafe's Jev model, with a mandatory "no match" option and a duplicate-description guard so it fails closed instead of guessing |
 | **macOS trust** | LocalAuthentication for broad authority and Keychain-backed daily-driver credentials |
 | **Daily driver** | LaunchAgent startup, automatic tunnel reconnect, bounded logs, and no routine Terminal ceremony |
 
@@ -245,7 +246,20 @@ The helper bundle identifier is fixed to `com.senoldogann.chatgpt-system.compute
 
 Physical mutations are serialized and tagged with one runtime-owned CoreGraphics tag. A listen-only monitor ignores owned events, interrupts active automation on conservative unowned user input, and recognizes the fixed Control+Option+Command+Escape emergency chord. Verification uses bounded safe AX title/description state or in-memory screen-region digests; it does not read editable AX values or use OCR.
 
-Slice 4 preserves the strict Computer Runtime authority boundary. `computer_health` is lease-free and categorical; every observation, screenshot, app-focus, physical-input, wait, release, `computer_run`, and `computer_run_js` operation requires Admin authority. `computer_run_js` additionally requires the independent `--enable-full-host-js` startup gate. It runs as the current macOS user with normal Node.js APIs and is not an OS sandbox or filesystem-root confinement boundary. Source is stdin-only, the child receives a sanitized environment with daemon secret-bearing environment values removed, and ordinary descendants are cleaned through the owned process group. Deliberately detached or daemonized descendants are outside that containment claim. Raw `mouse_down` / `mouse_up` remain absent as direct MCP tools but are available inside bounded typed `computer_run`. Slice 5 OCR, semantic target resolution, stale-target detection, and recovery remain absent.
+Slice 4 preserves the strict Computer Runtime authority boundary. `computer_health` is lease-free and categorical; every observation, screenshot, app-focus, physical-input, wait, release, `computer_run`, and `computer_run_js` operation requires Admin authority. `computer_run_js` additionally requires the independent `--enable-full-host-js` startup gate. It runs as the current macOS user with normal Node.js APIs and is not an OS sandbox or filesystem-root confinement boundary. Source is stdin-only, the child receives a sanitized environment with daemon secret-bearing environment values removed, and ordinary descendants are cleaned through the owned process group. Deliberately detached or daemonized descendants are outside that containment claim. Raw `mouse_down` / `mouse_up` remain absent as direct MCP tools but are available inside bounded typed `computer_run`. `computer_resolve_semantic_target` (below) covers instruction-to-index resolution against an already-observed snapshot; Slice 5 OCR fallback, stale-target detection, and the full recovery ladder remain absent.
+
+### Jev semantic target resolution
+
+`computer_resolve_semantic_target` is a separate, explicit, Admin-only, **read-only** capability: it never clicks, types, or moves input. Given a natural-language `instruction`, it takes a fresh `computer_observe` snapshot, asks [TypeSafe's Jev model](https://docs.typesafe.ai) which observed element (if any) matches, and returns either `{ outcome: "resolved", target: { by: "index", snapshotId, index }, confidence }` — ready to pass straight into `computer_click` / `computer_run` / `computer_move_mouse` — or `{ outcome: "unresolved", reason, confidence }`.
+
+Disabled by default. Enable with `--enable-jev-targeting` (or `CHATGPT_SYSTEM_ENABLE_JEV_TARGETING=true`) plus a `TYPESAFE_API_KEY` environment variable ([console.typesafe.ai/keys](https://console.typesafe.ai/keys)); both `--enable-computer-use` and the API key are required, or the tool fails closed with `JEV_TARGETING_UNAVAILABLE`.
+
+It resolves to `unresolved` instead of guessing whenever:
+- Jev's own explicit `none` option was chosen (`reason: "no_match"`);
+- confidence falls below the resolver's internal threshold (`reason: "low_confidence"`);
+- the chosen element's description is identical to another candidate's (`reason: "ambiguous_duplicate"`) — added because duplicate/near-duplicate candidates (e.g. two identically labeled buttons) were observed to return confidently wrong answers with high reported confidence, so confidence alone is not treated as sufficient.
+
+`computer_resolve_semantic_target` only ever suggests a target; it carries no authority beyond an observation, and the calling agent still performs the actual click through the existing Admin-gated computer tools.
 
 ## Personal ChatGPT Plugin
 
@@ -560,9 +574,10 @@ computer_wait_for_text
 computer_wait_until_changed
 computer_run
 computer_run_js
+computer_resolve_semantic_target
 ```
 
-`computer_health` is lease-free; every other computer tool is Admin-only. `computer_run_js` additionally requires the explicit full-host JavaScript gate and returns only its bounded structured `stdout`, `stderr`, and optional JSON-compatible `result`; it does not report a synthetic cleanup-success field. With Admin Owner Runtime enabled, omitted `computer_run` / `computer_run_js` timeout means no local productivity deadline, while finite timeout/cancellation/takeover/emergency/shutdown and all payload/memory/recovery bounds remain in force. Direct raw `computer_mouse_down` / `computer_mouse_up` are not registered. Hold primitives exist only inside typed `computer_run`, whose returned step-detail tail is bounded independently of the number of actions executed.
+`computer_health` is lease-free; every other computer tool is Admin-only. `computer_run_js` additionally requires the explicit full-host JavaScript gate and returns only its bounded structured `stdout`, `stderr`, and optional JSON-compatible `result`; it does not report a synthetic cleanup-success field. `computer_resolve_semantic_target` additionally requires the explicit `--enable-jev-targeting` gate and a `TYPESAFE_API_KEY`; it is read-only and never clicks. With Admin Owner Runtime enabled, omitted `computer_run` / `computer_run_js` timeout means no local productivity deadline, while finite timeout/cancellation/takeover/emergency/shutdown and all payload/memory/recovery bounds remain in force. Direct raw `computer_mouse_down` / `computer_mouse_up` are not registered. Hold primitives exist only inside typed `computer_run`, whose returned step-detail tail is bounded independently of the number of actions executed.
 
 Every MCP tool declares explicit safety annotations and output schemas. Successful calls return readable text plus validated structured content.
 
@@ -674,7 +689,7 @@ Browser Runtime remains the structured web layer. Computer Runtime v2 Slice 4 pr
 
 Next separate work:
 
-1. Slice 5 semantic target resolution, OCR fallback, stale-target recovery, and recovery ladder;
+1. Slice 5 OCR fallback, stale-target recovery, and recovery ladder — `computer_resolve_semantic_target` covers instruction-to-index resolution against a single fresh snapshot, not OCR or recovery;
 2. typed root-only ServiceManagement/XPC operations only when a concrete need justifies them.
 
-Those remain separate capability boundaries. Slice 4 deliberately adds full-host execution without pretending that semantic target resolution, OCR, or autonomous recovery already exists.
+Those remain separate capability boundaries. Slice 4 deliberately adds full-host execution without pretending that OCR fallback or autonomous recovery already exists.

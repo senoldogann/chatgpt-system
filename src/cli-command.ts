@@ -96,6 +96,10 @@ export function parseCliCommand(argv: string[]): CliCommand {
       overrides.fullHostJsEnabled = true;
       continue;
     }
+    if (arg === "--enable-jev-targeting") {
+      overrides.jevTargetingEnabled = true;
+      continue;
+    }
     if (arg === "--enable-browser") {
       overrides.browserEnabled = true;
       continue;
