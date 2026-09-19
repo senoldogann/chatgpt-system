@@ -17,7 +17,7 @@ export class ManagedProcessService {
     private readonly supervisor: ProcessSupervisor,
   ) {}
 
-  async start(command: string, args: string[], cwdInput = "."): Promise<ManagedProcessSummary> {
+  async start(command: string, args: string[], cwdInput = ".", idempotencyKey?: string): Promise<ManagedProcessSummary> {
     validateProcessInvocation(this.terminal, command, args);
     // terminal_run ile aynı semantik: allowlist'te olup bulunamayan binary
     // structured EXECUTABLE_NOT_FOUND verir, ham OS hatası sızdırmaz.
@@ -27,7 +27,7 @@ export class ManagedProcessService {
     });
     if (resolved === null) throw new ExecutableNotFoundError(command);
     const cwd = await this.policy.resolve(cwdInput);
-    return this.supervisor.start({ command, args, cwd });
+    return this.supervisor.start({ command, args, cwd, ...(idempotencyKey !== undefined ? { idempotencyKey } : {}) });
   }
 
   async list(): Promise<{ processes: ManagedProcessSummary[] }> {
@@ -48,9 +48,9 @@ export class ManagedProcessService {
     return value;
   }
 
-  async logs(processId: string): Promise<ManagedProcessLogs> {
+  async logs(processId: string, cursor?: number): Promise<ManagedProcessLogs> {
     await this.requireManageable(processId);
-    const value = this.supervisor.logs(processId);
+    const value = this.supervisor.logs(processId, cursor);
     if (!value) throw new ProcessNotFoundError();
     return value;
   }

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { runAuthorizeCommand } from "./authorize-cli.js";
+import { runActionReviewCommand } from "./action-review-cli.js";
 import { parseCliCommand } from "./cli-command.js";
 import { loadConfig, resolveControlSocketPath } from "./config.js";
 import { startControlServer, type ControlServerHandle } from "./control-server.js";
@@ -15,6 +16,7 @@ Usage:
   chatgpt-system http [options]
   chatgpt-system authorize user [--ttl <seconds>] [--print-lease]
   chatgpt-system authorize admin [--ttl <seconds>] [--print-lease]
+  chatgpt-system review-action --task-id <id> --context-id <id> --page-id <id> --origin <HTTP(S) origin> --epoch <n> --target 'role:button:<name>'
 
 Server options:
   --root <path>                    Allow a filesystem root (repeatable). Defaults to cwd.
@@ -85,6 +87,11 @@ async function main(): Promise<void> {
   if (command.kind === "authorize") {
     const socketPath = resolveControlSocketPath(process.env.CHATGPT_SYSTEM_CONTROL_SOCKET);
     await runAuthorizeCommand(command.args, { socketPath });
+    return;
+  }
+  if (command.kind === "review-action") {
+    const result = await runActionReviewCommand(command.args);
+    if (result.status !== "APPROVED_REVIEW_ONLY") process.exitCode = 2;
     return;
   }
 
