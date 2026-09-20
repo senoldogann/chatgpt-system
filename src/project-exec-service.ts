@@ -5,6 +5,7 @@ import type { AuthorityProfile } from "./authority.js";
 import type { LimitsConfig } from "./config.js";
 import { AuthorityDeniedError, CommandNotAllowedError, PolicyError, ProjectExecDisabledError } from "./errors.js";
 import { PathPolicy } from "./policy.js";
+import { isNativeMacosScriptInvocation } from "./project-native-checks.js";
 import type { ProjectExecBackend, ProjectExecResult } from "./project-exec-types.js";
 
 function isInside(root: string, candidate: string): boolean {
@@ -25,6 +26,11 @@ function validateProjectCommand(commands: string[], command: string, args: strin
   }
   if (args.some((arg) => arg.includes("\u0000"))) {
     throw new PolicyError("Command arguments may not contain NUL bytes.");
+  }
+  if (isNativeMacosScriptInvocation(command, args)) {
+    throw new AuthorityDeniedError(
+      "macOS-specific scripts cannot run in the Project Docker sandbox. Use an explicitly Admin-authorized native project_check or macOS CI.",
+    );
   }
 }
 

@@ -17,6 +17,7 @@ export type ScopedComputerBackend = Pick<
   | "click"
   | "drag"
   | "scroll"
+  | "scrollUntilVisible"
   | "typeText"
   | "pressKey"
   | "waitForFrontmost"
@@ -110,6 +111,23 @@ export class ScopedComputerService {
       "computer.scroll",
       () => this.service.scroll(input),
       this.physicalTargetMetadata(input),
+    );
+  }
+
+  scrollUntilVisible(input: Parameters<ComputerRuntime["scrollUntilVisible"]>[0]) {
+    return this.runAudit(
+      "computer.scroll_until_visible",
+      () => this.service.scrollUntilVisible(input),
+      {
+        direction: input.direction,
+        amount: input.amount ?? "page",
+        maxSteps: input.maxSteps ?? 6,
+      },
+      (result) => ({
+        state: result.state,
+        stepsUsed: result.stepsUsed,
+        changed: result.changed,
+      }),
     );
   }
 

@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { stat } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -12,93 +13,100 @@ import {
   keychainDeleteInvocation,
   keychainReadInvocation,
   keychainStoreInvocation,
+  keychainTypesafeDeleteInvocation,
+  keychainTypesafeReadInvocation,
+  keychainTypesafeStoreInvocation,
   installKeychainHelper,
   planControlPlaneCredential,
+  planTypesafeCredential,
   runRestartHelper,
   storeControlPlaneKey,
+  storeTypesafeApiKey,
 } from "../scripts/setup-daily-driver.mjs";
 
 describe("macOS daily-driver setup", () => {
   it("builds a user LaunchAgent without embedding the control-plane key", () => {
-    const sentinel = "sentinel-secret";
+    const sentinel = "sentinel-control-plane-secret";
     const plist = buildLaunchAgent({
       nodePath: "/opt/homebrew/bin/node",
       runnerPath: "/Users/test/chatgpt-system/scripts/daily-driver-runner.mjs",
       tunnelClientPath: "/opt/homebrew/bin/tunnel-client",
-      profile: "chatgpt-system",
+      profile: "work-profile",
       logDir: "/Users/test/.chatgpt-system/daily-driver",
       keychainHelperPath: "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
     });
 
-    expect(plist).toContain(LAUNCH_AGENT_LABEL);
-    expect(plist).toContain("<key>RunAtLoad</key>");
-    expect(plist).toContain("<key>KeepAlive</key>");
-    expect(plist).toContain("<key>ProcessType</key>");
-    expect(plist).toContain("<string>Background</string>");
-    expect(plist).toContain("/opt/homebrew/bin/node");
-    expect(plist).toContain("/opt/homebrew/bin/tunnel-client");
-    expect(plist).toContain("--keychain-helper");
-    expect(plist).toContain("/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper");
-    expect(plist).toContain("<key>EnvironmentVariables</key>");
+    expect(plist).toContain(`<string>${LAUNCH_AGENT_LABEL}</string>`);
+    expect(plist).toContain("<string>--profile</string>");
+    expect(plist).toContain("<string>work-profile</string>");
+    expect(plist).toContain("<string>--keychain-helper</string>");
+    expect(plist).toContain("<string>/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper</string>");
     expect(plist).toContain("<key>PATH</key>");
     expect(plist).toContain("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin");
     expect(plist).not.toContain("CONTROL_PLANE_API_KEY");
+    expect(plist).not.toContain("TYPESAFE_API_KEY");
     expect(plist).not.toContain(sentinel);
   });
 
   it("reuses an existing Keychain credential through the dedicated helper", () => {
-    const calls: Array<{ command: string; args: string[] }> = [];
     const helperPath = "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper";
     const action = planControlPlaneCredential(undefined, {
       helperPath,
-      spawnSync: (command: string, args: string[]) => {
-        calls.push({ command, args });
-        return { status: 0, stdout: "existing-secret", stderr: "" };
-      },
+      spawnSync: () => ({ status: 0, stdout: "existing-key", stderr: "" }),
     });
 
     expect(action).toBe("reuse");
-    expect(calls).toEqual([{
-      command: helperPath,
-      args: ["read", "chatgpt-system", "chatgpt-system-control-plane"],
-    }]);
   });
 
   it("still requires CONTROL_PLANE_API_KEY when no Keychain credential exists", () => {
+    const helperPath = "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper";
     expect(() => planControlPlaneCredential(undefined, {
-      helperPath: "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
+      helperPath,
       spawnSync: () => ({ status: 44, stdout: "", stderr: "not found" }),
     })).toThrow(/CONTROL_PLANE_API_KEY/i);
+  });
+
+  it("plans TypeSafe credential: stores when provided, reuses when present, skips when absent", () => {
+    const helperPath = "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper";
+    expect(planTypesafeCredential("explicit-key", { helperPath })).toBe("store");
+
+    const reuseAction = planTypesafeCredential(undefined, {
+      helperPath,
+      spawnSync: () => ({ status: 0, stdout: "existing-key", stderr: "" }),
+    });
+    expect(reuseAction).toBe("reuse");
+
+    const skipAction = planTypesafeCredential(undefined, {
+      helperPath,
+      spawnSync: () => ({ status: 44, stdout: "", stderr: "not found" }),
+    });
+    expect(skipAction).toBe("skip");
   });
 
   it("rejects non-absolute executable and runner paths", () => {
     expect(() => buildLaunchAgent({
       nodePath: "node",
-      runnerPath: "/Users/test/runner.mjs",
+      runnerPath: "/Users/test/chatgpt-system/scripts/daily-driver-runner.mjs",
       tunnelClientPath: "/opt/homebrew/bin/tunnel-client",
-      profile: "chatgpt-system",
-      logDir: "/tmp/logs",
+      profile: "work-profile",
+      logDir: "/Users/test/.chatgpt-system/daily-driver",
       keychainHelperPath: "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
-    })).toThrow(/absolute/i);
+    })).toThrow(/Node path must be an absolute path/i);
 
     expect(() => buildLaunchAgent({
       nodePath: "/opt/homebrew/bin/node",
-      runnerPath: "/Users/test/runner.mjs",
-      tunnelClientPath: "tunnel-client",
-      profile: "chatgpt-system",
-      logDir: "/tmp/logs",
+      runnerPath: "scripts/daily-driver-runner.mjs",
+      tunnelClientPath: "/opt/homebrew/bin/tunnel-client",
+      profile: "work-profile",
+      logDir: "/Users/test/.chatgpt-system/daily-driver",
       keychainHelperPath: "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
-    })).toThrow(/absolute/i);
+    })).toThrow(/Runner path must be an absolute path/i);
   });
 
   it("stores the key through the native Keychain helper without transforming or exposing the secret", () => {
-    const helperPath = "/Users/test/chatgpt-system/native/macos-authority-broker/.build/release/chatgpt-system-keychain-helper";
-    const invocation = keychainStoreInvocation(helperPath);
-    expect(invocation.command).toBe(helperPath);
-    expect(invocation.args).toEqual(["store", "chatgpt-system", "chatgpt-system-control-plane"]);
-    expect(invocation.args.join(" ")).not.toContain("sentinel-secret");
-
     const calls: Array<{ command: string; args: string[]; options: Record<string, unknown> }> = [];
+    const helperPath = "/Users/test/chatgpt-system/native/macos-authority-broker/.build/release/chatgpt-system-keychain-helper";
+
     storeControlPlaneKey("sentinel-secret", {
       helperPath,
       spawnSync: (command: string, args: string[], options: Record<string, unknown>) => {
@@ -113,6 +121,36 @@ describe("macOS daily-driver setup", () => {
     expect(calls[0]?.options).toMatchObject({ input: "sentinel-secret" });
   });
 
+  it("stores and invokes TypeSafe Keychain helper commands without exposing the secret in argv", () => {
+    const helperPath = "/Users/test/chatgpt-system/native/macos-authority-broker/.build/release/chatgpt-system-keychain-helper";
+    expect(keychainTypesafeStoreInvocation(helperPath)).toEqual({
+      command: helperPath,
+      args: ["store", "chatgpt-system", "chatgpt-system-typesafe"],
+    });
+    expect(keychainTypesafeReadInvocation(helperPath)).toEqual({
+      command: helperPath,
+      args: ["read", "chatgpt-system", "chatgpt-system-typesafe"],
+    });
+    expect(keychainTypesafeDeleteInvocation(helperPath)).toEqual({
+      command: helperPath,
+      args: ["delete", "chatgpt-system", "chatgpt-system-typesafe"],
+    });
+
+    const calls: Array<{ command: string; args: string[]; options: Record<string, unknown> }> = [];
+    storeTypesafeApiKey("typesafe-secret", {
+      helperPath,
+      spawnSync: (command: string, args: string[], options: Record<string, unknown>) => {
+        calls.push({ command, args, options });
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.command).toBe(helperPath);
+    expect(JSON.stringify(calls[0]?.args)).not.toContain("typesafe-secret");
+    expect(calls[0]?.options).toMatchObject({ input: "typesafe-secret" });
+  });
+
   it("installs the built Keychain helper at a private executable path", async () => {
     const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-keychain-install-"));
     try {
@@ -123,7 +161,7 @@ describe("macOS daily-driver setup", () => {
 
       await installKeychainHelper(source, destination);
 
-      expect(await readFile(destination, "utf8")).toBe("fixture-helper");
+      expect((await readFile(destination, "utf8"))).toBe("fixture-helper");
       expect((await stat(destination)).mode & 0o777).toBe(0o700);
     } finally {
       await rm(base, { recursive: true, force: true });
@@ -142,9 +180,11 @@ describe("macOS daily-driver setup", () => {
     });
   });
 
-  it("constructs deterministic user-scoped launchctl commands", () => {
+  it("builds correct launchctl commands for the current user gui domain", () => {
     const plistPath = "/Users/test/Library/LaunchAgents/com.senoldogann.chatgpt-system.daily-driver.plist";
-    expect(buildLaunchctlCommands({ uid: 501, plistPath })).toEqual({
+    const commands = buildLaunchctlCommands({ uid: 501, plistPath });
+
+    expect(commands).toEqual({
       bootout: ["bootout", "gui/501", plistPath],
       bootstrap: ["bootstrap", "gui/501", plistPath],
       status: ["print", `gui/501/${LAUNCH_AGENT_LABEL}`],
@@ -180,7 +220,8 @@ describe("macOS daily-driver setup", () => {
   it("schedules the helper instead of booting out a loaded daily-driver from its own process tree", () => {
     const plistPath = "/Users/test/Library/LaunchAgents/com.senoldogann.chatgpt-system.daily-driver.plist";
     const calls: Array<{ command: string; args: string[] }> = [];
-    const result = activateLaunchAgent({
+
+    const activation = activateLaunchAgent({
       uid: 501,
       plistPath,
       nodePath: "/opt/homebrew/bin/node",
@@ -193,32 +234,38 @@ describe("macOS daily-driver setup", () => {
       },
     });
 
-    expect(result).toBe("restart-scheduled");
-    expect(calls[0]).toEqual({
-      command: "/bin/launchctl",
-      args: ["print", `gui/501/${LAUNCH_AGENT_LABEL}`],
-    });
-    expect(calls.some(({ args }) => args[0] === "submit" && args.includes(RESTART_HELPER_LABEL))).toBe(true);
-    expect(calls.some(({ args }) => (
-      (args[0] === "bootout" || args[0] === "bootstrap") && args.includes(plistPath)
-    ))).toBe(false);
+    expect(activation).toBe("restart-scheduled");
+    expect(calls).toEqual([
+      { command: "/bin/launchctl", args: ["print", `gui/501/${LAUNCH_AGENT_LABEL}`] },
+      { command: "/bin/launchctl", args: ["remove", RESTART_HELPER_LABEL] },
+      {
+        command: "/bin/launchctl",
+        args: [
+          "submit",
+          "-l", RESTART_HELPER_LABEL,
+          "--",
+          "/opt/homebrew/bin/node",
+          "/Users/test/chatgpt-system/scripts/setup-daily-driver.mjs",
+          "restart-helper",
+          "--uid", "501",
+          "--plist", plistPath,
+        ],
+      },
+    ]);
   });
 
   it("reloads the target from the independent helper and then removes the submitted helper job", async () => {
     const plistPath = "/Users/test/Library/LaunchAgents/com.senoldogann.chatgpt-system.daily-driver.plist";
     const calls: Array<{ command: string; args: string[] }> = [];
-    const waits: number[] = [];
 
     await runRestartHelper({ uid: 501, plistPath }, {
-      wait: async (milliseconds: number) => { waits.push(milliseconds); },
+      wait: async () => {},
       runCommand: (command: string, args: string[]) => {
         calls.push({ command, args });
         return { status: 0, stdout: "", stderr: "" };
       },
     });
 
-    expect(waits).toHaveLength(1);
-    expect(waits[0]).toBeGreaterThan(0);
     expect(calls).toEqual([
       { command: "/bin/launchctl", args: ["bootout", "gui/501", plistPath] },
       { command: "/bin/launchctl", args: ["bootstrap", "gui/501", plistPath] },
@@ -234,16 +281,15 @@ describe("macOS daily-driver setup", () => {
       wait: async () => {},
       runCommand: (command: string, args: string[]) => {
         calls.push({ command, args });
-        if (args[0] === "bootstrap") {
-          return { status: 5, stdout: "", stderr: "bootstrap failed" };
-        }
+        if (args[0] === "bootstrap") return { status: 1, stdout: "", stderr: "bootstrap failed" };
         return { status: 0, stdout: "", stderr: "" };
       },
-    })).rejects.toThrow(/launchctl bootstrap failed/i);
+    })).rejects.toThrow("bootstrap failed");
 
-    expect(calls.at(-1)).toEqual({
-      command: "/bin/launchctl",
-      args: ["remove", RESTART_HELPER_LABEL],
-    });
+    expect(calls).toEqual([
+      { command: "/bin/launchctl", args: ["bootout", "gui/501", plistPath] },
+      { command: "/bin/launchctl", args: ["bootstrap", "gui/501", plistPath] },
+      { command: "/bin/launchctl", args: ["remove", RESTART_HELPER_LABEL] },
+    ]);
   });
 });

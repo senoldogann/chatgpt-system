@@ -40,7 +40,7 @@ class AcceptanceNative implements ComputerNativeRequesting {
     timeoutMs?: number,
   ): Promise<unknown> {
     this.calls.push({ method, ...(timeoutMs !== undefined ? { timeoutMs } : {}) });
-    return method === "pointer_position" ? { x: 1, y: 1 } : { state: "completed" };
+    return method === "pointer_position" ? { x: 1, y: 1 } : { state: "completed_unverified" };
   }
 
   async close(): Promise<void> {}

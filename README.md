@@ -24,6 +24,7 @@ Secure local MCP authority gateway for controlled filesystem, Git, process, and 
 | **Admin / Owner execution** | Allowlisted `shell=false` commands plus explicitly gated unrestricted `shell_run` and persistent interactive PTY sessions |
 | **Browser Runtime** | Admin-only semantic Playwright automation, screenshots, and bounded browser diagnostics |
 | **Computer Runtime v2 Slice 4** | Slice 3 native control plus Admin-only bounded full-host Node.js execution behind a separate explicit gate, private computer RPC, process containment, takeover safety, and redacted audit |
+| **Jev semantic target resolution** | Admin-only, read-only, explicitly gated: resolves a natural-language instruction to an observed element index using TypeSafe's Jev model, with a mandatory "no match" option and a duplicate-description guard so it fails closed instead of guessing |
 | **macOS trust** | LocalAuthentication for broad authority and Keychain-backed daily-driver credentials |
 | **Daily driver** | LaunchAgent startup, automatic tunnel reconnect, bounded logs, and no routine Terminal ceremony |
 
@@ -187,6 +188,16 @@ All other browser tools require an active Admin lease because tabs, URLs, page c
 
 Project and User leases therefore cannot inspect or mutate browser content.
 
+### Local action review (review only)
+
+The local CLI can separately authenticate the macOS user and ask for confirmation of a caller-supplied, exact CLICK scope:
+
+```bash
+node dist/cli.js review-action --task-id task-1 --context-id context-1 --page-id page-1 --origin https://example.test --epoch 4 --target role:button:Submit
+```
+
+This requires a real interactive terminal and an installed, trusted macOS authority helper. The helper authenticates the **User profile only**; the terminal then asks for a separate, exact-scope review. The one-use result is consumed inside the CLI and is **not** an Admin/User lease, an MCP grant, proof of a ChatGPT conversation's intent, verification of actual browser state, or permission to click. The command never opens a browser or issues input. Without an interactive terminal, authentication, or explicit agreement it denies. Never pass `yes` by script or substitute this review for the unproven browser dispatch-time identity and uniqueness gate.
+
 ### Browser target model
 
 Browser actions accept semantic targets only:
@@ -235,7 +246,20 @@ The helper bundle identifier is fixed to `com.senoldogann.chatgpt-system.compute
 
 Physical mutations are serialized and tagged with one runtime-owned CoreGraphics tag. A listen-only monitor ignores owned events, interrupts active automation on conservative unowned user input, and recognizes the fixed Control+Option+Command+Escape emergency chord. Verification uses bounded safe AX title/description state or in-memory screen-region digests; it does not read editable AX values or use OCR.
 
-Slice 4 preserves the strict Computer Runtime authority boundary. `computer_health` is lease-free and categorical; every observation, screenshot, app-focus, physical-input, wait, release, `computer_run`, and `computer_run_js` operation requires Admin authority. `computer_run_js` additionally requires the independent `--enable-full-host-js` startup gate. It runs as the current macOS user with normal Node.js APIs and is not an OS sandbox or filesystem-root confinement boundary. Source is stdin-only, the child receives a sanitized environment with daemon secret-bearing environment values removed, and ordinary descendants are cleaned through the owned process group. Deliberately detached or daemonized descendants are outside that containment claim. Raw `mouse_down` / `mouse_up` remain absent as direct MCP tools but are available inside bounded typed `computer_run`. Slice 5 OCR, semantic target resolution, stale-target detection, and recovery remain absent.
+Slice 4 preserves the strict Computer Runtime authority boundary. `computer_health` is lease-free and categorical; every observation, screenshot, app-focus, physical-input, wait, release, `computer_run`, and `computer_run_js` operation requires Admin authority. `computer_run_js` additionally requires the independent `--enable-full-host-js` startup gate. It runs as the current macOS user with normal Node.js APIs and is not an OS sandbox or filesystem-root confinement boundary. Source is stdin-only, the child receives a sanitized environment with daemon secret-bearing environment values removed, and ordinary descendants are cleaned through the owned process group. Deliberately detached or daemonized descendants are outside that containment claim. Raw `mouse_down` / `mouse_up` remain absent as direct MCP tools but are available inside bounded typed `computer_run`. `computer_resolve_semantic_target` (below) covers instruction-to-index resolution against an already-observed snapshot; Slice 5 OCR fallback, stale-target detection, and the full recovery ladder remain absent.
+
+### Jev semantic target resolution
+
+`computer_resolve_semantic_target` is a separate, explicit, Admin-only, **read-only** capability: it never clicks, types, or moves input. Given a natural-language `instruction`, it takes a fresh `computer_observe` snapshot, asks [TypeSafe's Jev model](https://docs.typesafe.ai) which observed element (if any) matches, and returns either `{ outcome: "resolved", target: { by: "index", snapshotId, index }, confidence }` — ready to pass straight into `computer_click` / `computer_run` / `computer_move_mouse` — or `{ outcome: "unresolved", reason, confidence }`.
+
+Disabled by default. Enable with `--enable-jev-targeting` (or `CHATGPT_SYSTEM_ENABLE_JEV_TARGETING=true`) plus a `TYPESAFE_API_KEY` environment variable ([console.typesafe.ai/keys](https://console.typesafe.ai/keys)); both `--enable-computer-use` and the API key are required, or the tool fails closed with `JEV_TARGETING_UNAVAILABLE`.
+
+It resolves to `unresolved` instead of guessing whenever:
+- Jev's own explicit `none` option was chosen (`reason: "no_match"`);
+- confidence falls below the resolver's internal threshold (`reason: "low_confidence"`);
+- the chosen element's description is identical to another candidate's (`reason: "ambiguous_duplicate"`) — added because duplicate/near-duplicate candidates (e.g. two identically labeled buttons) were observed to return confidently wrong answers with high reported confidence, so confidence alone is not treated as sufficient.
+
+`computer_resolve_semantic_target` only ever suggests a target; it carries no authority beyond an observation, and the calling agent still performs the actual click through the existing Admin-gated computer tools.
 
 ## Personal ChatGPT Plugin
 
@@ -303,16 +327,21 @@ ChatGPT Web is the canonical first acceptance surface. Desktop uses the same ins
 
 If ChatGPT returns `This conversation does not support developer MCPs`, treat it as a **product surface / tool routing availability** problem, do not treat it as daemon failure or tunnel failure. Do not invent a local-host fallback and do not claim local changes, tests, or Git operations that were not actually performed.
 
-Recovery flow:
+If `@chatgpt-system-local` no longer appears or disappears from the current composer/tools surface, do not repeatedly keep trying the same unavailable `@` path. Selection on an earlier turn is not proof that the custom app is still available now.
+
+Recovery flow for normal project work:
 
 1. Return to a supported **standard text chat** surface. Agent mode does not use custom apps; Deep Research can use custom apps only for read/fetch actions, not write/modify actions.
-2. Select the custom app again from the tools/apps menu or `@mention` it on the message that needs new local data or an action.
-3. If the MCP server tool/action definitions changed, use **Refresh** in the app configuration so ChatGPT reloads the current actions.
-4. Once developer MCP tools are available again, call `project_resume` for the exact registered alias and reconcile Git/worktree reality before continuing.
+2. If the app is actually available in the current chat, select it from the supported tools/apps surface. If it is absent or the conversation rejects developer MCPs, open a **new supported standard text chat** in the **same Project** instead of depending on `@mention` recovery in the broken conversation.
+3. In the new chat, select the app from whatever supported apps/tools surface is available and ask to continue the exact project.
+4. Once developer MCP tools are available again, the **first project action** is `project_resume` for the exact registered alias; reconcile Git/worktree reality before project mutation.
+5. If tool/action definitions changed and the product exposes a supported **Refresh** action, use it to reload the current catalog. Do not disconnect/recreate the app merely to simulate refresh.
+
+`Connection interrupted. Waiting for the complete answer` is not evidence of local tunnel failure by itself. Do not restart an otherwise healthy tunnel solely for this Web-stream symptom; run `npm run diagnose:chatgpt` near the incident time to classify bounded local evidence. Container access is not the user's Mac and must not be substituted for an unavailable developer MCP surface.
 
 Stopping and continuing the same chat is not itself proof that the custom app remains available on the next message. The agent must use actual MCP tool availability as evidence. Safety or product-surface routing must never be worked around by keyword substitution or by pretending container access is equivalent to the user's Mac.
 
-See [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md) for the full runbook.
+See [docs/CHATGPT_WEB_RESILIENCE.md](docs/CHATGPT_WEB_RESILIENCE.md) for hosted stream/capability-loss recovery and safe local diagnostics, and [docs/CHATGPT_INTEGRATION.md](docs/CHATGPT_INTEGRATION.md) for the full integration runbook.
 
 ## macOS daily driver
 
@@ -456,6 +485,8 @@ git_push
 
 `git_push` is a dual-authority publication gate. `authorityLeaseId` must be an active Admin lease and `projectAuthorityLeaseId` must be the exact active Project lease returned by `project_resume` for the registered worktree. Publication is denied on `main`, on a dirty tree, when resumed worktree identity no longer matches, or unless `project_check` reports a fresh `PASS` for the exact current `HEAD` + `workingTreeDigest`. The final Git refspec uses that verified commit SHA and the validated current branch; remote/refspec/force/branch/head verification overrides are not exposed to MCP callers.
 
+An Admin lease supplied to `project_check run` for an `admin-host` native verification check authorizes only that local verification execution. `git_push` independently requires its own current Admin lease plus the exact resumed Project lease and a fresh `project_check report` `PASS`. Verification evidence stores categorical execution metadata plus output digests and byte counts; raw terminal stdout/stderr is not persisted.
+
 ### Sandboxed Project execution
 
 ```text
@@ -543,9 +574,10 @@ computer_wait_for_text
 computer_wait_until_changed
 computer_run
 computer_run_js
+computer_resolve_semantic_target
 ```
 
-`computer_health` is lease-free; every other computer tool is Admin-only. `computer_run_js` additionally requires the explicit full-host JavaScript gate and returns only its bounded structured `stdout`, `stderr`, and optional JSON-compatible `result`; it does not report a synthetic cleanup-success field. With Admin Owner Runtime enabled, omitted `computer_run` / `computer_run_js` timeout means no local productivity deadline, while finite timeout/cancellation/takeover/emergency/shutdown and all payload/memory/recovery bounds remain in force. Direct raw `computer_mouse_down` / `computer_mouse_up` are not registered. Hold primitives exist only inside typed `computer_run`, whose returned step-detail tail is bounded independently of the number of actions executed.
+`computer_health` is lease-free; every other computer tool is Admin-only. `computer_run_js` additionally requires the explicit full-host JavaScript gate and returns only its bounded structured `stdout`, `stderr`, and optional JSON-compatible `result`; it does not report a synthetic cleanup-success field. `computer_resolve_semantic_target` additionally requires the explicit `--enable-jev-targeting` gate and a `TYPESAFE_API_KEY`; it is read-only and never clicks. With Admin Owner Runtime enabled, omitted `computer_run` / `computer_run_js` timeout means no local productivity deadline, while finite timeout/cancellation/takeover/emergency/shutdown and all payload/memory/recovery bounds remain in force. Direct raw `computer_mouse_down` / `computer_mouse_up` are not registered. Hold primitives exist only inside typed `computer_run`, whose returned step-detail tail is bounded independently of the number of actions executed.
 
 Every MCP tool declares explicit safety annotations and output schemas. Successful calls return readable text plus validated structured content.
 
@@ -657,7 +689,7 @@ Browser Runtime remains the structured web layer. Computer Runtime v2 Slice 4 pr
 
 Next separate work:
 
-1. Slice 5 semantic target resolution, OCR fallback, stale-target recovery, and recovery ladder;
+1. Slice 5 OCR fallback, stale-target recovery, and recovery ladder — `computer_resolve_semantic_target` covers instruction-to-index resolution against a single fresh snapshot, not OCR or recovery;
 2. typed root-only ServiceManagement/XPC operations only when a concrete need justifies them.
 
-Those remain separate capability boundaries. Slice 4 deliberately adds full-host execution without pretending that semantic target resolution, OCR, or autonomous recovery already exists.
+Those remain separate capability boundaries. Slice 4 deliberately adds full-host execution without pretending that OCR fallback or autonomous recovery already exists.

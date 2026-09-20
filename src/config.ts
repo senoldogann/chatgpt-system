@@ -56,6 +56,11 @@ export interface OwnerRuntimeConfig {
   maxTerminalInputBytes: number;
 }
 
+export interface JevTargetingConfig {
+  enabled: boolean;
+  apiKey: string | null;
+}
+
 export interface ComputerUseConfig {
   enabled: boolean;
   fullHostJsEnabled: boolean;
@@ -87,6 +92,7 @@ export interface AppConfig {
   };
   ownerRuntime: OwnerRuntimeConfig;
   computerUse: ComputerUseConfig;
+  jevTargeting: JevTargetingConfig;
   continuity: ContinuityConfig;
   browser: BrowserConfig;
   control: {
@@ -114,6 +120,8 @@ export interface ConfigOverrides {
   ownerShellPath?: string;
   computerUseEnabled?: boolean;
   fullHostJsEnabled?: boolean;
+  jevTargetingEnabled?: boolean;
+  typesafeApiKey?: string;
   continuityDatabasePath?: string;
   commands?: string[];
   browserEnabled?: boolean;
@@ -155,6 +163,8 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_OWNER_SHELL_PATH: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_COMPUTER_USE: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ENABLE_FULL_HOST_JS: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_ENABLE_JEV_TARGETING: z.enum(["true", "false", "1", "0"]).optional(),
+  TYPESAFE_API_KEY: z.string().min(1).optional(),
   CHATGPT_SYSTEM_CONTINUITY_DATABASE: z.string().optional(),
   CHATGPT_SYSTEM_COMPUTER_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_OBSERVATION_ELEMENTS: z.coerce.number().int().positive().optional(),
@@ -329,6 +339,8 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     ownerShellPath = await realpath(ownerShellPathInput);
   }
 
+  const jevTargetingEnabled = effectiveOverrides.jevTargetingEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_JEV_TARGETING);
+
   const config: AppConfig = {
     roots,
     auditFile: path.resolve(
@@ -367,6 +379,10 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       maxJsRuntimeMs: env.CHATGPT_SYSTEM_COMPUTER_MAX_JS_RUNTIME_MS ?? COMPUTER_MAX_JS_RUNTIME_MS,
       maxJsOutputBytes: env.CHATGPT_SYSTEM_COMPUTER_MAX_JS_OUTPUT_BYTES ?? COMPUTER_MAX_JS_OUTPUT_BYTES,
     },
+    jevTargeting: {
+      enabled: jevTargetingEnabled,
+      apiKey: effectiveOverrides.typesafeApiKey ?? env.TYPESAFE_API_KEY ?? null,
+    },
     continuity: {
       databasePath: continuityDatabasePath,
       maxResumeChars: CONTINUITY_MAX_RESUME_CHARS,
@@ -404,6 +420,13 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
 
   if (config.computerUse.fullHostJsEnabled && !config.computerUse.enabled) {
     throw new Error("Full-host JavaScript requires Computer Runtime to be explicitly enabled.");
+  }
+
+  if (config.jevTargeting.enabled && !config.computerUse.enabled) {
+    throw new Error("Jev semantic targeting requires Computer Runtime to be explicitly enabled.");
+  }
+  if (config.jevTargeting.enabled && config.jevTargeting.apiKey === null) {
+    throw new Error("Jev semantic targeting requires the TYPESAFE_API_KEY environment variable.");
   }
 
   return config;

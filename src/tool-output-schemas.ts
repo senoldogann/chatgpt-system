@@ -39,6 +39,10 @@ export const systemCapabilitiesOutputSchema = z.object({
     enabled: z.boolean(),
     adminLeaseMaxTtlSeconds: z.literal(3600),
   }),
+  persistentOwnerMode: z.object({
+    enabled: z.boolean(),
+    expiresAt: z.literal("never"),
+  }),
   ownerRuntime: z.object({
     enabled: z.boolean(),
   }),
@@ -102,6 +106,14 @@ export const authorityRequestStatusOutputSchema = authorityRequestBaseOutputSche
 
 export const authorityEndOutputSchema = z.object({
   ended: z.literal(true),
+});
+
+export const persistentOwnerModeOutputSchema = z.object({
+  enabled: z.boolean(),
+  leaseId: z.string().optional(),
+  profile: z.literal("admin"),
+  createdAt: z.string().optional(),
+  expiresAt: z.literal("never"),
 });
 
 export const executableResolutionOutputSchema = z.object({
@@ -200,6 +212,33 @@ export const gitResultOutputSchema = z.object({
   stderr: z.string(),
 });
 
+export const gitInventoryOutputSchema = z.object({
+  cwd: z.string(),
+  entries: z.array(z.object({
+    path: z.string(),
+    category: z.enum(["modified", "untracked", "deleted", "ignored"]),
+    risk: z.enum(["none", "secret", "binary", "artifact"]),
+    indexStatus: z.string().optional(),
+    worktreeStatus: z.string().optional(),
+  }).strict()),
+  cursor: z.number().int().nonnegative(),
+  snapshot: sha256Schema,
+  nextCursor: z.number().int().nonnegative().optional(),
+  complete: z.boolean(),
+}).strict();
+
+export const gitFileReviewOutputSchema = z.object({
+  cwd: z.string(),
+  path: z.string(),
+  diff: z.string(),  diffBytes: nonNegativeInt,
+  diffSha256: sha256Schema,
+  contentSha256: sha256Schema.nullable(),
+  deletion: z.boolean(),
+  deletionEvidence: z.enum(["worktree-path-missing", "not-deleted"]),
+  risk: z.enum(["none", "secret", "binary", "artifact"]),
+  contentEncoding: z.enum(["utf8", "base64"]),
+}).strict();
+
 export const gitWorktreeOutputSchema = z.object({
   operation: z.enum(["create", "status", "remove"]),
   worktreeId: z.string().uuid(),
@@ -213,7 +252,8 @@ export const gitWorktreeOutputSchema = z.object({
 
 const projectCheckStatusSchema = z.enum(["PASS", "FAIL", "NOT_RUN", "STALE", "UNAVAILABLE"]);
 const projectCheckKindSchema = z.enum(["check", "typecheck", "lint", "test", "build"]);
-const projectCheckDetectedFields = {
+const projectCheckExecutionSchema = z.enum(["project-sandbox", "admin-host"]);
+const projectCheckCommonFields = {
   checkId: z.string(),
   kind: projectCheckKindSchema,
   command: z.string(),
@@ -221,8 +261,13 @@ const projectCheckDetectedFields = {
   cwd: z.string(),
   source: z.string(),
 };
+const projectCheckDetectedFields = {
+  ...projectCheckCommonFields,
+  execution: projectCheckExecutionSchema,
+};
 const projectCheckEvidenceSchema = z.object({
-  ...projectCheckDetectedFields,
+  ...projectCheckCommonFields,
+  execution: projectCheckExecutionSchema.optional(),
   baseStatus: z.enum(["PASS", "FAIL", "UNAVAILABLE"]),
   startedAt: z.string(),
   finishedAt: z.string(),
@@ -430,7 +475,9 @@ export const processSummaryOutputSchema = z.object({
   command: z.string(),
   argCount: nonNegativeInt,
   cwd: z.string(),
-  state: z.enum(["running", "exited", "stopped"]),
+  state: z.enum(["running", "stopping", "exited", "stopped", "unknown"]),
+  jobId: z.string(),
+  status: z.enum(["running", "stopping", "completed", "failed", "cancelled", "unknown"]),
   startedAt: z.string(),
   exitedAt: z.string().optional(),
   exitCode: z.number().int().nullable().optional(),
@@ -449,8 +496,9 @@ const processLogStreamOutputSchema = z.object({
 
 export const processLogsOutputSchema = z.object({
   processId: z.string(),
-  stdout: processLogStreamOutputSchema,
-  stderr: processLogStreamOutputSchema,
+  cursor: z.number().int().nonnegative().optional(),
+  stdout: processLogStreamOutputSchema.extend({ nextCursor: z.number().int().nonnegative().optional() }),
+  stderr: processLogStreamOutputSchema.extend({ nextCursor: z.number().int().nonnegative().optional() }),
 });
 
 const browserPageIdSchema = z.string().min(40).max(128);
@@ -563,8 +611,15 @@ const computerBoundsOutputSchema = z.object({
   height: z.number().nonnegative(),
 });
 
+const computerScrollCapabilityOutputSchema = z.object({
+  scrollable: z.boolean(),
+  axes: z.array(z.enum(["vertical", "horizontal"])).max(2),
+}).strict();
+
 const computerElementOutputSchema = z.object({
   index: z.number().int().nonnegative(),
+  parentIndex: z.number().int().nonnegative().nullable(),
+  depth: z.number().int().nonnegative(),
   role: z.string(),
   subrole: z.string().optional(),
   title: z.string().optional(),
@@ -573,7 +628,24 @@ const computerElementOutputSchema = z.object({
   enabled: z.boolean().optional(),
   selected: z.boolean().optional(),
   bounds: computerBoundsOutputSchema.optional(),
-});
+  actions: z.array(z.string().max(128)).max(16),
+  scroll: computerScrollCapabilityOutputSchema,
+}).strict();
+
+const computerOcrCandidateOutputSchema = z.object({
+  text: z.string().max(512),
+  bounds: computerBoundsOutputSchema,
+  confidence: z.number().min(0).max(1).nullable(),
+  source: z.enum(["vision-fast", "vision-accurate"]),
+}).strict();
+
+const computerPerceptionOutputSchema = z.object({
+  axQuality: z.enum(["strong", "partial", "weak"]),
+  webContentAccessible: z.boolean().nullable(),
+  ocrUsed: z.boolean(),
+  recommendedTargeting: z.enum(["ax", "ocr", "visual-point"]),
+  ocrCandidates: z.array(computerOcrCandidateOutputSchema).max(64),
+}).strict();
 
 export const computerHealthOutputSchema = z.object({
   enabled: z.boolean(),
@@ -601,13 +673,45 @@ export const computerObservationOutputSchema = z.object({
   elements: z.array(computerElementOutputSchema),
   truncated: z.boolean(),
   digest: z.string().optional(),
-});
+  perception: computerPerceptionOutputSchema,
+}).strict();
+
+export const computerSemanticTargetResolutionOutputSchema = z.discriminatedUnion("outcome", [
+  z.object({
+    outcome: z.literal("resolved"),
+    target: z.object({
+      by: z.literal("index"),
+      snapshotId: z.string(),
+      index: z.number().int().nonnegative(),
+    }).strict(),
+    confidence: z.number().min(0).max(1),
+  }).strict(),
+  z.object({
+    outcome: z.literal("unresolved"),
+    reason: z.enum(["no_match", "low_confidence", "ambiguous_duplicate"]),
+    confidence: z.number().min(0).max(1),
+  }).strict(),
+]);
 
 export const computerActionResultOutputSchema = z.object({
-  state: z.string(),
+  state: z.enum(["verified", "completed_unverified"]),
   pointer: computerPointOutputSchema.optional(),
   changed: z.boolean().optional(),
-});
+  verification: z.object({
+    kind: z.enum(["ax", "text", "screen-region", "none"]),
+    changed: z.boolean().nullable(),
+  }).strict().optional(),
+}).strict();
+
+export const computerScrollUntilVisibleOutputSchema = z.object({
+  state: z.enum(["target_visible", "boundary_reached", "needs_replan"]),
+  stepsUsed: z.number().int().min(0).max(6),
+  changed: z.boolean(),
+}).strict();
+
+export const computerWaitResultOutputSchema = z.object({
+  state: z.literal("completed"),
+}).strict();
 
 export const computerChangedDigestOutputSchema = z.object({
   digest: z.string(),
@@ -616,7 +720,16 @@ export const computerChangedDigestOutputSchema = z.object({
 export const computerScreenshotMetadataOutputSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
-});
+  captureKind: z.literal("display"),
+  screenBounds: z.object({
+    x: z.number(),
+    y: z.number(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+  }).strict(),
+  scaleX: z.number().positive(),
+  scaleY: z.number().positive(),
+}).strict();
 
 const computerRunStepTypeSchema = z.enum([
   "observe",

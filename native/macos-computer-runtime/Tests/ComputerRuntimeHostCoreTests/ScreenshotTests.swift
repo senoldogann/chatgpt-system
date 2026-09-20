@@ -1,4 +1,5 @@
 import ComputerRuntimeCore
+import CoreGraphics
 import Foundation
 import XCTest
 @testable import ComputerRuntimeHostCore
@@ -13,7 +14,11 @@ final class ScreenshotTests: XCTestCase {
                 screenshot: ComputerScreenshot(
                     pngBase64: png.base64EncodedString(),
                     width: 1440,
-                    height: 900
+                    height: 900,
+                    captureKind: .display,
+                    screenBounds: ComputerBounds(x: -720, y: 40, width: 720, height: 450),
+                    scaleX: 0.5,
+                    scaleY: 0.5
                 ),
                 counter: counter
             )
@@ -31,6 +36,10 @@ final class ScreenshotTests: XCTestCase {
         XCTAssertEqual(Data(base64Encoded: screenshot.pngBase64), png)
         XCTAssertEqual(screenshot.width, 1440)
         XCTAssertEqual(screenshot.height, 900)
+        XCTAssertEqual(screenshot.captureKind, .display)
+        XCTAssertEqual(screenshot.screenBounds, ComputerBounds(x: -720, y: 40, width: 720, height: 450))
+        XCTAssertEqual(screenshot.scaleX, 0.5)
+        XCTAssertEqual(screenshot.scaleY, 0.5)
         XCTAssertEqual(counter.value, 1)
     }
 
@@ -42,7 +51,11 @@ final class ScreenshotTests: XCTestCase {
                 screenshot: ComputerScreenshot(
                     pngBase64: Data([0x89, 0x50, 0x4E, 0x47]).base64EncodedString(),
                     width: 1,
-                    height: 1
+                    height: 1,
+                    captureKind: .display,
+                    screenBounds: ComputerBounds(x: 0, y: 0, width: 1, height: 1),
+                    scaleX: 1,
+                    scaleY: 1
                 ),
                 counter: counter
             )
@@ -69,7 +82,11 @@ final class ScreenshotTests: XCTestCase {
                 screenshot: ComputerScreenshot(
                     pngBase64: oversized.base64EncodedString(),
                     width: 4096,
-                    height: 2160
+                    height: 2160,
+                    captureKind: .display,
+                    screenBounds: ComputerBounds(x: 0, y: 0, width: 2048, height: 1080),
+                    scaleX: 0.5,
+                    scaleY: 0.5
                 )
             )
         )
@@ -90,7 +107,15 @@ final class ScreenshotTests: XCTestCase {
         let service = makeScreenshotService(
             authorized: true,
             capturer: FakeScreenshotCapturer(
-                screenshot: ComputerScreenshot(pngBase64: "", width: 0, height: 0),
+                screenshot: ComputerScreenshot(
+                    pngBase64: "",
+                    width: 0,
+                    height: 0,
+                    captureKind: .display,
+                    screenBounds: ComputerBounds(x: 0, y: 0, width: 1, height: 1),
+                    scaleX: 1,
+                    scaleY: 1
+                ),
                 shouldThrow: true
             )
         )
@@ -111,6 +136,69 @@ final class ScreenshotTests: XCTestCase {
         XCTAssertFalse(text.contains("native-screenshot-secret"))
     }
 
+    func testFocusedWindowCropRectUsesIndependentDisplayScaleFactors() throws {
+        let rect = try XCTUnwrap(WindowCaptureGeometry.cropRect(
+            windowBounds: ComputerBounds(x: 120, y: 80, width: 400, height: 300),
+            captureBounds: ComputerBounds(x: 100, y: 50, width: 1_000, height: 500),
+            imageWidth: 2_000,
+            imageHeight: 1_000
+        ))
+
+        XCTAssertEqual(rect, CGRect(x: 40, y: 60, width: 800, height: 600))
+    }
+
+    func testInteractiveScreenshotDisplaySelectionPrefersFocusedThenFallsBackSafely() {
+        XCTAssertEqual(
+            FocusedDisplaySelection.selectForScreenshot(
+                availableDisplayIDs: [1, 9],
+                focusedDisplayID: 9,
+                mainDisplayID: 1
+            ),
+            9
+        )
+        XCTAssertEqual(
+            FocusedDisplaySelection.selectForScreenshot(
+                availableDisplayIDs: [1, 9],
+                focusedDisplayID: nil,
+                mainDisplayID: 1
+            ),
+            1
+        )
+        XCTAssertEqual(
+            FocusedDisplaySelection.selectForScreenshot(
+                availableDisplayIDs: [3, 9],
+                focusedDisplayID: 7,
+                mainDisplayID: 1
+            ),
+            3
+        )
+    }
+
+    func testScreenshotCoordinateGeometryMaps1710x1112PixelsToScreenSpace() throws {
+        let bounds = ComputerBounds(x: -855, y: 40, width: 855, height: 556)
+        let scales = try XCTUnwrap(ScreenshotCoordinateGeometry.scaleFactors(
+            screenBounds: bounds,
+            imageWidth: 1_710,
+            imageHeight: 1_112
+        ))
+
+        XCTAssertEqual(scales.x, 0.5)
+        XCTAssertEqual(scales.y, 0.5)
+        XCTAssertTrue(scales.x.isFinite)
+        XCTAssertTrue(scales.y.isFinite)
+        XCTAssertEqual(bounds.x + Double(1_710) * scales.x, 0)
+        XCTAssertEqual(bounds.y + Double(1_112) * scales.y, 596)
+    }
+
+    func testFocusedWindowCropRectRejectsCrossDisplayBounds() {
+        XCTAssertNil(WindowCaptureGeometry.cropRect(
+            windowBounds: ComputerBounds(x: 900, y: 80, width: 400, height: 300),
+            captureBounds: ComputerBounds(x: 100, y: 50, width: 1_000, height: 500),
+            imageWidth: 2_000,
+            imageHeight: 1_000
+        ))
+    }
+
     func testScreenshotRejectsNonEmptyParams() async {
         let service = makeScreenshotService(
             authorized: true,
@@ -118,7 +206,11 @@ final class ScreenshotTests: XCTestCase {
                 screenshot: ComputerScreenshot(
                     pngBase64: Data([0x89, 0x50, 0x4E, 0x47]).base64EncodedString(),
                     width: 1,
-                    height: 1
+                    height: 1,
+                    captureKind: .display,
+                    screenBounds: ComputerBounds(x: 0, y: 0, width: 1, height: 1),
+                    scaleX: 1,
+                    scaleY: 1
                 )
             )
         )

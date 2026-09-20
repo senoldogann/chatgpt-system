@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const KEYCHAIN_SERVICE = "chatgpt-system-control-plane";
+export const KEYCHAIN_SERVICE_TYPESAFE = "chatgpt-system-typesafe";
 export const KEYCHAIN_ACCOUNT = "chatgpt-system";
 export const MAX_LOG_BYTES = 1_048_576;
 
@@ -76,6 +77,26 @@ export function readControlPlaneKey(options = {}) {
   return key;
 }
 
+export function readTypesafeApiKey(options = {}) {
+  const spawnSyncImpl = options.spawnSync ?? spawnSync;
+  const helperPath = options.helperPath;
+  if (!helperPath || !path.isAbsolute(helperPath)) {
+    throw new Error("Keychain helper path must be absolute.");
+  }
+  const command = path.normalize(helperPath);
+  const args = ["read", KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE_TYPESAFE];
+  const result = spawnSyncImpl(command, args, {
+    shell: false,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error || result.status !== 0) {
+    return null;
+  }
+  const key = String(result.stdout ?? "").trim();
+  return key || null;
+}
+
 export async function appendBoundedLog(file, chunk, maxBytes = MAX_LOG_BYTES) {
   if (!Number.isInteger(maxBytes) || maxBytes <= 0) throw new Error("maxBytes must be a positive integer.");
   const incoming = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
@@ -102,15 +123,21 @@ export async function runDailyDriver(options = {}) {
   const installSignalHandlers = options.installSignalHandlers ?? true;
   const config = parseRunnerArgs(argv);
   const readKey = options.readKey ?? (() => readControlPlaneKey({ helperPath: config.keychainHelperPath }));
+  const readTypesafeKey = options.readTypesafeKey ?? (() => readTypesafeApiKey({ helperPath: config.keychainHelperPath }));
 
   await mkdir(config.logDir, { recursive: true, mode: 0o700 });
   const controlPlaneKey = readKey();
+  const typesafeKey = environment.TYPESAFE_API_KEY || readTypesafeKey();
   const child = spawnProcess(
     config.tunnelClientPath,
     ["run", "--profile", config.profile],
     {
       shell: false,
-      env: { ...environment, CONTROL_PLANE_API_KEY: controlPlaneKey },
+      env: {
+        ...environment,
+        CONTROL_PLANE_API_KEY: controlPlaneKey,
+        ...(typesafeKey ? { TYPESAFE_API_KEY: typesafeKey } : {}),
+      },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );

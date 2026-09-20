@@ -1,4 +1,6 @@
 import ComputerRuntimeCore
+import CoreGraphics
+import Foundation
 import XCTest
 @testable import ComputerRuntimeHostCore
 
@@ -54,6 +56,75 @@ final class RecoveryFixtureContractTests: XCTestCase {
         }
     }
 
+    func testWeakChromeFixtureObservationResolvesUniqueOCRLabel() async throws {
+        let ocr = FixtureOCR(candidates: [
+            OcrTextCandidate(
+                text: "Fixture Visual Submit",
+                bounds: ComputerBounds(x: 50, y: 40, width: 80, height: 20),
+                confidence: 0.95,
+                source: .fast,
+                observationId: "fixture-ocr"
+            ),
+        ])
+        let capture = FixtureWindowCapture()
+        let engine = makeOcrFixtureEngine(ocr: ocr, capture: capture)
+
+        let observation = try await engine.refreshObservation()
+        XCTAssertEqual(observation.perception?.axQuality, .weak)
+        XCTAssertEqual(observation.perception?.webContentAccessible, false)
+        XCTAssertEqual(observation.perception?.recommendedTargeting, .ocr)
+        XCTAssertEqual(observation.perception?.ocrCandidates.map(\.text), ["Fixture Visual Submit"])
+
+        let resolved = try await engine.resolve(
+            .ocrText(text: "Fixture Visual Submit", exact: true),
+            retryBudget: 2
+        )
+        XCTAssertEqual(resolved.source, .ocr)
+        let modes = await ocr.modes
+        let windowCaptures = await capture.windowCaptureCount
+        let displayCaptures = await capture.displayCaptureCount
+        XCTAssertEqual(modes, [.fast])
+        XCTAssertEqual(windowCaptures, 1)
+        XCTAssertEqual(displayCaptures, 0)
+    }
+
+    func testWeakChromeFixtureDuplicateOCRLabelsRemainAmbiguous() async throws {
+        let duplicates = [
+            OcrTextCandidate(
+                text: "Duplicate Visual Action",
+                bounds: ComputerBounds(x: 20, y: 20, width: 70, height: 20),
+                confidence: 0.94,
+                source: .fast,
+                observationId: "fixture-ocr-duplicate"
+            ),
+            OcrTextCandidate(
+                text: "Duplicate Visual Action",
+                bounds: ComputerBounds(x: 110, y: 20, width: 70, height: 20),
+                confidence: 0.93,
+                source: .fast,
+                observationId: "fixture-ocr-duplicate"
+            ),
+        ]
+        let ocr = FixtureOCR(candidates: duplicates)
+        let capture = FixtureWindowCapture()
+        let engine = makeOcrFixtureEngine(ocr: ocr, capture: capture)
+
+        _ = try await engine.refreshObservation()
+        do {
+            _ = try await engine.resolve(
+                .ocrText(text: "Duplicate Visual Action", exact: true),
+                retryBudget: 2
+            )
+            XCTFail("Expected target ambiguity")
+        } catch {
+            XCTAssertEqual(error as? ComputerRecoveryError, .targetAmbiguous)
+        }
+        let modes = await ocr.modes
+        let windowCaptures = await capture.windowCaptureCount
+        XCTAssertEqual(modes, [.fast])
+        XCTAssertEqual(windowCaptures, 1)
+    }
+
     func testFixtureVisualSubmitHasNoAccessibilityIdentityToResolve() {
         let context = fixtureContext(snapshotId: "fixture-obs-0", reordered: false)
 
@@ -62,6 +133,22 @@ final class RecoveryFixtureContractTests: XCTestCase {
         ) {
             XCTAssertEqual($0 as? ComputerTargetResolutionError, .notFound)
         }
+    }
+
+    private func makeOcrFixtureEngine(
+        ocr: FixtureOCR,
+        capture: FixtureWindowCapture
+    ) -> ComputerRecoveryEngine {
+        ComputerRecoveryEngine(
+            permissions: FixtureRecoveryPermissions(),
+            applicationController: FixtureRecoveryApplicationController(),
+            accessibility: FixtureWeakChromeAccessibility(),
+            cache: ComputerObservationCache(capacity: 4),
+            resolver: ComputerTargetResolver(),
+            screenCapture: capture,
+            ocr: ocr,
+            displayTopology: FixtureRecoveryTopology()
+        )
     }
 
     // Mirrors the fixture window: the OCR-only submit view is deliberately absent
@@ -133,5 +220,122 @@ final class RecoveryFixtureContractTests: XCTestCase {
 
     private func bounds(_ x: Double, _ y: Double, _ width: Double, _ height: Double) -> ComputerBounds {
         ComputerBounds(x: x, y: y, width: width, height: height)
+    }
+}
+
+
+private struct FixtureRecoveryPermissions: PermissionReading {
+    func accessibilityTrusted() -> Bool { true }
+    func screenCaptureAuthorized() -> Bool { true }
+    func eventListenAuthorized() -> Bool { true }
+    func eventPostAuthorized() -> Bool { true }
+}
+
+private final class FixtureRecoveryApplicationController: ApplicationControlling, @unchecked Sendable {
+    private let chrome = WorkspaceApplication(
+        processIdentifier: 701,
+        name: "Google Chrome",
+        bundleIdentifier: "com.google.Chrome",
+        frontmost: true
+    )
+
+    func runningApplications() -> [WorkspaceApplication] { [chrome] }
+    func frontmostApplication() -> WorkspaceApplication? { chrome }
+    func applicationURL(bundleIdentifier: String) -> URL? { nil }
+    func openApplication(at url: URL) async throws -> WorkspaceApplication { chrome }
+    func activate(_ application: WorkspaceApplication) async -> Bool { true }
+}
+
+private struct FixtureWeakChromeAccessibility: AccessibilityReading {
+    private let window = ComputerBounds(x: 100, y: 100, width: 800, height: 600)
+
+    func activeWindow(for application: WorkspaceApplication) throws -> ActiveWindowView {
+        ActiveWindowView(application: application.view, title: "Fixture Browser Window")
+    }
+
+    func observe(for application: WorkspaceApplication, limits: ObservationLimits) throws -> ComputerObservation {
+        ComputerObservation(
+            snapshotId: "fixture-weak-chrome",
+            application: application.view,
+            windowTitle: "Fixture Browser Window",
+            elements: [
+                ComputerElementView(
+                    index: 0,
+                    role: "AXWindow",
+                    subrole: nil,
+                    title: "Fixture Browser Window",
+                    description: nil,
+                    focused: true,
+                    enabled: true,
+                    selected: false,
+                    bounds: window
+                ),
+                ComputerElementView(
+                    index: 1,
+                    role: "AXToolbar",
+                    subrole: nil,
+                    title: "Toolbar",
+                    description: nil,
+                    focused: false,
+                    enabled: true,
+                    selected: false,
+                    bounds: ComputerBounds(x: 100, y: 100, width: 800, height: 80)
+                ),
+            ],
+            truncated: false
+        )
+    }
+}
+
+private struct FixtureRecoveryTopology: DisplayTopologyReading {
+    func activeDisplayBounds() throws -> [ComputerBounds] {
+        [ComputerBounds(x: 0, y: 0, width: 1_440, height: 900)]
+    }
+}
+
+private actor FixtureOCR: VisionTextRecognizing {
+    let candidates: [OcrTextCandidate]
+    private(set) var modes: [VisionRecognitionMode] = []
+
+    init(candidates: [OcrTextCandidate]) {
+        self.candidates = candidates
+    }
+
+    func recognizeText(in image: CGImage, mode: VisionRecognitionMode) async throws -> [OcrTextCandidate] {
+        modes.append(mode)
+        return mode == .fast ? candidates : []
+    }
+}
+
+private actor FixtureWindowCapture: ScreenImageCapturing {
+    private let image: CGImage
+    private(set) var windowCaptureCount = 0
+    private(set) var displayCaptureCount = 0
+
+    init() {
+        let space = CGColorSpaceCreateDeviceRGB()
+        let context = CGContext(
+            data: nil,
+            width: 200,
+            height: 100,
+            bitsPerComponent: 8,
+            bytesPerRow: 800,
+            space: space,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        self.image = context.makeImage()!
+    }
+
+    func captureFocusedDisplayImage() async throws -> ScreenImageCapture {
+        displayCaptureCount += 1
+        return ScreenImageCapture(
+            image: image,
+            screenBounds: ComputerBounds(x: 0, y: 0, width: 1_440, height: 900)
+        )
+    }
+
+    func captureWindowImage(bounds: ComputerBounds) async throws -> ScreenImageCapture {
+        windowCaptureCount += 1
+        return ScreenImageCapture(image: image, screenBounds: bounds)
     }
 }

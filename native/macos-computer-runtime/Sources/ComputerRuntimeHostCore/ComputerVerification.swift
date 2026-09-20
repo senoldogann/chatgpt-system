@@ -209,7 +209,7 @@ struct ComputerVerificationEngine: ComputerVerificationHandling, Sendable {
     }
 
     private func validateTimeout(_ timeoutMs: Int) throws {
-        guard (50...10_000).contains(timeoutMs) else {
+        guard (50...60_000).contains(timeoutMs) else {
             throw ComputerVerificationError.unavailable
         }
     }

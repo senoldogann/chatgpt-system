@@ -1,12 +1,66 @@
 import Foundation
 
-public enum ComputerTarget: Equatable, Sendable {
+public enum ComputerTargetScope: Equatable, Sendable {
+    case index(snapshotId: String, index: Int)
+    case role(role: String, name: String?, exact: Bool)
+}
+
+extension ComputerTargetScope: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case by
+        case snapshotId
+        case index
+        case role
+        case name
+        case exact
+    }
+
+    private enum Kind: String, Codable {
+        case index
+        case role
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .by) {
+        case .index:
+            self = .index(
+                snapshotId: try container.decode(String.self, forKey: .snapshotId),
+                index: try container.decode(Int.self, forKey: .index)
+            )
+        case .role:
+            self = .role(
+                role: try container.decode(String.self, forKey: .role),
+                name: try container.decodeIfPresent(String.self, forKey: .name),
+                exact: try container.decodeIfPresent(Bool.self, forKey: .exact) ?? false
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .index(snapshotId, index):
+            try container.encode(Kind.index, forKey: .by)
+            try container.encode(snapshotId, forKey: .snapshotId)
+            try container.encode(index, forKey: .index)
+        case let .role(role, name, exact):
+            try container.encode(Kind.role, forKey: .by)
+            try container.encode(role, forKey: .role)
+            try container.encodeIfPresent(name, forKey: .name)
+            try container.encode(exact, forKey: .exact)
+        }
+    }
+}
+
+public indirect enum ComputerTarget: Equatable, Sendable {
     case index(snapshotId: String, index: Int)
     case role(role: String, name: String?, exact: Bool)
     case text(text: String, exact: Bool)
     case label(label: String, exact: Bool)
     case ocrText(text: String, exact: Bool)
     case point(x: Double, y: Double)
+    case scoped(target: ComputerTarget, within: ComputerTargetScope)
 }
 
 extension ComputerTarget: Codable {
@@ -21,6 +75,8 @@ extension ComputerTarget: Codable {
         case label
         case x
         case y
+        case target
+        case within
     }
 
     private enum Kind: String, Codable {
@@ -30,6 +86,7 @@ extension ComputerTarget: Codable {
         case label
         case ocrText
         case point
+        case scoped
     }
 
     public init(from decoder: Decoder) throws {
@@ -67,6 +124,11 @@ extension ComputerTarget: Codable {
                 x: try container.decode(Double.self, forKey: .x),
                 y: try container.decode(Double.self, forKey: .y)
             )
+        case .scoped:
+            self = .scoped(
+                target: try container.decode(ComputerTarget.self, forKey: .target),
+                within: try container.decode(ComputerTargetScope.self, forKey: .within)
+            )
         }
     }
 
@@ -98,6 +160,10 @@ extension ComputerTarget: Codable {
             try container.encode(Kind.point, forKey: .by)
             try container.encode(x, forKey: .x)
             try container.encode(y, forKey: .y)
+        case let .scoped(target, within):
+            try container.encode(Kind.scoped, forKey: .by)
+            try container.encode(target, forKey: .target)
+            try container.encode(within, forKey: .within)
         }
     }
 }

@@ -19,6 +19,7 @@ const expectedAnnotations = {
   session_authority_start: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   session_authority_status: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   session_authority_end: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  persistent_owner_mode: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   fs_list: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   fs_stat: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   fs_read: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -29,6 +30,8 @@ const expectedAnnotations = {
   fs_move: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   fs_remove: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   git_status: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  git_inventory: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  git_file_review: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   git_diff: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   git_log: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   git_create_branch: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -77,6 +80,7 @@ const expectedAnnotations = {
   browser_close: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   computer_health: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   computer_observe: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  computer_resolve_semantic_target: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   computer_screenshot: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   computer_pointer_position: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   computer_open_app: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
@@ -85,6 +89,7 @@ const expectedAnnotations = {
   computer_click: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   computer_drag: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   computer_scroll: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  computer_scroll_until_visible: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   computer_type_text: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   computer_press_key: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   computer_release_inputs: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -102,6 +107,10 @@ const codingHarnessV2ToolNames = [
   "project_check",
   "project_exec",
   "task_state",
+] as const;
+const computerReliabilityV2ToolNames = [
+  "computer_scroll_until_visible",
+  "computer_resolve_semantic_target",
 ] as const;
 const ownerRuntimeToolNames = [
   "shell_run",
@@ -241,7 +250,15 @@ describe("HTTP MCP transport", () => {
       const currentNames = tools.map((tool) => tool.name);
       const harnessNames = new Set<string>(codingHarnessV2ToolNames);
       const continuityNames = new Set<string>(continuityV1ToolNames);
-      const featureNames = new Set<string>([...codingHarnessV2ToolNames, ...continuityV1ToolNames, ...ownerRuntimeToolNames]);
+      const featureNames = new Set<string>([
+        ...codingHarnessV2ToolNames,
+        ...continuityV1ToolNames,
+        ...computerReliabilityV2ToolNames,
+        ...ownerRuntimeToolNames,
+        "persistent_owner_mode",
+        "git_inventory",
+        "git_file_review",
+      ]);
       const legacyNames = currentNames.filter((name) => !featureNames.has(name)).sort();
       const currentHarnessNames = currentNames.filter((name) => harnessNames.has(name)).sort();
       const currentContinuityNames = currentNames.filter((name) => continuityNames.has(name)).sort();

@@ -6,7 +6,7 @@ import { access, chmod, copyFile, mkdir, realpath, rename, unlink, writeFile } f
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE } from "./daily-driver-runner.mjs";
+import { KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE, KEYCHAIN_SERVICE_TYPESAFE } from "./daily-driver-runner.mjs";
 
 export const LAUNCH_AGENT_LABEL = "com.senoldogann.chatgpt-system.daily-driver";
 export const RESTART_HELPER_LABEL = `${LAUNCH_AGENT_LABEL}.restart-helper`;
@@ -110,6 +110,21 @@ export function keychainDeleteInvocation(helperPath) {
   return { command, args: ["delete", KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE] };
 }
 
+export function keychainTypesafeStoreInvocation(helperPath) {
+  const command = requireAbsolute(helperPath, "Keychain helper path");
+  return { command, args: ["store", KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE_TYPESAFE] };
+}
+
+export function keychainTypesafeReadInvocation(helperPath) {
+  const command = requireAbsolute(helperPath, "Keychain helper path");
+  return { command, args: ["read", KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE_TYPESAFE] };
+}
+
+export function keychainTypesafeDeleteInvocation(helperPath) {
+  const command = requireAbsolute(helperPath, "Keychain helper path");
+  return { command, args: ["delete", KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE_TYPESAFE] };
+}
+
 export async function installKeychainHelper(sourcePath, destinationPath) {
   const source = requireAbsolute(sourcePath, "Keychain helper build path");
   const destination = requireAbsolute(destinationPath, "Installed Keychain helper path");
@@ -135,6 +150,21 @@ export function storeControlPlaneKey(key, options = {}) {
   }
 }
 
+export function storeTypesafeApiKey(key, options = {}) {
+  if (!key) throw new Error("TYPESAFE_API_KEY is required to store.");
+  const spawnSyncImpl = options.spawnSync ?? spawnSync;
+  const invocation = keychainTypesafeStoreInvocation(options.helperPath);
+  const result = spawnSyncImpl(invocation.command, invocation.args, {
+    shell: false,
+    encoding: "utf8",
+    input: key,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  if (result.error || result.status !== 0) {
+    throw new Error("Unable to store the TypeSafe API credential in macOS Keychain.");
+  }
+}
+
 export function planControlPlaneCredential(key, options = {}) {
   if (key) return "store";
   const spawnSyncImpl = options.spawnSync ?? spawnSync;
@@ -146,6 +176,19 @@ export function planControlPlaneCredential(key, options = {}) {
   });
   if (!result.error && result.status === 0) return "reuse";
   throw new Error("CONTROL_PLANE_API_KEY must be set when no daily-driver Keychain credential exists.");
+}
+
+export function planTypesafeCredential(key, options = {}) {
+  if (key) return "store";
+  const spawnSyncImpl = options.spawnSync ?? spawnSync;
+  const invocation = keychainTypesafeReadInvocation(options.helperPath);
+  const result = spawnSyncImpl(invocation.command, invocation.args, {
+    shell: false,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (!result.error && result.status === 0) return "reuse";
+  return "skip";
 }
 
 export function buildLaunchctlCommands({ uid, plistPath }) {
@@ -294,6 +337,7 @@ function pathsFor(homeDir) {
 async function install(profile, context) {
   if (process.platform !== "darwin") throw new Error("Daily-driver LaunchAgent installation is supported only on macOS.");
   const key = context.environment.CONTROL_PLANE_API_KEY;
+  const typesafeKey = context.environment.TYPESAFE_API_KEY;
   const tunnelClientPath = await resolveExecutable("tunnel-client", context.environment);
   const runnerPath = path.join(context.repoDir, "scripts", "daily-driver-runner.mjs");
   await access(runnerPath, fsConstants.R_OK);
@@ -302,6 +346,7 @@ async function install(profile, context) {
   assertSuccess(runCommand(keychainHelper.command, keychainHelper.args), "Keychain helper build");
   await installKeychainHelper(keychainHelper.helperPath, keychainHelperPath);
   const credentialAction = planControlPlaneCredential(key, { helperPath: keychainHelperPath });
+  const typesafeCredentialAction = planTypesafeCredential(typesafeKey, { helperPath: keychainHelperPath });
   const plist = buildLaunchAgent({
     nodePath: process.execPath,
     runnerPath,
@@ -314,6 +359,9 @@ async function install(profile, context) {
   await mkdir(logDir, { recursive: true, mode: 0o700 });
   if (credentialAction === "store") {
     storeControlPlaneKey(key, { helperPath: keychainHelperPath });
+  }
+  if (typesafeCredentialAction === "store") {
+    storeTypesafeApiKey(typesafeKey, { helperPath: keychainHelperPath });
   }
   await writePlistAtomic(plistPath, plist);
   const activation = activateLaunchAgent({
@@ -332,6 +380,11 @@ async function install(profile, context) {
       ? "Tunnel credential stored in macOS Keychain; no API key was written to the LaunchAgent plist."
       : "Existing macOS Keychain tunnel credential reused; no API key was written to the LaunchAgent plist.",
   );
+  if (typesafeCredentialAction === "store") {
+    console.log("TypeSafe credential stored in macOS Keychain; no API key was written to the LaunchAgent plist.");
+  } else if (typesafeCredentialAction === "reuse") {
+    console.log("Existing macOS Keychain TypeSafe credential reused; no API key was written to the LaunchAgent plist.");
+  }
 }
 
 async function status(profile, context) {
@@ -356,6 +409,8 @@ async function uninstall(profile, context) {
   }
   const deleteInvocation = keychainDeleteInvocation(keychainHelperPath);
   assertSuccess(runCommand(deleteInvocation.command, deleteInvocation.args), "Keychain credential delete");
+  const deleteTypesafeInvocation = keychainTypesafeDeleteInvocation(keychainHelperPath);
+  runCommand(deleteTypesafeInvocation.command, deleteTypesafeInvocation.args);
   console.log(`Daily driver uninstalled: ${LAUNCH_AGENT_LABEL}`);
 }
 

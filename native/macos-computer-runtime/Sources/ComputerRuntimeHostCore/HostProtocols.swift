@@ -104,6 +104,7 @@ struct ScreenImageCapture: @unchecked Sendable {
 
 protocol ScreenImageCapturing: Sendable {
     func captureFocusedDisplayImage() async throws -> ScreenImageCapture
+    func captureWindowImage(bounds: ComputerBounds) async throws -> ScreenImageCapture
 }
 
 protocol FocusedDisplayReading: Sendable {
@@ -117,7 +118,20 @@ protocol VisionTextRecognizing: Sendable {
 protocol ComputerRecoveryHandling: Sendable {
     func resolve(_ target: ComputerTarget, retryBudget: Int) async throws -> ResolvedComputerTarget
     func resolveMany(_ targets: [ComputerTarget], retryBudget: Int) async throws -> [ResolvedComputerTarget]
+    func recoveryEvidence(for target: ComputerTarget, error: ComputerRecoveryError) async -> ComputerRecoveryEvidence
+    func verifyContext(_ resolved: ResolvedComputerTarget) async throws
     func refreshObservation() async throws -> ComputerObservation
+}
+
+extension ComputerRecoveryHandling {
+    func recoveryEvidence(for target: ComputerTarget, error: ComputerRecoveryError) async -> ComputerRecoveryEvidence {
+        ComputerRecoveryEvidence(
+            candidateCount: 0,
+            scopeResolved: false,
+            activeScrollContainerCount: 0,
+            recommendedRecovery: .none
+        )
+    }
 }
 
 public protocol ComputerActionHandling: Sendable {

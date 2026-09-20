@@ -6,13 +6,20 @@ import {
 import { ComputerError, isComputerErrorCode } from "./computer-errors.js";
 import type {
   ComputerAction,
+  ComputerActionResult,
   ComputerActionEndpoint,
   ComputerActionLocation,
   ComputerFinalObservation,
   ComputerNativeMethod,
   ComputerResolvedTargetView,
   ComputerRunResult,
+  ComputerScrollAmount,
+  ComputerScrollDirection,
+  ComputerScrollTarget,
+  ComputerScrollUntilVisibleInput,
+  ComputerScrollUntilVisibleResult,
   ComputerTarget,
+  ComputerTargetScope,
 } from "./computer-types.js";
 
 export type ComputerHostState = "disabled" | "stopped" | "running" | "unavailable";
@@ -33,12 +40,22 @@ export interface ComputerHealthResult {
   fullHostJsEnabled: boolean;
 }
 
+export interface ComputerScreenshotResult {
+  pngBase64: string;
+  width: number;
+  height: number;
+  captureKind: "display";
+  screenBounds: { x: number; y: number; width: number; height: number };
+  scaleX: number;
+  scaleY: number;
+}
+
 export interface ComputerProgramSession {
   cancel(): void;
   execute(action: ComputerAction): Promise<unknown>;
   listApps(): Promise<unknown>;
   activeWindow(): Promise<unknown>;
-  screenshot(): Promise<{ pngBase64: string; width: number; height: number }>;
+  screenshot(): Promise<ComputerScreenshotResult>;
   resolve(target: ComputerTarget, options: { retryBudget?: number }): Promise<ComputerResolvedTargetView>;
   resolveMany(targets: ComputerTarget[], options: { retryBudget?: number }): Promise<ComputerResolvedTargetView[]>;
   exists(target: ComputerTarget, options: { retryBudget?: number }): Promise<boolean>;
@@ -85,6 +102,9 @@ export interface ComputerPoint {
 const MAX_SELECTOR_CHARS = 4_096;
 const MAX_TYPED_CHARS = 16_384;
 const MAX_SCROLL_DELTA = 10_000;
+const MAX_SCROLL_UNTIL_VISIBLE_STEPS = 6;
+const SMALL_SCROLL_DELTA = 3;
+const PAGE_SCROLL_DELTA = 8;
 const MOTION_MODES = new Set<PointerMotionMode>(["instant", "fast", "natural"]);
 const MOUSE_BUTTONS = new Set<ComputerMouseButton>(["left", "right", "middle"]);
 const KEY_MODIFIERS = new Set<ComputerKeyModifier>(["control", "option", "shift", "command"]);
@@ -201,24 +221,43 @@ function canonicalTarget(value: unknown): ComputerTarget {
       return { by: "index", snapshotId, index: value.index as number };
     }
     case "role": {
-      if (!hasOnlyKeys(value, ["by", "role", "name", "exact"])) invalid();
+      if (!hasOnlyKeys(value, ["by", "role", "name", "exact", "within"])) invalid();
       const role = boundedTargetString(value.role);
       const name = value.name === undefined ? undefined : boundedTargetString(value.name);
       const exact = optionalExact(value.exact);
-      return { by: "role", role, ...(name !== undefined ? { name } : {}), ...(exact !== undefined ? { exact } : {}) };
+      const within = value.within === undefined ? undefined : canonicalTargetScope(value.within);
+      return {
+        by: "role",
+        role,
+        ...(name !== undefined ? { name } : {}),
+        ...(exact !== undefined ? { exact } : {}),
+        ...(within !== undefined ? { within } : {}),
+      };
     }
     case "text":
     case "ocrText": {
-      if (!hasOnlyKeys(value, ["by", "text", "exact"])) invalid();
+      if (!hasOnlyKeys(value, ["by", "text", "exact", "within"])) invalid();
       const text = boundedTargetString(value.text);
       const exact = optionalExact(value.exact);
-      return { by: value.by, text, ...(exact !== undefined ? { exact } : {}) };
+      const within = value.within === undefined ? undefined : canonicalTargetScope(value.within);
+      return {
+        by: value.by,
+        text,
+        ...(exact !== undefined ? { exact } : {}),
+        ...(within !== undefined ? { within } : {}),
+      };
     }
     case "label": {
-      if (!hasOnlyKeys(value, ["by", "label", "exact"])) invalid();
+      if (!hasOnlyKeys(value, ["by", "label", "exact", "within"])) invalid();
       const label = boundedTargetString(value.label);
       const exact = optionalExact(value.exact);
-      return { by: "label", label, ...(exact !== undefined ? { exact } : {}) };
+      const within = value.within === undefined ? undefined : canonicalTargetScope(value.within);
+      return {
+        by: "label",
+        label,
+        ...(exact !== undefined ? { exact } : {}),
+        ...(within !== undefined ? { within } : {}),
+      };
     }
     case "point": {
       if (!hasOnlyKeys(value, ["by", "x", "y"]) || typeof value.x !== "number" || typeof value.y !== "number") invalid();
@@ -227,6 +266,54 @@ function canonicalTarget(value: unknown): ComputerTarget {
     default:
       return invalid();
   }
+}
+
+function canonicalTargetScope(value: unknown): ComputerTargetScope {
+  if (!isRecord(value) || typeof value.by !== "string") invalid();
+  if (value.by === "index") {
+    if (!hasOnlyKeys(value, ["by", "snapshotId", "index"])) invalid();
+    const snapshotId = boundedTargetString(value.snapshotId);
+    if (!Number.isSafeInteger(value.index) || (value.index as number) < 0) invalid();
+    return { by: "index", snapshotId, index: value.index as number };
+  }
+  if (value.by === "role") {
+    if (!hasOnlyKeys(value, ["by", "role", "name", "exact"])) invalid();
+    const role = boundedTargetString(value.role);
+    const name = value.name === undefined ? undefined : boundedTargetString(value.name);
+    const exact = optionalExact(value.exact);
+    return { by: "role", role, ...(name !== undefined ? { name } : {}), ...(exact !== undefined ? { exact } : {}) };
+  }
+  return invalid();
+}
+
+function canonicalScrollTarget(value: unknown): ComputerScrollTarget {
+  const target = canonicalTarget(value);
+  if (target.by === "index" || target.by === "point" || "within" in target) invalid();
+  return target;
+}
+
+function scopedScrollTarget(target: ComputerScrollTarget, within: ComputerTargetScope): Record<string, unknown> {
+  return { ...target, within };
+}
+
+function scrollDelta(
+  direction: ComputerScrollDirection,
+  amount: ComputerScrollAmount,
+): { vertical: number; horizontal: number } {
+  const magnitude = amount === "small" ? SMALL_SCROLL_DELTA : PAGE_SCROLL_DELTA;
+  switch (direction) {
+    case "up": return { vertical: magnitude, horizontal: 0 };
+    case "down": return { vertical: -magnitude, horizontal: 0 };
+    case "left": return { vertical: 0, horizontal: magnitude };
+    case "right": return { vertical: 0, horizontal: -magnitude };
+  }
+}
+
+function observationDigest(observation: unknown): string | undefined {
+  if (!isRecord(observation) || typeof observation.digest !== "string" || observation.digest.length === 0) {
+    return undefined;
+  }
+  return observation.digest;
 }
 
 function semanticRetryBudget(value: unknown, max: number): number {
@@ -282,6 +369,50 @@ function validateResolvedTargetView(value: unknown): ComputerResolvedTargetView 
   };
 }
 
+function validateActionResult(value: unknown): ComputerActionResult {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["state", "pointer", "changed", "verification"])) invalid();
+  if (value.state !== "verified" && value.state !== "completed_unverified") invalid();
+
+  let pointer: ComputerActionResult["pointer"];
+  if (value.pointer !== undefined) {
+    if (!isRecord(value.pointer) || !hasOnlyKeys(value.pointer, ["x", "y"]) ||
+        typeof value.pointer.x !== "number" || typeof value.pointer.y !== "number") invalid();
+    pointer = { x: finite(value.pointer.x), y: finite(value.pointer.y) };
+  }
+
+  if (value.changed !== undefined && typeof value.changed !== "boolean") invalid();
+
+  let verificationEvidence: ComputerActionResult["verification"];
+  if (value.verification !== undefined) {
+    if (!isRecord(value.verification) || !hasOnlyKeys(value.verification, ["kind", "changed"]) ||
+        !Object.prototype.hasOwnProperty.call(value.verification, "changed")) invalid();
+    const kind = value.verification.kind;
+    if (kind !== "ax" && kind !== "text" && kind !== "screen-region" && kind !== "none") invalid();
+    const changed = value.verification.changed;
+    if (changed !== null && typeof changed !== "boolean") invalid();
+    verificationEvidence = { kind, changed };
+  }
+
+  if (value.state === "verified") {
+    if (!verificationEvidence || verificationEvidence.kind === "none") invalid();
+  } else if (verificationEvidence && verificationEvidence.kind !== "none") {
+    invalid();
+  }
+
+  return {
+    state: value.state,
+    ...(pointer !== undefined ? { pointer } : {}),
+    ...(value.changed !== undefined ? { changed: value.changed } : {}),
+    ...(verificationEvidence !== undefined ? { verification: verificationEvidence } : {}),
+  };
+}
+
+function nativeMethodReturnsActionResult(method: ComputerNativeMethod): boolean {
+  return method === "move_mouse" || method === "click" || method === "double_click" ||
+    method === "mouse_down" || method === "mouse_up" || method === "drag" || method === "scroll" ||
+    method === "type_text" || method === "press_key" || method === "release_inputs";
+}
+
 interface PreparedComputerAction {
   type: ComputerAction["type"];
   method?: ComputerNativeMethod;
@@ -299,7 +430,7 @@ function preparedAction(action: ComputerAction, maxRetries: number): PreparedCom
     case "open_app":
     case "focus_app": {
       const params = selectorParams(action);
-      if (action.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(action.timeoutMs, 5_000);
+      if (action.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(action.timeoutMs, 60_000);
       return { type: action.type, method: action.type, params, physical: true };
     }
     case "move_mouse": {
@@ -556,16 +687,27 @@ export class ComputerRuntime {
     return this.observe();
   }
 
-  async screenshot(): Promise<{ pngBase64: string; width: number; height: number }> {
+  async screenshot(): Promise<ComputerScreenshotResult> {
     const result = await this.read("screenshot", {});
-    if (!isRecord(result) || typeof result.pngBase64 !== "string" ||
+    if (!isRecord(result) ||
+        !hasOnlyKeys(result, ["pngBase64", "width", "height", "captureKind", "screenBounds", "scaleX", "scaleY"]) ||
+        typeof result.pngBase64 !== "string" ||
         !Number.isInteger(result.width) || !Number.isInteger(result.height) ||
-        (result.width as number) <= 0 || (result.height as number) <= 0) {
+        (result.width as number) <= 0 || (result.height as number) <= 0 ||
+        result.captureKind !== "display" ||
+        !isRecord(result.screenBounds) ||
+        !hasOnlyKeys(result.screenBounds, ["x", "y", "width", "height"]) ||
+        typeof result.screenBounds.x !== "number" || !Number.isFinite(result.screenBounds.x) ||
+        typeof result.screenBounds.y !== "number" || !Number.isFinite(result.screenBounds.y) ||
+        typeof result.screenBounds.width !== "number" || !Number.isFinite(result.screenBounds.width) || result.screenBounds.width <= 0 ||
+        typeof result.screenBounds.height !== "number" || !Number.isFinite(result.screenBounds.height) || result.screenBounds.height <= 0 ||
+        typeof result.scaleX !== "number" || !Number.isFinite(result.scaleX) || result.scaleX <= 0 ||
+        typeof result.scaleY !== "number" || !Number.isFinite(result.scaleY) || result.scaleY <= 0) {
       invalid();
     }
     let bytes: Buffer;
     try {
-      bytes = Buffer.from(result.pngBase64 as string, "base64");
+      bytes = Buffer.from(result.pngBase64, "base64");
     } catch {
       invalid();
     }
@@ -573,34 +715,43 @@ export class ComputerRuntime {
       throw new ComputerError("COMPUTER_OUTPUT_LIMIT");
     }
     return {
-      pngBase64: result.pngBase64 as string,
+      pngBase64: result.pngBase64,
       width: result.width as number,
       height: result.height as number,
+      captureKind: "display",
+      screenBounds: {
+        x: result.screenBounds.x,
+        y: result.screenBounds.y,
+        width: result.screenBounds.width,
+        height: result.screenBounds.height,
+      },
+      scaleX: result.scaleX,
+      scaleY: result.scaleY,
     };
   }
 
   async openApp(input: ComputerApplicationSelector & { timeoutMs?: number | undefined }): Promise<unknown> {
     const params = selectorParams(input);
-    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 5_000);
+    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 60_000);
     return this.physical("open_app", params);
   }
 
   async focusApp(input: ComputerApplicationSelector & { timeoutMs?: number | undefined }): Promise<unknown> {
     const params = selectorParams(input);
-    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 5_000);
+    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 60_000);
     return this.physical("focus_app", params);
   }
 
   async moveMouse(input: ComputerActionLocation & {
     motionMode?: PointerMotionMode | undefined;
     verify?: ComputerVerification | undefined;
-  }): Promise<unknown> {
+  }): Promise<ComputerActionResult> {
     const params = locationParams(input, this.config.maxAutomaticRetriesPerAction);
     const mode = motionMode(input.motionMode);
     const verify = verification(input.verify);
     if (mode !== undefined) params.motionMode = mode;
     if (verify !== undefined) params.verify = verify;
-    return this.physical("move_mouse", params);
+    return this.physicalAction("move_mouse", params);
   }
 
   async click(input: ComputerActionLocation & {
@@ -608,7 +759,7 @@ export class ComputerRuntime {
     button?: ComputerMouseButton | undefined;
     motionMode?: PointerMotionMode | undefined;
     verify?: ComputerVerification | undefined;
-  }): Promise<unknown> {
+  }): Promise<ComputerActionResult> {
     const count = input.count ?? 1;
     if (count !== 1 && count !== 2) invalid();
     const params = locationParams(input, this.config.maxAutomaticRetriesPerAction);
@@ -618,7 +769,7 @@ export class ComputerRuntime {
     if (button !== undefined) params.button = button;
     if (mode !== undefined) params.motionMode = mode;
     if (verify !== undefined) params.verify = verify;
-    return this.physical(count === 2 ? "double_click" : "click", params);
+    return this.physicalAction(count === 2 ? "double_click" : "click", params);
   }
 
   async drag(input: {
@@ -628,7 +779,7 @@ export class ComputerRuntime {
     button?: ComputerMouseButton | undefined;
     motionMode?: PointerMotionMode | undefined;
     verify?: ComputerVerification | undefined;
-  }): Promise<unknown> {
+  }): Promise<ComputerActionResult> {
     const from = endpointParams(input.from);
     const to = endpointParams(input.to);
     const params: Record<string, unknown> = { from: from.value, to: to.value };
@@ -643,7 +794,7 @@ export class ComputerRuntime {
     if (button !== undefined) params.button = button;
     if (mode !== undefined) params.motionMode = mode;
     if (verify !== undefined) params.verify = verify;
-    return this.physical("drag", params);
+    return this.physicalAction("drag", params);
   }
 
   async scroll(input: {
@@ -655,7 +806,7 @@ export class ComputerRuntime {
     retryBudget?: number | undefined;
     motionMode?: PointerMotionMode | undefined;
     verify?: ComputerVerification | undefined;
-  }): Promise<unknown> {
+  }): Promise<ComputerActionResult> {
     integerInRange(input.vertical, -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA);
     integerInRange(input.horizontal, -MAX_SCROLL_DELTA, MAX_SCROLL_DELTA);
     const params: Record<string, unknown> = { vertical: input.vertical, horizontal: input.horizontal };
@@ -668,23 +819,104 @@ export class ComputerRuntime {
     const verify = verification(input.verify);
     if (mode !== undefined) params.motionMode = mode;
     if (verify !== undefined) params.verify = verify;
-    return this.physical("scroll", params);
+    return this.physicalAction("scroll", params);
   }
 
-  async typeText(input: ComputerApplicationSelector & { text: string; verify?: ComputerVerification | undefined }): Promise<unknown> {
+  async scrollUntilVisible(input: ComputerScrollUntilVisibleInput): Promise<ComputerScrollUntilVisibleResult> {
+    this.requireEnabled();
+    const target = canonicalScrollTarget(input.target);
+    const within = canonicalTargetScope(input.within);
+    const direction = input.direction;
+    if (direction !== "up" && direction !== "down" && direction !== "left" && direction !== "right") invalid();
+    const amount = input.amount ?? "page";
+    if (amount !== "small" && amount !== "page") invalid();
+    const maxSteps = input.maxSteps ?? MAX_SCROLL_UNTIL_VISIBLE_STEPS;
+    integerInRange(maxSteps, 1, MAX_SCROLL_UNTIL_VISIBLE_STEPS);
+    const delta = scrollDelta(direction, amount);
+    const scopedTarget = scopedScrollTarget(target, within);
+
+    return this.physicalLane.run(async () => {
+      this.requireEnabled();
+      let observation = validateObservationOutput(
+        await this.native.request("observe", {}, this.config.requestTimeoutMs),
+        this.config,
+      );
+      let digest = observationDigest(observation);
+      let stepsUsed = 0;
+      let changed = false;
+
+      for (;;) {
+        this.requireEnabled();
+        const container = await this.native.request(
+          "resolve_target",
+          { target: within, retryBudget: 1 },
+          this.config.requestTimeoutMs,
+        );
+        validateResolvedTargetView(container);
+
+        try {
+          const resolved = await this.native.request(
+            "resolve_target",
+            { target: scopedTarget, retryBudget: 1 },
+            this.config.requestTimeoutMs,
+          );
+          validateResolvedTargetView(resolved);
+          return { state: "target_visible", stepsUsed, changed };
+        } catch (error) {
+          if (!(error instanceof ComputerError) || error.code !== "COMPUTER_TARGET_NOT_FOUND") throw error;
+        }
+
+        if (stepsUsed >= maxSteps || digest === undefined) {
+          return { state: "needs_replan", stepsUsed, changed };
+        }
+
+        const scrollResult = await this.native.request(
+          "scroll",
+          {
+            vertical: delta.vertical,
+            horizontal: delta.horizontal,
+            target: within,
+            retryBudget: 1,
+            motionMode: "instant",
+          },
+          this.config.requestTimeoutMs,
+        );
+        validateActionResult(scrollResult);
+        stepsUsed += 1;
+
+        const nextObservation = validateObservationOutput(
+          await this.native.request("observe", {}, this.config.requestTimeoutMs),
+          this.config,
+        );
+        const nextDigest = observationDigest(nextObservation);
+        if (nextDigest === undefined) {
+          return { state: "needs_replan", stepsUsed, changed };
+        }
+        if (nextDigest === digest) {
+          return { state: "boundary_reached", stepsUsed, changed };
+        }
+        changed = true;
+        observation = nextObservation;
+        digest = nextDigest;
+        void observation;
+      }
+    });
+  }
+
+  async typeText(input: ComputerApplicationSelector & { text: string; verify?: ComputerVerification | undefined }): Promise<ComputerActionResult> {
     if (input.text.length > MAX_TYPED_CHARS) invalid();
     const params = selectorParams(input);
     params.text = input.text;
     const verify = verification(input.verify);
     if (verify !== undefined) params.verify = verify;
-    return this.physical("type_text", params);
+    return this.physicalAction("type_text", params);
   }
 
   async pressKey(input: ComputerApplicationSelector & {
     key: string;
     modifiers?: ComputerKeyModifier[] | undefined;
     verify?: ComputerVerification | undefined;
-  }): Promise<unknown> {
+  }): Promise<ComputerActionResult> {
     if (input.key.length === 0 || input.key.length > 128) invalid();
     const params = selectorParams(input);
     params.key = input.key;
@@ -698,7 +930,7 @@ export class ComputerRuntime {
     }
     const verify = verification(input.verify);
     if (verify !== undefined) params.verify = verify;
-    return this.physical("press_key", params);
+    return this.physicalAction("press_key", params);
   }
 
   async waitForFrontmost(input: ComputerApplicationSelector & { timeoutMs?: number | undefined }): Promise<unknown> {
@@ -722,8 +954,8 @@ export class ComputerRuntime {
     return this.read("wait_until_changed", params);
   }
 
-  async releaseInputs(): Promise<unknown> {
-    return this.physical("release_inputs", {});
+  async releaseInputs(): Promise<ComputerActionResult> {
+    return this.physicalAction("release_inputs", {});
   }
 
   async withExclusiveProgram<T>(
@@ -868,6 +1100,7 @@ export class ComputerRuntime {
               );
               requireRequestActive();
               if (action.type === "observe") validateObservationOutput(result, this.config);
+              if (nativeMethodReturnsActionResult(action.method!)) validateActionResult(result);
             }
           } catch (error) {
             throw this.runFailure(error, index, action.type, completedCount, actionCount);
@@ -982,6 +1215,7 @@ export class ComputerRuntime {
       this.config.requestTimeoutMs,
     );
     if (prepared.type === "observe") return validateObservationOutput(result, this.config);
+    if (nativeMethodReturnsActionResult(prepared.method!)) return validateActionResult(result);
     return result;
   }
 
@@ -1022,6 +1256,14 @@ export class ComputerRuntime {
       this.requireEnabled();
       return this.native.request(method, params, timeoutMs);
     });
+  }
+
+  private async physicalAction(
+    method: ComputerNativeMethod,
+    params: Record<string, unknown>,
+    timeoutMs = this.config.requestTimeoutMs,
+  ): Promise<ComputerActionResult> {
+    return validateActionResult(await this.physical(method, params, timeoutMs));
   }
 
   private requireEnabled(): void {

@@ -64,6 +64,25 @@ describe("FileSystemService", () => {
     expect(read.content).toBe("world\n");
   });
 
+  it("rejects malformed patch text with a typed conflict instead of an internal error", async () => {
+    const { service } = await fixture();
+    const first = await service.write("hello.txt", "hello\n");
+    const sha = first.sha256 as string;
+    const malformed = [
+      "--- a/hello.txt\n+++ b/hello.txt\n@@ -1,1 +1,1 @@\n-hello\n+world\n+extra\n",
+      "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-hello\n+world\n--- a/other.txt\n+++ b/other.txt\n@@ -1 +1 @@\n-a\n+b\n",
+      "this is not a unified diff",
+      "",
+    ];
+    for (const patchText of malformed) {
+      await expect(service.patch("hello.txt", patchText, sha)).rejects.toBeInstanceOf(ConflictError);
+    }
+
+    const read = await service.read("hello.txt");
+    expect(read.content).toBe("hello\n");
+    expect(read.sha256).toBe(sha);
+  });
+
   it("requires the current hash before removing a file", async () => {
     const { service } = await fixture();
     const created = await service.write("hello.txt", "hello");

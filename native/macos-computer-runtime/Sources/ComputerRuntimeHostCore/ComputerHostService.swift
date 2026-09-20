@@ -233,7 +233,8 @@ public struct ComputerHostService: Sendable {
                 windowTitle: safeObservation.windowTitle,
                 elements: safeObservation.elements,
                 truncated: safeObservation.truncated,
-                digest: digest
+                digest: digest,
+                perception: safeObservation.perception
             )
             return encodeBoundedObservation(digestedObservation, requestId: requestId)
         } catch {
@@ -251,7 +252,8 @@ public struct ComputerHostService: Sendable {
             let resolved = try await recovery.resolve(target, retryBudget: retryBudget)
             return encodeResult(resolvedTargetView(resolved), requestId: requestId)
         } catch let error as ComputerRecoveryError {
-            return recoveryFailure(error, requestId: requestId)
+            let details = try? JSONValue.fromEncodable(await recovery.recoveryEvidence(for: target, error: error))
+            return recoveryFailure(error, details: details, requestId: requestId)
         } catch is CancellationError {
             return .failure(
                 requestId: requestId,
@@ -297,6 +299,17 @@ public struct ComputerHostService: Sendable {
             let capture = try await screenshot.captureMainDisplay(maxBytes: Self.maxScreenshotBytes)
             guard capture.width > 0,
                   capture.height > 0,
+                  capture.captureKind == .display,
+                  capture.screenBounds.x.isFinite,
+                  capture.screenBounds.y.isFinite,
+                  capture.screenBounds.width.isFinite,
+                  capture.screenBounds.height.isFinite,
+                  capture.screenBounds.width > 0,
+                  capture.screenBounds.height > 0,
+                  capture.scaleX.isFinite,
+                  capture.scaleY.isFinite,
+                  capture.scaleX > 0,
+                  capture.scaleY > 0,
                   let png = Data(base64Encoded: capture.pngBase64),
                   !png.isEmpty
             else {
@@ -322,6 +335,8 @@ public struct ComputerHostService: Sendable {
             .map { element in
                 ComputerElementView(
                     index: element.index,
+                    parentIndex: element.parentIndex,
+                    depth: element.depth,
                     role: boundedText(element.role) ?? "",
                     subrole: boundedText(element.subrole),
                     title: boundedText(element.title),
@@ -329,7 +344,9 @@ public struct ComputerHostService: Sendable {
                     focused: element.focused,
                     enabled: element.enabled,
                     selected: element.selected,
-                    bounds: element.bounds
+                    bounds: element.bounds,
+                    actions: element.actions.prefix(16).compactMap { boundedText(String($0.prefix(128))) },
+                    scroll: element.scroll
                 )
             }
 
@@ -338,7 +355,8 @@ public struct ComputerHostService: Sendable {
             application: safeApplicationView(observation.application),
             windowTitle: boundedText(observation.windowTitle),
             elements: Array(boundedElements),
-            truncated: observation.truncated || observation.elements.count > limits.maxElements
+            truncated: observation.truncated || observation.elements.count > limits.maxElements,
+            perception: observation.perception
         )
     }
 
@@ -419,7 +437,7 @@ public struct ComputerHostService: Sendable {
             return .index(snapshotId: snapshotId, index: Int(rawIndex))
 
         case "role":
-            guard Set(object.keys).isSubset(of: ["by", "role", "name", "exact"]),
+            guard Set(object.keys).isSubset(of: ["by", "role", "name", "exact", "within"]),
                   case let .string(role)? = object["role"],
                   isValidTargetString(role),
                   let exact = parseOptionalExact(object["exact"])
@@ -431,20 +449,25 @@ public struct ComputerHostService: Sendable {
             } else {
                 name = nil
             }
-            return .role(role: role, name: name, exact: exact)
+            return applyTargetScope(
+                .role(role: role, name: name, exact: exact),
+                rawScope: object["within"]
+            )
 
         case "text", "ocrText", "label":
             let textKey = kind == "label" ? "label" : "text"
-            guard Set(object.keys).isSubset(of: ["by", textKey, "exact"]),
+            guard Set(object.keys).isSubset(of: ["by", textKey, "exact", "within"]),
                   case let .string(text)? = object[textKey],
                   isValidTargetString(text),
                   let exact = parseOptionalExact(object["exact"])
             else { return nil }
+            let base: ComputerTarget
             switch kind {
-            case "text": return .text(text: text, exact: exact)
-            case "ocrText": return .ocrText(text: text, exact: exact)
-            default: return .label(label: text, exact: exact)
+            case "text": base = .text(text: text, exact: exact)
+            case "ocrText": base = .ocrText(text: text, exact: exact)
+            default: base = .label(label: text, exact: exact)
             }
+            return applyTargetScope(base, rawScope: object["within"])
 
         case "point":
             guard Set(object.keys) == Set(["by", "x", "y"]),
@@ -454,6 +477,40 @@ public struct ComputerHostService: Sendable {
             else { return nil }
             return .point(x: x, y: y)
 
+        default:
+            return nil
+        }
+    }
+
+    private func applyTargetScope(_ target: ComputerTarget, rawScope: JSONValue?) -> ComputerTarget? {
+        guard let rawScope else { return target }
+        guard let scope = parseTargetScope(rawScope) else { return nil }
+        return .scoped(target: target, within: scope)
+    }
+
+    private func parseTargetScope(_ value: JSONValue) -> ComputerTargetScope? {
+        guard case let .object(object) = value, case let .string(kind)? = object["by"] else { return nil }
+        switch kind {
+        case "index":
+            guard Set(object.keys).isSubset(of: ["by", "snapshotId", "index"]),
+                  case let .string(snapshotId)? = object["snapshotId"], isValidTargetString(snapshotId),
+                  case let .number(rawIndex)? = object["index"], rawIndex.isFinite,
+                  rawIndex.rounded(.towardZero) == rawIndex, rawIndex >= 0, rawIndex <= Double(Int.max)
+            else { return nil }
+            return .index(snapshotId: snapshotId, index: Int(rawIndex))
+        case "role":
+            guard Set(object.keys).isSubset(of: ["by", "role", "name", "exact"]),
+                  case let .string(role)? = object["role"], isValidTargetString(role),
+                  let exact = parseOptionalExact(object["exact"])
+            else { return nil }
+            let name: String?
+            if let rawName = object["name"] {
+                guard case let .string(value) = rawName, isValidTargetString(value) else { return nil }
+                name = value
+            } else {
+                name = nil
+            }
+            return .role(role: role, name: name, exact: exact)
         default:
             return nil
         }
@@ -533,17 +590,18 @@ public struct ComputerHostService: Sendable {
 
     private func recoveryFailure(
         _ error: ComputerRecoveryError,
+        details: JSONValue? = nil,
         requestId: String
     ) -> ComputerProtocolResponse {
         switch error {
         case .invalidRetryBudget:
             return protocolInvalid(requestId: requestId)
         case .targetNotFound:
-            return .failure(requestId: requestId, code: "COMPUTER_TARGET_NOT_FOUND", message: "Computer target was not found.")
+            return .failure(requestId: requestId, code: "COMPUTER_TARGET_NOT_FOUND", message: "Computer target was not found.", details: details)
         case .targetAmbiguous:
-            return .failure(requestId: requestId, code: "COMPUTER_TARGET_AMBIGUOUS", message: "Computer target is ambiguous.")
+            return .failure(requestId: requestId, code: "COMPUTER_TARGET_AMBIGUOUS", message: "Computer target is ambiguous.", details: details)
         case .staleSnapshot:
-            return .failure(requestId: requestId, code: "COMPUTER_STALE_SNAPSHOT", message: "Computer target snapshot is stale.")
+            return .failure(requestId: requestId, code: "COMPUTER_STALE_SNAPSHOT", message: "Computer target snapshot is stale.", details: details)
         case .unsafeGeometry:
             return .failure(requestId: requestId, code: "COMPUTER_ACTION_FAILED", message: "Computer target geometry is unsafe.")
         case .focusFailed:
@@ -553,7 +611,7 @@ public struct ComputerHostService: Sendable {
         case .unavailable:
             return unavailable(requestId: requestId)
         case .needsReplan:
-            return .failure(requestId: requestId, code: "COMPUTER_NEEDS_REPLAN", message: "Computer state requires replanning.")
+            return .failure(requestId: requestId, code: "COMPUTER_NEEDS_REPLAN", message: "Computer state requires replanning.", details: details)
         }
     }
 

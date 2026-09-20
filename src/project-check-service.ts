@@ -13,11 +13,12 @@ import {
   RecoveryRequiredError,
 } from "./errors.js";
 import { PathPolicy } from "./policy.js";
-import type { ProjectExecResult } from "./project-exec-types.js";
-import { ProjectExecService } from "./project-exec-service.js";
 import type {
   DetectedProjectCheck,
   ProjectCheckBaseStatus,
+  ProjectCheckCommandResult,
+  ProjectCheckExecutor,
+  ProjectCheckExecutorFactory,
   ProjectCheckKind,
   ProjectCheckStatus,
   ProjectCheckView,
@@ -26,6 +27,7 @@ import type {
   StoredProjectVerification,
 } from "./project-check-types.js";
 import { TaskStateService } from "./task-state-service.js";
+import { discoverNativeSwiftTestChecks } from "./project-native-checks.js";
 import type { RepositoryStateObservation } from "./task-state-types.js";
 
 const STORE_VERSION = 1;
@@ -102,6 +104,7 @@ function check(kind: ProjectCheckKind, manager: string, script: string): Detecte
     args: invocation.args,
     cwd: ".",
     source: `package.json#scripts.${script}`,
+    execution: "project-sandbox",
   };
 }
 
@@ -114,6 +117,9 @@ function validEvidence(value: unknown): value is StoredProjectCheckEvidence {
     && Array.isArray(evidence.args) && evidence.args.every((item) => typeof item === "string")
     && typeof evidence.cwd === "string"
     && typeof evidence.source === "string"
+    && (evidence.execution === undefined
+      || evidence.execution === "project-sandbox"
+      || evidence.execution === "admin-host")
     && (evidence.baseStatus === "PASS" || evidence.baseStatus === "FAIL" || evidence.baseStatus === "UNAVAILABLE")
     && typeof evidence.startedAt === "string"
     && typeof evidence.finishedAt === "string"
@@ -175,7 +181,7 @@ export class ProjectCheckService {
     private readonly stateRoot: string,
     private readonly profile: AuthorityProfile,
     private readonly limits: LimitsConfig,
-    private readonly projectExec: ProjectExecService,
+    private readonly projectExec: ProjectCheckExecutor,
   ) {
     this.observer = new TaskStateService(policy, audit, stateRoot, profile, limits);
   }
@@ -194,8 +200,8 @@ export class ProjectCheckService {
     return path.join(this.verificationDirectory(observation), "latest.json");
   }
 
-  private async detectChecks(observation: RepositoryStateObservation): Promise<DetectedProjectCheck[]> {
-    const packagePath = path.join(observation.repositoryRoot, "package.json");
+  private async detectNodeChecks(repositoryRoot: string): Promise<DetectedProjectCheck[]> {
+    const packagePath = path.join(repositoryRoot, "package.json");
     const packageText = await readRegularText(packagePath, MAX_PACKAGE_BYTES);
     if (packageText === null) return [];
     let packageJson: PackageJsonShape;
@@ -208,9 +214,10 @@ export class ProjectCheckService {
     }
     const scripts = packageJson.scripts;
     if (!scripts || typeof scripts !== "object" || Array.isArray(scripts)) return [];
-    const manager = await detectPackageManager(observation.repositoryRoot, packageJson);
+    const manager = await detectPackageManager(repositoryRoot, packageJson);
+    const nativeChecks = await discoverNativeSwiftTestChecks(repositoryRoot, scripts);
 
-    if (scriptValue(scripts, "check")) return [check("check", manager, "check")];
+    if (scriptValue(scripts, "check")) return [check("check", manager, "check"), ...nativeChecks].slice(0, MAX_CHECKS);
 
     const result: DetectedProjectCheck[] = [];
     if (scriptValue(scripts, "typecheck")) result.push(check("typecheck", manager, "typecheck"));
@@ -218,7 +225,37 @@ export class ProjectCheckService {
     if (scriptValue(scripts, "lint")) result.push(check("lint", manager, "lint"));
     if (scriptValue(scripts, "test")) result.push(check("test", manager, "test"));
     if (scriptValue(scripts, "build")) result.push(check("build", manager, "build"));
-    return result.slice(0, MAX_CHECKS);
+    return [...result, ...nativeChecks].slice(0, MAX_CHECKS);
+  }
+
+  private async detectSwiftPMChecks(repositoryRoot: string): Promise<DetectedProjectCheck[]> {
+    if (!(await regularFileExists(path.join(repositoryRoot, "Package.swift")))) return [];
+    return [
+      {
+        checkId: "swiftpm:test",
+        kind: "test",
+        command: "swift",
+        args: ["test", "--quiet"],
+        cwd: ".",
+        source: "Package.swift",
+        execution: "admin-host",
+      },
+      {
+        checkId: "swiftpm:build",
+        kind: "build",
+        command: "swift",
+        args: ["build"],
+        cwd: ".",
+        source: "Package.swift",
+        execution: "admin-host",
+      },
+    ];
+  }
+
+  private async detectChecks(observation: RepositoryStateObservation): Promise<DetectedProjectCheck[]> {
+    const nodeChecks = await this.detectNodeChecks(observation.repositoryRoot);
+    if (nodeChecks.length > 0) return nodeChecks.slice(0, MAX_CHECKS);
+    return (await this.detectSwiftPMChecks(observation.repositoryRoot)).slice(0, MAX_CHECKS);
   }
 
   private async loadStore(observation: RepositoryStateObservation): Promise<StoredProjectVerification> {
@@ -338,7 +375,7 @@ export class ProjectCheckService {
     after: RepositoryStateObservation,
     startedAt: string,
     startedMs: number,
-    result: ProjectExecResult | undefined,
+    result: ProjectCheckCommandResult | undefined,
     baseStatus: ProjectCheckBaseStatus,
   ): StoredProjectCheckEvidence {
     const stdout = result?.stdout ?? "";
@@ -360,7 +397,12 @@ export class ProjectCheckService {
     };
   }
 
-  async run(cwdInput = ".", checkIds?: string[], timeoutMs?: number): Promise<ProjectCheckView> {
+  async run(
+    cwdInput = ".",
+    checkIds?: string[],
+    timeoutMs?: number,
+    hostExecutorFactory?: ProjectCheckExecutorFactory,
+  ): Promise<ProjectCheckView> {
     this.assertProject();
     const initial = await this.observer.observeRepositoryState(cwdInput);
     const detected = await this.detectChecks(initial);
@@ -368,7 +410,11 @@ export class ProjectCheckService {
     if (checkIds !== undefined && (checkIds.length < 1 || checkIds.length > MAX_CHECKS)) {
       throw new PolicyError("Project verification checkIds must contain 1-32 entries when provided.");
     }
-    const requested = checkIds === undefined ? detected : checkIds.map((id) => {
+    // Mixed projects keep ordinary sandbox checks runnable without Admin;
+    // native checks remain NOT_RUN until explicitly selected.
+    const implicitChecks = detected.some((item) => item.execution === "project-sandbox")
+      ? detected.filter((item) => item.execution === "project-sandbox") : detected;
+    const requested = checkIds === undefined ? implicitChecks : checkIds.map((id) => {
       const found = detected.find((item) => item.checkId === id);
       if (!found) throw new PolicyError("Project verification requested an unknown detected check ID.");
       return found;
@@ -376,6 +422,13 @@ export class ProjectCheckService {
     if (new Set(requested.map((item) => item.checkId)).size !== requested.length) {
       throw new PolicyError("Project verification checkIds must be unique.");
     }
+    const requiresHost = requested.some((item) => item.execution === "admin-host");
+    if (requiresHost && hostExecutorFactory === undefined) {
+      throw new AuthorityDeniedError("Native project verification requires an active Admin authority lease.");
+    }
+    const hostExecutor = requiresHost
+      ? hostExecutorFactory!(initial.repositoryRoot)
+      : undefined;
 
     return this.audit.run(
       "project.check",
@@ -386,10 +439,13 @@ export class ProjectCheckService {
           const before = await this.observer.observeRepositoryState(cwdInput);
           const startedAt = new Date().toISOString();
           const startedMs = Date.now();
-          let result: ProjectExecResult | undefined;
+          let result: ProjectCheckCommandResult | undefined;
           let baseStatus: ProjectCheckBaseStatus;
           try {
-            result = await this.projectExec.run(
+            const executor = detectedCheck.execution === "admin-host"
+              ? hostExecutor!
+              : this.projectExec;
+            result = await executor.run(
               detectedCheck.command,
               detectedCheck.args,
               before.repositoryRoot,

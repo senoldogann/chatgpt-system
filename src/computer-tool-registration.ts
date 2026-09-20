@@ -2,10 +2,13 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { AuthorityManager } from "./authority.js";
 import { ComputerError } from "./computer-errors.js";
+import { COMPUTER_KEY_INPUT_VALUES, normalizeComputerKey } from "./computer-key.js";
 import type { ComputerAction } from "./computer-types.js";
 import { AppError } from "./errors.js";
 import { createScopedRuntime, type ScopedRuntimeBase } from "./scoped-runtime.js";
 import { ScopedComputerService } from "./scoped-computer-service.js";
+import { JevApiError, JevClient, JEV_BASE_URL } from "./jev-client.js";
+import { JEV_MAX_ATTEMPTS, resolveSemanticTarget } from "./jev-target-resolver.js";
 import {
   computerActionResultOutputSchema,
   computerApplicationResultOutputSchema,
@@ -15,6 +18,9 @@ import {
   computerPointResultOutputSchema,
   computerRunOutputSchema,
   computerScreenshotMetadataOutputSchema,
+  computerScrollUntilVisibleOutputSchema,
+  computerSemanticTargetResolutionOutputSchema,
+  computerWaitResultOutputSchema,
 } from "./tool-output-schemas.js";
 
 export interface ComputerToolRuntime extends ScopedRuntimeBase {
@@ -26,17 +32,62 @@ const selectorFields = {
   bundleIdentifier: z.string().min(1).max(4_096).optional(),
   name: z.string().min(1).max(4_096).optional(),
 };
+// MCP validation accepts selector-less payloads, but the runtime rejects them
+// with COMPUTER_PROTOCOL_INVALID (selectorParams requires bundleIdentifier or
+// name). Refine at the MCP boundary so the model gets an actionable schema
+// error instead of a sub-millisecond protocol failure.
+const appSelectorRequired = (value: {
+  bundleIdentifier?: string | undefined;
+  name?: string | undefined;
+}): boolean => value.bundleIdentifier !== undefined || value.name !== undefined;
+const appSelectorRequirement = {
+  message: "Provide bundleIdentifier or name; the runtime requires an app selector.",
+};
 const pointFields = { x: z.number(), y: z.number() };
 const retryBudgetSchema = z.number().int().min(0).max(2);
-const computerTargetSchema = z.discriminatedUnion("by", [
+const computerTargetScopeSchema = z.union([
   z.object({ by: z.literal("index"), snapshotId: z.string().min(1).max(4_096), index: z.number().int().nonnegative() }).strict(),
   z.object({ by: z.literal("role"), role: z.string().min(1).max(4_096), name: z.string().min(1).max(4_096).optional(), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("text"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("label"), label: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
-  z.object({ by: z.literal("ocrText"), text: z.string().min(1).max(4_096), exact: z.boolean().optional() }).strict(),
+]);
+const computerRoleTargetSchema = z.object({
+  by: z.literal("role"),
+  role: z.string().min(1).max(4_096),
+  name: z.string().min(1).max(4_096).optional(),
+  exact: z.boolean().optional(),
+});
+const computerTextTargetSchema = z.object({
+  by: z.literal("text"),
+  text: z.string().min(1).max(4_096),
+  exact: z.boolean().optional(),
+});
+const computerLabelTargetSchema = z.object({
+  by: z.literal("label"),
+  label: z.string().min(1).max(4_096),
+  exact: z.boolean().optional(),
+});
+const computerOcrTargetSchema = z.object({
+  by: z.literal("ocrText"),
+  text: z.string().min(1).max(4_096),
+  exact: z.boolean().optional(),
+});
+const computerTargetSchema = z.discriminatedUnion("by", [
+  z.object({ by: z.literal("index"), snapshotId: z.string().min(1).max(4_096), index: z.number().int().nonnegative() }).strict(),
+  computerRoleTargetSchema.extend({ within: computerTargetScopeSchema.optional() }).strict(),
+  computerTextTargetSchema.extend({ within: computerTargetScopeSchema.optional() }).strict(),
+  computerLabelTargetSchema.extend({ within: computerTargetScopeSchema.optional() }).strict(),
+  computerOcrTargetSchema.extend({ within: computerTargetScopeSchema.optional() }).strict(),
   z.object({ by: z.literal("point"), x: z.number(), y: z.number() }).strict(),
 ]);
 const targetLocationFields = { target: computerTargetSchema, retryBudget: retryBudgetSchema.optional() };
+const computerScrollTargetSchema = z.union([
+  computerRoleTargetSchema.strict(),
+  computerTextTargetSchema.strict(),
+  computerLabelTargetSchema.strict(),
+  computerOcrTargetSchema.strict(),
+]);
+const scrollDirectionSchema = z.enum(["up", "down", "left", "right"]);
+const scrollAmountSchema = z.enum(["small", "page"]);
+const scrollMaxStepsSchema = z.number().int().min(1).max(6);
 const endpointSchema = z.union([z.object(pointFields).strict(), computerTargetSchema]);
 const motionModeSchema = z.enum(["instant", "fast", "natural"]);
 const mouseButtonSchema = z.enum(["left", "right", "middle"]);
@@ -44,8 +95,13 @@ const modifierSchema = z.enum(["control", "option", "shift", "command"]);
 const modifiersSchema = z.array(modifierSchema).max(4).refine((values) => new Set(values).size === values.length, {
   message: "Modifiers must be unique.",
 });
-const verificationTimeoutSchema = z.number().int().min(50).max(10_000);
-const focusTimeoutSchema = z.number().int().min(50).max(5_000);
+const computerKeyInputSchema = z.enum(COMPUTER_KEY_INPUT_VALUES).transform((value) => {
+  const normalized = normalizeComputerKey(value);
+  if (!normalized) throw new Error("Unreachable computer key normalization failure.");
+  return normalized;
+});
+const verificationTimeoutSchema = z.coerce.number().int().min(50).max(60_000);
+const focusTimeoutSchema = z.coerce.number().int().min(50).max(60_000);
 
 const verificationSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -74,12 +130,12 @@ const openActionSchema = z.object({
   type: z.literal("open_app"),
   ...selectorFields,
   timeoutMs: focusTimeoutSchema.optional(),
-}).strict();
+}).strict().refine(appSelectorRequired, appSelectorRequirement);
 const focusActionSchema = z.object({
   type: z.literal("focus_app"),
   ...selectorFields,
   timeoutMs: focusTimeoutSchema.optional(),
-}).strict();
+}).strict().refine(appSelectorRequired, appSelectorRequirement);
 const moveActionSchema = z.union([
   z.object({
     type: z.literal("move_mouse"),
@@ -184,23 +240,31 @@ const typeTextActionSchema = z.object({
   text: z.string().max(16_384),
   ...selectorFields,
   verify: verificationSchema.optional(),
-}).strict();
+}).strict().refine(appSelectorRequired, appSelectorRequirement);
 const pressKeyActionSchema = z.object({
   type: z.literal("press_key"),
-  key: z.string().min(1).max(128),
+  key: computerKeyInputSchema,
   modifiers: modifiersSchema.optional(),
   ...selectorFields,
   verify: verificationSchema.optional(),
-}).strict();
-const waitActionSchema = z.object({
+}).strict().refine(appSelectorRequired, appSelectorRequirement);
+const waitActionSchema = z.preprocess((val: any) => {
+  if (val && typeof val === "object") {
+    const ms = val.durationMs ?? val.milliseconds ?? val.ms ?? val.duration;
+    if (ms !== undefined) {
+      return { ...val, durationMs: Number(ms) };
+    }
+  }
+  return val;
+}, z.object({
   type: z.literal("wait"),
-  durationMs: z.number().int().nonnegative(),
-}).strict();
+  durationMs: z.coerce.number().int().nonnegative(),
+}));
 const waitForFrontmostActionSchema = z.object({
   type: z.literal("wait_for_frontmost"),
   ...selectorFields,
   timeoutMs: verificationTimeoutSchema.optional(),
-}).strict();
+}).strict().refine(appSelectorRequired, appSelectorRequirement);
 const waitForTextActionSchema = z.object({
   type: z.literal("wait_for_text"),
   text: z.string().min(1).max(4_096),
@@ -262,11 +326,34 @@ function safeErrorDetails(error: ComputerError): Record<string, unknown> | undef
   const details = error.details;
   if (!details) return undefined;
   const safe: Record<string, unknown> = {};
+  const candidateCount = details.candidateCount;
+  const scopeResolved = details.scopeResolved;
+  const activeScrollContainerCount = details.activeScrollContainerCount;
+  const recommendedRecovery = details.recommendedRecovery;
+  if (
+    typeof candidateCount === "number"
+    && Number.isInteger(candidateCount)
+    && candidateCount >= 0
+    && candidateCount <= 500
+    && typeof scopeResolved === "boolean"
+    && typeof activeScrollContainerCount === "number"
+    && Number.isInteger(activeScrollContainerCount)
+    && activeScrollContainerCount >= 0
+    && activeScrollContainerCount <= 500
+    && typeof recommendedRecovery === "string"
+    && ["observe", "scope-target", "scroll", "screenshot", "none"].includes(recommendedRecovery)
+  ) {
+    safe.candidateCount = candidateCount;
+    safe.scopeResolved = scopeResolved;
+    safe.activeScrollContainerCount = activeScrollContainerCount;
+    safe.recommendedRecovery = recommendedRecovery;
+  }
   if (Number.isInteger(details.failedStepIndex)) safe.failedStepIndex = details.failedStepIndex;
   if (typeof details.failedActionType === "string" && details.failedActionType.length <= 64) {
     safe.failedActionType = details.failedActionType;
   }
   if (Number.isInteger(details.completedCount)) safe.completedCount = details.completedCount;
+  if (Number.isInteger(details.jevStatusCode)) safe.jevStatusCode = details.jevStatusCode;
   if (Number.isInteger(details.actionCount)) safe.actionCount = details.actionCount;
   return Object.keys(safe).length > 0 ? safe : undefined;
 }
@@ -301,8 +388,20 @@ async function safeCall<T extends object>(fn: () => Promise<T>) {
   }
 }
 
-function computerFor(runtime: ComputerToolRuntime, authorityLeaseId: string) {
-  const authority = runtime.authority.resolve(authorityLeaseId);
+async function computerFor(runtime: ComputerToolRuntime, authorityLeaseId?: string) {
+  if (authorityLeaseId) {
+    const authority = runtime.authority.resolve(authorityLeaseId);
+    return createScopedRuntime(runtime, authority).computer;
+  }
+  if (runtime.config.personalAdmin?.enabled) {
+    const active = runtime.authority.findActiveAdminLease();
+    if (active) {
+      return createScopedRuntime(runtime, active).computer;
+    }
+    const lease = await runtime.authority.start({ profile: "admin", requestedTtlSeconds: 3600 });
+    return createScopedRuntime(runtime, runtime.authority.resolve(lease.leaseId)).computer;
+  }
+  const authority = runtime.authority.resolve("");
   return createScopedRuntime(runtime, authority).computer;
 }
 
@@ -329,28 +428,72 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_observe",
     {
-      description: "Return the bounded accessibility observation for the frontmost application. Requires Admin authority.",
+      description: "Return the bounded accessibility/perception observation for the frontmost application. Use perception.recommendedTargeting: ax => prefer semantic AX role/text/index targets, including within-scoped targets; ocr => use bounded OCR fallback with target.by=ocrText; visual-point => obtain a fresh screenshot and make at most one explicit verified point attempt. For off-screen targets inside a deterministic container, use scoped computer_scroll_until_visible rather than repeated raw scroll. Do not repeat an unchanged point or scroll attempt, and do not repeat blind point coordinates after failure; re-observe and replan instead. Requires Admin authority.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: computerObservationOutputSchema,
       annotations: computerReadAnnotations,
     },
-    async ({ authorityLeaseId }) => safeCall(() => computerFor(runtime, authorityLeaseId).observe() as Promise<object>),
+    async ({ authorityLeaseId }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).observe() as Promise<object>),
+  );
+
+  server.registerTool(
+    "computer_resolve_semantic_target",
+    {
+      description: `${COMPUTER_USE_ROUTING_GUIDANCE} Resolve a natural-language instruction to one element from a fresh accessibility observation using Jev semantic target resolution. Read-only: it never clicks, types, or moves input. On outcome "resolved", pass the returned target directly to computer_click/computer_run/computer_move_mouse. On "unresolved", re-observe, ask the user, or fall back to computer_observe's perception.recommendedTargeting instead of guessing. Requires Admin authority, --enable-jev-targeting, and TYPESAFE_API_KEY.`,
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        instruction: z.string().min(1).max(2_000),
+      }).strict(),
+      outputSchema: computerSemanticTargetResolutionOutputSchema,
+      annotations: computerReadAnnotations,
+    },
+    async ({ authorityLeaseId, instruction }) => safeCall(async () => {
+      const computer = await computerFor(runtime, authorityLeaseId);
+      // Yetki/kapsam denetimi computer.observe() içinde gerçekleşiyor (diğer
+      // computer_* araçlarıyla aynı yol); Jev gate kontrolü ondan sonra gelir
+      // ki yetkisiz bir lease, feature'ın açık olup olmadığını hiç öğrenemesin.
+      const observation = computerObservationOutputSchema.parse(await computer.observe());
+      if (!runtime.config.jevTargeting.enabled || runtime.config.jevTargeting.apiKey === null) {
+        throw new ComputerError("JEV_TARGETING_UNAVAILABLE");
+      }
+      const client = new JevClient(runtime.config.jevTargeting.apiKey, JEV_BASE_URL);
+      try {
+        return await resolveSemanticTarget(
+          observation,
+          instruction,
+          (request) => client.ask(request, JEV_MAX_ATTEMPTS),
+        );
+      } catch (error) {
+        if (error instanceof JevApiError) {
+          throw new ComputerError("JEV_TARGETING_FAILED", { jevStatusCode: error.statusCode });
+        }
+        throw new ComputerError("JEV_TARGETING_FAILED");
+      }
+    }),
   );
 
   server.registerTool(
     "computer_screenshot",
     {
-      description: "Capture a bounded main-display PNG as MCP image content. Screenshot bytes are not duplicated into structured JSON.",
+      description: "Capture a bounded selected-display PNG as MCP image content with explicit macOS screen-space bounds and pixel-to-screen scale metadata. Screenshot bytes are not duplicated into structured JSON.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: computerScreenshotMetadataOutputSchema,
       annotations: computerReadAnnotations,
     },
     async ({ authorityLeaseId }) => {
       try {
-        const screenshot = await computerFor(runtime, authorityLeaseId).screenshot();
+        const computer = await computerFor(runtime, authorityLeaseId);
+        const screenshot = await computer.screenshot();
         return {
           content: [{ type: "image" as const, data: screenshot.pngBase64, mimeType: "image/png" }],
-          structuredContent: { width: screenshot.width, height: screenshot.height },
+          structuredContent: {
+            width: screenshot.width,
+            height: screenshot.height,
+            captureKind: screenshot.captureKind,
+            screenBounds: screenshot.screenBounds,
+            scaleX: screenshot.scaleX,
+            scaleY: screenshot.scaleY,
+          },
         };
       } catch (error) {
         return { ...textResult(computerErrorPayload(error)), isError: true };
@@ -366,24 +509,24 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerPointResultOutputSchema,
       annotations: computerReadAnnotations,
     },
-    async ({ authorityLeaseId }) => safeCall(() => computerFor(runtime, authorityLeaseId).pointerPosition() as Promise<object>),
+    async ({ authorityLeaseId }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).pointerPosition() as Promise<object>),
   );
 
   for (const [name, method] of [["computer_open_app", "openApp"], ["computer_focus_app", "focusApp"]] as const) {
     server.registerTool(
       name,
       {
-        description: `${COMPUTER_USE_ROUTING_GUIDANCE} ${name === "computer_open_app" ? "Open or" : ""} focus one macOS application by bundle identifier or exact running name. Requires Admin authority.`,
+        description: `${COMPUTER_USE_ROUTING_GUIDANCE} ${name === "computer_open_app" ? "Open or" : ""} focus one macOS application by bundle identifier (preferred, e.g. com.apple.Safari, com.apple.calculator, com.google.Chrome) or application name. Requires bundleIdentifier or name. Supports timeoutMs up to 60000. Requires Admin authority.`,
         inputSchema: z.object({
           ...authorityLeaseField,
           ...selectorFields,
           timeoutMs: focusTimeoutSchema.optional(),
-        }).strict(),
+        }).strict().refine(appSelectorRequired, appSelectorRequirement),
         outputSchema: computerApplicationResultOutputSchema,
         annotations: computerMutationAnnotations,
       },
-      async ({ authorityLeaseId, bundleIdentifier, name: appName, timeoutMs }) => safeCall(() =>
-        computerFor(runtime, authorityLeaseId)[method](compact({ bundleIdentifier, name: appName, timeoutMs }) as never) as Promise<object>),
+      async ({ authorityLeaseId, bundleIdentifier, name: appName, timeoutMs }) => safeCall(async () =>
+        (await computerFor(runtime, authorityLeaseId))[method](compact({ bundleIdentifier, name: appName, timeoutMs }) as never) as Promise<object>),
     );
   }
 
@@ -410,7 +553,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).moveMouse(compact(input) as never) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).moveMouse(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(
@@ -438,7 +581,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).click(compact(input) as never) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).click(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(
@@ -462,7 +605,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).drag(compact(input) as never) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).drag(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(
@@ -490,40 +633,59 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).scroll(compact(input) as never) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).scroll(compact(input) as never) as Promise<object>),
+  );
+
+  server.registerTool(
+    "computer_scroll_until_visible",
+    {
+      description: "Use only when a deterministic scroll container is known. Bounded semantic scrolling resolves the target inside that container and stops after at most six physical scrolls. Use a fresh observe before deciding how to recover from needs_replan, and never convert failure into repeated blind raw scrolling. Requires Admin authority.",
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        target: computerScrollTargetSchema,
+        within: computerTargetScopeSchema,
+        direction: scrollDirectionSchema,
+        amount: scrollAmountSchema.optional(),
+        maxSteps: scrollMaxStepsSchema.optional(),
+      }).strict(),
+      outputSchema: computerScrollUntilVisibleOutputSchema,
+      annotations: computerMutationAnnotations,
+    },
+    async ({ authorityLeaseId, ...input }) => safeCall(async () =>
+      (await computerFor(runtime, authorityLeaseId)).scrollUntilVisible(compact(input) as never) as Promise<object>),
   );
 
   server.registerTool(
     "computer_type_text",
     {
-      description: "Type bounded Unicode text into the expected frontmost application. Requires Admin authority.",
+      description: "Type bounded Unicode text into the expected frontmost application. Requires bundleIdentifier or name to select the target application. Requires Admin authority.",
       inputSchema: z.object({
         ...authorityLeaseField,
         text: z.string().max(16_384),
         ...selectorFields,
         verify: verificationSchema.optional(),
-      }).strict(),
+      }).strict().refine(appSelectorRequired, appSelectorRequirement),
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).typeText(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).typeText(input) as Promise<object>),
   );
 
   server.registerTool(
     "computer_press_key",
     {
-      description: "Press a named key with optional modifiers in the expected frontmost application. Requires Admin authority.",
+      description: "Press a named key with optional modifiers in the expected frontmost application. Requires bundleIdentifier or name to select the target application. Requires Admin authority.",
       inputSchema: z.object({
         ...authorityLeaseField,
-        key: z.string().min(1).max(128),
+        key: computerKeyInputSchema,
         modifiers: modifiersSchema.optional(),
         ...selectorFields,
         verify: verificationSchema.optional(),
-      }).strict(),
+      }).strict().refine(appSelectorRequired, appSelectorRequirement),
       outputSchema: computerActionResultOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).pressKey(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).pressKey(input) as Promise<object>),
   );
 
   server.registerTool(
@@ -534,22 +696,22 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerActionResultOutputSchema,
       annotations: computerIdempotentMutationAnnotations,
     },
-    async ({ authorityLeaseId }) => safeCall(() => computerFor(runtime, authorityLeaseId).releaseInputs() as Promise<object>),
+    async ({ authorityLeaseId }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).releaseInputs() as Promise<object>),
   );
 
   server.registerTool(
     "computer_wait_for_frontmost",
     {
-      description: "Wait for the selected application to become frontmost. Requires Admin authority.",
+      description: "Wait for the selected application to become frontmost. Requires bundleIdentifier or name. Requires Admin authority.",
       inputSchema: z.object({
         ...authorityLeaseField,
         ...selectorFields,
         timeoutMs: verificationTimeoutSchema.optional(),
-      }).strict(),
+      }).strict().refine(appSelectorRequired, appSelectorRequirement),
       outputSchema: computerApplicationResultOutputSchema,
       annotations: computerReadAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).waitForFrontmost(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).waitForFrontmost(input) as Promise<object>),
   );
 
   server.registerTool(
@@ -562,10 +724,10 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         exact: z.boolean().optional(),
         timeoutMs: verificationTimeoutSchema.optional(),
       }).strict(),
-      outputSchema: computerActionResultOutputSchema,
+      outputSchema: computerWaitResultOutputSchema,
       annotations: computerReadAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).waitForText(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).waitForText(input) as Promise<object>),
   );
 
   server.registerTool(
@@ -580,13 +742,13 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerChangedDigestOutputSchema,
       annotations: computerReadAnnotations,
     },
-    async ({ authorityLeaseId, ...input }) => safeCall(() => computerFor(runtime, authorityLeaseId).waitUntilChanged(input) as Promise<object>),
+    async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).waitUntilChanged(input) as Promise<object>),
   );
 
   server.registerTool(
     "computer_run",
     {
-      description: `${COMPUTER_USE_ROUTING_GUIDANCE} Execute a validated typed Computer Runtime action program under one physical-input lane for physical mouse and keyboard actions. No automatic retry or UI rollback is implied.`,
+      description: `${COMPUTER_USE_ROUTING_GUIDANCE} Execute a validated typed Computer Runtime action program under one physical-input lane for physical mouse and keyboard actions. Highly recommended for batching 2-10 sequential actions (e.g. click, type, press key) with a single user approval. Set finalObservation: "observe" to receive the updated perception observation immediately after the batch completes.`,
       inputSchema: z.object({
         ...authorityLeaseField,
         actions: z.array(computerActionSchema).min(1),
@@ -596,8 +758,8 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       outputSchema: computerRunOutputSchema,
       annotations: computerMutationAnnotations,
     },
-    async ({ authorityLeaseId, actions, finalObservation, timeoutMs }, ctx) => safeCall(() =>
-      computerFor(runtime, authorityLeaseId).run(
+    async ({ authorityLeaseId, actions, finalObservation, timeoutMs }, ctx) => safeCall(async () =>
+      (await computerFor(runtime, authorityLeaseId)).run(
         compact({
           actions: actions as ComputerAction[],
           finalObservation,

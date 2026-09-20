@@ -1,3 +1,5 @@
+import type { ComputerKeyName } from "./computer-key.js";
+
 export const COMPUTER_PROTOCOL_VERSION = 1 as const;
 export const COMPUTER_MAX_REQUEST_LINE_BYTES = 262_144;
 export const COMPUTER_MAX_RESPONSE_BYTES = 12_582_912;
@@ -30,13 +32,37 @@ export const COMPUTER_NATIVE_METHODS = [
 
 export type ComputerNativeMethod = typeof COMPUTER_NATIVE_METHODS[number];
 
-export type ComputerTarget =
+export type ComputerTargetScope =
   | { by: "index"; snapshotId: string; index: number }
+  | { by: "role"; role: string; name?: string; exact?: boolean };
+
+export type ComputerScrollTarget =
   | { by: "role"; role: string; name?: string; exact?: boolean }
   | { by: "text"; text: string; exact?: boolean }
   | { by: "label"; label: string; exact?: boolean }
-  | { by: "ocrText"; text: string; exact?: boolean }
+  | { by: "ocrText"; text: string; exact?: boolean };
+
+export type ComputerTarget =
+  | { by: "index"; snapshotId: string; index: number }
+  | (ComputerScrollTarget & { within?: ComputerTargetScope })
   | { by: "point"; x: number; y: number };
+
+export type ComputerScrollDirection = "up" | "down" | "left" | "right";
+export type ComputerScrollAmount = "small" | "page";
+
+export interface ComputerScrollUntilVisibleInput {
+  target: ComputerScrollTarget;
+  within: ComputerTargetScope;
+  direction: ComputerScrollDirection;
+  amount?: ComputerScrollAmount;
+  maxSteps?: number;
+}
+
+export interface ComputerScrollUntilVisibleResult {
+  state: "target_visible" | "boundary_reached" | "needs_replan";
+  stepsUsed: number;
+  changed: boolean;
+}
 
 export interface ComputerResolvedTargetView {
   source: "ax" | "ocr" | "point";
@@ -47,6 +73,17 @@ export interface ComputerResolvedTargetView {
 }
 
 export type ComputerCoordinate = { x: number; y: number };
+export type ComputerActionVerificationKind = "ax" | "text" | "screen-region" | "none";
+export interface ComputerActionVerificationEvidence {
+  kind: ComputerActionVerificationKind;
+  changed: boolean | null;
+}
+export interface ComputerActionResult {
+  state: "verified" | "completed_unverified";
+  pointer?: ComputerCoordinate;
+  changed?: boolean;
+  verification?: ComputerActionVerificationEvidence;
+}
 export type ComputerSemanticLocation = {
   target: ComputerTarget;
   retryBudget?: number;
@@ -84,7 +121,7 @@ export type ComputerAction =
       | ComputerActionLocation
     ))
   | { type: "type_text"; text: string; bundleIdentifier?: string; name?: string; verify?: ComputerActionVerification }
-  | { type: "press_key"; key: string; modifiers?: Array<"control" | "option" | "shift" | "command">; bundleIdentifier?: string; name?: string; verify?: ComputerActionVerification }
+  | { type: "press_key"; key: ComputerKeyName; modifiers?: Array<"control" | "option" | "shift" | "command">; bundleIdentifier?: string; name?: string; verify?: ComputerActionVerification }
   | { type: "wait"; durationMs: number }
   | { type: "wait_for_frontmost"; bundleIdentifier?: string; name?: string; timeoutMs?: number }
   | { type: "wait_for_text"; text: string; exact?: boolean; timeoutMs?: number }

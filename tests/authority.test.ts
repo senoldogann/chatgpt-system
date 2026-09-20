@@ -221,6 +221,44 @@ describe("AuthorityManager", () => {
     expect((await adminRuntime.fs.read(adminReadable, "utf8")).content).toBe("admin\n");
   });
 
+  it("persists explicitly enabled Persistent Owner Mode across manager restarts without expiry", async () => {
+    const persistentOwnerModePath = path.join(fixtureRoot, "state", "persistent-owner-mode.json");
+    const first = new AuthorityManager({
+      homeDir: home,
+      commands: ["git"],
+      terminalEnabled: true,
+      persistentOwnerModePath,
+      now: () => now,
+    });
+
+    const enabled = first.enablePersistentOwnerMode();
+    expect(enabled).toMatchObject({ enabled: true, profile: "admin", expiresAt: "never" });
+    expect(enabled.leaseId).toBeTruthy();
+    now += 24 * 60 * 60 * 1000;
+
+    const restarted = new AuthorityManager({
+      homeDir: home,
+      commands: ["git"],
+      terminalEnabled: true,
+      persistentOwnerModePath,
+      now: () => now,
+    });
+    expect(restarted.persistentOwnerMode()).toMatchObject({ enabled: true, expiresAt: "never", leaseId: enabled.leaseId });
+    expect(restarted.resolve(enabled.leaseId!)).toMatchObject({ profile: "admin", expiresAt: "never", terminalEnabled: true });
+    expect((await restarted.start({ profile: "admin", requestedTtlSeconds: 1 })).leaseId).toBe(enabled.leaseId);
+
+    expect(restarted.disablePersistentOwnerMode()).toMatchObject({ enabled: false, expiresAt: "never" });
+    const afterDisable = new AuthorityManager({
+      homeDir: home,
+      commands: ["git"],
+      terminalEnabled: true,
+      persistentOwnerModePath,
+      now: () => now,
+    });
+    expect(afterDisable.persistentOwnerMode().enabled).toBe(false);
+    expect(() => restarted.resolve(enabled.leaseId!)).toThrowError(AuthorityRequiredError);
+  });
+
   it("audits authority lifecycle without logging raw lease ids", async () => {
     const config = baseConfig();
     const audit = new AuditLogger(config.auditFile);

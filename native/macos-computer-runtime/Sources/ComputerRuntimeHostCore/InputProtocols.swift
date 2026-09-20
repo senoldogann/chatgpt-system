@@ -29,6 +29,10 @@ protocol InputFocusGuard: Sendable {
     func verifyExpectedFrontmost() async throws
 }
 
+protocol InputContextGuard: Sendable {
+    func verifyExpectedContext() async throws
+}
+
 protocol TakeoverMonitoring: Sendable {
     func start() throws
     func stop()
@@ -38,8 +42,18 @@ protocol ApplicationControlling: Sendable {
     func runningApplications() -> [WorkspaceApplication]
     func frontmostApplication() -> WorkspaceApplication?
     func applicationURL(bundleIdentifier: String) -> URL?
+    func applicationURL(name: String) -> URL?
     func openApplication(at url: URL) async throws -> WorkspaceApplication
+    func openApplication(at url: URL, arguments: [String]) async throws -> WorkspaceApplication
     func activate(_ application: WorkspaceApplication) async -> Bool
+}
+
+extension ApplicationControlling {
+    func applicationURL(name: String) -> URL? { nil }
+
+    func openApplication(at url: URL, arguments: [String]) async throws -> WorkspaceApplication {
+        try await openApplication(at: url)
+    }
 }
 
 enum ComputerInputError: Error, Equatable, Sendable {

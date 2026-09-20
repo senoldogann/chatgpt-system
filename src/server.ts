@@ -35,6 +35,7 @@ import { TerminalSessionSupervisor } from "./terminal-session-supervisor.js";
 import { registerTerminalSessionTools } from "./terminal-session-tool-registration.js";
 import { registerOwnerShellTool } from "./owner-shell-tool-registration.js";
 import { createProjectCheckService } from "./project-check-factory.js";
+import type { ProjectCheckHostExecutorFactory } from "./project-check-host-executor.js";
 import { registerProjectCheckTool } from "./project-check-tool-registration.js";
 import { registerProjectExecTool } from "./project-exec-tool-registration.js";
 import { ProjectPublishGate } from "./project-publish-gate.js";
@@ -48,6 +49,7 @@ import { AuthorityDeniedError, errorPayload, PolicyError } from "./errors.js";
 import {
   authorityEndOutputSchema,
   authorityLeaseOutputSchema,
+  persistentOwnerModeOutputSchema,
   fsListOutputSchema,
   fsMkdirOutputSchema,
   fsMoveOutputSchema,
@@ -57,6 +59,8 @@ import {
   fsStatOutputSchema,
   fsWriteOutputSchema,
   gitResultOutputSchema,
+  gitInventoryOutputSchema,
+  gitFileReviewOutputSchema,
   processListOutputSchema,
   processLogsOutputSchema,
   processSummaryOutputSchema,
@@ -79,6 +83,7 @@ export interface RuntimeServices extends ProjectContinuityRuntime {
   ownerShellSupervisor: OwnerShellSupervisor;
   terminalSessionSupervisor: TerminalSessionSupervisor;
   projectExecBackend: ProjectExecBackend;
+  projectCheckHostExecutorFactory?: ProjectCheckHostExecutorFactory;
   taskStateRoot: string;
   worktreeRoot: string;
   browser: BrowserService;
@@ -93,8 +98,11 @@ export interface RuntimeOptions extends BrowserFactoryOptions {
   computerRuntime?: ComputerRuntime;
   computerJsRuntime?: ComputerJsRuntime;
   projectExecBackend?: ProjectExecBackend;
+  projectCheckHostExecutorFactory?: ProjectCheckHostExecutorFactory;
   taskStateRoot?: string;
   worktreeRoot?: string;
+  persistentOwnerModePath?: string;
+  processPersistencePath?: string;
 }
 
 export function createRuntimeServices(config: AppConfig, options: RuntimeOptions = {}): RuntimeServices {
@@ -104,7 +112,23 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     homeDir: homedir(),
     commands: config.terminal.commands,
     terminalEnabled: config.terminal.enabled,
+    persistentOwnerModePath: options.persistentOwnerModePath ?? path.join(homedir(), ".chatgpt-system", "persistent-owner-mode.json"),
     audit: async (event) => {
+      if (event.event === "authority.denied") {
+        // Recorded as an error so lease-resolution refusals show up in ordinary audit error-code analysis.
+        await audit.record({
+          action: event.event,
+          outcome: "error",
+          durationMs: 0,
+          metadata: {
+            reason: event.reason,
+            deniedCount: event.deniedCount,
+            windowStartedAt: event.windowStartedAt,
+            errorCode: "AUTHORITY_REQUIRED",
+          },
+        });
+        return;
+      }
       await audit.record({
         action: event.event,
         outcome: "ok",
@@ -135,7 +159,11 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
       });
     },
   });
-  const processSupervisor = new ProcessSupervisor({ limits: config.limits, audit });
+  const processSupervisor = new ProcessSupervisor({
+    limits: config.limits,
+    audit,
+    persistencePath: options.processPersistencePath ?? path.join(homedir(), ".chatgpt-system", "processes"),
+  });
   const ownerShellSupervisor = new OwnerShellSupervisor({
     maxRetainedBytesPerStream: config.limits.maxCommandOutputBytes,
     processStopGraceMs: config.limits.processStopGraceMs,
@@ -188,6 +216,9 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     ownerShellSupervisor,
     terminalSessionSupervisor,
     projectExecBackend,
+    ...(options.projectCheckHostExecutorFactory !== undefined
+      ? { projectCheckHostExecutorFactory: options.projectCheckHostExecutorFactory }
+      : {}),
     taskStateRoot,
     worktreeRoot,
     browser,
@@ -225,12 +256,12 @@ const processIdField = { processId: z.string().min(40) };
 const projectAuthorityStartInputSchema = z.object({
   profile: z.literal("project"),
   projectRoots: z.array(z.string()).min(1),
-  requestedTtlSeconds: z.number().int().positive().optional(),
-}).strict();
+  requestedTtlSeconds: z.coerce.number().int().positive().optional(),
+});
 const adminAuthorityStartInputSchema = z.object({
   profile: z.literal("admin"),
-  requestedTtlSeconds: z.number().int().positive().optional(),
-}).strict();
+  requestedTtlSeconds: z.coerce.number().int().positive().optional(),
+});
 type AuthorityStartInput =
   | z.infer<typeof projectAuthorityStartInputSchema>
   | z.infer<typeof adminAuthorityStartInputSchema>;
@@ -245,7 +276,15 @@ const gitRemoteMutationAnnotations = { readOnlyHint: false, destructiveHint: fal
 export function createMcpServer(runtime: RuntimeServices): McpServer {
   const personalAdminEnabled = runtime.config.personalAdmin?.enabled === true;
   const authorityStartInputSchema = personalAdminEnabled
-    ? z.discriminatedUnion("profile", [projectAuthorityStartInputSchema, adminAuthorityStartInputSchema])
+    ? z.preprocess((val: any) => {
+        if (val && typeof val === "object") {
+          const profile = val.profile;
+          if (!profile || (profile !== "project" && profile !== "admin")) {
+            return { ...val, profile: "admin" };
+          }
+        }
+        return val ?? { profile: "admin" };
+      }, z.discriminatedUnion("profile", [projectAuthorityStartInputSchema, adminAuthorityStartInputSchema]))
     : projectAuthorityStartInputSchema;
   const server = new McpServer(
     { name: "chatgpt-system", version: "0.1.0" },
@@ -255,7 +294,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "system_capabilities",
     {
-      description: "Show bootstrap filesystem roots, safety limits, audit path, and startup terminal configuration. Bootstrap roots are defaults only: Project leases may target other explicit project directories outside bootstrap roots, while filesystem root and the entire home directory remain forbidden for Project authority. If ChatGPT reports 'This conversation does not support developer MCPs', treat that as developer MCP product-surface/tool-routing unavailability, do not treat it as daemon failure; do not claim local changes, and project_resume after the app tools are available again.",
+      description: "Show bootstrap filesystem roots, safety limits, audit path, and startup terminal configuration. Bootstrap roots are defaults only: Project leases may target other explicit project directories outside bootstrap roots, while filesystem root and the entire home directory remain forbidden for Project authority. If ChatGPT reports 'This conversation does not support developer MCPs', treat that as developer MCP product-surface/tool-routing unavailability; do not treat it as daemon failure. Do not repeatedly retry an unavailable developer-MCP namespace, do not substitute container/local-host access, and do not claim local changes. Move to a new supported or recovered chat when needed; once developer MCP capability returns, project_resume the exact registered project before mutation.",
       inputSchema: z.object({}),
       outputSchema: systemCapabilitiesOutputSchema,
       annotations: readAnnotations,
@@ -273,6 +312,10 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       personalAdmin: {
         enabled: personalAdminEnabled,
         adminLeaseMaxTtlSeconds: 3600 as const,
+      },
+      persistentOwnerMode: {
+        enabled: runtime.authority.persistentOwnerMode().enabled,
+        expiresAt: "never" as const,
       },
       ownerRuntime: {
         enabled: runtime.config.ownerRuntime?.enabled === true,
@@ -305,12 +348,36 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "system_environment",
     {
-      description: "Describe the local runtime environment without running terminal commands. Bootstrap roots are defaults only; Project leases may target other explicit project directories outside bootstrap roots. If ChatGPT reports 'This conversation does not support developer MCPs', treat that as developer MCP product-surface/tool-routing unavailability, do not treat it as daemon failure; do not claim local changes, and project_resume after the app tools are available again. Read-only; exposes no secret values.",
+      description: "Describe the local runtime environment without running terminal commands. Bootstrap roots are defaults only: Project leases may target other explicit project directories outside bootstrap roots. If ChatGPT reports 'This conversation does not support developer MCPs', treat that as developer MCP product-surface/tool-routing unavailability; do not treat it as daemon failure. Do not repeatedly retry an unavailable developer-MCP namespace, do not substitute container/local-host access, and do not claim local changes. Move to a new supported or recovered chat when needed; once developer MCP capability returns, project_resume the exact registered project before mutation. Read-only; exposes no secret values.",
       inputSchema: z.object({}),
       outputSchema: systemEnvironmentOutputSchema,
       annotations: readAnnotations,
     },
     async () => safeCall(async () => describeSystemEnvironment(runtime.config)),
+  );
+
+  server.registerTool(
+    "persistent_owner_mode",
+    {
+      description: "Explicitly enable, inspect, or disable the local Persistent Owner Mode. Enabling is a local owner decision; it never changes macOS TCC, ChatGPT platform policy, or browser safety boundaries. The persisted preference survives daemon restarts until explicitly disabled.",
+      inputSchema: z.object({ operation: z.enum(["enable", "status", "disable"]) }).strict(),
+      outputSchema: persistentOwnerModeOutputSchema,
+      annotations: guardedMutationAnnotations,
+    },
+    async ({ operation }) => safeCall(async () => {
+      if (operation === "enable") {
+        if (!personalAdminEnabled) throw new PolicyError("Persistent Owner Mode requires Personal Admin to be enabled.");
+        const result = runtime.authority.enablePersistentOwnerMode();
+        await runtime.authority.flushAudit();
+        return result;
+      }
+      if (operation === "disable") {
+        const result = runtime.authority.disablePersistentOwnerMode();
+        await runtime.authority.flushAudit();
+        return result;
+      }
+      return runtime.authority.persistentOwnerMode();
+    }),
   );
 
   server.registerTool(
@@ -495,14 +562,36 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   );
 
   server.registerTool(
+    "git_inventory",
+    {
+      description: "Return a complete, categorized Git worktree inventory with cursor pagination. Modified, untracked, deleted, and ignored paths remain distinct; this read does not stage or mutate anything.",
+      inputSchema: z.object({ ...authorityLeaseField, cwd: z.string().default("."), cursor: z.number().int().nonnegative().default(0), snapshot: z.string().regex(/^[a-f0-9]{64}$/).optional(), pageSize: z.number().int().min(1).max(200).default(100) }).strict(),
+      outputSchema: gitInventoryOutputSchema,
+      annotations: readAnnotations,
+    },
+    async ({ authorityLeaseId, cwd, cursor, snapshot, pageSize }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.inventory(cwd, cursor, pageSize, snapshot)),
+  );
+
+  server.registerTool(
+    "git_file_review",
+    {
+      description: "Review one explicit repository-relative file diff without staging or changing the worktree. Deleted files remain reviewable by path.",
+      inputSchema: z.object({ ...authorityLeaseField, cwd: z.string().default("."), path: z.string().min(1) }).strict(),
+      outputSchema: gitFileReviewOutputSchema,
+      annotations: readAnnotations,
+    },
+    async ({ authorityLeaseId, cwd, path: filePath }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.fileReview(cwd, filePath)),
+  );
+
+  server.registerTool(
     "git_diff",
     {
-      description: "Read a git diff inside the active authority lease scope with external diff/textconv disabled.",
-      inputSchema: z.object({ ...authorityLeaseField, cwd: z.string().default("."), staged: z.boolean().default(false) }),
+      description: "Read a git diff or check it for whitespace errors inside the active authority lease scope with external diff/textconv disabled. Set check=true for git diff --check; combine with staged=true for git diff --cached --check. Nonzero exitCode means the check found errors; it does not bypass Git safety checks.",
+      inputSchema: z.object({ ...authorityLeaseField, cwd: z.string().default("."), staged: z.boolean().default(false), check: z.boolean().default(false) }),
       outputSchema: gitResultOutputSchema,
       annotations: readAnnotations,
     },
-    async ({ authorityLeaseId, cwd, staged }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.diff(cwd, staged)),
+    async ({ authorityLeaseId, cwd, staged, check }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.diff(cwd, staged, check)),
   );
 
   server.registerTool(
@@ -554,11 +643,12 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
         ...authorityLeaseField,
         cwd: z.string().default("."),
         paths: z.array(z.string().min(1)).min(1).max(100),
+        expectedSha256: z.record(z.string(), z.union([z.string().regex(/^[a-f0-9]{64}$/), z.literal("deleted")])).optional(),
       }).strict(),
       outputSchema: gitResultOutputSchema,
       annotations: nonDestructiveWriteAnnotations,
     },
-    async ({ authorityLeaseId, cwd, paths }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.stagePaths(cwd, paths)),
+    async ({ authorityLeaseId, cwd, paths, expectedSha256 }) => safeCall(() => withAuthority(runtime, authorityLeaseId).git.stagePaths(cwd, paths, expectedSha256)),
   );
 
   server.registerTool(
@@ -653,11 +743,12 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
         command: z.string(),
         args: z.array(z.string()).default([]),
         cwd: z.string().default("."),
+        idempotencyKey: z.string().min(1).max(256).optional(),
       }).strict(),
       outputSchema: processSummaryOutputSchema,
       annotations: sessionStartAnnotations,
     },
-    async ({ authorityLeaseId, command, args, cwd }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.start(command, args, cwd)),
+    async ({ authorityLeaseId, command, args, cwd, idempotencyKey }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.start(command, args, cwd, idempotencyKey)),
   );
 
   server.registerTool(
@@ -686,11 +777,11 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     "process_logs",
     {
       description: "Read bounded in-memory stdout/stderr tails for one manageable process. No log files or OS PID access are exposed.",
-      inputSchema: z.object({ ...authorityLeaseField, ...processIdField }).strict(),
+      inputSchema: z.object({ ...authorityLeaseField, ...processIdField, cursor: z.number().int().nonnegative().optional() }).strict(),
       outputSchema: processLogsOutputSchema,
       annotations: readAnnotations,
     },
-    async ({ authorityLeaseId, processId }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.logs(processId)),
+    async ({ authorityLeaseId, processId, cursor }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.logs(processId, cursor)),
   );
 
   server.registerTool(

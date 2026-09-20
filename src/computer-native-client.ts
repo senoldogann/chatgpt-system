@@ -17,6 +17,13 @@ const nativeSuccessSchema = z.object({
   result: z.unknown(),
 }).strict();
 
+const nativeRecoveryDetailsSchema = z.object({
+  candidateCount: z.number().int().min(0).max(500),
+  scopeResolved: z.boolean(),
+  activeScrollContainerCount: z.number().int().min(0).max(500),
+  recommendedRecovery: z.enum(["observe", "scope-target", "scroll", "screenshot", "none"]),
+}).strict();
+
 const nativeFailureSchema = z.object({
   protocolVersion: z.literal(COMPUTER_PROTOCOL_VERSION),
   requestId: z.string().min(1),
@@ -24,7 +31,7 @@ const nativeFailureSchema = z.object({
   error: z.object({
     code: z.string().min(1),
     message: z.string(),
-    details: z.record(z.string(), z.unknown()).optional(),
+    details: nativeRecoveryDetailsSchema.optional(),
   }).strict(),
 }).strict();
 
@@ -214,7 +221,7 @@ export class ComputerNativeClient {
     if (response.ok) {
       pending.resolve(response.result);
     } else {
-      pending.reject(normalizeComputerNativeError(response.error.code));
+      pending.reject(normalizeComputerNativeError(response.error.code, response.error.details));
     }
   }
 

@@ -34,6 +34,19 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertFalse(text.contains("\"pid\""))
     }
 
+    @MainActor
+    func testWorkspaceOpenConfigurationPreservesLaunchArguments() {
+        let configuration = SystemWorkspaceController.makeOpenConfiguration(
+            arguments: ["--force-renderer-accessibility=complete"]
+        )
+
+        XCTAssertEqual(configuration.arguments, ["--force-renderer-accessibility=complete"])
+        XCTAssertTrue(configuration.activates)
+        XCTAssertFalse(configuration.createsNewApplicationInstance)
+        XCTAssertFalse(configuration.addsToRecentItems)
+        XCTAssertFalse(configuration.promptsUserIfNeeded)
+    }
+
     func testListAppsBoundsNameAndBundleIdentifier() async throws {
         let longName = String(repeating: "n", count: 5_000)
         let longBundle = String(repeating: "b", count: 5_000)

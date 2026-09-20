@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { BrowserErrorCode } from "./browser-types.js";
 
 export class AppError extends Error {
@@ -230,7 +231,15 @@ export class CommandTimeoutError extends AppError {
     super(
       `Command timed out after ${timedOutAfterMs}ms. Use process_start with process_status/process_logs polling for long-running commands.`,
       "COMMAND_TIMEOUT",
-      { timedOutAfterMs, recommendedTool: "process_start", retryable: true, ...details },
+      {
+        timedOutAfterMs,
+        recommendedTool: "process_start",
+        retryable: true,
+        started: true,
+        processState: "failed",
+        resolution: "Use the returned jobId with process_status/process_logs; do not start a duplicate request.",
+        ...details,
+      },
     );
   }
 }
@@ -238,6 +247,41 @@ export class CommandTimeoutError extends AppError {
 export class ProcessNotFoundError extends AppError {
   constructor(message = "The managed process was not found.") {
     super(message, "PROCESS_NOT_FOUND");
+  }
+}
+
+export class ProcessControlUnavailableError extends AppError {
+  constructor() {
+    super(
+      "The independent process controller is unavailable; no PID or process-group signal was sent.",
+      "PROCESS_CONTROL_UNAVAILABLE",
+      { retryable: true, started: true, processState: "running", resolution: "Query the job again after the wrapper controller is available; do not signal the PID directly." },
+    );
+  }
+}
+
+export class ProcessTerminationTimeoutError extends AppError {
+  constructor() {
+    super(
+      "The wrapper acknowledged termination, but no verified child exit result arrived before the grace period.",
+      "PROCESS_TERMINATION_TIMEOUT",
+      { retryable: true, started: true, processState: "stopping", resolution: "Poll process_status/process_logs; do not treat the controller ACK as cancellation." },
+    );
+  }
+}
+
+export class ProcessIdentityUnverifiedError extends AppError {
+  constructor() {
+    super(
+      "The recovered process identity could not be verified; no PID or process-group signal was sent.",
+      "PROCESS_IDENTITY_UNVERIFIED",
+      {
+        retryable: false,
+        started: true,
+        processState: "unknown",
+        resolution: "Inspect the job status and let the independent result record settle; do not retry by PID or process group.",
+      },
+    );
   }
 }
 
@@ -319,12 +363,34 @@ export class LeaseDeliveryFailedError extends AppError {
   }
 }
 
+function errorSource(code: string): "local_authority" | "scope" | "command_validation" | "sandbox" | "platform" | "timeout" | "connection" | "internal" {
+  if (code === "CONTROL_SOCKET_UNAVAILABLE" || code === "CONTROL_PROTOCOL_INVALID" || code === "PROCESS_CONTROL_UNAVAILABLE") return "connection";
+  if (code.startsWith("AUTHORITY_") || code.startsWith("LOCAL_APPROVAL_") || code.startsWith("CONTROL_")) return "local_authority";
+  if (["POLICY_DENIED", "CONFLICT", "WORKTREE_NOT_CLEAN", "MAIN_PUSH_DENIED"].includes(code)) return "scope";
+  if (["COMMAND_NOT_ALLOWED", "EXECUTABLE_NOT_FOUND", "LIMIT_EXCEEDED", "PROCESS_IDENTITY_UNVERIFIED"].includes(code)) return "command_validation";
+  if (code.startsWith("SANDBOX_") || code.startsWith("PROJECT_EXEC_")) return "sandbox";
+  if (code.includes("TIMEOUT")) return "timeout";
+  if (code.includes("SOCKET") || code.includes("CONNECTION") || code === "LEASE_DELIVERY_FAILED") return "connection";
+  if (code.startsWith("BROWSER_") || code.startsWith("COMPUTER_")) return "platform";
+  return "internal";
+}
+
+function failurePayload(code: string, message: string, details: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    error: code,
+    message,
+    operationId: randomUUID(),
+    source: errorSource(code),
+    started: details.started === true,
+    processState: typeof details.processState === "string" ? details.processState : "not_started",
+    ...(typeof details.exitCode === "number" || details.exitCode === null ? { exitCode: details.exitCode } : {}),
+    resolution: typeof details.resolution === "string" ? details.resolution : "Inspect the structured error and do not retry through an alternate tool until the boundary is resolved.",
+    details,
+  };
+}
+
 export function errorPayload(error: unknown): Record<string, unknown> {
-  if (error instanceof AppError) {
-    return { error: error.code, message: error.message, details: error.details ?? {} };
-  }
-  if (error instanceof Error) {
-    return { error: "INTERNAL_ERROR", message: error.message };
-  }
-  return { error: "INTERNAL_ERROR", message: String(error) };
+  if (error instanceof AppError) return failurePayload(error.code, error.message, error.details ?? {});
+  if (error instanceof Error) return failurePayload("INTERNAL_ERROR", error.message);
+  return failurePayload("INTERNAL_ERROR", String(error));
 }

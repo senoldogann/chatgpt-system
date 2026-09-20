@@ -1,9 +1,15 @@
 import { parseAuthorizeArgs, type AuthorizeArgs } from "./authorize-cli.js";
+import { parseActionReviewArgs, type ActionReviewScope } from "./action-review-cli.js";
 import { applyOwnerWorkstationPreset, type ConfigOverrides } from "./config.js";
 
 export interface AuthorizeCliCommand {
   kind: "authorize";
   args: AuthorizeArgs;
+}
+
+export interface ActionReviewCliCommand {
+  kind: "review-action";
+  args: ActionReviewScope;
 }
 
 export interface ServerCliCommand {
@@ -13,7 +19,7 @@ export interface ServerCliCommand {
   overrides: ConfigOverrides;
 }
 
-export type CliCommand = AuthorizeCliCommand | ServerCliCommand;
+export type CliCommand = AuthorizeCliCommand | ActionReviewCliCommand | ServerCliCommand;
 
 function takeValue(argv: string[], index: number, flag: string): string {
   const value = argv[index + 1];
@@ -33,6 +39,9 @@ function takePositiveInteger(argv: string[], index: number, flag: string): numbe
 export function parseCliCommand(argv: string[]): CliCommand {
   if (argv[0] === "authorize") {
     return { kind: "authorize", args: parseAuthorizeArgs(argv.slice(1)) };
+  }
+  if (argv[0] === "review-action") {
+    return { kind: "review-action", args: parseActionReviewArgs(argv.slice(1)) };
   }
 
   let mode: "stdio" | "http" = "stdio";
@@ -85,6 +94,10 @@ export function parseCliCommand(argv: string[]): CliCommand {
     }
     if (arg === "--enable-full-host-js") {
       overrides.fullHostJsEnabled = true;
+      continue;
+    }
+    if (arg === "--enable-jev-targeting") {
+      overrides.jevTargetingEnabled = true;
       continue;
     }
     if (arg === "--enable-browser") {

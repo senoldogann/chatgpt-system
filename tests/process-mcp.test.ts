@@ -60,7 +60,7 @@ async function fixture() {
       processStopGraceMs: 100,
     },
   };
-  const runtime = createRuntimeServices(config);
+  const runtime = createRuntimeServices(config, { processPersistencePath: path.join(base, "processes") });
   runtimes.push(runtime);
   const server = startHttp(runtime);
   servers.push(server);
@@ -144,6 +144,9 @@ describe("managed process MCP tools", () => {
       });
       expect(userStart.isError).toBe(true);
       expect(textContent(userStart)).toContain("POLICY_DENIED");
+      expect(textContent(userStart)).toMatch(/"operationId":\s*"[0-9a-f-]{36}"/);
+      expect(textContent(userStart)).toContain('"started": false');
+      expect(textContent(userStart)).toContain('"source": "scope"');
 
       const userLookup = await client.callTool({ name: "process_status", arguments: { authorityLeaseId: user.leaseId, processId } });
       expect(userLookup.isError).toBe(true);
@@ -155,6 +158,7 @@ describe("managed process MCP tools", () => {
       });
       expect(shellDenied.isError).toBe(true);
       expect(textContent(shellDenied)).toContain("POLICY_DENIED");
+      expect(textContent(shellDenied)).toContain('"processState": "not_started"');
 
       const stopped = await client.callTool({ name: "process_stop", arguments: { authorityLeaseId: adminB.leaseId, processId } });
       expect(stopped.structuredContent).toMatchObject({ processId, state: "stopped" });

@@ -39,14 +39,53 @@ public struct ComputerApplicationSelector: Codable, Equatable, Sendable {
     }
 }
 
+public enum ComputerVerificationKind: String, Codable, Equatable, Sendable {
+    case ax
+    case text
+    case screenRegion = "screen-region"
+    case none
+}
+
+public struct ComputerVerificationEvidence: Codable, Equatable, Sendable {
+    public let kind: ComputerVerificationKind
+    public let changed: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case changed
+    }
+
+    public init(kind: ComputerVerificationKind, changed: Bool?) {
+        self.kind = kind
+        self.changed = changed
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        if let changed {
+            try container.encode(changed, forKey: .changed)
+        } else {
+            try container.encodeNil(forKey: .changed)
+        }
+    }
+}
+
 public struct ComputerActionResult: Codable, Equatable, Sendable {
     public let state: String
     public let pointer: ComputerPoint?
     public let changed: Bool?
+    public let verification: ComputerVerificationEvidence?
 
-    public init(state: String, pointer: ComputerPoint? = nil, changed: Bool? = nil) {
+    public init(
+        state: String,
+        pointer: ComputerPoint? = nil,
+        changed: Bool? = nil,
+        verification: ComputerVerificationEvidence? = nil
+    ) {
         self.state = state
         self.pointer = pointer
         self.changed = changed
+        self.verification = verification
     }
 }
