@@ -218,7 +218,7 @@ Recommended sequence:
 1. Start a Project lease scoped to the repository or managed worktree.
 2. Use `code_query` to locate symbols, definitions, references, and diagnostics before broad file reads.
 3. Start or restore `task_state` for work expected to survive context compaction or interruption.
-4. Use `git_worktree create` when isolation from the user's current working tree is appropriate.
+4. Continue in the authoritative `main` checkout by default. Use `git_worktree create` only when the user explicitly requests a worktree or isolation is needed to protect another active owner.
 5. Read target files and retain their current SHA-256 values.
 6. Use `fs_apply_patch_set` for logically related multi-file edits.
 7. Use `project_check detect` and `project_check run` rather than inventing repository verification commands.
@@ -229,7 +229,7 @@ Recommended sequence:
 
 ## Isolation and parallel work
 
-Use separate worktrees/branches for parallel agents. Never clean, reset, stash, delete, merge, or rewrite another agent's worktree on its behalf.
+Use separate worktrees/branches only for parallel agents when isolation is needed to prevent interference; ordinary solo tasks stay on the authoritative `main` checkout by default. Never clean, reset, stash, delete, merge, or rewrite another agent's worktree on its behalf.
 
 Coding Harness managed worktrees are intentionally narrow; they do not grant permission to modify unrelated worktrees or branches.
 

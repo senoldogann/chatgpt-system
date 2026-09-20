@@ -16,7 +16,7 @@ When the user says `chatgpt-system kaldığı yerden devam et`, `continue chatgp
    - **Current plan/spec** — intended sequence and architecture.
    - Older chat/history — context only, never stronger than current repository evidence.
 5. Read only the currently relevant plan/spec sections, then continue from `Next exact step` after reconciling it with Git.
-6. If the recorded active worktree is dirty and may belong to another active agent, treat it as owned by that agent. Never reset, clean, revert, overwrite, or delete another agent's work. Use a separate worktree/branch for independent work.
+6. If the recorded active worktree or the authoritative checkout is dirty and may belong to another active agent, treat it as owned by that agent. Never reset, clean, revert, overwrite, or delete another agent's work. By default, work in the authoritative `/Users/dogan/Desktop/chatgpt-system` checkout on `main`; create a branch only when the user explicitly requests one, and create/use a worktree only when the user explicitly requests one or isolation is required to avoid interfering with an identified active owner.
 
 **Fast authority path (no redundant privilege setup):** For a registered project, call `project_resume` first and defer Admin acquisition until an Admin-only operation is actually necessary. Reuse a valid Admin lease already returned in this conversation; do not call `session_authority_start` on every new turn or every tool request. If there is no available Admin lease and Persistent Owner Mode is enabled, call `persistent_owner_mode` with `operation: "status"` once to obtain the existing lease instead of starting another one. If disabled, use the supported explicit authorization flow. Every privileged tool must still receive the actual valid `authorityLeaseId`; never invent, persist in project files, expose, or omit it. A Project lease from `project_resume` does not authorize Admin-only tools.
 
@@ -61,20 +61,20 @@ This protocol mitigates hosted capability/stream loss; it does not claim to repa
 - Do not reuse an active dirty worktree for independent work.
 - Do not run broad cleanup in shared `~/.chatgpt-system` state.
 - Do not delete untracked files from another worktree merely because they look temporary.
-- Prefer an isolated worktree for independent features/fixes.
+- Use a separate branch/worktree for independent work only when needed to prevent interference; this does not change the default of developing on `main` for solo work.
 - Before merging or rebasing across another agent's branch, inspect its state and preserve its changes.
 
 ## Repository lifecycle rules
 
 These are project-wide mandatory rules for every agent and every change:
 
-1. **Local-first development and verification.** Implement code, tests, documentation, migrations, and release checks locally on a non-`main` branch/worktree. Use the risk-tiered verification below for local development and completion. Before any publication, run the complete repository verification gate locally; only a clean tree with every required check passing may be pushed or proposed as a PR. Merge only a PR whose exact head passed the required hosted checks.
-2. **Branch cleanup after merge.** After a verified PR is merged, synchronize local `main`, verify the merge, then delete the merged feature/fix branch locally and remotely when it is no longer needed. Never force-delete a dirty/unmerged branch or a branch/worktree that may belong to another agent.
+1. **Local-first development and verification.** Implement code, tests, documentation, migrations, and release checks locally in the authoritative checkout on `main` by default. Create a branch only when the user explicitly requests one; create/use a worktree only when the user explicitly requests one or isolation is required to protect another active owner. Use the risk-tiered verification below for local development and completion. Before any publication, run the complete repository verification gate locally; only a clean tree with every required check passing may be pushed or proposed as a PR. Commit, push, PR, merge, and deployment are separate actions with separate authorization and verification requirements.
+2. **Branch/worktree cleanup after explicitly isolated work.** If a branch or worktree was explicitly requested and used, clean it up only after the associated change is verified and merged or otherwise no longer needed. Never force-delete a dirty/unmerged branch or a branch/worktree that may belong to another agent. Ordinary work performed on `main` requires no automatic branch/worktree creation or cleanup.
 3. **Keep the project clean.** Keep the authoritative checkout and managed worktrees free of unrelated generated files, stale branches, abandoned worktrees, and accidental changes. Before handoff/completion, require `git status` to be clean, remove only proven-unused agent-owned worktrees/branches, and preserve unfamiliar work.
 4. **Do not block on remote watchers.** For hosted CI/release status, do not use long-running `--watch`/follow commands that can hit agent transport time limits. Use short one-shot status queries and poll again as needed. A tool/transport timeout is never evidence that CI failed; read the actual hosted job conclusion before acting. Long local commands should use managed-process execution with explicit status/log polling when available.
 5. **Typed publication is dual-authority and freshness-bound.** For a registered project, `git_push` requires an active Admin `authorityLeaseId`, the exact active Project lease returned by `project_resume` as `projectAuthorityLeaseId`, a non-`main` clean worktree, and fresh `project_check` PASS evidence for the exact `HEAD` + `workingTreeDigest`. Generic Project leases do not satisfy continuity provenance. After any HEAD or worktree change, rerun verification before publication.
 
-Do not develop directly on `main`. Do not use a remote/PR as the primary test environment. A PR is the publication/review gate after local completion, not a substitute for local verification.
+Develop directly on `main` by default in the authoritative checkout. Do not automatically create a branch or worktree for each task; do so only on the user's explicit request or to protect another active owner. Do not develop directly on `main` when another active owner may be using the checkout; preserve that owner's work and isolate instead. Do not use a remote/PR as the primary test environment. A PR is the publication/review gate after local completion when publication is requested, not a substitute for local verification.
 
 ## Risk-tiered development and verification
 

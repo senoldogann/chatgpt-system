@@ -11,7 +11,7 @@ It also distinguishes those symptoms from genuine local Secure MCP Tunnel / MCP 
 
 | Symptom | What it proves | First action |
 | --- | --- | --- |
-| `This conversation does not support developer MCPs` | The current ChatGPT conversation/turn cannot expose developer MCP tools. It does **not** prove the local daemon or tunnel failed. | Stop local-change claims and do not repeatedly retry the unavailable namespace. |
+| `This conversation does not support developer MCPs` | The current ChatGPT conversation/turn cannot expose developer MCP tools. It does **not** prove the local daemon or tunnel failed, and it does not remove the local Project/Admin authority model. | Stop local-change claims and do not repeatedly retry the unavailable namespace. |
 | `@chatgpt-system-local` no longer appears in the composer or tools surface | The custom app is absent from the current product surface. It does **not** prove the local Mac is unhealthy. | Use a new supported standard text chat in the same Project instead of repeatedly trying `@` in the broken conversation. |
 | `Connection interrupted. Waiting for the complete answer` | The Web response stream was interrupted. It is not evidence of local MCP failure by itself. | Preserve the current work state; do not restart a healthy tunnel solely for this message. |
 | `MCP_RESPONSE_DEADLINE_EVIDENCE` from `diagnose:chatgpt` | The tunnel logged an expired command response without posting it. A deadline does not by itself prove a daemon crash or a product safety rejection. | Correlate the command duration; use short, bounded tool requests for long workloads. |
@@ -101,7 +101,7 @@ Read `mcp`, `dispatcher`, `queue`, `control-plane`, and `response-delivery` comp
 
 The tunnel configuration's `mcp.connection_max_ttl` default is `10m` and `mcp.max_concurrent_requests` default is `10`, but the control plane may impose a **shorter per-command `response_timeout`**. A 10-minute connection TTL therefore does not guarantee a 10-minute tool invocation. Under concurrent projects, inspect queue depth, dispatcher active age and response-delivery counts before considering tuning. **Do not increase concurrency, disable timeouts or widen authority merely to hide expired responses**; raise the limit only after evidence and a capacity test of the MCP server. See the [official configuration](https://github.com/openai/tunnel-client/blob/master/docs/configuration.md) and [protocol](https://github.com/openai/tunnel-client/blob/master/docs/protocol.md).
 
-## Managed-worktree cleanup guard## Managed-worktree cleanup guard
+## Managed-worktree cleanup guard
 
 The diagnostic reports only a categorical runtime source:
 
@@ -130,7 +130,7 @@ Do not run a potentially lengthy build, test suite or automation inside a single
 
 This is **not** permission to upgrade a Project lease to Admin. Project-only `project_exec` remains Docker-bound and has its own finite timeout; split its work into independently verifiable bounded checks instead. Use a Project Continuity checkpoint before long workflows and never bypass user takeover, product safety, or authorization rules.
 
-## Evidence for OpenAI Support## Evidence for OpenAI Support
+## Evidence for OpenAI Support
 
 When the local diagnostic is healthy but ChatGPT Web repeatedly loses the response stream or developer-MCP capability, preserve privacy-safe correlation evidence for OpenAI Support. Useful evidence can include:
 

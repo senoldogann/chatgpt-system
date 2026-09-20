@@ -103,6 +103,14 @@ The project targets the MCP TypeScript SDK v2 and the 2026-07-28 protocol line.
 - ChatGPT personal Plugin usage normally reaches stdio through OpenAI Secure MCP Tunnel, so the workstation does not need a public inbound MCP listener.
 - Optional macOS daily-driver mode runs `tunnel-client` under a user LaunchAgent. A small Node runner retrieves the tunnel control-plane credential from the login Keychain, injects it only into the tunnel child environment, bounds stdout/stderr tail logs, and exits with the tunnel so launchd can restart it.
 
+## Verification and publication architecture
+
+Local development defaults to the authoritative checkout on `main`; branches and worktrees are exceptional isolation choices, not an automatic per-task workflow. Commit, push, PR, merge, and deployment remain separate operator decisions.
+
+`project_check` has three distinct operations. `detect` derives fixed checks from repository metadata and is Project-scoped. `run` executes selected detected checks: Project-sandbox checks use the Project lease, while `admin-host` checks require a separate valid Admin authority lease and cannot accept arbitrary commands or paths. `report` reads freshness-bound evidence and does not execute a check. The Admin lease used for a native check is not a publication lease.
+
+The typed `git_push` boundary independently requires the exact resumed Project lease, Admin authority, a clean non-`main` branch, and fresh overall `project_check` PASS evidence for the exact HEAD and working-tree digest. A local `main` development default therefore does not weaken the non-main publication boundary.
+
 ## One-shot process boundary
 
 `terminal_run` executes one allowlisted executable with:
@@ -261,7 +269,9 @@ BrowserService
    |  - credential-shaped input refusal
    |  - editable ARIA value redaction
    |  - diagnostic URL sanitization
-   |  - serialized operations
+   |  - shared-state serialization
+   |  - independent per-page operation queues
+   |  - independent lease-free health probe
    v
 BrowserRuntime
    |  - lazy start
@@ -282,7 +292,7 @@ MCP never receives Playwright handles, browser PIDs, CDP/WebSocket endpoints, ex
 
 Caller navigation accepts only `http:` and `https:`. Browser actions require a semantic target to resolve to exactly one element. Fill/key operations refuse deterministic password/OTP/payment credential signals. ARIA snapshots are captured in AI-oriented mode and current editable values are removed before leaving the local runtime.
 
-Browser diagnostics are operational aids, not a network sandbox. Redirects, page JavaScript, and remote sites still execute with the permissions and network access of the owned browser process.
+Browser diagnostics are operational aids, not a network sandbox. Redirects, page JavaScript, and remote sites still execute with the permissions and network access of the owned browser process. Shared tab lifecycle operations remain ordered globally; page operations are ordered per page so an unrelated page is not blocked by another page's long wait; `browser_health` does not queue behind either chain.
 
 Diagnostic content is bounded twice: the Playwright backend truncates remote-controlled diagnostic strings before storing them in `diagnosticsByPageId`, and `BrowserService` still sanitizes/redacts the public MCP output. This prevents a page from relying on an oversized console message or URL to consume unbounded daemon memory before the output layer applies its own limits.
 

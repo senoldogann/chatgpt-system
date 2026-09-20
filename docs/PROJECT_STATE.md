@@ -1,5 +1,13 @@
 # chatgpt-system — Active Project State
 
+## 2026-09-21 Documentation accuracy baseline
+
+- Authoritative checkout is `/Users/dogan/Desktop/chatgpt-system` on local `main@7649ee2a7b9a9b378034c92c9238f55640bf248d`; `origin/main` is `830ea921d8d7059f910c95a12f7a55c5cc269f58`. The local-only documentation commit is not pushed.
+- The live daily-driver/MCP runtime was observed at `runtime/current -> releases/03b844a`; the preserved rollback target is `runtime/previous -> releases/2a7c8b7`. This documentation task does not deploy, restart, or repoint either release.
+- PR #67 is merged into `origin/main`, but the live release must not be described as PR #67 without fresh artifact/source verification. Use the deployment runbook and `npm run diagnose:chatgpt` to establish runtime identity; do not hard-code live PIDs or release SHAs in README documentation.
+- Local development defaults to the authoritative `main` checkout. Branch/worktree isolation is explicit or ownership-protective only; commit, push, PR, merge, and deployment remain separate operations. Project checks and native Admin-host verification retain their existing authority boundaries.
+- **Next exact step:** keep this baseline aligned with current Git/runtime reality; if publication or deployment is requested, obtain fresh exact-head verification and use the supported typed/release procedures without bypassing MCP or authority denials.
+
 ## 2026-09-20 Jev boundary hardening and main publication
 
 - **Published.** `origin/main` fast-forwarded `0c1d5a0..5f8873c` (130 commits). No force, no history rewrite; `origin/main` was an ancestor of local `main`. Hosted CI and Release started on that exact head.
@@ -201,7 +209,7 @@ Nothing is locally actionable. Read the current HEAD from Git, confirm the worki
 
 Correction of an earlier claim in this file: the gate half of the publish contract was already pinned before PR #57 — a typified push carrying `overallStatus` `NOT_RUN`, `FAIL` or `UNAVAILABLE` was already refused with `LOCAL_VERIFICATION_REQUIRED` — so "the publish-gate contract is not pinned by a test" was wrong. What was genuinely missing was the composition with a real `project_check` run, and that is now pinned as well.
 
-Publish anything new through the usual path (non-`main` branch, full local gate, PR, hosted checks green on the PR's exact head, merge, verified cleanup), and re-run the full local gate if HEAD or the working tree changed.
+Develop locally on the authoritative `main` checkout by default; create a branch/worktree only when explicitly requested or needed to protect another active owner. Publication remains a separate operation: use its supported clean non-`main` branch/PR path, full local gate, hosted checks, merge, and verified cleanup, and re-run the full local gate if HEAD or the working tree changed.
 
 ## Invariants
 

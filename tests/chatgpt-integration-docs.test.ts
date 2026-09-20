@@ -22,6 +22,20 @@ describe("ChatGPT custom-app recovery runbook", () => {
     }
   });
 
+  it("keeps README capability and publication claims aligned with the current runtime", async () => {
+    const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+
+    expect(readme).toContain("Node.js 22, 24 and 26");
+    expect(readme).toContain("Computer Runtime v2 Slice 5");
+    expect(readme).toContain("computer_scroll_until_visible");
+    expect(readme).toContain("computer_resolve_semantic_target");
+    expect(readme).toMatch(/shared-state serialization.*per-page/i);
+    expect(readme).toContain("project_check detect");
+    expect(readme).toContain("adminAuthorityLeaseId");
+    expect(readme).toMatch(/local.*`main`/i);
+    expect(readme).toMatch(/non-`main`/i);
+  });
+
   it("documents the bounded Computer Use reliability decision ladder", async () => {
     const runbook = await readFile(new URL("../docs/CHATGPT_INTEGRATION.md", import.meta.url), "utf8");
 

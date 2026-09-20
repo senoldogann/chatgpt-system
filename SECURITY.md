@@ -107,6 +107,14 @@ Therefore Project/User authority exposes neither host terminal/process start nor
 
 Project leases may optionally use `project_exec`, but only when the operator explicitly enables that separate runtime gate. `project_exec` does not reuse the host `ProcessService`: it executes through the fixed Docker sandbox backend, accepts no User/Admin lease, requires the cwd to remain inside the Project roots, and fails closed when Docker is unavailable.
 
+## Verification authority is separate from publication authority
+
+`project_check detect` and `project_check report` are Project-scoped inspection operations. `project_check run` executes repository-derived checks without accepting arbitrary command, argument, or cwd overrides: Project-sandbox checks use the Project lease, while a detected `admin-host` check requires a separate valid `adminAuthorityLeaseId`. That native Admin lease authorizes only the requested verification execution; it does not authorize GitHub publication or deployment.
+
+`git_push` remains an independent dual-authority boundary. It requires the exact resumed Project lease, a current Admin `authorityLeaseId`, a clean non-`main` branch, and fresh overall `project_check report` PASS evidence bound to the exact HEAD and working-tree digest. Local development may default to `main`, but that preference does not permit direct main publication.
+
+If a ChatGPT conversation does not expose MCP tools, that is a product-surface/tool-routing availability failure. It does not remove or simplify the local authority ladder. Do not substitute container access, an unsupported endpoint, or another tool to bypass the missing MCP surface.
+
 Admin is the only profile allowed to reach the unsandboxed host/user-session capabilities. `browser_health` remains lease-free because it exposes only categorical readiness and does not start or inspect browsing content.
 
 ## Admin is not root

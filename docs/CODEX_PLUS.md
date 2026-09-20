@@ -2,7 +2,7 @@
 
 ChatGPT web and Codex are different product surfaces. Full custom MCP write/modify support in ChatGPT web is plan-gated, but Codex local can use local MCP servers over stdio and Codex is included with ChatGPT plans.
 
-For `chatgpt-system`, that gives a practical local path without publishing the MCP server or paying for a workspace plan just to test filesystem/Git tooling.
+For `chatgpt-system`, that gives a practical local path without publishing the MCP server or paying for a workspace plan just to test filesystem/Git tooling. Normal repository work uses Project authority; Admin is reserved for explicitly gated host operations such as native `project_check` checks, terminal/process/browser/computer capabilities, and is not needed for every small development step.
 
 ## Architecture
 
@@ -100,7 +100,7 @@ This is still not an OS sandbox. An allowed interpreter or package manager can e
 
 This route solves the practical local-agent problem for Plus users who want an OpenAI coding agent to use `chatgpt-system` on their machine.
 
-It does **not** unlock plan-gated full custom MCP inside ordinary ChatGPT web conversations. It avoids that limitation by using Codex, a supported local OpenAI surface that can launch local MCP servers directly.
+It does **not** unlock plan-gated full custom MCP inside ordinary ChatGPT web conversations. It avoids that limitation by using Codex, a supported local OpenAI surface that can launch local MCP servers directly. If a ChatGPT conversation does not expose MCP tools, treat that as product-surface/tool-routing availability, not as removal of the local authority model and not as permission to bypass it through another route.
 
 For a future ChatGPT-web connection, keep using the Secure MCP Tunnel design documented in [CHATGPT_INTEGRATION.md](CHATGPT_INTEGRATION.md) when the account/workspace has the required MCP capability.
 

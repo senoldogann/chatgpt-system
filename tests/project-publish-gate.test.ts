@@ -64,9 +64,16 @@ describe("ProjectPublishGate", () => {
     ["unstaged", "## feature/x\n M src/app.ts\n"],
     ["staged", "## feature/x\nM  src/app.ts\n"],
     ["untracked", "## feature/x\n?? tmp.txt\n"],
+    ["untracked ownership metadata", "## feature/x\n?? .freebuff/other\n"],
   ])("denies a %s working tree", async (_label, status) => {
     const { gate } = fixture({ statuses: [status] });
     await expect(gate.push({ cwd: ".", resumeContext: context() })).rejects.toMatchObject({ code: "WORKTREE_NOT_CLEAN" });
+  });
+
+  it("allows the single user-owned .freebuff project identity file", async () => {
+    const { gate, adminGit } = fixture({ statuses: ["## feature/x\n?? .freebuff/project-id\n", "## feature/x\n?? .freebuff/project-id\n"] });
+    await expect(gate.push({ cwd: ".", resumeContext: context() })).resolves.toMatchObject({ exitCode: 0 });
+    expect(adminGit.push).toHaveBeenCalled();
   });
 
   it.each(["NOT_RUN", "FAIL", "UNAVAILABLE"] as const)(
