@@ -201,7 +201,7 @@ Nothing is locally actionable. Read the current HEAD from Git, confirm the worki
 
 Correction of an earlier claim in this file: the gate half of the publish contract was already pinned before PR #57 — a typified push carrying `overallStatus` `NOT_RUN`, `FAIL` or `UNAVAILABLE` was already refused with `LOCAL_VERIFICATION_REQUIRED` — so "the publish-gate contract is not pinned by a test" was wrong. What was genuinely missing was the composition with a real `project_check` run, and that is now pinned as well.
 
-Publish anything new through the usual path (non-`main` branch, full local gate, PR, hosted checks green on the PR's exact head, merge, verified cleanup), and re-run the full local gate if HEAD or the working tree changed.
+Develop locally on the authoritative `main` checkout by default; create a branch/worktree only when explicitly requested or needed to protect another active owner. Publication remains a separate operation: use its supported clean non-`main` branch/PR path, full local gate, hosted checks, merge, and verified cleanup, and re-run the full local gate if HEAD or the working tree changed.
 
 ## Invariants
 
