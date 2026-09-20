@@ -422,12 +422,21 @@ final class ObservationTests: XCTestCase {
 
     func testObservationPreservesPerceptionSummary() async throws {
         let app = makeWorkspaceApp(frontmost: true)
+        // Zayıf AX + sıfır OCR adayı, servis tarafında .visualPoint'e düşer.
+        // Korumayı gerçekten doğrulamak için .ocr'ı meşru kılan bir aday veriyoruz.
         let perception = ComputerPerceptionSummary(
             axQuality: .weak,
             webContentAccessible: false,
-            ocrUsed: false,
+            ocrUsed: true,
             recommendedTargeting: .ocr,
-            ocrCandidates: []
+            ocrCandidates: [
+                ComputerOcrCandidateView(
+                    text: "Fixture OCR",
+                    bounds: ComputerBounds(x: 10, y: 20, width: 80, height: 16),
+                    confidence: 0.91,
+                    source: .visionFast
+                )
+            ]
         )
         let observation = ComputerObservation(
             snapshotId: "perception",
