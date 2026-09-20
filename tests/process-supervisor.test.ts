@@ -221,6 +221,7 @@ describe("ProcessSupervisor core", () => {
   it("keeps logical cursors monotonic across physical log truncation, restart, and separate streams", async () => {
     const { base } = await fixture();
     const persistencePath = path.join(base, "processes");
+    const releasePath = path.join(base, "release-final-chunk");
     const supervisor = new ProcessSupervisor({
       limits: { maxManagedProcesses: 4, maxProcessLogBytesPerStream: 5, processStopGraceMs: 100 },
       audit: new AuditLogger(path.join(base, "audit.jsonl")),
@@ -229,7 +230,7 @@ describe("ProcessSupervisor core", () => {
     supervisors.push(supervisor);
     const started = await supervisor.start({
       command: "node",
-      args: ["-e", "process.stdout.write('AAAAA'); process.stderr.write('11111'); setTimeout(() => { process.stdout.write('BBBBB'); process.stderr.write('22222'); }, 30); setTimeout(() => { process.stdout.write('CCCCC'); process.stderr.write('33333'); }, 60); setTimeout(() => {}, 180)"],
+      args: ["-e", `const fs = require('node:fs'); const release = ${JSON.stringify(releasePath)}; process.stdout.write('AAAAA'); process.stderr.write('11111'); process.stdout.write('BBBBB'); process.stderr.write('22222'); const gate = setInterval(() => { if (!fs.existsSync(release)) return; clearInterval(gate); process.stdout.write('CCCCC'); process.stderr.write('33333'); }, 10); setTimeout(() => {}, 10000);`],
       cwd: base,
     });
     let first = supervisor.logs(started.processId, 0)!;
@@ -239,8 +240,14 @@ describe("ProcessSupervisor core", () => {
     }
     const firstCursor = first.stdout.nextCursor!;
     expect(firstCursor).toBeGreaterThan(first.stdout.bytes);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const second = supervisor.logs(started.processId, firstCursor)!;
+    // Release the final write only after reading the earlier cursor: timers can all
+    // expire before the first poll under CI load, making 15 > 15 impossible.
+    await writeFile(releasePath, "release");
+    let second = supervisor.logs(started.processId, firstCursor)!;
+    for (let attempt = 0; attempt < 150 && !(second.stdout.content.includes("CCCCC") && second.stderr.content.includes("33333")); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      second = supervisor.logs(started.processId, firstCursor)!;
+    }
     expect(second.stdout.nextCursor).toBeGreaterThan(firstCursor);
     expect(second.stdout.content).toContain("CCCCC");
     expect(second.stderr.nextCursor).toBeGreaterThan(first.stderr.nextCursor!);
