@@ -131,6 +131,96 @@ final class PerceptionTests: XCTestCase {
         XCTAssertTrue(aggregateBounded.allSatisfy { $0.source == .visionAccurate })
     }
 
+    func testFocusedWindowBoundsPrefersExplicitTrueOverUnknownFocus() {
+        let app = ApplicationView(name: "Chrome", bundleIdentifier: "com.google.Chrome", frontmost: true)
+        let observation = ComputerObservation(
+            snapshotId: "snapshot",
+            application: app,
+            windowTitle: "Window",
+            elements: [
+                ComputerElementView(
+                    index: 0,
+                    role: "AXWindow",
+                    subrole: nil,
+                    title: "Unknown focus",
+                    description: nil,
+                    focused: nil,
+                    enabled: true,
+                    selected: nil,
+                    bounds: ComputerBounds(x: 1, y: 2, width: 300, height: 200)
+                ),
+                ComputerElementView(
+                    index: 1,
+                    role: "AXWindow",
+                    subrole: nil,
+                    title: "Focused",
+                    description: nil,
+                    focused: true,
+                    enabled: true,
+                    selected: nil,
+                    bounds: ComputerBounds(x: 10, y: 20, width: 800, height: 600)
+                ),
+            ],
+            truncated: false
+        )
+
+        XCTAssertEqual(
+            ComputerPerception.focusedWindowBounds(in: observation),
+            ComputerBounds(x: 10, y: 20, width: 800, height: 600)
+        )
+    }
+
+    func testBoundedCandidatesUseUnicodeScalarLimitsCompatibleWithPublicSchema() throws {
+        let complexEmoji = "👨‍👩‍👧‍👦"
+        let candidates = [
+            OcrTextCandidate(
+                text: String(repeating: complexEmoji, count: 100),
+                bounds: ComputerBounds(x: 0, y: 0, width: 50, height: 20),
+                confidence: 0.9,
+                source: .fast,
+                observationId: "unicode"
+            ),
+        ]
+
+        let bounded = ComputerPerception.boundedCandidates(
+            candidates,
+            imageWidth: 100,
+            imageHeight: 100,
+            captureBounds: ComputerBounds(x: 0, y: 0, width: 100, height: 100)
+        )
+
+        let text = try XCTUnwrap(bounded.first?.text)
+        XCTAssertLessThanOrEqual(text.unicodeScalars.count, 512)
+    }
+
+    func testBoundedCandidatesRejectConfidenceOutsidePublicRange() {
+        let candidates = [
+            OcrTextCandidate(
+                text: "invalid-high-confidence",
+                bounds: ComputerBounds(x: 0, y: 0, width: 30, height: 10),
+                confidence: 1.1,
+                source: .fast,
+                observationId: "invalid"
+            ),
+            OcrTextCandidate(
+                text: "valid",
+                bounds: ComputerBounds(x: 40, y: 0, width: 30, height: 10),
+                confidence: 1.0,
+                source: .fast,
+                observationId: "valid"
+            ),
+        ]
+
+        let bounded = ComputerPerception.boundedCandidates(
+            candidates,
+            imageWidth: 100,
+            imageHeight: 100,
+            captureBounds: ComputerBounds(x: 0, y: 0, width: 100, height: 100)
+        )
+
+        XCTAssertEqual(bounded.map(\.text), ["valid"])
+    }
+
     func testFocusedWindowBoundsPrefersFocusedAXWindow() {
         let app = ApplicationView(name: "Chrome", bundleIdentifier: "com.google.Chrome", frontmost: true)
         let observation = ComputerObservation(

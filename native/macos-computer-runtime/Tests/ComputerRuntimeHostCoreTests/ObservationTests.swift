@@ -232,6 +232,148 @@ final class ObservationTests: XCTestCase {
         XCTAssertNil(json["value"])
     }
 
+    func testPerceptionEncodingKeepsNullableFieldsAsExplicitNull() throws {
+        let candidate = ComputerOcrCandidateView(
+            text: "Plugins",
+            bounds: ComputerBounds(x: 10, y: 20, width: 30, height: 40),
+            confidence: nil,
+            source: .visionFast
+        )
+        let summary = ComputerPerceptionSummary(
+            axQuality: .weak,
+            webContentAccessible: nil,
+            ocrUsed: true,
+            recommendedTargeting: .ocr,
+            ocrCandidates: [candidate]
+        )
+
+        let data = try JSONEncoder().encode(summary)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertTrue(json.keys.contains("webContentAccessible"))
+        XCTAssertTrue(json["webContentAccessible"] is NSNull)
+        let candidates = try XCTUnwrap(json["ocrCandidates"] as? [[String: Any]])
+        XCTAssertTrue(try XCTUnwrap(candidates.first).keys.contains("confidence"))
+        XCTAssertTrue(candidates.first?["confidence"] is NSNull)
+    }
+
+    func testObservationSanitizesPerceptionAtHostBoundary() async throws {
+        let app = makeWorkspaceApp(frontmost: true)
+        let complexEmoji = "👨‍👩‍👧‍👦"
+        var candidates = (0..<70).map { index in
+            ComputerOcrCandidateView(
+                text: String(repeating: complexEmoji, count: 100),
+                bounds: ComputerBounds(x: Double(index), y: 20, width: 10, height: 10),
+                confidence: 0.9,
+                source: .visionFast
+            )
+        }
+        candidates.insert(
+            ComputerOcrCandidateView(
+                text: "invalid-confidence",
+                bounds: ComputerBounds(x: 0, y: 0, width: 10, height: 10),
+                confidence: 1.1,
+                source: .visionFast
+            ),
+            at: 0
+        )
+        candidates.insert(
+            ComputerOcrCandidateView(
+                text: "invalid-geometry",
+                bounds: ComputerBounds(x: 0, y: 0, width: .infinity, height: 10),
+                confidence: 0.9,
+                source: .visionFast
+            ),
+            at: 0
+        )
+        let observation = ComputerObservation(
+            snapshotId: "perception-bounds",
+            application: app.view,
+            windowTitle: "Fixture Window",
+            elements: makeObservation(app: app).elements,
+            truncated: false,
+            perception: ComputerPerceptionSummary(
+                axQuality: .weak,
+                webContentAccessible: nil,
+                ocrUsed: true,
+                recommendedTargeting: .ocr,
+                ocrCandidates: candidates
+            )
+        )
+        let service = makeObservationService(
+            apps: [app],
+            accessibility: FakeAccessibility(
+                activeWindow: ActiveWindowView(application: app.view, title: "Fixture Window"),
+                observation: observation
+            )
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "observe-perception-bounds",
+            method: "observe",
+            params: .object([:])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let decoded = try decodeObservationResult(ComputerObservation.self, from: response)
+        let perception = try XCTUnwrap(decoded.perception)
+        XCTAssertLessThanOrEqual(perception.ocrCandidates.count, 64)
+        XCTAssertFalse(perception.ocrCandidates.contains { $0.text == "invalid-confidence" })
+        XCTAssertFalse(perception.ocrCandidates.contains { $0.text == "invalid-geometry" })
+        XCTAssertTrue(perception.ocrCandidates.allSatisfy { $0.text.unicodeScalars.count <= 512 })
+        XCTAssertLessThanOrEqual(
+            perception.ocrCandidates.reduce(0) { $0 + $1.text.unicodeScalars.count },
+            8_192
+        )
+        XCTAssertTrue(perception.ocrCandidates.allSatisfy { candidate in
+            candidate.confidence.map { $0.isFinite && (0...1).contains($0) } ?? true
+        })
+    }
+
+    func testObservationRecomputesTargetingWhenSanitizationDropsAllOcrCandidates() async throws {
+        let app = makeWorkspaceApp(frontmost: true)
+        let observation = ComputerObservation(
+            snapshotId: "perception-recompute",
+            application: app.view,
+            windowTitle: "Fixture Window",
+            elements: makeObservation(app: app).elements,
+            truncated: false,
+            perception: ComputerPerceptionSummary(
+                axQuality: .weak,
+                webContentAccessible: false,
+                ocrUsed: true,
+                recommendedTargeting: .ocr,
+                ocrCandidates: [
+                    ComputerOcrCandidateView(
+                        text: "invalid",
+                        bounds: ComputerBounds(x: 0, y: 0, width: 10, height: 10),
+                        confidence: 2,
+                        source: .visionFast
+                    ),
+                ]
+            )
+        )
+        let service = makeObservationService(
+            apps: [app],
+            accessibility: FakeAccessibility(
+                activeWindow: ActiveWindowView(application: app.view, title: "Fixture Window"),
+                observation: observation
+            )
+        )
+
+        let response = await service.handle(.init(
+            protocolVersion: 1,
+            requestId: "observe-perception-recompute",
+            method: "observe",
+            params: .object([:])
+        ))
+
+        XCTAssertTrue(response.ok)
+        let decoded = try decodeObservationResult(ComputerObservation.self, from: response)
+        XCTAssertEqual(decoded.perception?.ocrCandidates, [])
+        XCTAssertEqual(decoded.perception?.recommendedTargeting, .visualPoint)
+    }
+
     func testObservationPreservesPerceptionSummary() async throws {
         let app = makeWorkspaceApp(frontmost: true)
         let perception = ComputerPerceptionSummary(

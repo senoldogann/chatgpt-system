@@ -115,6 +115,13 @@ public struct ComputerOcrCandidateView: Codable, Equatable, Sendable {
     public let confidence: Double?
     public let source: ComputerOcrSource
 
+    private enum CodingKeys: String, CodingKey {
+        case text
+        case bounds
+        case confidence
+        case source
+    }
+
     public init(
         text: String,
         bounds: ComputerBounds,
@@ -126,6 +133,26 @@ public struct ComputerOcrCandidateView: Codable, Equatable, Sendable {
         self.confidence = confidence
         self.source = source
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decode(String.self, forKey: .text)
+        bounds = try container.decode(ComputerBounds.self, forKey: .bounds)
+        confidence = try container.decodeIfPresent(Double.self, forKey: .confidence)
+        source = try container.decode(ComputerOcrSource.self, forKey: .source)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(text, forKey: .text)
+        try container.encode(bounds, forKey: .bounds)
+        if let confidence {
+            try container.encode(confidence, forKey: .confidence)
+        } else {
+            try container.encodeNil(forKey: .confidence)
+        }
+        try container.encode(source, forKey: .source)
+    }
 }
 
 public struct ComputerPerceptionSummary: Codable, Equatable, Sendable {
@@ -134,6 +161,14 @@ public struct ComputerPerceptionSummary: Codable, Equatable, Sendable {
     public let ocrUsed: Bool
     public let recommendedTargeting: ComputerRecommendedTargeting
     public let ocrCandidates: [ComputerOcrCandidateView]
+
+    private enum CodingKeys: String, CodingKey {
+        case axQuality
+        case webContentAccessible
+        case ocrUsed
+        case recommendedTargeting
+        case ocrCandidates
+    }
 
     public init(
         axQuality: ComputerAXQuality,
@@ -147,6 +182,28 @@ public struct ComputerPerceptionSummary: Codable, Equatable, Sendable {
         self.ocrUsed = ocrUsed
         self.recommendedTargeting = recommendedTargeting
         self.ocrCandidates = ocrCandidates
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        axQuality = try container.decode(ComputerAXQuality.self, forKey: .axQuality)
+        webContentAccessible = try container.decodeIfPresent(Bool.self, forKey: .webContentAccessible)
+        ocrUsed = try container.decode(Bool.self, forKey: .ocrUsed)
+        recommendedTargeting = try container.decode(ComputerRecommendedTargeting.self, forKey: .recommendedTargeting)
+        ocrCandidates = try container.decode([ComputerOcrCandidateView].self, forKey: .ocrCandidates)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(axQuality, forKey: .axQuality)
+        if let webContentAccessible {
+            try container.encode(webContentAccessible, forKey: .webContentAccessible)
+        } else {
+            try container.encodeNil(forKey: .webContentAccessible)
+        }
+        try container.encode(ocrUsed, forKey: .ocrUsed)
+        try container.encode(recommendedTargeting, forKey: .recommendedTargeting)
+        try container.encode(ocrCandidates, forKey: .ocrCandidates)
     }
 }
 

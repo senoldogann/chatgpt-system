@@ -340,7 +340,7 @@ public struct ComputerHostService: Sendable {
             windowTitle: boundedText(observation.windowTitle),
             elements: Array(boundedElements),
             truncated: observation.truncated || observation.elements.count > limits.maxElements,
-            perception: observation.perception
+            perception: sanitizePerception(observation.perception)
         )
     }
 
@@ -493,6 +493,18 @@ public struct ComputerHostService: Sendable {
             name: boundedText(view.name) ?? "",
             bundleIdentifier: boundedText(view.bundleIdentifier),
             frontmost: view.frontmost
+        )
+    }
+
+    private func sanitizePerception(
+        _ perception: ComputerPerceptionSummary?
+    ) -> ComputerPerceptionSummary? {
+        guard let perception else { return nil }
+        let candidates = ComputerPerception.boundedViewCandidates(perception.ocrCandidates)
+        return ComputerPerception.summary(
+            base: perception,
+            ocrCandidates: candidates,
+            ocrUsed: perception.ocrUsed
         )
     }
 
