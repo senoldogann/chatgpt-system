@@ -46,6 +46,18 @@ describe("risk-tiered development protocol", () => {
     expect(agents).toContain("Never reset, clean, revert, overwrite, or delete another agent's work");
     expect(agents).toMatch(/exact.*HEAD.*workingTreeDigest/i);
     expect(agents).toMatch(/live deployment.*explicit.*authorization/i);
-    expect(agents).toContain("Do not develop directly on `main`");
+    expect(agents).toMatch(/Develop directly on `main` by default/i);
+    expect(agents).toMatch(/create a branch only when the user explicitly requests one/i);
+    expect(agents).toMatch(/Do not develop directly on `main` when another active owner/i);
+    expect(agents).toMatch(/commit, push, PR, merge, and deployment are separate/i);
+  });
+
+  it("keeps ordinary development on main while preserving publication boundaries", async () => {
+    const agents = await readAgents();
+
+    expect(agents).toMatch(/authoritative checkout on `main` by default/i);
+    expect(agents).toMatch(/non-`main` clean worktree/i);
+    expect(agents).toMatch(/fresh `project_check` PASS/i);
+    expect(agents).toMatch(/exact `HEAD`.*workingTreeDigest/i);
   });
 });

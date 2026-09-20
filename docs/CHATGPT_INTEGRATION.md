@@ -95,7 +95,15 @@ npm install
 npm run check
 ```
 
-When validating an unmerged feature branch, replace `main` with that exact branch and keep the tunnel child on the same build.
+When validating an unmerged feature branch, use that exact branch only when it was explicitly requested and keep the tunnel child on the same build. For ordinary local work, stay on the authoritative `main` checkout; branch/worktree isolation is not automatic.
+
+### Verification and publication boundaries
+
+Normal repository development is local-first in `/Users/dogan/Desktop/chatgpt-system` on `main`. Commit, GitHub push, PR, merge, and live deployment are separate operations. The local `main` default does not authorize direct main publication or deployment.
+
+`project_check detect` and `project_check report` are Project-scoped and do not require Admin host execution. `project_check run` runs detected Project-sandbox checks with the Project lease. When a detected check has the `admin-host` lane, such as `package-script:test:computer:macos`, the call must also supply a separate valid `adminAuthorityLeaseId`; that Admin lease authorizes only that native verification. It does not authorize `git_push`.
+
+Typed `git_push` independently requires the exact Project lease returned by `project_resume`, a current Admin `authorityLeaseId`, a clean non-`main` branch, and fresh overall `project_check report` `PASS` evidence bound to the exact HEAD and working-tree digest. If MCP tools are missing from a ChatGPT conversation, treat that as product-surface/tool-routing unavailability; the local authority model still exists and must not be bypassed through containers or another unsupported route.
 
 ### 2a. Build the Project execution sandbox image
 
@@ -403,6 +411,22 @@ Expected permissions:
 ~/.chatgpt-system/control.sock   srw-------
 ```
 
+## Deployment and release verification
+
+Deployment is separate from local development, commit, push, PR, and merge. Do not put a live PID or release SHA in README because either can change independently of source history. Before any authorized deployment, identify the actual child command and release target without stopping the healthy tunnel:
+
+```bash
+npm run diagnose:chatgpt
+npm run daily-driver:status
+readlink ~/.chatgpt-system/runtime/current
+readlink ~/.chatgpt-system/runtime/previous
+ps -axo pid=,command= | grep 'dist/cli.js stdio' | grep -v grep
+```
+
+Record the release directory, its Git HEAD, the actual `dist` artifact identity, dependencies, and the previous release target. Prepare and build the new release from the exact verified commit in a separate release directory; never copy files over a running release or create a mixed source/dist tree. Keep the previous release intact until post-deployment acceptance succeeds.
+
+A supported transition stops/restarts only the deployment-owned daily-driver/tunnel/MCP chain after preparation is complete. It does not restart Chrome, the computer runtime, or unrelated services. Afterward, verify the child command resolves to the new release, rerun the configured health/diagnostic checks, confirm the MCP catalog and harmless read-only calls, and retain the previous release for rollback. If any required authority or exact-head verification is unavailable, stop rather than bypassing it.
+
 ## 7. Tool catalog
 
 Authority tools:
@@ -511,11 +535,13 @@ computer_release_inputs
 computer_wait_for_frontmost
 computer_wait_for_text
 computer_wait_until_changed
+computer_scroll_until_visible
 computer_run
 computer_run_js
+computer_resolve_semantic_target
 ```
 
-`computer_health` is lease-free and categorical. Every other computer tool requires Admin authority. `computer_run_js` additionally requires the full-host startup gate. Its successful public result is the existing bounded structured contract: `stdout`, `stderr`, and optional JSON-compatible `result`. No synthetic `cleanupStatus` field is invented; if cleanup prevents a successful terminal result, the call fails with the stable runtime error path rather than reporting unknown cleanup as success. Direct `computer_mouse_down` / `computer_mouse_up` are not registered, but raw hold primitives may be used inside one bounded `computer_run`, whose finalizer releases held input.
+`computer_health` is lease-free and categorical. Every other computer tool requires Admin authority. `computer_run_js` additionally requires the full-host startup gate. `computer_resolve_semantic_target` is read-only but also requires the Jev startup gate and `TYPESAFE_API_KEY`; `computer_scroll_until_visible` uses bounded scoped recovery and never guesses coordinates. Its successful public result is the existing bounded structured contract: `stdout`, `stderr`, and optional JSON-compatible `result`. No synthetic `cleanupStatus` field is invented; if cleanup prevents a successful terminal result, the call fails with the stable runtime error path rather than reporting unknown cleanup as success. Direct `computer_mouse_down` / `computer_mouse_up` are not registered, but raw hold primitives may be used inside one bounded `computer_run`, whose finalizer releases held input.
 
 With `--personal-admin --enable-owner-runtime`, Computer Runtime uses Owner productivity semantics without changing the native helper architecture. `computer_run` is not rejected merely because it exceeds the legacy 100-action limit, and omitted `timeoutMs` installs no 30-second local program deadline. `computer_run_js` likewise has no implicit 30-second runner deadline when Owner Runtime is enabled. Explicit finite timeout, MCP cancellation, user takeover, the fixed emergency chord, and shutdown remain stop paths. Cancellation interrupts local waits and prevents subsequent actions; an already-issued native RPC remains bounded by `requestTimeoutMs` and is allowed to complete before cleanup. Returned step summaries, JS source/output/result, screenshot/observation payloads, protocol frames, and recovery retries remain bounded.
 

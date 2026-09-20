@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://github.com/senoldogann/chatgpt-system/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/senoldogann/chatgpt-system/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="macOS" src="https://img.shields.io/badge/platform-macOS-111111?logo=apple&logoColor=white">
-  <img alt="Node.js 22 and 24" src="https://img.shields.io/badge/Node.js-22%20%7C%2024-339933?logo=nodedotjs&logoColor=white">
+  <img alt="Node.js 22, 24 and 26" src="https://img.shields.io/badge/Node.js-22%20%7C%2024%20%7C%2026-339933?logo=nodedotjs&logoColor=white">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-local%20authority%20gateway-5B5BD6">
   <img alt="Playwright" src="https://img.shields.io/badge/browser-Playwright%201.63.0-2EAD33">
   <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-blue">
@@ -23,7 +23,7 @@ Secure local MCP authority gateway for controlled filesystem, Git, process, and 
 | **Project execution** | Explicitly enabled, Project-only Docker sandbox with no network and no host fallback |
 | **Admin / Owner execution** | Allowlisted `shell=false` commands plus explicitly gated unrestricted `shell_run` and persistent interactive PTY sessions |
 | **Browser Runtime** | Admin-only semantic Playwright automation, screenshots, and bounded browser diagnostics |
-| **Computer Runtime v2 Slice 4** | Slice 3 native control plus Admin-only bounded full-host Node.js execution behind a separate explicit gate, private computer RPC, process containment, takeover safety, and redacted audit |
+| **Computer Runtime v2 Slice 5** | Native control plus semantic AX/OCR targets, bounded recovery, stale-target refusal, Admin-only full-host JavaScript, takeover safety, and redacted audit |
 | **Jev semantic target resolution** | Admin-only, read-only, explicitly gated: resolves a natural-language instruction to an observed element index using TypeSafe's Jev model, with a mandatory "no match" option and a duplicate-description guard so it fails closed instead of guessing |
 | **macOS trust** | LocalAuthentication for broad authority and Keychain-backed daily-driver credentials |
 | **Daily driver** | LaunchAgent startup, automatic tunnel reconnect, bounded logs, and no routine Terminal ceremony |
@@ -86,12 +86,12 @@ The shared runtime currently includes:
 - lease-free categorical `computer_health`, Admin-only strict `computer_*` MCP tools, and typed `computer_run`; in Admin Owner Runtime it has no legacy 100-action or implicit 30-second productivity cap, while returned step summaries and payloads remain bounded;
 - stable daily-driver installer at `~/.chatgpt-system/ChatGPTSystemComputerRuntime.app`, preserving the fixed bundle ID `com.senoldogann.chatgpt-system.computer-runtime` and designated requirement across updates;
 - Admin-only `computer_run_js` behind the separate `--enable-full-host-js` gate, using a fixed runner entrypoint, stdin-only source delivery, sanitized child environment, bounded source/output/result memory, private low-level computer RPC, and per-call process isolation; Admin Owner Runtime may omit the wall-clock deadline while explicit timeout/cancellation remain authoritative;
-- no OCR, semantic target resolver, `computer.find` / `computer.exists`, stale-target recovery, or recovery ladder yet;
+- semantic AX/label/text/index/point targets, focused-window Vision OCR fallback, bounded recovery, stale-snapshot refusal, `computer_scroll_until_visible`, and `computer_resolve_semantic_target`;
 - JSONL audit trail with redacted authority/process/browser/computer metadata;
 - localhost Host/Origin validation for HTTP mode; non-loopback HTTP is fail-closed unless `--allow-non-loopback-http` or `CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP=true` explicitly acknowledges an authenticated TLS reverse-proxy deployment;
-- Node 22 / Node 24 CI plus native macOS build/install verification.
+- Node 22 / Node 24 / Node 26 CI plus native macOS build/install verification.
 
-Computer Runtime v2 Slice 4 keeps the Slice 3 native physical-input layer deterministic while adding a separate owner-trust full-host JavaScript boundary. `computer_run_js` executes as the current macOS user with normal Node.js APIs; it is not root-confined and is not an OS sandbox. Source is delivered only over stdin to a fixed child entrypoint, the daemon strips its secret-bearing environment before spawn, and ordinary descendants are terminated through the owned POSIX process group on completion, timeout, cancellation, takeover, or shutdown. Deliberately detached or daemonized descendants can escape that process group and are not claimed as sandbox-contained. Slice 5 semantic target resolution, OCR fallback, stale-target recovery, and the recovery ladder remain absent.
+Computer Runtime v2 Slice 5 keeps the native physical-input layer deterministic while adding semantic AX/label/text/index/point targets, focused-window Vision OCR fallback, bounded recovery, stale-snapshot refusal, and scoped scrolling. `computer_run_js` remains a separate owner-trust full-host JavaScript boundary: it executes as the current macOS user with normal Node.js APIs, is not root-confined or an OS sandbox, delivers source only over stdin to a fixed child entrypoint, strips secret-bearing environment values, and cleans ordinary descendants through the owned POSIX process group. Deliberately detached or daemonized descendants remain outside that containment claim.
 
 ## Requirements
 
@@ -213,11 +213,11 @@ Raw CSS/XPath selectors, arbitrary JavaScript, generated Playwright code, cookie
 
 Navigation accepts only `http:` and `https:` URLs. Credential-shaped fields such as passwords, OTPs, verification codes, and payment-card secrets are refused before input reaches Playwright. Editable ARIA values are redacted before snapshots leave the runtime.
 
-Browser actions are serialized through one runtime-owned operation chain so concurrent sessions cannot race tab/focus mutations inside the owned context.
+Browser shared-state operations use a shared serialization chain, page operations use independent per-page chains so unrelated pages do not block one another, and `browser_health` runs independently. Same-page ordering and close-time teardown waits remain enforced.
 
-## Computer Runtime v2 Slice 4
+## Computer Runtime v2 Slice 5
 
-Slice 3 established the Swift helper, TypeScript native-host supervisor, Admin policy, strict low-level MCP tools, bounded typed `computer_run`, stable installation, takeover handling, and shutdown integration. Slice 4 keeps those contracts and adds the separately gated `computer_run_js` full-host execution layer. The helper still requires macOS 14+ and communicates only over inherited stdin/stdout using strict bounded NDJSON; there is no computer socket or caller-selected native executable path. The native protocol includes passive `health`, bounded `list_apps`, AX-first `active_window` / `observe`, bounded ScreenCaptureKit `screenshot`, app open/focus, pointer/mouse/scroll actions, keyboard text/key/chords, `release_inputs`, `wait_for_frontmost`, `wait_for_text`, `wait_until_changed`, and optional post-action verification.
+Slice 3 established the Swift helper, TypeScript native-host supervisor, Admin policy, strict low-level MCP tools, bounded typed `computer_run`, stable installation, takeover handling, and shutdown integration. Slice 4 added the separately gated `computer_run_js` full-host execution layer. Slice 5 adds semantic targets, focused-window Vision OCR enrichment, bounded recovery, scoped scrolling, stale-snapshot refusal, and matching semantic helpers inside `computer_run_js`. The helper requires macOS 14+ and communicates only over inherited stdin/stdout using strict bounded NDJSON; there is no caller-selected native executable path.
 
 Build, test, and stage the fixed background app bundle with:
 
@@ -246,7 +246,7 @@ The helper bundle identifier is fixed to `com.senoldogann.chatgpt-system.compute
 
 Physical mutations are serialized and tagged with one runtime-owned CoreGraphics tag. A listen-only monitor ignores owned events, interrupts active automation on conservative unowned user input, and recognizes the fixed Control+Option+Command+Escape emergency chord. Verification uses bounded safe AX title/description state or in-memory screen-region digests; it does not read editable AX values or use OCR.
 
-Slice 4 preserves the strict Computer Runtime authority boundary. `computer_health` is lease-free and categorical; every observation, screenshot, app-focus, physical-input, wait, release, `computer_run`, and `computer_run_js` operation requires Admin authority. `computer_run_js` additionally requires the independent `--enable-full-host-js` startup gate. It runs as the current macOS user with normal Node.js APIs and is not an OS sandbox or filesystem-root confinement boundary. Source is stdin-only, the child receives a sanitized environment with daemon secret-bearing environment values removed, and ordinary descendants are cleaned through the owned process group. Deliberately detached or daemonized descendants are outside that containment claim. Raw `mouse_down` / `mouse_up` remain absent as direct MCP tools but are available inside bounded typed `computer_run`. `computer_resolve_semantic_target` (below) covers instruction-to-index resolution against an already-observed snapshot; Slice 5 OCR fallback, stale-target detection, and the full recovery ladder remain absent.
+Slice 5 preserves the strict Computer Runtime authority boundary. `computer_health` is lease-free and categorical; every observation, screenshot, app-focus, physical-input, wait, release, `computer_run`, `computer_run_js`, and semantic-target operation requires Admin authority. `computer_run_js` additionally requires the independent `--enable-full-host-js` startup gate. It runs as the current macOS user with normal Node.js APIs and is not an OS sandbox or filesystem-root confinement boundary. Source is stdin-only, the child receives a sanitized environment with daemon secret-bearing environment values removed, and ordinary descendants are cleaned through the owned process group. Deliberately detached or daemonized descendants are outside that containment claim. Raw `mouse_down` / `mouse_up` remain absent as direct MCP tools but are available inside bounded typed `computer_run`. `computer_resolve_semantic_target` is read-only and Jev-gated; OCR and recovery remain bounded and focused-window-only.
 
 ### Jev semantic target resolution
 
@@ -557,7 +557,7 @@ browser_close
 
 `browser_health` needs no lease; every other browser tool is Admin-only.
 
-Computer Runtime v2 Slice 4 exposes the following MCP surface:
+Computer Runtime v2 Slice 5 exposes the following MCP surface:
 
 ```text
 computer_health
@@ -576,12 +576,13 @@ computer_release_inputs
 computer_wait_for_frontmost
 computer_wait_for_text
 computer_wait_until_changed
+computer_scroll_until_visible
 computer_run
 computer_run_js
 computer_resolve_semantic_target
 ```
 
-`computer_health` is lease-free; every other computer tool is Admin-only. `computer_run_js` additionally requires the explicit full-host JavaScript gate and returns only its bounded structured `stdout`, `stderr`, and optional JSON-compatible `result`; it does not report a synthetic cleanup-success field. `computer_resolve_semantic_target` additionally requires the explicit `--enable-jev-targeting` gate and a `TYPESAFE_API_KEY`; it is read-only and never clicks. With Admin Owner Runtime enabled, omitted `computer_run` / `computer_run_js` timeout means no local productivity deadline, while finite timeout/cancellation/takeover/emergency/shutdown and all payload/memory/recovery bounds remain in force. Direct raw `computer_mouse_down` / `computer_mouse_up` are not registered. Hold primitives exist only inside typed `computer_run`, whose returned step-detail tail is bounded independently of the number of actions executed.
+`computer_health` is lease-free; every other computer tool is Admin-only. `computer_run_js` additionally requires the explicit full-host JavaScript gate and returns only its bounded structured `stdout`, `stderr`, and optional JSON-compatible `result`; it does not report a synthetic cleanup-success field. `computer_resolve_semantic_target` additionally requires the explicit `--enable-jev-targeting` gate and a `TYPESAFE_API_KEY`; it is read-only and never clicks. Semantic physical actions and `computer_scroll_until_visible` use bounded fresh-observation/recovery rules and never guess coordinates. With Admin Owner Runtime enabled, omitted `computer_run` / `computer_run_js` timeout means no local productivity deadline, while finite timeout/cancellation/takeover/emergency/shutdown and all payload/memory/recovery bounds remain in force. Direct raw `computer_mouse_down` / `computer_mouse_up` are not registered. Hold primitives exist only inside typed `computer_run`, whose returned step-detail tail is bounded independently of the number of actions executed.
 
 Every MCP tool declares explicit safety annotations and output schemas. Successful calls return readable text plus validated structured content.
 
@@ -612,6 +613,14 @@ Neither structured one-shot/managed Admin host execution nor Owner Runtime `shel
 
 `project_exec` is a separate Docker isolation boundary: it accepts only Project leases, requires explicit startup opt-in, rejects non-local Docker contexts, disables container networking, uses a read-only container root plus bounded `/tmp`, and bind-mounts only the selected project root at `/workspace`. Its Linux environment may differ from the macOS host, and the Docker daemon itself remains trusted infrastructure. A missing/unhealthy daemon, missing fixed image, or backend failure is reported as `SANDBOX_UNAVAILABLE`; there is no host fallback.
 
+## Verification and publication workflow
+
+Normal repository development is local-first in `/Users/dogan/Desktop/chatgpt-system` on `main`. Create a branch only when explicitly requested; use a worktree only when explicitly requested or needed to protect another active owner. This local default is independent from publication: commit, GitHub push, PR, merge, and live deployment are separate operations with separate authorization.
+
+`project_check detect` and `project_check report` are Project-scoped inspection operations. `project_check run` runs the detected Project-sandbox checks with the Project lease; a detected `admin-host` check, such as `package-script:test:computer:macos`, runs only when the call supplies a separate valid `adminAuthorityLeaseId`. The native Admin lease authorizes that verification only; it does not authorize `git_push`.
+
+`git_push` remains a separate typed publication boundary. It requires the exact resumed Project lease, a current Admin `authorityLeaseId`, a clean non-`main` branch, and fresh overall `project_check report` `PASS` evidence bound to the exact HEAD and working-tree digest. A local `main` development workflow does not make direct main publication supported. If MCP tools are absent from a ChatGPT conversation, that is a product-surface/tool-routing availability problem, not removal of the local Admin/Project authority model; do not substitute containers or unsupported tools.
+
 ## Browser safety
 
 Browser Runtime intentionally does not expose the full Playwright API. It is a narrow semantic capability with:
@@ -628,7 +637,7 @@ Browser Runtime intentionally does not expose the full Playwright API. It is a n
 - bounded console/network diagnostics;
 - query/fragment stripping from diagnostic URLs;
 - in-memory screenshot delivery;
-- serialized actions;
+- shared-state serialization, independent per-page queues, and lease-free health probing;
 - categorical/stable browser errors.
 
 It is not a browser/network sandbox. Remote pages still execute in Chromium with the OS/network permissions available to that process.
@@ -672,6 +681,7 @@ CI verifies:
 
 - Node.js 22 build/tests;
 - Node.js 24 build/tests;
+- Node.js 26 build/tests;
 - native macOS authority helper build/install contract;
 - macOS Computer Runtime v2 Swift tests, deterministic fake-sink physical-input/verification tests, fixed helper + fixture `.app` packaging, four-field passive native readiness smoke, and installer CLI contract;
 - TypeScript Computer Runtime protocol/supervisor/policy/MCP/batch/shutdown tests plus real built-runner full-host JavaScript integration and containment tests;
@@ -681,19 +691,19 @@ Browser unit tests use injected/fake backends and do not require graphical Chrom
 
 ## Documentation
 
+Local development defaults to the authoritative Desktop checkout on `main`. Create a branch only when explicitly requested; use a worktree only when explicitly requested or needed to protect another active owner. This local workflow does not relax the separate commit, push, PR, merge, or deployment gates.
+
 - [Security model](SECURITY.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [ChatGPT integration and acceptance runbook](docs/CHATGPT_INTEGRATION.md)
+- [ChatGPT Web resilience runbook](docs/CHATGPT_WEB_RESILIENCE.md)
+- [Coding Harness v2 operator runbook](docs/CODING_HARNESS_V2.md)
+- [Codex local path](docs/CODEX_PLUS.md)
 - [Browser Runtime design](docs/superpowers/specs/2026-09-09-browser-runtime-design.md)
 - [Browser Runtime implementation plan](docs/superpowers/plans/2026-09-09-browser-runtime.md)
 
-## Roadmap boundary
+## Capability boundary
 
-Browser Runtime remains the structured web layer. Computer Runtime v2 Slice 4 provides the separate native desktop-control layer through explicit Admin-gated MCP tools, bounded typed `computer_run`, and separately gated owner-trust `computer_run_js`.
+Browser Runtime remains the structured web layer. Computer Runtime v2 Slice 5 provides the separate native desktop-control layer through explicit Admin-gated MCP tools, bounded semantic/OCR recovery, scoped scrolling, typed `computer_run`, and separately gated owner-trust `computer_run_js`.
 
-Next separate work:
-
-1. Slice 5 OCR fallback, stale-target recovery, and recovery ladder — `computer_resolve_semantic_target` covers instruction-to-index resolution against a single fresh snapshot, not OCR or recovery;
-2. typed root-only ServiceManagement/XPC operations only when a concrete need justifies them.
-
-Those remain separate capability boundaries. Slice 4 deliberately adds full-host execution without pretending that OCR fallback or autonomous recovery already exists.
+The remaining separate boundary is typed root-only ServiceManagement/XPC operations only when a concrete need justifies them. Historical design and implementation documents under `docs/superpowers/specs/` and `docs/superpowers/plans/` describe earlier or proposed states; they are not current runtime instructions.
