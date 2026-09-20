@@ -143,7 +143,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-async function fixture() {
+async function fixture(options: { personalAdmin?: boolean } = {}) {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-computer-mcp-"));
   cleanups.push(base);
   const root = path.join(base, "root");
@@ -161,7 +161,7 @@ async function fixture() {
       remoteVerificationTimeoutMs: 1_000,
     },
 
-    personalAdmin: { enabled: true },
+    personalAdmin: { enabled: options.personalAdmin ?? true },
     ownerRuntime: {
       enabled: true,
       shellPath: "/bin/zsh",
@@ -266,7 +266,7 @@ describe("computer MCP tools", () => {
       for (const name of expectedComputerTools.filter((name) => name !== "computer_health")) {
         const schema = byName.get(name)?.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
         expect(schema.properties).toHaveProperty("authorityLeaseId");
-        expect(schema.required).toContain("authorityLeaseId");
+        expect(schema.required ?? []).not.toContain("authorityLeaseId");
       }
 
       expect(byName.get("computer_observe")?.annotations).toMatchObject({ readOnlyHint: true });
@@ -452,6 +452,48 @@ describe("computer MCP tools", () => {
         },
       });
       expect(textContent(adminObserve)).toContain("snap-1");
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("uses opt-in personal Admin automatically for Computer Use without a lease or TTL, but explicit weak leases fail closed", async () => {
+    const { root, runtime, fake, client, transport } = await fixture();
+    try {
+      const observed = await client.callTool({ name: "computer_observe", arguments: {} });
+      expect(observed.isError).not.toBe(true);
+      const click = await client.callTool({ name: "computer_click", arguments: { x: 1, y: 2 } });
+      expect(click.isError).not.toBe(true);
+      const batch = await client.callTool({ name: "computer_run", arguments: {
+        actions: [{ type: "click", x: 1, y: 2 }], finalObservation: "none",
+      } });
+      expect(batch.isError).not.toBe(true);
+      expect(fake.calls.map((call) => call.method)).toEqual(["observe", "click", "run"]);
+      expect(runtime.authority.findActiveAdminLease()?.profile).toBe("admin");
+      const project = await runtime.authority.start({ profile: "project", projectRoots: [root] });
+      const denied = await client.callTool({ name: "computer_observe", arguments: { authorityLeaseId: project.leaseId } });
+      expect(denied.isError).toBe(true);
+      expect(textContent(denied)).toContain("POLICY_DENIED");
+      const malformed = await client.callTool({ name: "computer_observe", arguments: { authorityLeaseId: "invalid-lease" } });
+      expect(malformed.isError).toBe(true);
+      expect(fake.calls).toHaveLength(3);
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("requires explicit leases when personal Admin is disabled", async () => {
+    const { runtime, fake, client, transport } = await fixture({ personalAdmin: false });
+    try {
+      const { tools } = await client.listTools();
+      const schema = tools.find((tool) => tool.name === "computer_observe")?.inputSchema as { required?: string[] };
+      expect(schema.required).toContain("authorityLeaseId");
+      const denied = await client.callTool({ name: "computer_observe", arguments: {} });
+      expect(denied.isError).toBe(true);
+      expect(runtime.authority.findActiveAdminLease()).toBeUndefined();
+      expect(fake.calls).toHaveLength(0);
     } finally {
       await transport.terminateSession();
       await client.close();

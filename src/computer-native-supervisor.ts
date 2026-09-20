@@ -120,8 +120,14 @@ export class ComputerNativeSupervisor {
   ): Promise<unknown> {
     if (!this.options.enabled) throw new ComputerError("COMPUTER_DISABLED");
     if (this.closing) throw new ComputerError("COMPUTER_UNAVAILABLE");
+    // A validated explicit verification may outlive the normal short request default.
+    // Keep the transport deadline finite and bounded, never silently truncate it.
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0
+        || timeoutMs > Math.max(this.requestTimeoutMs, 61_000)) {
+      throw new ComputerError("COMPUTER_PROTOCOL_INVALID");
+    }
     const record = await this.ensureStarted();
-    return record.client.request(method, params, Math.min(timeoutMs, this.requestTimeoutMs));
+    return record.client.request(method, params, timeoutMs);
   }
 
   diagnosticStderr(): { content: string; bytes: number; truncated: boolean } {

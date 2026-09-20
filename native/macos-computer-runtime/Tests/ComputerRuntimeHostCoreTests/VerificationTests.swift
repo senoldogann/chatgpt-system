@@ -435,6 +435,22 @@ final class VerificationTests: XCTestCase {
         XCTAssertEqual(response.error?.code, "COMPUTER_PROTOCOL_INVALID")
     }
 
+    func testVerificationProtocolAcceptsLongBoundedTimeout() async {
+        let service = ComputerHostService(
+            permissions: VerificationPermissions(),
+            workspace: VerificationWorkspace(frontmostSequence: [], apps: []),
+            actions: ComputerActionService(
+                controller: verificationController(),
+                verification: FailingVerificationHandler()
+            )
+        )
+        let response = await service.handle(.init(
+            protocolVersion: 1, requestId: "long-timeout", method: "wait_until_changed",
+            params: .object(["baselineDigest": .string("abc"), "timeoutMs": .number(60_000)])
+        ))
+        XCTAssertNotEqual(response.error?.code, "COMPUTER_PROTOCOL_INVALID")
+    }
+
     func testVerificationProtocolRejectsUnknownFieldsAndInvalidTimeouts() async {
         let service = ComputerHostService(
             permissions: VerificationPermissions(),
@@ -447,7 +463,7 @@ final class VerificationTests: XCTestCase {
         let cases: [(String, JSONValue)] = [
             ("wait_for_frontmost", .object(["bundleIdentifier": .string("com.example.fixture"), "timeoutMs": .number(49)])),
             ("wait_for_text", .object(["text": .string("x"), "extra": .bool(true)])),
-            ("wait_until_changed", .object(["baselineDigest": .string("abc"), "timeoutMs": .number(10_001)])),
+            ("wait_until_changed", .object(["baselineDigest": .string("abc"), "timeoutMs": .number(60_001)])),
         ]
         for (method, params) in cases {
             let response = await service.handle(.init(protocolVersion: 1, requestId: method, method: method, params: params))

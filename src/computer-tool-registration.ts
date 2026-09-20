@@ -27,7 +27,6 @@ export interface ComputerToolRuntime extends ScopedRuntimeBase {
   authority: AuthorityManager;
 }
 
-const authorityLeaseField = { authorityLeaseId: z.string().min(40) };
 const selectorFields = {
   bundleIdentifier: z.string().min(1).max(4_096).optional(),
   name: z.string().min(1).max(4_096).optional(),
@@ -412,6 +411,14 @@ function compact<T extends Record<string, unknown>>(value: T): T {
 const COMPUTER_USE_ROUTING_GUIDANCE = "Use Computer Runtime when the user explicitly asks for Computer Use or physical mouse and keyboard interaction. For real Google Chrome, open or focus bundleIdentifier com.google.Chrome; do not substitute browser_* Playwright automation.";
 
 export function registerComputerTools(server: McpServer, runtime: ComputerToolRuntime): void {
+  // Omitted lease is supported only in explicitly opted-in Personal Admin mode.
+  // Explicit invalid or weaker leases are never replaced with Admin authority.
+  const leaseIdSchema = z.string().min(40);
+  const authorityLeaseField: { authorityLeaseId: z.ZodString | z.ZodOptional<z.ZodString> } = {
+    authorityLeaseId: runtime.config.personalAdmin?.enabled === true
+      ? leaseIdSchema.optional()
+      : leaseIdSchema,
+  };
   const healthService = new ScopedComputerService(runtime.computer, runtime.audit, false, false);
 
   server.registerTool(

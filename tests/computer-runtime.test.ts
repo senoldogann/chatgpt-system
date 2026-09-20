@@ -165,6 +165,22 @@ describe("ComputerRuntime direct operations", () => {
     expect(native.calls[4]?.params).toEqual({ x: 11, y: 21, button: "right", motionMode: "fast" });
   });
 
+  it("accepts 60-second verification timeouts across direct and batched operations without truncating the native request", async () => {
+    const { native, runtime: subject } = runtime();
+    await subject.waitForFrontmost({ name: "Fixture", timeoutMs: 60_000 });
+    await subject.waitForText({ text: "Ready", timeoutMs: 60_000 });
+    await subject.waitUntilChanged({ baselineDigest: "abc", timeoutMs: 60_000 });
+    await subject.click({ x: 1, y: 2, verify: { kind: "ax_changed", timeoutMs: 60_000 } });
+    await subject.run({ actions: [
+      { type: "wait_for_text", text: "Ready", timeoutMs: 20_000 },
+    ], finalObservation: "none", timeoutMs: 30_000 });
+    expect(native.calls.map((call) => call.params.timeoutMs ?? (call.params.verify as { timeoutMs?: number } | undefined)?.timeoutMs))
+      .toEqual([60_000, 60_000, 60_000, 60_000, 20_000]);
+    expect(native.calls.every((call) => (call.timeoutMs ?? 0) >= 20_000)).toBe(true);
+    await expect(subject.waitForText({ text: "Ready", timeoutMs: 60_001 }))
+      .rejects.toMatchObject({ code: "COMPUTER_PROTOCOL_INVALID" });
+  });
+
   it("validates action-aware mutation results and rejects the legacy completed state", async () => {
     const { native, runtime: subject } = runtime();
     native.responder = () => ({
