@@ -179,6 +179,8 @@ export const fsPatchOutputSchema = z.object({
   path: z.string(),
   bytes: nonNegativeInt,
   sha256: sha256Schema,
+  // Yedekli `@@` satır sayıları gövdeden düzeltildiyse çağırana açıkça bildirilir.
+  normalizedHunkHeaders: z.boolean(),
 });
 
 export const fsPatchSetOutputSchema = z.object({

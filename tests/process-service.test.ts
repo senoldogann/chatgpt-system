@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { access, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AuditLogger } from "../src/audit.js";
 import { AuthorityManager } from "../src/authority.js";
 import type { AppConfig } from "../src/config.js";
-import { PolicyError } from "../src/errors.js";
+import { CommandTimeoutError, PolicyError } from "../src/errors.js";
 import { PathPolicy } from "../src/policy.js";
 import { ProcessService } from "../src/process-service.js";
 import { createScopedRuntime } from "../src/scoped-runtime.js";
@@ -33,6 +33,7 @@ async function fixture(enabled: boolean) {
       maxDirectoryEntries: 100,
       maxCommandOutputBytes: 1024,
       commandTimeoutMs: 1_000,
+      processStopGraceMs: 200,
     },
   };
   return { base, root, config, service: new ProcessService(new PathPolicy([root]), new AuditLogger(config.auditFile), config) };
@@ -74,5 +75,31 @@ describe("ProcessService", () => {
     const result = await scoped.process.run("node", ["--version"], root);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toMatch(/^v\d+/);
+  });
+  it("returns promptly when a timed out command leaves a grandchild holding the output pipes", async () => {
+    const { root, service } = await fixture(true);
+    const startedMarker = path.join(root, "grandchild-started");
+    const survivedMarker = path.join(root, "grandchild-survived");
+    const childScript = path.join(root, "grandchild.cjs");
+    const parentScript = path.join(root, "parent.cjs");
+    // Torun, ebeveynin stdout borusunu miras alır. Timeout yalnızca doğrudan
+    // çocuğu öldürürse boru açık kalır ve çağrı hosted yanıt süresini aşacak
+    // kadar asılı kalır.
+    await writeFile(childScript, [
+      `require("node:fs").writeFileSync(${JSON.stringify(startedMarker)}, "x");`,
+      `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(survivedMarker)}, "x"), 6000);`,
+    ].join("\n"), "utf8");
+    await writeFile(parentScript, [
+      'require("node:child_process").spawn(process.execPath, [' + JSON.stringify(childScript) + '], { stdio: "inherit" });',
+      "setTimeout(() => {}, 30000);",
+    ].join("\n"), "utf8");
+
+    const startedAt = Date.now();
+    await expect(service.run("node", [parentScript], root)).rejects.toBeInstanceOf(CommandTimeoutError);
+    expect(Date.now() - startedAt).toBeLessThan(4_000);
+
+    await expect(access(startedMarker)).resolves.toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 7_000));
+    await expect(access(survivedMarker)).rejects.toThrow();
   });
 });

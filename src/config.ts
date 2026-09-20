@@ -14,6 +14,9 @@ export const CONTINUITY_MAX_TRACKED_PATHS = 100;
 export const CONTINUITY_REMOTE_TIMEOUT_MS = 10_000;
 export const OWNER_SHELL_MAX_SCRIPT_BYTES = 262_144;
 export const OWNER_WORKSTATION_COMMAND_TIMEOUT_MS = 120_000;
+// Hosted ChatGPT dispatcher, yanıtı beklemediği komutu düşürür ve model aynı işi
+// yeniden dener. Tek bir tool çağrısı bu bütçeyi asla aşmamalıdır.
+export const HOSTED_RESPONSE_BUDGET_MS = 120_000;
 export const OWNER_TERMINAL_MAX_SESSIONS = 32;
 export const OWNER_TERMINAL_MAX_OUTPUT_BYTES = 262_144;
 export const OWNER_TERMINAL_MAX_INPUT_BYTES = 65_536;
@@ -51,6 +54,7 @@ export interface OwnerRuntimeConfig {
   enabled: boolean;
   shellPath: string;
   maxScriptBytes: number;
+  maxTimeoutMs: number;
   maxTerminalSessions: number;
   maxTerminalOutputBytes: number;
   maxTerminalInputBytes: number;
@@ -197,6 +201,7 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_MAX_MANAGED_PROCESSES: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_MAX_PROCESS_LOG_BYTES_PER_STREAM: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS: z.coerce.number().int().positive().optional(),
+  CHATGPT_SYSTEM_HOSTED_RESPONSE_BUDGET_MS: z.coerce.number().int().min(1_000).max(600_000).optional(),
 });
 
 export const DEFAULT_COMMANDS = [
@@ -360,6 +365,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       enabled: ownerRuntimeEnabled,
       shellPath: ownerShellPath,
       maxScriptBytes: OWNER_SHELL_MAX_SCRIPT_BYTES,
+      maxTimeoutMs: env.CHATGPT_SYSTEM_HOSTED_RESPONSE_BUDGET_MS ?? HOSTED_RESPONSE_BUDGET_MS,
       maxTerminalSessions: OWNER_TERMINAL_MAX_SESSIONS,
       maxTerminalOutputBytes: OWNER_TERMINAL_MAX_OUTPUT_BYTES,
       maxTerminalInputBytes: OWNER_TERMINAL_MAX_INPUT_BYTES,

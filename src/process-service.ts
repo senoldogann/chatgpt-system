@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { AuditLogger } from "./audit.js";
 import type { AppConfig } from "./config.js";
-import { CommandTimeoutError, ExecutableNotFoundError, LimitError } from "./errors.js";
+import { CommandTimeoutError, ExecutableNotFoundError, LimitError, ProcessTerminationFailedError } from "./errors.js";
 import { resolveExecutablePath } from "./executable-resolution.js";
 import { PathPolicy } from "./policy.js";
 import {
@@ -41,24 +41,69 @@ export class ProcessService {
     })) ?? command;
     return this.audit.run("process.run", this.policy.display(cwd), async () => {
       return new Promise<ProcessResult>((resolve, reject) => {
+        // Süreç grubu lideri olarak başlatılır: boruları miras alan torunlar
+        // yalnız doğrudan çocuk öldürüldüğünde hayatta kalır ve çağrıyı
+        // hosted yanıt süresinin ötesine taşır.
+        const detached = process.platform !== "win32";
         const child = spawn(executablePath, args, {
           cwd,
           shell: false,
           env: sanitizedChildEnvironment(),
           stdio: ["ignore", "pipe", "pipe"],
+          detached,
         });
 
         const stdout: Buffer[] = [];
         const stderr: Buffer[] = [];
+        const timers: NodeJS.Timeout[] = [];
         let outputBytes = 0;
         let timedOut = false;
         let outputLimited = false;
+        let settled = false;
+
+        const schedule = (handler: () => void, delayMs: number): void => {
+          const timer = setTimeout(handler, delayMs);
+          timer.unref();
+          timers.push(timer);
+        };
+
+        const finish = (settle: () => void): void => {
+          if (settled) return;
+          settled = true;
+          for (const timer of timers) clearTimeout(timer);
+          child.stdout.destroy();
+          child.stderr.destroy();
+          settle();
+        };
+
+        const signalTree = (signal: NodeJS.Signals): void => {
+          const pid = child.pid;
+          if (pid === undefined) {
+            child.kill(signal);
+            return;
+          }
+          try {
+            if (detached) process.kill(-pid, signal);
+            else child.kill(signal);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+            finish(() => reject(new ProcessTerminationFailedError(command, signal)));
+          }
+        };
+
+        const graceMs = this.config.limits.processStopGraceMs;
+        const requestTermination = (): void => {
+          signalTree("SIGTERM");
+          schedule(() => signalTree("SIGKILL"), graceMs);
+        };
 
         const collect = (target: Buffer[]) => (chunk: Buffer) => {
           outputBytes += chunk.byteLength;
           if (outputBytes > this.config.limits.maxCommandOutputBytes) {
+            if (outputLimited) return;
             outputLimited = true;
-            child.kill("SIGKILL");
+            requestTermination();
+            schedule(() => finish(() => reject(this.outputLimitError())), graceMs * 2);
             return;
           }
           target.push(chunk);
@@ -68,32 +113,33 @@ export class ProcessService {
         child.stderr.on("data", collect(stderr));
         child.once("error", (error: Error) => {
           if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-            reject(new ExecutableNotFoundError(command));
+            finish(() => reject(new ExecutableNotFoundError(command)));
             return;
           }
-          reject(error);
+          finish(() => reject(error));
         });
 
         const commandTimeoutMs = this.config.limits.commandTimeoutMs;
-        const timer = setTimeout(() => {
+        schedule(() => {
           timedOut = true;
-          child.kill("SIGKILL");
+          requestTermination();
+          // Sızan bir torun borusu açık tutsa bile çağrı kesin bir üst sınırda
+          // sonuçlanır; hosted yanıt süresi asla bu yüzden aşılmaz.
+          schedule(() => finish(() => reject(new CommandTimeoutError(commandTimeoutMs, { command }))), graceMs * 2);
         }, commandTimeoutMs);
-        timer.unref();
 
         child.once("close", (exitCode, signal) => {
-          clearTimeout(timer);
           if (outputLimited) {
-            reject(new LimitError("Command output exceeded configured byte limit.", { limit: this.config.limits.maxCommandOutputBytes }));
+            finish(() => reject(this.outputLimitError()));
             return;
           }
           // Timeout kasıtlı olarak hata verir; managed process'e otomatik
           // dönüşüm yoktur. Agent process_start + polling kullanmalıdır.
           if (timedOut) {
-            reject(new CommandTimeoutError(commandTimeoutMs, { command }));
+            finish(() => reject(new CommandTimeoutError(commandTimeoutMs, { command })));
             return;
           }
-          resolve({
+          finish(() => resolve({
             command,
             args,
             cwd: this.policy.display(cwd),
@@ -102,9 +148,15 @@ export class ProcessService {
             stdout: Buffer.concat(stdout).toString("utf8"),
             stderr: Buffer.concat(stderr).toString("utf8"),
             timedOut,
-          });
+          }));
         });
       });
     }, { command, argCount: args.length });
+  }
+
+  private outputLimitError(): LimitError {
+    return new LimitError("Command output exceeded configured byte limit.", {
+      limit: this.config.limits.maxCommandOutputBytes,
+    });
   }
 }

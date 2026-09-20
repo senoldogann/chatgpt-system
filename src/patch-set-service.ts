@@ -12,13 +12,13 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { applyPatch as applyUnifiedPatch } from "diff";
+import { applyPatch as applyUnifiedPatch, parsePatch } from "diff";
 import type { AuditLogger } from "./audit.js";
 import type { LimitsConfig } from "./config.js";
-import { ConflictError, LimitError, PolicyError, RecoveryRequiredError } from "./errors.js";
+import { ConflictError, LimitError, PatchInvalidError, PolicyError, RecoveryRequiredError } from "./errors.js";
+import { normalizeUnifiedPatchHunkHeaders, patchInvalidError } from "./unified-patch.js";
 import { withPathLocks } from "./path-lock.js";
 import { PathPolicy } from "./policy.js";
-import { validateUnifiedPatch } from "./unified-patch.js";
 
 const MAX_PATCH_COUNT = 100;
 const MAX_TOTAL_PATCH_BYTES = 4 * 1024 * 1024;
@@ -117,6 +117,38 @@ async function readRegularNoFollow(candidate: string, maxBytes: number): Promise
     throw error;
   } finally {
     await handle?.close();
+  }
+}
+
+function validateUnifiedPatch(patchText: string): void {
+  let parsed;
+  try {
+    parsed = parsePatch(patchText);
+  } catch (error) {
+    // Ayrıştırıcı nedeni yutulmaz; çağıran hangi alanın bozuk olduğunu görür.
+    throw patchInvalidError(error);
+  }
+  if (parsed.length !== 1 || parsed[0]!.hunks.length < 1) {
+    throw new PatchInvalidError(
+      "multiple_files",
+      "A patch-set entry must contain exactly one unified-diff file with at least one hunk.",
+      `parsed ${parsed.length} files`,
+    );
+  }
+  for (const hunk of parsed[0]!.hunks) {
+    if (!Number.isInteger(hunk.oldStart)
+      || !Number.isInteger(hunk.oldLines)
+      || !Number.isInteger(hunk.newStart)
+      || !Number.isInteger(hunk.newLines)
+      || hunk.oldLines < 0
+      || hunk.newLines < 0
+      || hunk.lines.length < 1) {
+      throw new PatchInvalidError(
+        "unparseable",
+        "A hunk carries invalid start or line-count metadata.",
+        "hunk metadata failed structural validation",
+      );
+    }
   }
 }
 
@@ -335,9 +367,22 @@ export class PatchSetService {
         });
       }
       const source = current.buffer.toString("utf8");
-      validateUnifiedPatch(input.patch);
-      const patched = applyUnifiedPatch(source, input.patch);
-      if (patched === false) throw new ConflictError("Patch does not apply cleanly to the current file.");
+      const normalized = normalizeUnifiedPatchHunkHeaders(input.patch).patch;
+      validateUnifiedPatch(normalized);
+      let patched: string | false;
+      try {
+        patched = applyUnifiedPatch(source, normalized);
+      } catch (error) {
+        throw patchInvalidError(error);
+      }
+      if (patched === false) {
+        throw new ConflictError("Patch does not apply cleanly to the current file.", {
+          path: this.policy.display(target),
+          recommendedOperations: ["fs_read", "fs_write"],
+          guidance: "Context lines no longer match the file. Re-read the current content before rebuilding the diff.",
+          retryable: true,
+        });
+      }
       const replacement = Buffer.from(patched, "utf8");
       if (replacement.byteLength > this.limits.maxWriteBytes) {
         throw new LimitError("Patched file exceeds configured byte limit.", {
