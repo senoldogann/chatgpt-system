@@ -31,6 +31,26 @@ async function fixture() {
 }
 
 describe("FileSystemService", () => {
+  it("classifies a missing path as NOT_FOUND instead of an internal error", async () => {
+    const { service } = await fixture();
+    await expect(service.stat("missing.txt")).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("returns metadata and the SHA-256 for an existing file", async () => {
+    const { service } = await fixture();
+    const created = await service.write("present.txt", "present");
+    await expect(service.stat("present.txt")).resolves.toMatchObject({
+      type: "file",
+      size: 7,
+      sha256: created.sha256,
+    });
+  });
+
+  it("preserves the policy denial for a path outside the allowed root", async () => {
+    const { base, service } = await fixture();
+    await expect(service.stat(path.join(base, "outside.txt"))).rejects.toMatchObject({ code: "POLICY_DENIED" });
+  });
+
   it("creates a file and returns a content hash", async () => {
     const { root, service } = await fixture();
     const result = await service.write("hello.txt", "hello");
