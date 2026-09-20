@@ -70,4 +70,54 @@ describe("FileSystemService", () => {
     await expect(service.remove("hello.txt")).rejects.toBeInstanceOf(ConflictError);
     await expect(service.remove("hello.txt", created.sha256 as string)).resolves.toMatchObject({ removed: true });
   });
+  it("applies a patch whose hunk header line counts are inaccurate and reports the normalization", async () => {
+    const { service } = await fixture();
+    const first = await service.write("hello.txt", "alpha\nbeta\ngamma\n");
+    // Model üretimi diff'lerde en sık hata: @@ başlığındaki satır sayıları
+    // gövdeyle uyuşmuyor. Sayılar gövdeden türetilebilir yedekli meta veridir.
+    const patch = "--- a/hello.txt\n+++ b/hello.txt\n@@ -1,9 +1,9 @@\n alpha\n-beta\n+BETA\n gamma\n";
+    const result = await service.patch("hello.txt", patch, first.sha256 as string);
+    expect(result.normalizedHunkHeaders).toBe(true);
+    const read = await service.read("hello.txt");
+    expect(read.content).toBe("alpha\nBETA\ngamma\n");
+  });
+
+  it("reports an unchanged patch as not normalized", async () => {
+    const { service } = await fixture();
+    const first = await service.write("hello.txt", "alpha\nbeta\ngamma\n");
+    const patch = "--- a/hello.txt\n+++ b/hello.txt\n@@ -1,3 +1,3 @@\n alpha\n-beta\n+BETA\n gamma\n";
+    const result = await service.patch("hello.txt", patch, first.sha256 as string);
+    expect(result.normalizedHunkHeaders).toBe(false);
+  });
+
+  it("rejects a malformed patch with an actionable typed error instead of an internal error", async () => {
+    const { service } = await fixture();
+    const first = await service.write("hello.txt", "alpha\nbeta\ngamma\n");
+    const patch = "--- a/hello.txt\n+++ b/hello.txt\n@@ -1,3 +1,3 @@\n alpha\n?beta\n gamma\n";
+    await expect(service.patch("hello.txt", patch, first.sha256 as string)).rejects.toMatchObject({
+      code: "PATCH_INVALID",
+      details: { reason: "invalid_hunk_line" },
+    });
+  });
+
+  it("rejects a multi-file patch with an actionable typed error", async () => {
+    const { service } = await fixture();
+    const first = await service.write("hello.txt", "alpha\n");
+    const patch = "--- a/hello.txt\n+++ b/hello.txt\n@@ -1,1 +1,1 @@\n-alpha\n+ALPHA\n"
+      + "--- a/other.txt\n+++ b/other.txt\n@@ -1,1 +1,1 @@\n-x\n+y\n";
+    await expect(service.patch("hello.txt", patch, first.sha256 as string)).rejects.toMatchObject({
+      code: "PATCH_INVALID",
+      details: { reason: "multiple_files" },
+    });
+  });
+
+  it("keeps a context mismatch as a conflict with the recommended recovery", async () => {
+    const { service } = await fixture();
+    const first = await service.write("hello.txt", "alpha\nbeta\ngamma\n");
+    const patch = "--- a/hello.txt\n+++ b/hello.txt\n@@ -1,3 +1,3 @@\n alpha\n-NOPE\n+BETA\n gamma\n";
+    await expect(service.patch("hello.txt", patch, first.sha256 as string)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { recommendedOperations: ["fs_read", "fs_write"] },
+    });
+  });
 });

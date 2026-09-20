@@ -225,6 +225,55 @@ export class ProjectExecTimeoutError extends AppError {
   }
 }
 
+export type PatchInvalidReason =
+  | "multiple_files"
+  | "invalid_hunk_line"
+  | "missing_file_header"
+  | "hunk_line_count_mismatch"
+  | "unparseable";
+
+export class PatchInvalidError extends AppError {
+  constructor(reason: PatchInvalidReason, guidance: string, parserMessage: string) {
+    super(
+      `The unified diff could not be parsed: ${guidance}`,
+      "PATCH_INVALID",
+      {
+        reason,
+        guidance,
+        parserMessage,
+        recommendedOperations: ["fs_read", "fs_apply_patch"],
+        retryable: true,
+      },
+    );
+  }
+}
+
+export class HostedResponseBudgetError extends AppError {
+  constructor(requestedTimeoutMs: number | null, budgetMs: number) {
+    super(
+      `A single tool call may run for at most ${budgetMs}ms so the hosted response deadline is never missed. `
+        + "Start long work with process_start or terminal_session_open and poll its status instead.",
+      "HOSTED_RESPONSE_BUDGET_EXCEEDED",
+      {
+        requestedTimeoutMs,
+        budgetMs,
+        recommendedTools: ["process_start", "process_status", "process_logs", "terminal_session_open"],
+        retryable: false,
+      },
+    );
+  }
+}
+
+export class ProcessTerminationFailedError extends AppError {
+  constructor(command: string, signal: NodeJS.Signals, details?: Record<string, unknown>) {
+    super(
+      `Terminating the process group for "${command}" with ${signal} failed, so the command result cannot be trusted.`,
+      "PROCESS_TERMINATION_FAILED",
+      { command, signal, retryable: false, ...details },
+    );
+  }
+}
+
 export class CommandTimeoutError extends AppError {
   constructor(timedOutAfterMs: number, details?: Record<string, unknown>) {
     super(

@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   applyOwnerWorkstationPreset,
+  HOSTED_RESPONSE_BUDGET_MS,
   loadConfig,
   OWNER_SHELL_MAX_SCRIPT_BYTES,
   OWNER_WORKSTATION_COMMAND_TIMEOUT_MS,
@@ -86,10 +87,27 @@ describe("Owner Runtime configuration", () => {
       enabled: true,
       shellPath: expect.stringMatching(/^\//),
       maxScriptBytes: OWNER_SHELL_MAX_SCRIPT_BYTES,
+      maxTimeoutMs: HOSTED_RESPONSE_BUDGET_MS,
       maxTerminalSessions: OWNER_TERMINAL_MAX_SESSIONS,
       maxTerminalOutputBytes: OWNER_TERMINAL_MAX_OUTPUT_BYTES,
       maxTerminalInputBytes: OWNER_TERMINAL_MAX_INPUT_BYTES,
     });
+  });
+
+  it("bounds the owner shell budget with the hosted response budget override", async () => {
+    const root = await tempRoot();
+    process.env.CHATGPT_SYSTEM_HOSTED_RESPONSE_BUDGET_MS = "45000";
+    try {
+      const config = await loadConfig({
+        roots: [root],
+        personalAdminEnabled: true,
+        ownerRuntimeEnabled: true,
+        ownerShellPath: "/bin/sh",
+      });
+      expect(config.ownerRuntime.maxTimeoutMs).toBe(45_000);
+    } finally {
+      delete process.env.CHATGPT_SYSTEM_HOSTED_RESPONSE_BUDGET_MS;
+    }
   });
 
   it("rejects Owner Runtime without Personal Admin", async () => {

@@ -9,7 +9,7 @@ import { executableTestTemp } from "./test-temp.js";
 
 const cleanups: string[] = [];
 
-async function fixture(options: { admin: boolean; enabled: boolean; retainedBytes?: number }) {
+async function fixture(options: { admin: boolean; enabled: boolean; retainedBytes?: number; maxTimeoutMs?: number }) {
   const root = await executableTestTemp("chatgpt-system-owner-shell-");
   cleanups.push(root);
   const supervisor = new OwnerShellSupervisor({
@@ -20,7 +20,12 @@ async function fixture(options: { admin: boolean; enabled: boolean; retainedByte
     new PathPolicy([root]),
     new AuditLogger(path.join(root, "audit.jsonl")),
     supervisor,
-    { enabled: options.enabled, shellPath: "/bin/sh", maxScriptBytes: 262_144 },
+    {
+      enabled: options.enabled,
+      shellPath: "/bin/sh",
+      maxScriptBytes: 262_144,
+      maxTimeoutMs: options.maxTimeoutMs ?? 120_000,
+    },
     options.admin,
   );
   return { root, service, supervisor };
@@ -124,6 +129,37 @@ describe("OwnerShellService", () => {
       await expect(service.run({ script: "" })).rejects.toMatchObject({ code: "POLICY_DENIED" });
       await expect(service.run({ script: "a\u0000b" })).rejects.toMatchObject({ code: "POLICY_DENIED" });
       await expect(service.run({ script: "12345" })).rejects.toMatchObject({ code: "LIMIT_EXCEEDED" });
+    } finally {
+      await supervisor.close();
+    }
+  });
+  it("bounds an omitted timeout with the hosted response budget", async () => {
+    const { root, service, supervisor } = await fixture({ admin: true, enabled: true, maxTimeoutMs: 150 });
+    try {
+      const startedAt = Date.now();
+      const result = await service.run({ cwd: root, script: "sleep 5; printf done" });
+      expect(result.timedOut).toBe(true);
+      expect(Date.now() - startedAt).toBeLessThan(3_000);
+    } finally {
+      await supervisor.close();
+    }
+  });
+
+  it("rejects an explicit timeout above the hosted response budget", async () => {
+    const { root, service, supervisor } = await fixture({ admin: true, enabled: true, maxTimeoutMs: 150 });
+    try {
+      await expect(service.run({ cwd: root, script: "printf no", timeoutMs: 151 }))
+        .rejects.toMatchObject({ code: "HOSTED_RESPONSE_BUDGET_EXCEEDED" });
+    } finally {
+      await supervisor.close();
+    }
+  });
+
+  it("rejects an unbounded timeout request instead of outliving the hosted response deadline", async () => {
+    const { root, service, supervisor } = await fixture({ admin: true, enabled: true, maxTimeoutMs: 150 });
+    try {
+      await expect(service.run({ cwd: root, script: "printf no", timeoutMs: null }))
+        .rejects.toMatchObject({ code: "HOSTED_RESPONSE_BUDGET_EXCEEDED" });
     } finally {
       await supervisor.close();
     }

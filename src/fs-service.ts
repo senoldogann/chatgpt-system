@@ -16,6 +16,7 @@ import { AuditLogger } from "./audit.js";
 import { ConflictError, LimitError, PolicyError } from "./errors.js";
 import type { LimitsConfig } from "./config.js";
 import { withPathLock, withPathLocks } from "./path-lock.js";
+import { normalizeUnifiedPatchHunkHeaders, patchInvalidError } from "./unified-patch.js";
 import { PathPolicy } from "./policy.js";
 
 function sha256(buffer: Buffer): string {
@@ -161,19 +162,36 @@ export class FileSystemService {
 
   async patch(input: string, patchText: string, expectedSha256: string): Promise<Record<string, unknown>> {
     const resolved = await this.policy.resolve(input);
+    const normalization = normalizeUnifiedPatchHunkHeaders(patchText);
     return this.audit.run("fs.patch", this.policy.display(resolved), async () => withPathLock(resolved, async () => {
       await this.verifyExpectedHash(resolved, expectedSha256);
       const source = await readFile(resolved, "utf8");
-      const result = applyUnifiedPatch(source, patchText);
-      if (result === false) throw new ConflictError("Patch does not apply cleanly to the current file.");
+      let result: string | false;
+      try {
+        result = applyUnifiedPatch(source, normalization.patch);
+      } catch (error) {
+        throw patchInvalidError(error);
+      }
+      if (result === false) {
+        throw new ConflictError("Patch does not apply cleanly to the current file.", {
+          recommendedOperations: ["fs_read", "fs_write"],
+          guidance: "Context lines no longer match the file. Re-read the current content before rebuilding the diff.",
+          retryable: true,
+        });
+      }
       const buffer = Buffer.from(result, "utf8");
       if (buffer.byteLength > this.limits.maxWriteBytes) {
         throw new LimitError("Patched file exceeds configured byte limit.", { bytes: buffer.byteLength, limit: this.limits.maxWriteBytes });
       }
       const info = await lstat(resolved);
       await this.atomicWrite(resolved, buffer, info.mode & 0o777);
-      return { path: this.policy.display(resolved), bytes: buffer.byteLength, sha256: sha256(buffer) };
-    }), { patchBytes: Buffer.byteLength(patchText) });
+      return {
+        path: this.policy.display(resolved),
+        bytes: buffer.byteLength,
+        sha256: sha256(buffer),
+        normalizedHunkHeaders: normalization.normalized,
+      };
+    }), { patchBytes: Buffer.byteLength(patchText), normalizedHunkHeaders: normalization.normalized });
   }
 
   async move(sourceInput: string, destinationInput: string, expectedSha256?: string): Promise<Record<string, unknown>> {

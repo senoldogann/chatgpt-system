@@ -15,7 +15,8 @@ import path from "node:path";
 import { applyPatch as applyUnifiedPatch, parsePatch } from "diff";
 import type { AuditLogger } from "./audit.js";
 import type { LimitsConfig } from "./config.js";
-import { ConflictError, LimitError, PolicyError, RecoveryRequiredError } from "./errors.js";
+import { ConflictError, LimitError, PatchInvalidError, PolicyError, RecoveryRequiredError } from "./errors.js";
+import { normalizeUnifiedPatchHunkHeaders, patchInvalidError } from "./unified-patch.js";
 import { withPathLocks } from "./path-lock.js";
 import { PathPolicy } from "./policy.js";
 
@@ -123,11 +124,16 @@ function validateUnifiedPatch(patchText: string): void {
   let parsed;
   try {
     parsed = parsePatch(patchText);
-  } catch {
-    throw new ConflictError("Patch is not a valid unified diff.");
+  } catch (error) {
+    // Ayrıştırıcı nedeni yutulmaz; çağıran hangi alanın bozuk olduğunu görür.
+    throw patchInvalidError(error);
   }
   if (parsed.length !== 1 || parsed[0]!.hunks.length < 1) {
-    throw new ConflictError("Patch must contain exactly one unified-diff file with at least one hunk.");
+    throw new PatchInvalidError(
+      "multiple_files",
+      "A patch-set entry must contain exactly one unified-diff file with at least one hunk.",
+      `parsed ${parsed.length} files`,
+    );
   }
   for (const hunk of parsed[0]!.hunks) {
     if (!Number.isInteger(hunk.oldStart)
@@ -137,7 +143,11 @@ function validateUnifiedPatch(patchText: string): void {
       || hunk.oldLines < 0
       || hunk.newLines < 0
       || hunk.lines.length < 1) {
-      throw new ConflictError("Patch contains an invalid unified-diff hunk.");
+      throw new PatchInvalidError(
+        "unparseable",
+        "A hunk carries invalid start or line-count metadata.",
+        "hunk metadata failed structural validation",
+      );
     }
   }
 }
@@ -357,9 +367,22 @@ export class PatchSetService {
         });
       }
       const source = current.buffer.toString("utf8");
-      validateUnifiedPatch(input.patch);
-      const patched = applyUnifiedPatch(source, input.patch);
-      if (patched === false) throw new ConflictError("Patch does not apply cleanly to the current file.");
+      const normalized = normalizeUnifiedPatchHunkHeaders(input.patch).patch;
+      validateUnifiedPatch(normalized);
+      let patched: string | false;
+      try {
+        patched = applyUnifiedPatch(source, normalized);
+      } catch (error) {
+        throw patchInvalidError(error);
+      }
+      if (patched === false) {
+        throw new ConflictError("Patch does not apply cleanly to the current file.", {
+          path: this.policy.display(target),
+          recommendedOperations: ["fs_read", "fs_write"],
+          guidance: "Context lines no longer match the file. Re-read the current content before rebuilding the diff.",
+          retryable: true,
+        });
+      }
       const replacement = Buffer.from(patched, "utf8");
       if (replacement.byteLength > this.limits.maxWriteBytes) {
         throw new LimitError("Patched file exceeds configured byte limit.", {
