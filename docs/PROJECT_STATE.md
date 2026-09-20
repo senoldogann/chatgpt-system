@@ -1,5 +1,14 @@
 # chatgpt-system — Active Project State
 
+## 2026-09-20 Risk-tiered development protocol — local handoff (not published)
+
+- Isolated branch `docs/risk-tiered-development-20260920` starts at `33b6c1d` in managed worktree `45024643-4eb7-4ca6-857f-667facdf3dad`. Canonical `main@2a7c8b7`, `.freebuff/`, the prior optimization/resilience branches and live runtime were left untouched.
+- `AGENTS.md` now defines low-risk focused checks and a short status, normal-development focused tests plus completion full gate, and comprehensive critical checks. Project Continuity is the primary working record; this file changes for significant decisions, handoff or delivery only. Identity, fail-closed, other-agent safety, exact-HEAD publication and explicit live-deployment permission remain mandatory.
+- Tests were written first: RED targeted `npm test` exit 1 (3 expected failures); after the procedure change, focused suites exit 0 (13 passed across four files). The first managed full check printed green tests but ended with `SIGTERM` and no exit code, so it is not PASS.
+- Independently rerun `npm run check` returned **exit 0**: TypeScript build passed, 125 test files (124 passed, 1 skipped), 810 tests (808 passed, 2 skipped). No hosted CI, native macOS suite, `project_check` publication proof or live deployment was run.
+- After this handoff-file edit, two exact-tree full `npm run check` reruns exited **1** in unchanged `tests/process-supervisor.test.ts` (cursor timing assertion, then `ENOTEMPTY` test cleanup). A focused supervisor rerun also exited **1** on a different late-result timing assertion. The final tree does not have a passing full gate; no supervisor code was changed. Do not publish until a fresh complete verification passes.
+- **Next exact step:** after the local commit, read its exact HEAD from Git and investigate the unchanged supervisor timing/cleanup failures separately. Obtain fresh full verification and `project_check` evidence bound to that committed HEAD before any separately authorized push/PR; live deployment needs its own explicit permission.
+
 ## 2026-09-20 Workflow fast path — isolated local optimization (not deployed)
 
 - Branch `fix/workflow-fast-path-20260920` is isolated at a managed worktree based on the preceding `9bd0736` resilience commit. Canonical `main`, `.freebuff/`, other worktrees, the live tunnel and the current runtime were not modified; no push, merge or deployment was performed.

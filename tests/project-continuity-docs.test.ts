@@ -6,7 +6,7 @@ const agentsPath = path.resolve("AGENTS.md");
 const projectStatePath = path.resolve("docs/PROJECT_STATE.md");
 
 describe("chatgpt-system continuation protocol", () => {
-  it("requires exact project resume, Git reconciliation, concurrent-work preservation, and milestone checkpoints", async () => {
+  it("requires exact project resume, Git reconciliation, concurrent-work preservation, and continuity checkpoints", async () => {
     const agents = await readFile(agentsPath, "utf8");
 
     for (const required of [
@@ -20,7 +20,6 @@ describe("chatgpt-system continuation protocol", () => {
       "Git/worktree reality",
       "Never reset, clean, revert, overwrite, or delete another agent's work",
       "meaningful milestone",
-      "before ending a work session",
       "Next exact step",
     ]) {
       expect(agents, `missing continuation rule: ${required}`).toContain(required);
