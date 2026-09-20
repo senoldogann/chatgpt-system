@@ -13,6 +13,7 @@ export const RESTART_HELPER_LABEL = `${LAUNCH_AGENT_LABEL}.restart-helper`;
 const LAUNCHCTL = "/bin/launchctl";
 const SWIFT = "/usr/bin/swift";
 const LAUNCH_AGENT_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+const KEYCHAIN_HELPER_TIMEOUT_MS = 5_000;
 
 function xmlEscape(value) {
   return value
@@ -129,6 +130,7 @@ export function storeControlPlaneKey(key, options = {}) {
     encoding: "utf8",
     input: key,
     stdio: ["pipe", "pipe", "pipe"],
+    timeout: KEYCHAIN_HELPER_TIMEOUT_MS,
   });
   if (result.error || result.status !== 0) {
     throw new Error("Unable to store the daily-driver tunnel credential in macOS Keychain.");
@@ -143,9 +145,48 @@ export function planControlPlaneCredential(key, options = {}) {
     shell: false,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    timeout: KEYCHAIN_HELPER_TIMEOUT_MS,
   });
   if (!result.error && result.status === 0) return "reuse";
   throw new Error("CONTROL_PLANE_API_KEY must be set when no daily-driver Keychain credential exists.");
+}
+
+export async function prepareControlPlaneCredential(key, context, options = {}) {
+  const repoDir = requireAbsolute(context.repoDir, "Repository path");
+  const helperPath = requireAbsolute(context.helperPath, "Installed Keychain helper path");
+  const helperExistsImpl = options.helperExists ?? (async (target) => {
+    try {
+      await access(target, fsConstants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  const spawnSyncImpl = options.spawnSync ?? spawnSync;
+
+  if (await helperExistsImpl(helperPath)) {
+    if (key) {
+      storeControlPlaneKey(key, { helperPath, spawnSync: spawnSyncImpl });
+      return { credentialAction: "store", helperInstalled: false };
+    }
+    const credentialAction = planControlPlaneCredential(undefined, {
+      helperPath,
+      spawnSync: spawnSyncImpl,
+    });
+    return { credentialAction, helperInstalled: false };
+  }
+
+  if (!key) {
+    throw new Error("CONTROL_PLANE_API_KEY must be set when no daily-driver Keychain credential exists.");
+  }
+
+  const keychainHelper = keychainHelperBuildInvocation(repoDir);
+  const runCommandImpl = options.runCommand ?? runCommand;
+  assertSuccess(runCommandImpl(keychainHelper.command, keychainHelper.args), "Keychain helper build");
+  const installImpl = options.installKeychainHelper ?? installKeychainHelper;
+  await installImpl(keychainHelper.helperPath, helperPath);
+  storeControlPlaneKey(key, { helperPath, spawnSync: spawnSyncImpl });
+  return { credentialAction: "store", helperInstalled: true };
 }
 
 export function buildLaunchctlCommands({ uid, plistPath }) {
@@ -298,10 +339,10 @@ async function install(profile, context) {
   const runnerPath = path.join(context.repoDir, "scripts", "daily-driver-runner.mjs");
   await access(runnerPath, fsConstants.R_OK);
   const { plistPath, logDir, keychainHelperPath } = pathsFor(context.homeDir);
-  const keychainHelper = keychainHelperBuildInvocation(context.repoDir);
-  assertSuccess(runCommand(keychainHelper.command, keychainHelper.args), "Keychain helper build");
-  await installKeychainHelper(keychainHelper.helperPath, keychainHelperPath);
-  const credentialAction = planControlPlaneCredential(key, { helperPath: keychainHelperPath });
+  const { credentialAction } = await prepareControlPlaneCredential(key, {
+    repoDir: context.repoDir,
+    helperPath: keychainHelperPath,
+  });
   const plist = buildLaunchAgent({
     nodePath: process.execPath,
     runnerPath,
@@ -312,9 +353,6 @@ async function install(profile, context) {
   });
 
   await mkdir(logDir, { recursive: true, mode: 0o700 });
-  if (credentialAction === "store") {
-    storeControlPlaneKey(key, { helperPath: keychainHelperPath });
-  }
   await writePlistAtomic(plistPath, plist);
   const activation = activateLaunchAgent({
     uid: context.uid,

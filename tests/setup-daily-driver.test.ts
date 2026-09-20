@@ -14,6 +14,7 @@ import {
   keychainStoreInvocation,
   installKeychainHelper,
   planControlPlaneCredential,
+  prepareControlPlaneCredential,
   runRestartHelper,
   storeControlPlaneKey,
 } from "../scripts/setup-daily-driver.mjs";
@@ -47,21 +48,64 @@ describe("macOS daily-driver setup", () => {
   });
 
   it("reuses an existing Keychain credential through the dedicated helper", () => {
-    const calls: Array<{ command: string; args: string[] }> = [];
+    const calls: Array<{ command: string; args: string[]; options: Record<string, unknown> }> = [];
     const helperPath = "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper";
     const action = planControlPlaneCredential(undefined, {
       helperPath,
-      spawnSync: (command: string, args: string[]) => {
-        calls.push({ command, args });
+      spawnSync: (command: string, args: string[], options: Record<string, unknown>) => {
+        calls.push({ command, args, options });
         return { status: 0, stdout: "existing-secret", stderr: "" };
       },
     });
 
     expect(action).toBe("reuse");
-    expect(calls).toEqual([{
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
       command: helperPath,
       args: ["read", "chatgpt-system", "chatgpt-system-control-plane"],
-    }]);
+      options: { timeout: 5_000 },
+    });
+  });
+
+  it("reuses an installed Keychain helper before any rebuild or replacement", async () => {
+    const events: string[] = [];
+    const helperPath = "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper";
+    const result = await prepareControlPlaneCredential(undefined, {
+      repoDir: "/Users/test/chatgpt-system",
+      helperPath,
+    }, {
+      helperExists: async () => true,
+      runCommand: () => {
+        events.push("build");
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      installKeychainHelper: async () => { events.push("install"); },
+      spawnSync: (_command: string, args: string[]) => {
+        events.push(`helper:${args[0]}`);
+        return { status: 0, stdout: "existing-secret", stderr: "" };
+      },
+    });
+
+    expect(result).toEqual({ credentialAction: "reuse", helperInstalled: false });
+    expect(events).toEqual(["helper:read"]);
+  });
+
+  it("does not replace a missing helper without an explicit control-plane key", async () => {
+    const events: string[] = [];
+    await expect(prepareControlPlaneCredential(undefined, {
+      repoDir: "/Users/test/chatgpt-system",
+      helperPath: "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
+    }, {
+      helperExists: async () => false,
+      runCommand: () => {
+        events.push("build");
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      installKeychainHelper: async () => { events.push("install"); },
+      spawnSync: () => ({ status: 44, stdout: "", stderr: "not found" }),
+    })).rejects.toThrow(/CONTROL_PLANE_API_KEY/i);
+
+    expect(events).toEqual([]);
   });
 
   it("still requires CONTROL_PLANE_API_KEY when no Keychain credential exists", () => {

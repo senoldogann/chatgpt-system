@@ -133,7 +133,7 @@ The runtime never executes repository `.build/release` output as the production 
 
 ## 3a. Build, sign, and install Computer Runtime v2
 
-The native helper remains under `native/macos-computer-runtime`, requires macOS 14+, and communicates only through inherited stdin/stdout using strict bounded NDJSON. Slice 3 established the TypeScript supervisor, Admin policy, strict low-level MCP registration, bounded typed `computer_run`, stable daily-driver installation, takeover safety, and ordered shutdown cleanup. Slice 4 added the separate full-host JavaScript runner. Slice 5 adds native target resolution/recovery, focused-display Vision OCR fallback, semantic physical-action inputs, and matching semantic helpers inside `computer_run_js`.
+The native helper remains under `native/macos-computer-runtime`, requires macOS 14+, and communicates only through inherited stdin/stdout using strict bounded NDJSON. Slice 3 established the TypeScript supervisor, Admin policy, strict low-level MCP registration, bounded typed `computer_run`, stable daily-driver installation, takeover safety, and ordered shutdown cleanup. Slice 4 added the separate full-host JavaScript runner. Slice 5 adds native target resolution/recovery, focused-window Vision OCR enrichment, semantic physical-action inputs, and matching semantic helpers inside `computer_run_js`.
 
 Run:
 
@@ -182,11 +182,19 @@ Use the least powerful deterministic route that can satisfy the task:
 5. Use `ocrText` only when structured AX evidence is insufficient or the target is deliberately visual-only. The recovery ladder is bounded to fast then accurate Vision OCR and never retries without limit.
 6. Use explicit point targets only when the caller supplied the point. Ambiguous, stale, unsafe, permission, takeover, and exhausted-recovery states fail closed instead of guessing coordinates.
 
+For normal Chrome, an already-running `com.google.Chrome` is reused and may be focused, but it is never silently restarted to change accessibility flags. Only when Computer Runtime itself starts a stopped real Google Chrome does it pass `--force-renderer-accessibility=complete`; it does not add a temporary `--user-data-dir` or substitute Chrome for Testing, so the normal default profile/session remains the target.
+
+The public key contract is finite and normalized before native IPC. Canonical names include `return`, `escape`, `delete`, `forward_delete`, arrows, navigation keys, letters/digits, and F1-F12. Explicit aliases include `enter -> return`, `esc -> escape`, `backspace -> delete`, `forwarddelete -> forward_delete`, `pageup/pageDown` forms, and `arrow*` forms; letters and function keys accept the documented case-normalized inputs. Unknown key names are rejected before native dispatch.
+
 Direct `computer_move_mouse`, `computer_click`, `computer_drag`, and positioned `computer_scroll` accept semantic targets in the Slice 5 branch contract; typed `computer_run` has the same semantic-target parity. `computer_run_js` exposes `resolve`, `resolveMany`, `exists`, and `refreshObservation`, plus semantic action inputs. `exists` returns `false` only for target-not-found and propagates ambiguity/stale/permission/takeover failures.
 
-The current Vision recovery path captures the **focused display**, not a cropped target region. Region verification itself is cropped and digest-only. Repeated identical visible text on the focused display can therefore make an OCR target ambiguous and produce `COMPUTER_NEEDS_REPLAN`; callers should narrow the visible state rather than guess. Cached observations are bounded/in-memory, but known UI reorders should be followed by explicit fresh observation before the next semantic mutation.
+When AX is weak, ordinary `computer_observe` can enrich the fresh observation with structured Vision OCR from the **focused AX window only**. The runtime captures the focused display only as the safe ScreenCaptureKit source, crops it to validated focused-window bounds, and never silently broadens automatic OCR to the full display. Fast Vision runs first; accurate Vision may run once only when the fast pass yields zero acceptable candidates. Output is bounded to 64 candidates, 512 characters per candidate, 8192 aggregate OCR characters, and confidence below 0.5 is dropped when Vision supplies confidence.
+
+`computer_observe.perception` reports `axQuality`, required-nullable `webContentAccessible`, `ocrUsed`, `recommendedTargeting`, and bounded `ocrCandidates`. For non-Chrome applications `webContentAccessible` is explicitly JSON `null`, not an omitted field. Candidate `confidence` is likewise present as a number or JSON `null`. Use `recommendedTargeting=ax` for AX role/text/index, `ocr` for returned `ocrText` candidates, and `visual-point` only after a fresh screenshot with at most one explicit verified point attempt. A failed visual point is a replan boundary; do not repeat blind coordinates. Repeated OCR text remains ambiguous and fails closed instead of choosing a coordinate. Cached observations are bounded/in-memory, and known UI reorders should be followed by an explicit fresh observation before the next semantic mutation.
 
 Real-Mac acceptance on 2026-09-12 used the exact signed helper identity (`tccIdentityStable: true`) with Accessibility, Screen Recording, event-listen, and event-post readiness all true. Recorded evidence was content-free timing/count metadata only:
+
+> Historical baseline: these 2026-09-12 measurements predate the focused-window perception-reliability slice. Rows labeled focused-display OCR describe the then-current implementation and are retained only as baseline evidence, not as the current automatic OCR contract.
 
 | Acceptance probe | Result |
 | --- | --- |
@@ -333,7 +341,8 @@ Recovery flow:
 1. Return to a supported **standard text chat** surface. Agent mode does not use custom apps; Deep Research can use custom apps only for read/fetch actions, not write/modify actions.
 2. Select the custom app again from the tools/apps menu or `@mention` it on the message that needs new local data or an action.
 3. If the MCP server tool/action definitions changed, use **Refresh** in the app configuration so ChatGPT reloads the current actions.
-4. Once developer MCP tools are available again, call `project_resume` for the exact registered alias and reconcile Git/worktree reality before continuing.
+4. If Refresh specifically reports `MCP tools/list exceeded the time limit`, measure local `tools/list` separately from Secure MCP Tunnel end-to-end latency before changing code or widening authority. A fast local handler with a slow tunnel request points to the connector/dispatch path; a local slow handler is a separate defect. Restart the tunnel target only when applying a new build/configuration or recovering a failed process, not as an authority workaround. As of 2026-09-14, the official `openai/tunnel-client` repository also has open issue `#57` reporting ChatGPT Manual Refresh failure on `v0.0.14` after successful discovery with no subsequent `main/tools/list`; treat that as external corroboration, not proof that a local incident has the same root cause.
+5. Once developer MCP tools are available again, call `project_resume` for the exact registered alias and reconcile Git/worktree reality before continuing.
 
 Stopping and continuing the same chat is not itself proof that the custom app remains available on the next message. The agent must use actual MCP tool availability as evidence. Safety or product-surface routing must never be worked around by keyword substitution or by pretending container access is equivalent to the user's Mac.
 
@@ -714,7 +723,7 @@ Browser page IDs and diagnostic buffers are in-memory only. The dedicated browse
 
 Validate Web first, then Desktop with the same installed plugin/backend. Do not create a second permanent authority implementation for Desktop. Count actual MCP calls, not UI labels, as acceptance evidence.
 
-Browser Runtime exists so normal web tasks can prefer deterministic semantic automation. Computer Runtime v2 Slice 5 is the separate Admin-gated native desktop-control surface. ChatGPT can use direct semantic/coordinate computer tools, typed `computer_run`, and separately gated owner-trust `computer_run_js`; the native helper owns AX-first resolution, bounded recovery, focused-display Vision fallback, and fail-closed stale/ambiguous target handling.
+Browser Runtime exists so normal web tasks can prefer deterministic semantic automation. Computer Runtime v2 Slice 5 is the separate Admin-gated native desktop-control surface. ChatGPT can use direct semantic/coordinate computer tools, typed `computer_run`, and separately gated owner-trust `computer_run_js`; the native helper owns AX-first resolution, bounded recovery, focused-window Vision enrichment, and fail-closed stale/ambiguous target handling.
 
 ## 20. Troubleshooting order
 
@@ -762,7 +771,7 @@ Implemented:
 - stable fixed-path daily-driver helper signing/install plus disposable helper/fixture packaging;
 - lease-free `computer_health`, Admin-only strict `computer_*` MCP tools, bounded typed `computer_run`, and separately gated Admin-only `computer_run_js`;
 - fixed per-call full-host runner with stdin-only source, sanitized secret-bearing environment, bounded source/runtime/output, private low-level computer RPC, process-group cleanup for ordinary descendants, request cancellation, and takeover-fatal termination;
-- Slice 5 semantic AX/label/text/index/point/OCR targets, bounded recovery, stale-snapshot refusal, focused-display Vision fallback, and fresh-observation cache refresh;
+- Slice 5 semantic AX/label/text/index/point/OCR targets, bounded recovery, stale-snapshot refusal, focused-window Vision enrichment, and fresh-observation cache refresh;
 - lease expiry/revoke/isolation;
 - audit redaction.
 

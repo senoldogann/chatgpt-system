@@ -1,97 +1,204 @@
 # chatgpt-system — Active Project State
 
-Last updated: 2026-09-14T02:00+03:00
-Status: **Computer Use perception reliability spec is approved and the TDD implementation plan is written; implementation has not started.**
+Last updated: 2026-09-14T02:24Z
+Status: **Computer Use perception reliability implementation is complete through local/native gates and live deployment; real-Web Refresh acceptance is still active.**
 
-This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-desktop`, reconcile Git/worktree reality first, then continue from the exact next step below.
+This file is a handoff cache, not the sole source of truth. Resume `chatgpt-system-perception-feature`, then reconcile the exact worktree/HEAD before acting. Git/worktree reality outranks this file and older chat context.
 
 ## Current goal
 
-Fix the real execution/perception failure exposed by ChatGPT Web product acceptance after Computer-Use-first routing was already corrected.
+Finish Task 8 real-Mac product acceptance for the Computer Use perception-reliability slice, record measured behavior, run exact-final-HEAD publication gates, then publish through the existing verified lifecycle.
 
-The problem is no longer tool routing: explicit Computer Use correctly reaches real `Google Chrome.app` / `computer_*`. The current failure is that normal running Chrome may expose only browser chrome through macOS AX (`AXWebArea=0`), so page controls are not semantically visible and the agent falls into slow screenshot-coordinate guessing. The public key contract is also looser than native `KeyMapping`, which caused observed protocol-invalid `Enter` calls.
+The implementation fixes the real failure exposed by ChatGPT Web acceptance: already-running normal Chrome can expose only browser chrome through AX, causing page controls to disappear semantically. The new path classifies AX quality, adds bounded focused-window OCR to weak observations, normalizes the public key contract, keeps visual-point recovery one-shot/bounded, and launches only a stopped real Chrome with renderer accessibility. Existing Chrome is never silently restarted.
 
 ## Active workspace
 
-- Authoritative checkout / Continuity worktree: `/Users/dogan/Desktop/chatgpt-system`.
-- Project Continuity alias: `chatgpt-system-desktop`.
-- Design branch: `design/computer-use-perception-reliability`.
-- Design base: `d5a24e469ad0fa948dfdbb52e16c4609e0c017da`.
-- Approved design spec: `docs/superpowers/specs/2026-09-14-computer-use-perception-reliability-design.md`.
+- Repository root: `/Users/dogan/Desktop/chatgpt-system`.
+- Implementation worktree: `/Users/dogan/.chatgpt-system/worktrees/e4eaca835975a22d75cc3e7778bb895500595d13b544a96d350c557d9edad976/ae7550f2-7c61-4e71-b590-21a531fd80a7`.
+- Implementation branch: `feat/computer-use-perception-reliability`.
+- Project Continuity alias: `chatgpt-system-perception-feature`.
+- Current implementation HEAD before the pending Task 8 docs commit: `5cb22d7c62cc8e2cbffc2bc5f855abcd19737c0a`.
+- Design spec: `docs/superpowers/specs/2026-09-14-computer-use-perception-reliability-design.md`.
 - Implementation plan: `docs/superpowers/plans/2026-09-14-computer-use-perception-reliability.md`.
-- `origin/feat/computer-use-bridge` remains intentionally retained at `aca2507210c356fd6d2bc89bb86a1f1dc01719c0`; do not delete or rewrite it without separate classification.
+- `origin/feat/computer-use-bridge` remains intentionally retained; do not delete or rewrite it without separate classification.
+
+The implementation worktree also contains pre-existing/unowned changes in:
+
+- `scripts/setup-daily-driver.mjs`
+- `tests/setup-daily-driver.test.ts`
+
+Their preserved diff SHA-256 is `47df7fedc5e2f8a98374793c8d6213db2aa6cb0c62358ce863bea76ca52ccc28`. Do not stage, stash, reset, rewrite, or discard them as part of this task.
 
 ## Current state
 
-The architecture decisions and writing-plans phase are complete. No runtime/production implementation has started yet.
+### Implemented behavior
 
-Approved design decisions:
-
-1. Never silently restart an already-running normal Chrome just to enable renderer accessibility.
-2. If Computer Runtime starts stopped `com.google.Chrome`, launch the real installed app with `--force-renderer-accessibility=complete`, using the normal default profile/session and no temporary automation profile.
-3. If AX is weak or Chrome web content is unavailable, `computer_observe` automatically adds bounded structured OCR.
-4. Automatic OCR is focused-window-only; no silent full-screen OCR broadening.
-5. OCR bounds: max 64 candidates, max 512 chars/candidate, max 8192 aggregate chars, confidence <0.5 filtered when confidence is present; fast pass first, one accurate pass only if fast yields no acceptable candidates.
-6. MCP key contract becomes canonical and bounded with explicit aliases such as `enter -> return`, `esc -> escape`, `backspace -> delete`, arrow aliases, and case normalization for letters/F-keys.
-7. Recovery ladder is AX -> fresh AX -> focused-window OCR -> fresh screenshot/model replan -> one explicit verified visual point -> `COMPUTER_NEEDS_REPLAN`.
-8. The runtime never invents coordinates or automatically retries failed point guesses.
-9. TCC, user takeover, CAPTCHA/anti-bot, input safety, and Browser-vs-Computer boundaries remain unchanged.
-
-The implementation plan decomposes the work into eight TDD tasks: perception model/classification, focused-window OCR, stopped-Chrome launch policy, canonical key normalization, bounded point recovery, MCP perception metadata/privacy, deterministic fixture regressions, and real-Mac/publication acceptance.
-
-## Root-cause evidence
-
-- Failed product acceptance was stopped rather than forced through after simple `Settings -> Plugins/custom app -> Refresh` navigation became excessively slow.
-- Screenshots were readable; image quality was not the main blocker.
-- Direct live Chrome AX traversal: `71` nodes, max depth `9`, `AXWebArea=0`.
-- Runtime bounds are `maxElements=500`, `maxDepth=12`; missing page semantics are therefore not caused by traversal truncation.
-- Isolated real `Google Chrome.app` launched with `--force-renderer-accessibility=complete` on real HTML exposed `AXWebArea=1` plus semantic web roles.
-- `computer_press_key` public schema currently accepts arbitrary strings while native `KeyMapping` accepts a fixed lowercase vocabulary; acceptance produced `COMPUTER_PROTOCOL_INVALID` for `Enter`.
-- Audit showed one correct `COMPUTER_USER_TAKEOVER` event; takeover behavior must remain unchanged.
-- Existing `ComputerRecoveryEngine` already has Vision OCR and deterministic bounds conversion, but ordinary `computer_observe` does not surface structured OCR candidates.
-
-## Verification
-
-- Root cause was reproduced and measured directly on the real Mac.
-- AX traversal-limit hypothesis was disproved.
-- Renderer-accessibility feasibility was proved with an isolated real Google Chrome instance; no Chrome for Testing was used.
-- Existing native recovery/OCR implementation boundaries were inspected and reused in the design instead of inventing a second perception subsystem.
-- Design self-review found no placeholder/TODO, routing contradiction, safety-boundary regression, or unresolved product-contract ambiguity.
-- Implementation plan covers every approved spec section and uses RED -> minimal GREEN -> focused verification -> commit for each implementation task.
-- No runtime implementation code has been modified for this reliability slice yet.
+1. `computer_observe` classifies AX quality as `strong`, `partial`, or `weak` and returns bounded `perception` metadata.
+2. Chrome reports whether `AXWebArea`-backed web content is accessible. Non-Chrome returns `webContentAccessible: null` explicitly.
+3. Weak observations may run automatic OCR only against validated focused-window bounds. The runtime never silently widens this automatic path to full-display OCR.
+4. OCR is bounded to 64 candidates, 512 characters/candidate, 8192 aggregate characters; confidence below 0.5 is filtered when present. Fast Vision runs first and accurate Vision may run once only when fast yields zero acceptable candidates.
+5. `recommendedTargeting` is `ax`, `ocr`, or `visual-point`. Visual point means fresh screenshot plus at most one explicit verified point attempt; failed points are not blindly repeated.
+6. Stopped real `com.google.Chrome` is launched with only `--force-renderer-accessibility=complete`; no temporary profile is created. Already-running Chrome is reused and never silently restarted for accessibility.
+7. The public key vocabulary is finite and normalized before native IPC, including `enter -> return`, `esc -> escape`, `backspace -> delete`, navigation/arrow aliases, case normalization for letters/F-keys, and rejection of unknown names.
+8. Explicit coordinate verification failure maps to `COMPUTER_NEEDS_REPLAN` rather than entering an automatic coordinate retry loop.
+9. TCC, user-takeover, emergency-chord, input-release, CAPTCHA/anti-bot, authority, and Browser-vs-Computer boundaries remain unchanged.
+10. Required-nullable perception fields are encoded as JSON null rather than omitted. This includes non-Chrome `webContentAccessible` and unknown OCR `confidence`.
 
 ## Completed
 
-- Previous Computer-Use-first real-Chrome routing slice is merged and closed.
-- Product acceptance proved routing alone was insufficient and exposed the perception/action-contract defects.
-- Architectural brainstorming for the new reliability slice is complete.
-- Design spec written and approved at `docs/superpowers/specs/2026-09-14-computer-use-perception-reliability-design.md`.
-- Detailed TDD implementation plan written at `docs/superpowers/plans/2026-09-14-computer-use-perception-reliability.md`.
+- Implementation-plan Tasks 1-7 are implemented and committed on the feature lineage.
+- Focused-window selection review defect was reproduced RED, fixed, and covered by regression test.
+- Required-nullable perception JSON defect was reproduced live and in RED test, fixed, and verified on the real installed runtime.
+- Feature Node runtime and signed native Computer Runtime were deployed through the existing tunnel/installer paths without weakening TCC identity.
+- Current implementation lineage passed the broad Node suite, full native suite, production dependency audit, and live non-Chrome output validation.
+- The original `tools/list` timeout was separated from local-handler performance by direct local and tunnel measurements.
+
+## Important implementation commits
+
+- `4a71f2a` — classify computer perception capability
+- `0fd39bd` — add focused window OCR perception
+- `96d1adf` — launch real Chrome with renderer accessibility
+- `a121962` — normalize computer key contract
+- `7503a64` — bound explicit point recovery
+- `5072cf3` — expose bounded computer perception metadata
+- `996a81c` — harden computer perception recovery fixtures
+- `2854bd7` — prefer explicitly focused OCR window
+- `5cb22d7` — preserve nullable perception fields
+
+The focused-window review fix was found by RED->GREEN review: `focused=nil` previously outranked a later explicit `focused=true` AXWindow. The corrected selector prefers only `focused == true`, then falls back to the first AXWindow.
+
+The nullable-output fix was found during live non-Chrome acceptance. Swift synthesized `Codable` omitted nil `webContentAccessible` and nil OCR `confidence`, while the MCP schema requires those fields as nullable. Explicit `encodeNil` now preserves the public JSON contract.
+
+## Verification
+
+Evidence tied to the current implementation lineage:
+
+- `git diff --check` passed on the reviewed implementation changes.
+- `npm run check` on `5cb22d7`: **113 test files passed, 1 skipped; 696 tests passed, 2 skipped**.
+- `npm run test:computer:macos` on `5cb22d7`: **192/192 passed, 0 failures**.
+- `PerceptionTests`: **9/9 passed**.
+- `ObservationTests`: **10/10 passed**.
+- `npm audit --omit=dev`: **0 vulnerabilities**.
+- `npm run build`: passed on `5cb22d7`.
+- Exact `5cb22d7` release artifact gates passed: `npm run build:computer:macos`, `npm run package:computer:macos`, and `codesign --verify --strict --deep` against the installed helper.
+
+The extra nullable contract test first failed all expected null/key assertions under synthesized encoding, then passed after the explicit encoding fix.
+
+## Live runtime deployment
+
+The Secure MCP Tunnel profile was changed only so its stdio child points to the implementation worktree `dist/cli.js`. A backup of the previous tunnel config exists at:
+
+`~/.config/tunnel-client/chatgpt-system.yaml.pre-perception-2854bd7.bak`
+
+The installed native helper was updated through the repository's identity-preserving installer:
+
+`~/.chatgpt-system/ChatGPTSystemComputerRuntime.app`
+
+Current native executable SHA-256 after `5cb22d7` install:
+
+`0eb7bb07867ab8e3b7186c7bf1068899ffafa86aa46c880d4d496db2dae8cc86`
+
+Signing identity remains `ComputerUse Dev`; the stable designated requirement remained unchanged, and `codesign --verify --strict --deep` passed. TCC identity therefore remained stable.
+
+The daily-driver/tunnel is healthy and its stdio MCP child runs the implementation worktree path. `healthz` and `readyz` returned HTTP 200 (`live` / `ready`).
+
+## `tools/list` timeout diagnosis
+
+The original ChatGPT Web Refresh error was:
+
+`MCP tools/list exceeded the time limit`
+
+Current evidence does **not** support a slow local MCP `tools/list` handler:
+
+- local HTTP `tools/list`: about 62-131 ms in measured runs;
+- cold real stdio process initialize + `tools/list`: about 537-644 ms total, with `tools/list` itself about 40-57 ms;
+- concurrent 3-second `shell_run` did not serialize the MCP connection; `tools/list` still returned around 57 ms;
+- the older tunnel instance recorded one normal sub-500-ms request and one anomalous request around 118 seconds;
+- after feature deployment, the first measured remote tunnel `tools/list` completed HTTP 200 in about 386 ms end-to-end.
+- on the current deployed instance, a later `computer_observe` surfaced a connector-level HTTP 502 while local `/healthz` and `/readyz` both stayed HTTP 200 and the daily-driver, tunnel-client, and MCP stdio child remained alive;
+- the same healthy local instance logged multiple `command response deadline reached; dropping without posting a response` events at roughly two-minute command deadlines, without a local MCP process crash;
+- the official `openai/tunnel-client` repository currently has open issue `#57` describing ChatGPT Manual Refresh failure on `v0.0.14` after discovery with no subsequent `main/tools/list`. This is matching external evidence, not proof that every observed timeout has the same root cause.
+
+Current classification: intermittent Secure MCP Tunnel / connector dispatch-path latency, not a demonstrated local `tools/list` performance defect. Do not widen authority or rewrite the local tool catalog without new evidence.
+
+## Real-Mac acceptance status
+
+### Acceptance A — stopped normal Chrome
+
+**Pending by safety constraint.** Chrome is running and must not be force-closed solely for this acceptance. Run this only if Chrome becomes naturally stopped or the user explicitly approves closing it.
+
+### Acceptance B — already-running Chrome with weak web AX
+
+Partially proved:
+
+- Real main Chrome process observed as PID `57947`, start time `2026-09-14 04:13:52` local. The process predates and survives the acceptance work, consistent with the no-restart policy.
+- `computer_open_app(com.google.Chrome)` used normal installed Chrome rather than Chrome for Testing.
+- Live `computer_observe` returned `webContentAccessible=false`, `axQuality=weak`, `ocrUsed=true`, `recommendedTargeting=ocr`, with bounded focused-window Vision candidates.
+- Automatic OCR remained focused-window scoped by implementation and regression tests.
+- No `browser.*` operation was used.
+- A successful harmless returned-`ocrText` mutation still needs final product acceptance evidence. One screenshot-guided visual point opened the wrong plugin row and was not repeated. A later OCR semantic target attempt failed closed rather than guessing.
+
+### Acceptance C — ChatGPT Web Plugins -> Refresh
+
+**Still active; not yet passed.**
+
+Progress already proved:
+
+- ChatGPT `#settings/Plugins` was reached through physical `computer_*` interaction only.
+- Chrome tab zoom was restored from 75% to 100%, after which OCR recognized `chatgpt-system-local` exactly.
+- No blind point retry loop was used. One fresh screenshot-derived point attempt selected the wrong row; the same coordinate was not repeated.
+- One semantic interaction was blocked by product safety before UI mutation, and another target lookup failed closed.
+- A later physical attempt returned `COMPUTER_USER_TAKEOVER`; automation stopped immediately and `computer_release_inputs` completed.
+- Audit from the deployed-runtime acceptance window contained **27 `computer.*` actions, 0 `browser.*` actions, and 0 `COMPUTER_PROTOCOL_INVALID` metadata** before the takeover checkpoint. Recorded failure metadata was 2 target-not-found, 1 focus-failed, and 1 user-takeover.
+- A later retry semantically selected the existing Chrome `ChatGPT` tab through AX without a coordinate click, but the user moved focus back to MacAgent/T3 Code before the next key action. Two focus-guard failures stopped input before dispatch; the runtime did not fight the user's foreground focus.
+
+The final Refresh click, end-to-end duration, and post-refresh `tools/list` telemetry remain pending because the user is actively using another frontmost application. Do not steal focus while user input is active. A short uninterrupted Chrome-control window is required to finish this acceptance honestly.
+
+## Live non-Chrome regression
+
+A read-only `computer_observe` while `MacAgent` was frontmost first exposed the required-nullable output bug: MCP structured-output validation rejected omitted `webContentAccessible`.
+
+After `5cb22d7` was installed and the runtime renewed, the same live non-Chrome observation succeeded with:
+
+- application bundle: `com.senoldogan.macagent`
+- `axQuality=strong`
+- `ocrUsed=false`
+- `recommendedTargeting=ax`
+- `webContentAccessible=null`
+
+This is direct product/runtime evidence for the nullable encoding fix.
 
 ## Next exact step
 
-1. Commit the approved-spec status, implementation plan, and this handoff update on `design/computer-use-perception-reliability`.
-2. Choose execution mode required by Superpowers: `subagent-driven-development` (recommended where fresh subagents are available) or inline `executing-plans` in this conversation.
-3. For inline execution, read `superpowers:executing-plans`, create an isolated implementation worktree/feature branch via `superpowers:using-git-worktrees`, and execute the plan task-by-task with TDD checkpoints.
-4. Do not implement runtime/production changes on this design branch.
+1. Do not touch the user's current MacAgent interaction or approval dialogs.
+2. When physical user input has ceased, take a fresh read-only observation/screenshot before resuming Chrome.
+3. Re-enter the existing ChatGPT Plugins settings tab without restarting Chrome; keep zoom at 100%.
+4. Prefer semantic AX/OCR targeting. If visual fallback is unavoidable, use one fresh screenshot-derived verified point attempt only; never repeat a failed coordinate blindly.
+5. Open `chatgpt-system-local`, run **Refresh**, and measure end-to-end duration plus tunnel `tools/list` latency/count. Pass target is under 120 seconds with no browser fallback and no protocol-invalid key calls.
+6. Recheck Chrome process identity after the running-Chrome acceptance to prove no restart occurred.
+7. Add the final Acceptance B/C results to `docs/CHATGPT_INTEGRATION.md` and this file; do not mark Acceptance A passed unless its precondition is legitimately met.
+8. Commit only task-owned documentation paths; never include the two unrelated daily-driver files.
+9. Re-run exact-final-HEAD `git diff --check`, `npm run check`, `npm run test:computer:macos`, and `npm audit --omit=dev`.
+10. Resume Continuity freshly, run `project_check run` and independent `project_check report` against a clean publication worktree/HEAD, then publish only through typed dual-authority `git_push`, PR/CI, exact-head squash merge, post-merge verification, and cleanup.
 
 ## Invariants
 
-- Git/worktree reality outranks Continuity, this file, and older chat context.
+- Git/worktree reality outranks Continuity, this file, and older chats.
 - Never reset, clean, revert, overwrite, or delete unfamiliar work.
 - Do not develop on `main` or the design branch.
-- Explicit Computer Use must remain on `computer_*`; Browser Runtime is not a substitute.
-- Normal user Chrome profile/session must be preserved.
-- Already-running Chrome must not be silently restarted by this feature.
-- TCC, SIP, FileVault/login, Keychain authentication, user takeover, CAPTCHA/anti-bot, and sudo/root boundaries remain authoritative.
-- No repeated blind coordinate-click recovery loops.
-- No push/PR/merge until implementation later passes the existing local-first verified publication lifecycle.
+- Explicit Computer Use stays on `computer_*`; Browser Runtime is not a substitute.
+- Preserve normal Chrome profile/session and do not silently restart running Chrome.
+- Automatic OCR stays focused-window-only and bounded.
+- No automatic repeated coordinate guesses.
+- TCC, SIP, FileVault/login, Keychain auth, user takeover, CAPTCHA/anti-bot, and sudo/root boundaries remain authoritative.
 - `origin/feat/computer-use-bridge` remains preserved until separately classified.
+- Do not push/merge until product acceptance and final clean-head publication gates agree.
 
 ## Blockers / uncertainties
 
-- No design blocker remains. Implementation is waiting only for execution-mode handoff.
-- `NSWorkspace.OpenConfiguration.arguments` is the preferred stopped-Chrome launch mechanism; implementation must prove it preserves the default profile/session. A narrow dedicated launch adapter is allowed only if the Apple API path fails deterministic real-Mac tests.
+- The user is currently active in another foreground application, so final physical ChatGPT Web Refresh acceptance must wait rather than stealing focus. Resume only when there is a short uninterrupted Chrome-control window.
+- Acceptance A requires a legitimately stopped Chrome state or explicit approval to close it.
+- The actual Refresh action must still prove whether the earlier intermittent ~118-second tunnel delay reproduces under the current deployed runtime.
 
 ## Task 8 exact-HEAD local gate — 2026-09-15
 
