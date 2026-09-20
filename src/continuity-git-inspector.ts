@@ -332,6 +332,7 @@ export class ContinuityGitInspector {
     worktreePath: string,
     expected: StoredWorktreeIdentity,
     previousPublished?: ContinuityPublishedState,
+    registeredAt?: string,
   ): Promise<ContinuityInspection> {
     const current = await this.inspect(worktreePath, previousPublished);
     if (
@@ -340,6 +341,25 @@ export class ContinuityGitInspector {
       || current.identity.worktreeIdentity !== expected.worktreeIdentity
     ) {
       throw new ContinuityWorktreeMismatchError();
+    }
+    if (registeredAt !== undefined) {
+      const registeredMs = Date.parse(registeredAt);
+      if (!Number.isFinite(registeredMs)) {
+        throw new ContinuityWorktreeInvalidError("Stored project registration timestamp is invalid.");
+      }
+      let birthtimeNs: bigint;
+      try {
+        const metadata = await stat(current.identity.gitDir, { bigint: true });
+        if (!metadata.isDirectory()) throw new ContinuityWorktreeMismatchError();
+        birthtimeNs = metadata.birthtimeNs;
+      } catch {
+        throw new ContinuityWorktreeMismatchError();
+      }
+      // A removed/recreated Git directory can recycle its pathname and inode.
+      // Keep persisted legacy identities compatible while rejecting later creation.
+      if (birthtimeNs > 0n && birthtimeNs >= BigInt(registeredMs + 1) * 1_000_000n) {
+        throw new ContinuityWorktreeMismatchError();
+      }
     }
     return current;
   }

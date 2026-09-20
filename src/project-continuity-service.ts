@@ -171,6 +171,7 @@ export class ProjectContinuityService {
       stored.worktree.canonicalPath,
       stored.worktree,
       stored.publishedState,
+      stored.createdAt,
     );
 
     this.store.checkpoint({
@@ -206,6 +207,7 @@ export class ProjectContinuityService {
       project.worktree.canonicalPath,
       project.worktree,
       project.publishedState,
+      project.createdAt,
     );
     const authorityLease = await this.authority.start({
       profile: "project",
@@ -277,6 +279,7 @@ export class ProjectContinuityService {
       stored.worktree.canonicalPath,
       stored.worktree,
       stored.publishedState,
+      stored.createdAt,
     );
     return { ...context };
   }
