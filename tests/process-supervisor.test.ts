@@ -431,6 +431,12 @@ describe("ProcessSupervisor core", () => {
     const started = await first.start({ command: "node", args: ["-e", "process.exit(29)"], cwd: base });
     await first.close(true);
     expect((await waitForState(first, started.processId, "exited", 5_000)).exitCode).toBe(29);
+    // Observing the independent result can mark the record exited before the
+    // wrapper's close handler writes its final persisted metadata. Wait for
+    // that handler so it cannot overwrite the interrupted-daemon fixture.
+    const firstRecord = (first as unknown as { records: Map<string, { closed: Promise<void> }> })
+      .records.get(started.processId)!;
+    await firstRecord.closed;
 
     const recordPath = path.join(persistencePath, `${started.processId}.json`);
     const resultPath = path.join(persistencePath, `${started.processId}.result.json`);
@@ -442,6 +448,10 @@ describe("ProcessSupervisor core", () => {
     delete previous.exitedAt;
     delete previous.exitCode;
     delete previous.signal;
+    // The wrapper can exit before its OS PID is fully reaped. Explicitly make
+    // its recovered fingerprint unverifiable so the pre-result state is unknown
+    // regardless of scheduling, while keeping the authentic result unchanged.
+    previous.fingerprint = { source: "ps", value: "not-current" };
     await unlink(resultPath);
     await writeFile(recordPath, `${JSON.stringify(previous)}\n`, "utf8");
     const second = new ProcessSupervisor({ ...options, audit: new AuditLogger(path.join(base, "audit-second.jsonl")) });
