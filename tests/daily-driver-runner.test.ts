@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+import { performance } from "node:perf_hooks";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   KEYCHAIN_ACCOUNT,
@@ -112,6 +113,125 @@ describe("daily-driver tunnel runner", () => {
 
   it("rejects non-absolute helper path for readTypesafeApiKey", () => {
     expect(() => readTypesafeApiKey({ helperPath: "relative/helper" })).toThrow(/absolute/i);
+  });
+
+  it("keeps the newest tail when a single chunk exceeds the bound", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-daily-log-"));
+    cleanups.push(base);
+    const file = path.join(base, "stdout.log");
+
+    await appendBoundedLog(file, Buffer.from("0123456789ABCDEFGHIJ"), 10);
+
+    expect((await stat(file)).size).toBe(10);
+    expect(await readFile(file, "utf8")).toBe("ABCDEFGHIJ");
+  });
+
+  it("appends a long chunk stream within the append budget without rewriting the tail", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-daily-log-"));
+    cleanups.push(base);
+    const file = path.join(base, "stdout.log");
+    await appendBoundedLog(file, Buffer.alloc(MAX_LOG_BYTES, "a"));
+
+    const startedAt = performance.now();
+    for (let index = 0; index < 256; index += 1) {
+      await appendBoundedLog(file, Buffer.alloc(4096, "b"));
+    }
+    const elapsedMs = performance.now() - startedAt;
+
+    // Regression guard for the O(log) rewrite-per-chunk implementation: appending
+    // 256 x 4 KiB chunks must not re-read and rewrite the whole retained log.
+    expect(elapsedMs).toBeLessThan(250);
+    expect((await stat(file)).size).toBeLessThanOrEqual(MAX_LOG_BYTES);
+  }, 20_000);
+
+  it("surfaces append failures instead of silently dropping log output", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-daily-runner-"));
+    cleanups.push(base);
+
+    class FakeChild extends EventEmitter {
+      stdout = new PassThrough();
+      stderr = new PassThrough();
+      kill() { return true; }
+    }
+
+    const child = new FakeChild();
+    const exitCode = await runDailyDriver({
+      argv: [
+        "--tunnel-client", "/opt/homebrew/bin/tunnel-client",
+        "--profile", "chatgpt-system",
+        "--log-dir", base,
+        "--keychain-helper", "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
+      ],
+      environment: { PATH: "/usr/bin:/bin" },
+      readKey: () => "sentinel-secret",
+      readTypesafeKey: () => null,
+      spawnProcess: ((command: string, args: string[], options: Record<string, unknown>) => {
+        void command; void args; void options;
+        queueMicrotask(() => {
+          child.stdout.write("tunnel-ready\n");
+          child.stdout.end();
+          child.stderr.end("");
+          child.emit("close", 0, null);
+        });
+        return child as never;
+      }) as never,
+      appendLog: async () => {
+        throw new Error("simulated disk failure");
+      },
+      installSignalHandlers: false,
+    }).then(
+      () => 0,
+      (error: unknown) => {
+        expect((error as Error).message).toContain("simulated disk failure");
+        return 1;
+      },
+    );
+
+    expect(exitCode).toBe(1);
+  });
+
+  it("keeps queued chunks ordered and bounded while the child streams rapidly", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-daily-runner-"));
+    cleanups.push(base);
+
+    class FakeChild extends EventEmitter {
+      stdout = new PassThrough();
+      stderr = new PassThrough();
+      kill() { return true; }
+    }
+
+    const child = new FakeChild();
+    const exitCode = await runDailyDriver({
+      argv: [
+        "--tunnel-client", "/opt/homebrew/bin/tunnel-client",
+        "--profile", "chatgpt-system",
+        "--log-dir", base,
+        "--keychain-helper", "/Users/test/.chatgpt-system/bin/chatgpt-system-keychain-helper",
+      ],
+      environment: { PATH: "/usr/bin:/bin" },
+      readKey: () => "sentinel-secret",
+      readTypesafeKey: () => null,
+      spawnProcess: ((command: string, args: string[], options: Record<string, unknown>) => {
+        void command; void args; void options;
+        queueMicrotask(() => {
+          for (let index = 0; index < 50; index += 1) child.stdout.write(`SEQ-${String(index).padStart(2, "0")}\n`);
+          child.stdout.end();
+          child.stderr.end("");
+          child.emit("close", 0, null);
+        });
+        return child as never;
+      }) as never,
+      installSignalHandlers: false,
+    });
+
+    expect(exitCode).toBe(0);
+    const log = await readFile(path.join(base, "stdout.log"), "utf8");
+    let cursor = -1;
+    for (let index = 0; index < 50; index += 1) {
+      const found = log.indexOf(`SEQ-${String(index).padStart(2, "0")}`);
+      expect(found).toBeGreaterThan(cursor);
+      cursor = found;
+    }
   });
 
   it("retains only the newest bounded log tail", async () => {

@@ -332,15 +332,18 @@ export class ProcessSupervisor {
     const controlPath = persistent ? path.join(tmpdir(), `chatgpt-system-${createHash("sha256").update(processId).digest("hex").slice(0, 24)}.sock`) : undefined;
     const controlToken = persistent ? randomBytes(32).toString("base64url") : undefined;
     const cursorPath = persistent ? path.join(this.persistencePath!, `${processId}.cursor.json`) : undefined;
-    if (persistent) mkdirSync(this.persistencePath!, { recursive: true, mode: 0o700 });
     let child: ChildProcess;
 
     // Kayıt ve eşleşme basename ile kalır; yalnızca spawn çözümlenmiş yolu kullanır.
-    const executablePath = (await resolveExecutablePath(input.command, {
-      pathValue: process.env.PATH,
-      homeDir: homedir(),
-    })) ?? input.command;
     try {
+      // Every fallible preparation between reserveCapacity() and spawn lives inside
+      // this try block so a failure releases the reserved capacity slot again.
+      if (persistent) mkdirSync(this.persistencePath!, { recursive: true, mode: 0o700 });
+      const executablePath = (await resolveExecutablePath(input.command, {
+        pathValue: process.env.PATH,
+        homeDir: homedir(),
+      })) ?? input.command;
+
       if (persistent) {
         const manifest = {
           version: 1,
@@ -452,7 +455,12 @@ export class ProcessSupervisor {
         };
         record = createdRecord;
         this.records.set(createdRecord.processId, createdRecord);
-        this.persistRecord(createdRecord);
+        try {
+          this.persistRecord(createdRecord);
+        } catch {
+          // Persistence stays best-effort: a storage failure inside the spawn listener
+          // must never break process ownership or leave the start promise pending.
+        }
         void this.recordAudit("process.start", createdRecord).then(() => resolve(summary(createdRecord)));
       });
 
@@ -508,9 +516,11 @@ export class ProcessSupervisor {
     try {
       writeFileSync(temporary, `${JSON.stringify(persisted)}\n`, { encoding: "utf8", mode: 0o600 });
       renameSync(temporary, destination);
-    } catch (error) {
+    } catch {
+      // Persistence is best-effort telemetry. It must never break process ownership
+      // or the pending start promise: a failed post-spawn write leaves the managed
+      // record running in memory and the wrapper result still arrives through close.
       try { unlinkSync(temporary); } catch { /* best-effort cleanup */ }
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
 

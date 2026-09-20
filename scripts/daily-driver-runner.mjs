@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -97,23 +97,56 @@ export function readTypesafeApiKey(options = {}) {
   return key || null;
 }
 
+// Rotation lock: keeps concurrent writers from reading stale sizes mid-truncate.
+// The runner is single-process, but tests and tooling may call appendBoundedLog
+// concurrently on the same file.
+const logLocks = new Map();
+
+function withLogLock(file, operation) {
+  const previous = logLocks.get(file) ?? Promise.resolve();
+  const next = previous.then(operation, operation);
+  logLocks.set(file, next);
+  const release = () => {
+    if (logLocks.get(file) === next) logLocks.delete(file);
+  };
+  next.then(release, release);
+  return next;
+}
+
+// Bounded log strategy: appends are O(incoming); once the active file reaches
+// half the bound it is rotated aside with a single rename and a fresh file keeps
+// receiving the stream. Every file stays within the bound, the newest data is
+// always in the active file, and the previous window remains available as
+// "<file>.1" for bounded diagnostics.
 export async function appendBoundedLog(file, chunk, maxBytes = MAX_LOG_BYTES) {
   if (!Number.isInteger(maxBytes) || maxBytes <= 0) throw new Error("maxBytes must be a positive integer.");
   const incoming = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+  return withLogLock(file, async () => {
+    let currentSize = 0;
+    try {
+      currentSize = (await stat(file)).size;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
 
-  let previous = Buffer.alloc(0);
-  try {
-    previous = await readFile(file);
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
+    if (incoming.byteLength >= maxBytes) {
+      await writeFile(file, incoming.subarray(incoming.byteLength - maxBytes), { mode: 0o600 });
+      return;
+    }
 
-  const combined = Buffer.concat([previous, incoming]);
-  const retained = combined.byteLength > maxBytes
-    ? combined.subarray(combined.byteLength - maxBytes)
-    : combined;
-  await writeFile(file, retained, { mode: 0o600 });
+    if (currentSize > 0 && currentSize + incoming.byteLength > maxBytes / 2) {
+      await rename(file, `${file}.1`);
+      currentSize = 0;
+    }
+
+    const handle = await open(file, "a", 0o600);
+    try {
+      await handle.writeFile(incoming);
+    } finally {
+      await handle.close();
+    }
+  });
 }
 
 export async function runDailyDriver(options = {}) {
@@ -121,6 +154,7 @@ export async function runDailyDriver(options = {}) {
   const environment = options.environment ?? process.env;
   const spawnProcess = options.spawnProcess ?? spawn;
   const installSignalHandlers = options.installSignalHandlers ?? true;
+  const appendLog = options.appendLog ?? appendBoundedLog;
   const config = parseRunnerArgs(argv);
   const readKey = options.readKey ?? (() => readControlPlaneKey({ helperPath: config.keychainHelperPath }));
   const readTypesafeKey = options.readTypesafeKey ?? (() => readTypesafeApiKey({ helperPath: config.keychainHelperPath }));
@@ -146,12 +180,22 @@ export async function runDailyDriver(options = {}) {
   const stderrPath = path.join(config.logDir, "stderr.log");
   let stdoutWrites = Promise.resolve();
   let stderrWrites = Promise.resolve();
+  let logWriteFailure;
+  const trackWrite = (queue, chunk, file) => queue.then(
+    () => appendLog(file, chunk),
+    () => appendLog(file, chunk),
+  ).catch((error) => {
+    // Keep draining so one failed write cannot grow the queue unboundedly, and
+    // surface the first failure: losing tunnel diagnostics silently is worse
+    // than a loud runner restart under launchd KeepAlive.
+    logWriteFailure ??= error;
+  });
 
   child.stdout?.on("data", (chunk) => {
-    stdoutWrites = stdoutWrites.then(() => appendBoundedLog(stdoutPath, chunk));
+    stdoutWrites = trackWrite(stdoutWrites, chunk, stdoutPath);
   });
   child.stderr?.on("data", (chunk) => {
-    stderrWrites = stderrWrites.then(() => appendBoundedLog(stderrPath, chunk));
+    stderrWrites = trackWrite(stderrWrites, chunk, stderrPath);
   });
 
   const forwardSignal = () => {
@@ -173,6 +217,7 @@ export async function runDailyDriver(options = {}) {
       child.once("close", (code) => resolve(code ?? 1));
     });
     await Promise.all([stdoutWrites, stderrWrites]);
+    if (logWriteFailure) throw logWriteFailure;
     return exitCode;
   } finally {
     if (installSignalHandlers) {

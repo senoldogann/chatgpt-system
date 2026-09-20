@@ -218,6 +218,19 @@ export class ManagedWorktreeService {
     return status.stdout.length > 0;
   }
 
+  // Narrow create-time check: untracked files in the source repository (for example
+  // owner tool state) must not block worktree creation. Staged, modified, and deleted
+  // tracked files still block. Removal keeps the strict isDirty() check above.
+  private async isDirtyTrackedOnly(worktreePath: string): Promise<boolean> {
+    const status = await runGit(
+      worktreePath,
+      ["status", "--porcelain=v1", "--untracked-files=no"],
+      this.limits,
+    );
+    if (status.exitCode !== 0) throw new RecoveryRequiredError("Managed worktree status could not be verified.");
+    return status.stdout.length > 0;
+  }
+
   private async head(worktreePath: string): Promise<string> {
     const result = await runGit(worktreePath, ["rev-parse", "HEAD"], this.limits);
     const head = result.stdout.trim();
@@ -309,8 +322,8 @@ export class ManagedWorktreeService {
       "git.worktree",
       this.policy.display(repository.repositoryRoot),
       async () => {
-        if (await this.isDirty(repository.repositoryRoot)) {
-          throw new WorktreeDirtyError("A managed worktree can only be created from a clean source worktree.");
+        if (await this.isDirtyTrackedOnly(repository.repositoryRoot)) {
+          throw new WorktreeDirtyError("A managed worktree can only be created from a source worktree without tracked changes.");
         }
         const branchExists = await runGit(
           repository.repositoryRoot,

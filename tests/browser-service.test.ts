@@ -141,6 +141,7 @@ class FakeBrowserBackend implements BrowserBackend {
   }
 
   async snapshot(): Promise<string> {
+    await this.enter("snapshot");
     return this.snapshotValue;
   }
 
@@ -156,7 +157,9 @@ class FakeBrowserBackend implements BrowserBackend {
     this.pressCalls.push({ pageId, key });
   }
 
-  async waitForText(): Promise<void> {}
+  async waitForText(): Promise<void> {
+    await this.enter("waitForText");
+  }
 
   async screenshot(): Promise<BrowserScreenshot> {
     return this.screenshotValue;
@@ -504,5 +507,96 @@ describe("BrowserService policy", () => {
     await first;
     await second;
     expect(fake.operationOrder).toEqual(["start:tabs", "end:tabs", "start:newTab", "end:newTab"]);
+  });
+
+  it("runs independent reads and tab lifecycle during a long per-page waitForText", async () => {
+    const fake = new FakeBrowserBackend();
+    fake.block("waitForText");
+    const { service } = makeService(fake);
+
+    let healthStarted = false;
+    fake.health = async () => {
+      healthStarted = true;
+      return fake.healthValue;
+    };
+
+    const waiter = service.waitForText(PAGE_ID, "ready");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fake.operationOrder).toEqual(["start:waitForText"]);
+
+    const health = service.health();
+    const tabList = service.tabs();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Regression (2026-09-20): a long per-page wait must not stall the independent
+    // backend-level health check or the tab-list read.
+    expect(healthStarted).toBe(true);
+    expect(fake.operationOrder).toEqual(["start:waitForText", "start:tabs", "end:tabs"]);
+
+    // Same-page reads stay ordered behind the wait; tab lifecycle stays independent.
+    const snapshot = service.snapshot(PAGE_ID);
+    const created = service.newTab();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fake.operationOrder).toEqual([
+      "start:waitForText", "start:tabs", "end:tabs", "start:newTab", "end:newTab",
+    ]);
+
+    fake.release("waitForText");
+    await waiter;
+    await Promise.all([health, tabList, snapshot, created]);
+    expect(fake.operationOrder).toEqual([
+      "start:waitForText", "start:tabs", "end:tabs", "start:newTab", "end:newTab",
+      "end:waitForText", "start:snapshot", "end:snapshot",
+    ]);
+  });
+
+  it("runs a fill on another page during a long per-page waitForText", async () => {
+    const fake = new FakeBrowserBackend();
+    fake.block("waitForText");
+    const { service } = makeService(fake);
+    const otherPage = "page_other_page_other_page_other_page_00001";
+
+    const waiter = service.waitForText(PAGE_ID, "ready");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fake.operationOrder).toEqual(["start:waitForText"]);
+
+    let fillStarted = false;
+    fake.fill = async (pageId, target, text) => {
+      fillStarted = true;
+      fake.fillCalls.push({ pageId, target, text });
+    };
+    const filler = service.fill(otherPage, TARGET, "value");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Regression (2026-09-20): unrelated-page work must not queue behind another
+    // page's wait; only shared backend state and same-page order are serialized.
+    expect(fillStarted).toBe(true);
+
+    fake.release("waitForText");
+    await waiter;
+    await filler;
+    expect(fake.fillCalls).toEqual([{ pageId: otherPage, target: TARGET, text: "value" }]);
+  });
+
+  it("keeps a same-page fill ordered behind the page's in-flight waitForText", async () => {
+    const fake = new FakeBrowserBackend();
+    fake.block("waitForText");
+    const { service } = makeService(fake);
+
+    const waiter = service.waitForText(PAGE_ID, "ready");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    let fillStarted = false;
+    fake.fill = async (pageId, target, text) => {
+      fillStarted = true;
+      fake.fillCalls.push({ pageId, target, text });
+    };
+    const filler = service.fill(PAGE_ID, TARGET, "value");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fillStarted).toBe(false);
+
+    fake.release("waitForText");
+    await waiter;
+    await filler;
+    expect(fake.fillCalls).toEqual([{ pageId: PAGE_ID, target: TARGET, text: "value" }]);
   });
 });
