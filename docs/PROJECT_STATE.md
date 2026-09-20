@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-16
 
-Status: **Plan A benchmark infrastructure and previous readiness are complete; Task 7 real-Mac baseline is BLOCKED. S1 passed 7/10 runs against the required 9/10. Fixture-transport diagnostics were committed but the Chrome navigation failure is not fixed. Full Runtime/Agent baseline, bottleneck selection, Plan B and final acceptance remain incomplete. Independent Plan A round-2 review was explicitly waived, not Approved.**
+Status: **Plan A benchmark infrastructure and previous readiness are complete; Task 7 real-Mac baseline is BLOCKED. S1 passed 7/10 runs against the required 9/10. Fixture-transport diagnostics were committed but the Chrome navigation failure is not fixed. Full Runtime/Agent baseline, bottleneck selection, Plan B and final acceptance remain incomplete. Independent Plan A round-2 review was explicitly waived, not Approved. A fresh exact-final-HEAD project_check recheck remains UNAVAILABLE because the Docker project-sandbox is unavailable.**
 
 This file is a handoff cache, not the sole source of truth. Git/worktree reality and Project Continuity records outrank it.
 
@@ -78,6 +78,8 @@ These gates prove implementation/readiness correctness. They do **not** constitu
 Two Task 7 diagnostic Runtime collections have failed acceptance and are not accepted baselines. The first six-scenario run exposed completion/recovery/focus defects and led to fix `a46367d3f3ed04202bc99a42544e7bed657b26cc`. A later S1-only signed run on the previous readiness HEAD had 0/10 eligible successes, five completion passes, five failures and one timeout; its missing safety-counter provenance and reused-heading race led to focused RED regressions and fix `8613a824396087559b877f0d1e558aad32588ab9`. No Agent collection started. All previous ignored local artifacts remain diagnostic only; new baseline runs require a new final readiness HEAD/build identity.
 
 Task 7 current evidence: A signed S1 batch on clean readiness `2368ee6cc8589b15b24979380256b9cd35757dd7` recorded 7/10 eligible successes against mandatory 9/10; failures occurred on repetitions 4, 5, 10, without reported safety failures or assertion unavailability. A diagnostic-only one-off observed `documentRequestReceived=false` and `pageReadyEventReceived=false`, so the fixture received no document GET; Chrome navigation cause is not proven. A further physical diagnostic was platform safety-blocked and not rerouted. Diagnostic tests RED then GREEN; focused 36/36 PASS; TypeScript PASS; full repo check 810 passed / 2 skipped; audit 0 vulnerabilities; native 219/219, release builds and fixture package PASS, all before diagnostic commit `086f371` on identical staged source. This does not establish final-HEAD readiness or S1 acceptance. No Agent Mode was started.
+
+The exact-final-HEAD `project_check` detect/run/report recheck at `e2ca6ae9c10542cb829b3678ace2f777f33c54ec` found the required `package-script:check` (`npm run check`) but returned `UNAVAILABLE` in the Docker project-sandbox, with freshness matching the HEAD and working-tree digest and no working-tree change. This is not a PASS and does not authorize a new baseline.
 ## Evidence model and remaining limitations
 
 - Runtime Mode owns exact benchmark direct-call/native-RPC, physical-action, recovery, verification, and safety evidence from benchmark-owned trace boundaries.
@@ -110,7 +112,7 @@ Task 7 current evidence: A signed S1 batch on clean readiness `2368ee6cc8589b15b
 
 ## Next exact step
 
-The last accepted readiness was verified on `2368ee6...`, but new diagnostic code/doc commits require a fresh exact-final-HEAD `project_check` before any new baseline. The physical diagnostic was safety-blocked; do not bypass it.
+The last accepted readiness was verified on `2368ee6...`. A fresh exact-final-HEAD `project_check` recheck on `e2ca6ae...` remains `UNAVAILABLE` because the Docker project-sandbox is unavailable; restore that environment on a supported authorized host and rerun detect/run/report before any new baseline. The physical diagnostic was safety-blocked; do not bypass it.
 
 **Next exact step: address the blocked S1 navigation, not another unverified baseline.** Establish why Chrome's completed-unverified `command+l → type_text → return` sometimes produces no fixture GET using permitted categorical evidence, without bypassing the physical diagnostic safety block. Only a proven defect justifies a RED test, minimal fix, fresh clean-HEAD verification and one signed S1 rerun (at least 9/10). If the cause remains unknown or that rerun fails, close the engineering attempt as blocked rather than looping. S2–S6 and Agent S1–S5 remain gated, and no objective is selected without eligible signed baseline evidence.
 
