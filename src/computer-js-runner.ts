@@ -96,6 +96,14 @@ function sendToParent(message: RunnerMessage): boolean {
   }
 }
 
+function disconnectFromParent(): boolean {
+  if (!process.connected) return true;
+  const disconnect: (() => void) | undefined = process.disconnect;
+  if (typeof disconnect !== "function") return false;
+  disconnect.call(process);
+  return true;
+}
+
 if (typeof process.send !== "function") {
   process.exitCode = 1;
 } else {
@@ -259,7 +267,10 @@ if (typeof process.send !== "function") {
         failClosed();
         return;
       }
-      if (process.connected) process.disconnect();
+      if (!disconnectFromParent()) {
+        completed = false;
+        failClosed();
+      }
     }, () => failClosed());
   });
 
@@ -287,6 +298,6 @@ if (typeof process.send !== "function") {
     if (!completed && !completionPending || exitCode !== 0 || failed) {
       process.exitCode = exitCode === 0 ? 1 : exitCode;
     }
-    if (!completionPending && process.connected) process.disconnect();
+    if (!completionPending && !disconnectFromParent()) process.exitCode = 1;
   });
 }
