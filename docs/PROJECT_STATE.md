@@ -1,5 +1,21 @@
 # chatgpt-system — Active Project State
 
+## 2026-09-20 Jev boundary hardening and main publication
+
+- **Published.** `origin/main` fast-forwarded `0c1d5a0..5f8873c` (130 commits). No force, no history rewrite; `origin/main` was an ancestor of local `main`. Hosted CI and Release started on that exact head.
+- The Project Docker sandbox blocker was not a code defect: Docker Desktop simply was not running, so `desktop-linux` resolved to a missing socket. Docker was started, `npm run setup:project-exec` rebuilt `chatgpt-system-project-exec:0.1.0`, and a `--network=none --read-only` smoke run succeeded. The active context is a local Unix socket, which is what the runtime requires.
+- `project_check` evidence could not be produced from this session: it is an MCP tool with no CLI entry point. The local gate was completed instead and is recorded below; regenerate `project_check` PASS from an MCP session before relying on the typed publication gate.
+- Jev/TypeSafe hardening, written test-first (17 new tests RED before the fix):
+  - the System One response was the only external input accepted through an unchecked cast. An answer without `confidence` made `undefined < MIN_RESOLUTION_CONFIDENCE` evaluate false, silently bypassing the low-confidence gate; it is now schema-validated, tolerating unknown provider fields while requiring what the resolver consumes.
+  - a numeric `choice` outside the supplied criteria skipped the duplicate guard and resolved to an index absent from the snapshot; out-of-set keys are now refused as a protocol violation.
+  - each request is bounded by an abort timeout instead of an unbounded `fetch` that could outlive the hosted response deadline.
+  - retries are limited to network failures and retryable statuses; a 400/401 no longer fires three hopeless attempts. Retry warnings are structured and carry status metadata only, never the response body, instruction text, or API key.
+- `SECURITY.md` now declares the Jev egress boundary, which the trust model had never mentioned despite it being the only non-OpenAI egress in the system: what leaves the Mac (focused window title, per-element AX role plus title/description within the existing observation bounds, the caller's instruction, the key as a bearer header), what does not (screenshots, OCR text, editable AX values, typed text, file contents, lease identifiers), the default-off fail-closed gating, and the read-only no-authority contract. A documentation contract test enforces it.
+- Verification bound to exact `HEAD 5f8873c`: `npm run check` **exit 0** (928 passed, 2 skipped) and `npm run test:computer:macos` **exit 0** (226/226). `git diff --check` clean.
+- Hosted verification on the published head `5f8873c`: CI run 35530416249 **success** across `test (22)`, `test (24)` and `macos-native`; the Release workflow also succeeded. Publication is complete.
+- The merged remote branch `docs/risk-tiered-development-20260920` was deleted. `origin` now carries `main`, the open Dependabot head, and the intentionally retained `feat/computer-use-bridge`.
+- **Next exact step:** PR #49 is now redundant — published `main` already carries both `@types/node ^26.5.1` and the `computer-js` optional-IPC-disconnect fix, and hosted CI is green on that combination. Closing it needs an explicit owner decision because it posts publicly. After that, the open work is the ChatGPT IDE surface: start with the Faz 0 widget spike (declare the `resources` capability, register one `ui://` resource, confirm whether it renders through the Secure MCP Tunnel) before investing in the full panel.
+
 ## 2026-09-20 Workspace cleanup — local delivery
 
 - Worktrees went from 21 to 3. Kept: the canonical checkout, `~/.chatgpt-system/runtime/releases/2a7c8b7` (live MCP child PID and the LaunchAgent runner both resolve here through `chatgpt-system-main -> current`), and `chatgpt-system-main-062f73a-20260919-v2` (the rollback target behind `previous -> releases/062f73a`, which is a symlink to that worktree, not a separate directory).
