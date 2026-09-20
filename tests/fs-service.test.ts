@@ -84,18 +84,19 @@ describe("FileSystemService", () => {
     expect(read.content).toBe("world\n");
   });
 
-  it("rejects malformed patch text with a typed conflict instead of an internal error", async () => {
+  it("rejects structurally malformed patch text with a typed error instead of a silent no-op", async () => {
     const { service } = await fixture();
     const first = await service.write("hello.txt", "hello\n");
     const sha = first.sha256 as string;
+    // Yedekli @@ satır sayıları artık normalize ediliyor, bu yüzden burada
+    // yer almıyor; yapısal olarak bozuk girdi hâlâ fail-closed olmalı.
     const malformed = [
-      "--- a/hello.txt\n+++ b/hello.txt\n@@ -1,1 +1,1 @@\n-hello\n+world\n+extra\n",
       "--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-hello\n+world\n--- a/other.txt\n+++ b/other.txt\n@@ -1 +1 @@\n-a\n+b\n",
       "this is not a unified diff",
       "",
     ];
     for (const patchText of malformed) {
-      await expect(service.patch("hello.txt", patchText, sha)).rejects.toBeInstanceOf(ConflictError);
+      await expect(service.patch("hello.txt", patchText, sha)).rejects.toMatchObject({ code: "PATCH_INVALID" });
     }
 
     const read = await service.read("hello.txt");

@@ -1,3 +1,4 @@
+import { parsePatch } from "diff";
 import { PatchInvalidError } from "./errors.js";
 
 export interface UnifiedPatchNormalization {
@@ -149,4 +150,42 @@ export function patchInvalidError(error: unknown): PatchInvalidError {
     "The patch is not a valid single-file unified diff. Re-read the file with fs_read and rebuild the diff.",
     message,
   );
+}
+
+/**
+ * Reject structurally invalid unified diffs before they reach the diff library.
+ * Without this guard `applyPatch` either throws an untyped error that surfaces
+ * as INTERNAL_ERROR, or silently returns the unchanged source for patch text
+ * that contains no hunks.
+ */
+export function validateUnifiedPatch(patchText: string): void {
+  let parsed;
+  try {
+    parsed = parsePatch(patchText);
+  } catch (error) {
+    // Ayrıştırıcı nedeni yutulmaz; çağıran hangi alanın bozuk olduğunu görür.
+    throw patchInvalidError(error);
+  }
+  if (parsed.length !== 1 || parsed[0]!.hunks.length < 1) {
+    throw new PatchInvalidError(
+      "multiple_files",
+      "A unified diff must contain exactly one file with at least one hunk.",
+      `parsed ${parsed.length} files`,
+    );
+  }
+  for (const hunk of parsed[0]!.hunks) {
+    if (!Number.isInteger(hunk.oldStart)
+      || !Number.isInteger(hunk.oldLines)
+      || !Number.isInteger(hunk.newStart)
+      || !Number.isInteger(hunk.newLines)
+      || hunk.oldLines < 0
+      || hunk.newLines < 0
+      || hunk.lines.length < 1) {
+      throw new PatchInvalidError(
+        "unparseable",
+        "A hunk carries invalid start or line-count metadata.",
+        "hunk metadata failed structural validation",
+      );
+    }
+  }
 }

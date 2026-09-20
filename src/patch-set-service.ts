@@ -16,7 +16,7 @@ import { applyPatch as applyUnifiedPatch, parsePatch } from "diff";
 import type { AuditLogger } from "./audit.js";
 import type { LimitsConfig } from "./config.js";
 import { ConflictError, LimitError, PatchInvalidError, PolicyError, RecoveryRequiredError } from "./errors.js";
-import { normalizeUnifiedPatchHunkHeaders, patchInvalidError } from "./unified-patch.js";
+import { normalizeUnifiedPatchHunkHeaders, patchInvalidError, validateUnifiedPatch } from "./unified-patch.js";
 import { withPathLocks } from "./path-lock.js";
 import { PathPolicy } from "./policy.js";
 
@@ -117,38 +117,6 @@ async function readRegularNoFollow(candidate: string, maxBytes: number): Promise
     throw error;
   } finally {
     await handle?.close();
-  }
-}
-
-function validateUnifiedPatch(patchText: string): void {
-  let parsed;
-  try {
-    parsed = parsePatch(patchText);
-  } catch (error) {
-    // Ayrıştırıcı nedeni yutulmaz; çağıran hangi alanın bozuk olduğunu görür.
-    throw patchInvalidError(error);
-  }
-  if (parsed.length !== 1 || parsed[0]!.hunks.length < 1) {
-    throw new PatchInvalidError(
-      "multiple_files",
-      "A patch-set entry must contain exactly one unified-diff file with at least one hunk.",
-      `parsed ${parsed.length} files`,
-    );
-  }
-  for (const hunk of parsed[0]!.hunks) {
-    if (!Number.isInteger(hunk.oldStart)
-      || !Number.isInteger(hunk.oldLines)
-      || !Number.isInteger(hunk.newStart)
-      || !Number.isInteger(hunk.newLines)
-      || hunk.oldLines < 0
-      || hunk.newLines < 0
-      || hunk.lines.length < 1) {
-      throw new PatchInvalidError(
-        "unparseable",
-        "A hunk carries invalid start or line-count metadata.",
-        "hunk metadata failed structural validation",
-      );
-    }
   }
 }
 

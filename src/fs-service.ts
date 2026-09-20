@@ -16,7 +16,7 @@ import { AuditLogger } from "./audit.js";
 import { ConflictError, LimitError, NotFoundError, PolicyError } from "./errors.js";
 import type { LimitsConfig } from "./config.js";
 import { withPathLock, withPathLocks } from "./path-lock.js";
-import { normalizeUnifiedPatchHunkHeaders, patchInvalidError } from "./unified-patch.js";
+import { normalizeUnifiedPatchHunkHeaders, patchInvalidError, validateUnifiedPatch } from "./unified-patch.js";
 import { PathPolicy } from "./policy.js";
 
 function sha256(buffer: Buffer): string {
@@ -168,6 +168,7 @@ export class FileSystemService {
   async patch(input: string, patchText: string, expectedSha256: string): Promise<Record<string, unknown>> {
     const resolved = await this.policy.resolve(input);
     const normalization = normalizeUnifiedPatchHunkHeaders(patchText);
+    validateUnifiedPatch(normalization.patch);
     return this.audit.run("fs.patch", this.policy.display(resolved), async () => withPathLock(resolved, async () => {
       await this.verifyExpectedHash(resolved, expectedSha256);
       const source = await readFile(resolved, "utf8");

@@ -879,6 +879,19 @@ describe("computer_resolve_semantic_target", () => {
       const schema = tool?.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
       expect(schema.properties).toHaveProperty("authorityLeaseId");
       expect(schema.properties).toHaveProperty("instruction");
+      expect(schema.required).toContain("instruction");
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("requires an explicit lease when personal Admin is disabled", async () => {
+    const { client, transport } = await fixture({ personalAdmin: false });
+    try {
+      const { tools } = await client.listTools();
+      const schema = tools.find((item) => item.name === "computer_resolve_semantic_target")
+        ?.inputSchema as { required?: string[] };
       expect(schema.required).toContain("authorityLeaseId");
       expect(schema.required).toContain("instruction");
     } finally {

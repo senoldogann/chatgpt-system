@@ -31,6 +31,8 @@ export const COMPUTER_FLOW_ERROR_MAP = {
   COMPUTER_JS_DISABLED: { outcome: "blocked", failureCategory: "js_forbidden", recoveryOutcome: "js_forbidden" },
   COMPUTER_JS_FAILED: { outcome: "blocked", failureCategory: "action_failed", recoveryOutcome: "action_failed" },
   COMPUTER_JS_TIMEOUT: { outcome: "timeout", failureCategory: "timeout", recoveryOutcome: "timeout" },
+  JEV_TARGETING_UNAVAILABLE: { outcome: "unavailable", failureCategory: "unavailable", recoveryOutcome: "unavailable" },
+  JEV_TARGETING_FAILED: { outcome: "blocked", failureCategory: "action_failed", recoveryOutcome: "action_failed" },
 } as const satisfies Readonly<Record<ComputerErrorCode, ComputerFlowMappedResult>>;
 
 export const COMPUTER_FLOW_SCROLL_STATE_MAP = {
