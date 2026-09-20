@@ -368,7 +368,7 @@ export class GitService {
   }
 
   async status(cwd = "."): Promise<GitResult> {
-    return this.run(cwd, ["status", "--porcelain=v1", "--branch"], "git.read", { operation: "status" });
+    return this.run(cwd, ["status", "--porcelain=v1", "--branch", "--untracked-files=all"], "git.read", { operation: "status" });
   }
 
   async inventory(cwdInput = ".", cursor = 0, pageSize = 100, snapshot?: string): Promise<GitInventoryPage> {

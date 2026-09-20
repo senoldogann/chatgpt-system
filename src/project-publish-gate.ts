@@ -28,12 +28,15 @@ interface ProjectCheckReporter {
   report(cwd?: string): ReturnType<ProjectCheckService["report"]>;
 }
 
+const ALLOWED_UNTRACKED_OWNERSHIP_METADATA = "?? .freebuff/project-id";
+
 function cleanBranch(result: GitResult): string {
   if (result.exitCode !== 0) throw new PolicyError("Git status failed before project publication.");
   const lines = result.stdout.split(/\r?\n/).filter((line) => line.length > 0);
+  const changes = lines.slice(1).filter((line) => line !== ALLOWED_UNTRACKED_OWNERSHIP_METADATA);
   const header = lines[0];
   if (!header?.startsWith("## ")) throw new PolicyError("Git status did not report a named current branch.");
-  if (lines.length > 1) throw new WorktreeNotCleanError();
+  if (changes.length > 0) throw new WorktreeNotCleanError();
 
   const summary = header.slice(3);
   let branch: string;
