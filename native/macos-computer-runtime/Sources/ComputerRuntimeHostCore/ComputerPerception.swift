@@ -67,45 +67,83 @@ struct ComputerPerception {
     ) -> [ComputerOcrCandidateView] {
         guard imageWidth > 0, imageHeight > 0 else { return [] }
 
+        let screenSpace = candidates.compactMap { candidate -> ComputerOcrCandidateView? in
+            guard let bounds = screenBounds(
+                for: candidate.bounds,
+                imageWidth: imageWidth,
+                imageHeight: imageHeight,
+                captureBounds: captureBounds
+            ) else {
+                return nil
+            }
+            return ComputerOcrCandidateView(
+                text: candidate.text,
+                bounds: bounds,
+                confidence: candidate.confidence.map(Double.init),
+                source: candidate.source == .fast ? .visionFast : .visionAccurate
+            )
+        }
+        return boundedViewCandidates(screenSpace)
+    }
+
+    static func boundedViewCandidates(
+        _ candidates: [ComputerOcrCandidateView]
+    ) -> [ComputerOcrCandidateView] {
         var output: [ComputerOcrCandidateView] = []
         output.reserveCapacity(min(candidates.count, maxOcrCandidates))
-        var aggregateCharacters = 0
+        var aggregateScalars = 0
 
         for candidate in candidates {
             guard output.count < maxOcrCandidates else { break }
             if let confidence = candidate.confidence,
-               (!confidence.isFinite || Double(confidence) < minimumOcrConfidence) {
+               (!confidence.isFinite || confidence < minimumOcrConfidence || confidence > 1) {
                 continue
             }
+            guard isValidScreenBounds(candidate.bounds) else { continue }
 
             let normalized = candidate.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !normalized.isEmpty else { continue }
-            let remaining = maxOcrAggregateCharacters - aggregateCharacters
+            let remaining = maxOcrAggregateCharacters - aggregateScalars
             guard remaining > 0 else { break }
-            let textLimit = min(maxOcrCandidateCharacters, remaining)
-            let text = String(normalized.prefix(textLimit))
-            guard !text.isEmpty,
-                  let bounds = screenBounds(
-                    for: candidate.bounds,
-                    imageWidth: imageWidth,
-                    imageHeight: imageHeight,
-                    captureBounds: captureBounds
-                  )
-            else {
-                continue
-            }
+            let text = boundedScalarText(
+                normalized,
+                maxScalars: min(maxOcrCandidateCharacters, remaining)
+            )
+            guard !text.isEmpty else { continue }
 
             output.append(
                 ComputerOcrCandidateView(
                     text: text,
-                    bounds: bounds,
-                    confidence: candidate.confidence.map(Double.init),
-                    source: candidate.source == .fast ? .visionFast : .visionAccurate
+                    bounds: candidate.bounds,
+                    confidence: candidate.confidence,
+                    source: candidate.source
                 )
             )
-            aggregateCharacters += text.count
+            aggregateScalars += text.unicodeScalars.count
         }
         return output
+    }
+
+    static func boundedScalarText(_ value: String, maxScalars: Int) -> String {
+        guard maxScalars > 0 else { return "" }
+        var result = String()
+        var scalarCount = 0
+        for character in value {
+            let characterScalars = character.unicodeScalars.count
+            guard scalarCount + characterScalars <= maxScalars else { break }
+            result.append(character)
+            scalarCount += characterScalars
+        }
+        return result
+    }
+
+    private static func isValidScreenBounds(_ bounds: ComputerBounds) -> Bool {
+        bounds.x.isFinite &&
+            bounds.y.isFinite &&
+            bounds.width.isFinite &&
+            bounds.height.isFinite &&
+            bounds.width > 0 &&
+            bounds.height > 0
     }
 
     static func screenBounds(

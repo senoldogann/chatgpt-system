@@ -181,6 +181,13 @@ public struct ComputerOcrCandidateView: Codable, Equatable, Sendable {
     public let confidence: Double?
     public let source: ComputerOcrSource
 
+    private enum CodingKeys: String, CodingKey {
+        case text
+        case bounds
+        case confidence
+        case source
+    }
+
     public init(
         text: String,
         bounds: ComputerBounds,
@@ -193,11 +200,12 @@ public struct ComputerOcrCandidateView: Codable, Equatable, Sendable {
         self.source = source
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case text
-        case bounds
-        case confidence
-        case source
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decode(String.self, forKey: .text)
+        bounds = try container.decode(ComputerBounds.self, forKey: .bounds)
+        confidence = try container.decodeIfPresent(Double.self, forKey: .confidence)
+        source = try container.decode(ComputerOcrSource.self, forKey: .source)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -220,6 +228,14 @@ public struct ComputerPerceptionSummary: Codable, Equatable, Sendable {
     public let recommendedTargeting: ComputerRecommendedTargeting
     public let ocrCandidates: [ComputerOcrCandidateView]
 
+    private enum CodingKeys: String, CodingKey {
+        case axQuality
+        case webContentAccessible
+        case ocrUsed
+        case recommendedTargeting
+        case ocrCandidates
+    }
+
     public init(
         axQuality: ComputerAXQuality,
         webContentAccessible: Bool?,
@@ -234,12 +250,13 @@ public struct ComputerPerceptionSummary: Codable, Equatable, Sendable {
         self.ocrCandidates = ocrCandidates
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case axQuality
-        case webContentAccessible
-        case ocrUsed
-        case recommendedTargeting
-        case ocrCandidates
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        axQuality = try container.decode(ComputerAXQuality.self, forKey: .axQuality)
+        webContentAccessible = try container.decodeIfPresent(Bool.self, forKey: .webContentAccessible)
+        ocrUsed = try container.decode(Bool.self, forKey: .ocrUsed)
+        recommendedTargeting = try container.decode(ComputerRecommendedTargeting.self, forKey: .recommendedTargeting)
+        ocrCandidates = try container.decode([ComputerOcrCandidateView].self, forKey: .ocrCandidates)
     }
 
     public func encode(to encoder: Encoder) throws {
