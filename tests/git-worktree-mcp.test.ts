@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
@@ -219,6 +219,56 @@ describe("git_worktree MCP tool", () => {
       expect(dirtySource.isError).toBe(true);
       expect(textResult(dirtySource)).toContain("WORKTREE_DIRTY");
       await writeFile(path.join(root, "README.md"), "base\n", "utf8");
+
+      // Regression (2026-09-20): an untracked file in the source repository must not
+      // block managed worktree creation, must not be copied into the new worktree,
+      // and must survive the operation byte-for-byte.
+      const untrackedPath = path.join(root, ".freebuff", "project-id");
+      await mkdir(path.dirname(untrackedPath), { recursive: true });
+      await writeFile(untrackedPath, "freebuff-owner-state\n", "utf8");
+      const untrackedCreate = await client.callTool({
+        name: "git_worktree",
+        arguments: { authorityLeaseId, operation: "create", cwd: root, branch: "agent/untracked-source" },
+      });
+      expect(untrackedCreate.isError).not.toBe(true);
+      const untrackedBody = untrackedCreate.structuredContent as unknown as WorktreeView;
+      expect(untrackedBody).toMatchObject({
+        operation: "create",
+        branch: "agent/untracked-source",
+        dirty: false,
+        removed: false,
+      });
+      expect(await readFile(untrackedPath, "utf8")).toBe("freebuff-owner-state\n");
+      expect(git(root, ["status", "--porcelain=v1"]).split("\n")).toContain("?? .freebuff/");
+      await expect(stat(path.join(untrackedBody.path, ".freebuff", "project-id"))).rejects.toMatchObject({ code: "ENOENT" });
+
+      // Removing the managed worktree keeps the strict dirty check: tracked edits and
+      // even untracked files inside the managed worktree must still block removal.
+      await writeFile(path.join(untrackedBody.path, "README.md"), "dirty\n", "utf8");
+      const trackedDirtyRemove = await client.callTool({
+        name: "git_worktree",
+        arguments: { authorityLeaseId, operation: "remove", worktreeId: untrackedBody.worktreeId },
+      });
+      expect(trackedDirtyRemove.isError).toBe(true);
+      expect(textResult(trackedDirtyRemove)).toContain("WORKTREE_DIRTY");
+      expect(await readFile(path.join(untrackedBody.path, "README.md"), "utf8")).toBe("dirty\n");
+      await writeFile(path.join(untrackedBody.path, "README.md"), "base\n", "utf8");
+      await writeFile(path.join(untrackedBody.path, "stray.txt"), "stray\n", "utf8");
+      const untrackedDirtyRemove = await client.callTool({
+        name: "git_worktree",
+        arguments: { authorityLeaseId, operation: "remove", worktreeId: untrackedBody.worktreeId },
+      });
+      expect(untrackedDirtyRemove.isError).toBe(true);
+      expect(textResult(untrackedDirtyRemove)).toContain("WORKTREE_DIRTY");
+      expect(await readFile(path.join(untrackedBody.path, "stray.txt"), "utf8")).toBe("stray\n");
+      await unlink(path.join(untrackedBody.path, "stray.txt"));
+      const untrackedRemoved = await client.callTool({
+        name: "git_worktree",
+        arguments: { authorityLeaseId, operation: "remove", worktreeId: untrackedBody.worktreeId },
+      });
+      expect(untrackedRemoved.isError).not.toBe(true);
+      expect(untrackedRemoved.structuredContent).toMatchObject({ removed: true, dirty: false });
+      expect(await readFile(untrackedPath, "utf8")).toBe("freebuff-owner-state\n");
 
       const invalidBranch = await client.callTool({
         name: "git_worktree",

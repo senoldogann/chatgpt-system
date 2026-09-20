@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import path from "node:path";
@@ -551,5 +551,62 @@ describe("ProcessSupervisor core", () => {
       second.processId,
       third.processId,
     ]);
+  });
+
+  it("releases pending start capacity when pre-spawn preparation fails", async () => {
+    const { base } = await fixture();
+    const persistencePath = path.join(base, "blocked-persistence");
+    const supervisor = new ProcessSupervisor({
+      limits: { maxManagedProcesses: 2, maxProcessLogBytesPerStream: 128, processStopGraceMs: 100 },
+      audit: new AuditLogger(path.join(base, "audit-pending.jsonl")),
+      persistencePath,
+    });
+    supervisors.push(supervisor);
+
+    // The constructor created the persistence directory; replacing it with a regular
+    // file makes the pre-spawn recursive mkdir fail deterministically before spawn.
+    await rm(persistencePath, { recursive: true });
+    await writeFile(persistencePath, "not a directory", "utf8");
+
+    await expect(supervisor.start({ command: "node", args: ["-e", "setTimeout(() => {}, 50)"], cwd: base })).rejects.toThrow();
+    await expect(supervisor.start({ command: "node", args: ["-e", "setTimeout(() => {}, 50)"], cwd: base })).rejects.toThrow();
+    expect(supervisor.descriptors()).toEqual([]);
+
+    // Restore persistence so the next start can succeed: with a capacity leak the
+    // two failed starts would have consumed the whole registry and the third start
+    // would be refused with LIMIT_EXCEEDED even though no process is running.
+    await rm(persistencePath, { recursive: true });
+    const recovered = await supervisor.start({ command: "node", args: ["-e", "process.exit(0)"], cwd: base });
+    await waitForState(supervisor, recovered.processId, "exited");
+  });
+
+  it("keeps process ownership when the post-spawn persistence write fails", async () => {
+    const { base } = await fixture();
+    const persistencePath = path.join(base, "collide-persistence");
+    const fixedId = "K".repeat(43);
+    const supervisor = new ProcessSupervisor({
+      limits: { maxManagedProcesses: 4, maxProcessLogBytesPerStream: 128, processStopGraceMs: 100 },
+      audit: new AuditLogger(path.join(base, "audit-persist-fail.jsonl")),
+      persistencePath,
+      newProcessId: () => fixedId,
+    });
+    supervisors.push(supervisor);
+
+    // A directory occupying the record destination makes the post-spawn persistence
+    // rename fail while every pre-spawn step still succeeds. Ownership and the start
+    // result must not depend on best-effort persistence storage.
+    await mkdir(path.join(persistencePath, `${fixedId}.json`), { recursive: true });
+
+    const started = await supervisor.start({
+      command: "node",
+      args: ["-e", "setTimeout(() => {}, 250)"],
+      cwd: base,
+    });
+    expect(started.processId).toBe(fixedId);
+    expect(started.status).toBe("running");
+    expect(supervisor.status(fixedId)).toMatchObject({ state: "running" });
+
+    const finished = await waitForState(supervisor, fixedId, "exited", 3_000);
+    expect(finished.exitCode).toBe(0);
   });
 });

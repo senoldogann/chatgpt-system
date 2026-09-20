@@ -57,7 +57,12 @@ export class BrowserService {
   private readonly maxUrlChars: number;
   private readonly maxSnapshotChars: number;
   private readonly maxScreenshotBytes: number;
-  private operationChain: Promise<void> = Promise.resolve();
+  // Three serialization layers. Shared backend state (tab lifecycle, the active
+  // tab) mutates only through the shared chain; per-page operations queue per
+  // pageId so one page's long wait cannot stall unrelated pages; health reads no
+  // page or tab state at all and runs independently.
+  private sharedChain: Promise<void> = Promise.resolve();
+  private readonly pageChains = new Map<string, Promise<void>>();
 
   constructor(
     private readonly backend: BrowserBackend,
@@ -77,11 +82,15 @@ export class BrowserService {
   }
 
   health(): Promise<BrowserHealth> {
-    return this.serialize(() => this.backend.health());
+    // Independent probe: it must stay responsive even while a page operation is
+    // waiting, so it does not queue behind either serialization chain.
+    return this.backend.health().catch((error: unknown) => {
+      throw this.normalizeBackendError(error, "generic");
+    });
   }
 
   tabs(): Promise<{ tabs: BrowserTabView[] }> {
-    return this.serialize(async () => {
+    return this.runShared(async () => {
       const tabs = await this.backend.tabs();
       this.assertTabListWithinLimits(tabs);
       return { tabs };
@@ -89,32 +98,32 @@ export class BrowserService {
   }
 
   newTab(url?: string): Promise<BrowserTabView> {
-    return this.serialize(async () => {
+    return this.runShared(async () => {
       if (url !== undefined) this.assertNavigableUrl(url);
       return this.assertTabViewWithinLimits(await this.backend.newTab(url));
     });
   }
 
   selectTab(pageId: string): Promise<BrowserTabView> {
-    return this.serialize(async () => this.assertTabViewWithinLimits(await this.backend.selectTab(pageId)));
+    return this.runShared(async () => this.assertTabViewWithinLimits(await this.backend.selectTab(pageId)));
   }
 
   closeTab(pageId: string): Promise<{ closed: true }> {
-    return this.serialize(async () => {
+    return this.runShared(async () => {
       await this.backend.closeTab(pageId);
       return { closed: true as const };
     });
   }
 
   navigate(pageId: string, url: string): Promise<BrowserTabView> {
-    return this.serialize(async () => {
+    return this.runOnPage(pageId, async () => {
       this.assertNavigableUrl(url);
       return this.assertTabViewWithinLimits(await this.backend.navigate(pageId, url, this.timeoutMs));
     }, "navigation");
   }
 
   snapshot(pageId: string): Promise<{ pageId: string; snapshot: string }> {
-    return this.serialize(async () => {
+    return this.runOnPage(pageId, async () => {
       const snapshot = this.redactEditableSnapshotValues(await this.backend.snapshot(pageId));
       this.assertOutputLength(snapshot, this.maxSnapshotChars, "Browser snapshot exceeded the safe output limit.");
       return { pageId, snapshot };
@@ -122,7 +131,7 @@ export class BrowserService {
   }
 
   click(pageId: string, target: BrowserTarget): Promise<{ ok: true }> {
-    return this.serialize(async () => {
+    return this.runOnPage(pageId, async () => {
       await this.assertUniqueTarget(pageId, target);
       await this.backend.click(pageId, target);
       return { ok: true as const };
@@ -130,7 +139,7 @@ export class BrowserService {
   }
 
   fill(pageId: string, target: BrowserTarget, text: string): Promise<{ ok: true }> {
-    return this.serialize(async () => {
+    return this.runOnPage(pageId, async () => {
       await this.assertUniqueTarget(pageId, target);
       const metadata = await this.backend.targetMetadata(pageId, target);
       this.assertNotCredentialTarget(metadata);
@@ -140,7 +149,7 @@ export class BrowserService {
   }
 
   selectOption(pageId: string, target: BrowserTarget, value: string): Promise<{ ok: true }> {
-    return this.serialize(async () => {
+    return this.runOnPage(pageId, async () => {
       await this.assertUniqueTarget(pageId, target);
       await this.backend.selectOption(pageId, target, value);
       return { ok: true as const };
@@ -148,7 +157,7 @@ export class BrowserService {
   }
 
   pressKey(pageId: string, key: BrowserKey): Promise<{ ok: true }> {
-    return this.serialize(async () => {
+    return this.runOnPage(pageId, async () => {
       const focused = await this.backend.focusedMetadata(pageId);
       if (focused) this.assertNotCredentialTarget(focused);
       await this.backend.pressKey(pageId, key);
@@ -159,14 +168,14 @@ export class BrowserService {
   waitForText(pageId: string, text: string, timeoutMs?: number): Promise<{ found: true }> {
     const requested = timeoutMs ?? this.timeoutMs;
     const boundedTimeout = Math.max(1, Math.min(requested, this.timeoutMs));
-    return this.serialize(async () => {
+    return this.runOnPage(pageId, async () => {
       await this.backend.waitForText(pageId, text, boundedTimeout);
       return { found: true as const };
     });
   }
 
   screenshot(pageId: string): Promise<BrowserScreenshot> {
-    return this.serialize(async () => {
+    return this.runOnPage(pageId, async () => {
       const screenshot = await this.backend.screenshot(pageId);
       const decodedBytes = Buffer.byteLength(screenshot.pngBase64, "base64");
       if (decodedBytes > this.maxScreenshotBytes) {
@@ -177,7 +186,7 @@ export class BrowserService {
   }
 
   consoleErrors(pageId: string): Promise<BrowserConsoleResult> {
-    return this.serialize(async () => {
+    return this.runOnPage(pageId, async () => {
       const result = await this.backend.consoleErrors(pageId);
       const bounded = result.entries.map((entry) => ({
         ...entry,
@@ -198,7 +207,7 @@ export class BrowserService {
   }
 
   networkErrors(pageId: string): Promise<BrowserNetworkResult> {
-    return this.serialize(async () => {
+    return this.runOnPage(pageId, async () => {
       const result = await this.backend.networkErrors(pageId);
       const sanitized = result.entries.map((entry) => this.sanitizeNetworkEntry(entry));
       const overflow = sanitized.length > this.maxDiagnosticEntries;
@@ -213,22 +222,45 @@ export class BrowserService {
   }
 
   close(): Promise<{ closed: true }> {
-    return this.serialize(async () => {
+    return this.runShared(async () => {
+      // Backend teardown waits for the per-page operations that were in flight
+      // when close reaches the backend, so teardown never races live page work.
+      await Promise.all([...this.pageChains.values()]);
       await this.backend.close();
       return { closed: true as const };
     });
   }
 
-  private serialize<T>(operation: () => Promise<T>, errorContext: "generic" | "navigation" = "generic"): Promise<T> {
-    const result = this.operationChain
+  private runShared<T>(operation: () => Promise<T>, errorContext: "generic" | "navigation" = "generic"): Promise<T> {
+    const result = this.sharedChain
       .then(operation)
       .catch((error: unknown) => {
         throw this.normalizeBackendError(error, errorContext);
       });
-    this.operationChain = result.then(
+    this.sharedChain = result.then(
       () => undefined,
       () => undefined,
     );
+    return result;
+  }
+
+  private runOnPage<T>(pageId: string, operation: () => Promise<T>, errorContext: "generic" | "navigation" = "generic"): Promise<T> {
+    const previous = this.pageChains.get(pageId) ?? Promise.resolve();
+    const result = previous
+      .then(operation)
+      .catch((error: unknown) => {
+        throw this.normalizeBackendError(error, errorContext);
+      });
+    // The page chain stays busy until the operation (including a full waitForText
+    // wait) settles, so later same-page operations keep their order.
+    const tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.pageChains.set(pageId, tail);
+    void tail.then(() => {
+      if (this.pageChains.get(pageId) === tail) this.pageChains.delete(pageId);
+    });
     return result;
   }
 
