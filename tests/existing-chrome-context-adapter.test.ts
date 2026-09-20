@@ -94,6 +94,31 @@ describe("existing Chrome context adapter", () => {
     expect(page.bringToFront).not.toHaveBeenCalled();
   });
 
+  it("rediscovers an eligible page with a fresh ID after an internal navigation", async () => {
+    const page = new FakePage("https://example.com", "Example");
+    const adapted = createExistingChromeContextAdapter(new FakeContext([page]) as unknown as BrowserContext, async () => undefined);
+    const backend = new PlaywrightBrowserBackend(adapted, { timeoutMs: 1_000 });
+    const oldId = (await backend.tabs())[0]!.pageId;
+    page.navigateTo("chrome://settings");
+    await expect(backend.selectTab(oldId)).rejects.toMatchObject({ code: "BROWSER_PAGE_NOT_FOUND" });
+    page.navigateTo("https://example.org");
+    const tabs = await backend.tabs();
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0]!.pageId).not.toBe(oldId);
+    await expect(backend.selectTab(oldId)).rejects.toMatchObject({ code: "BROWSER_PAGE_NOT_FOUND" });
+  });
+
+  it("does not resurrect an old page ID after tabs observes it becoming ineligible", async () => {
+    const page = new FakePage("https://example.com", "Example");
+    const adapted = createExistingChromeContextAdapter(new FakeContext([page]) as unknown as BrowserContext, async () => undefined);
+    const backend = new PlaywrightBrowserBackend(adapted, { timeoutMs: 1_000 });
+    const oldId = (await backend.tabs())[0]!.pageId;
+    page.navigateTo("chrome://settings");
+    expect(await backend.tabs()).toEqual([]);
+    page.navigateTo("https://example.org");
+    expect((await backend.tabs())[0]!.pageId).not.toBe(oldId);
+  });
+
   it("keeps explicit close-tab destructive for an eligible page", async () => {
     const page = new FakePage("https://example.com", "Example");
     const context = new FakeContext([page]);

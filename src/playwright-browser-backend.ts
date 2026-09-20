@@ -91,8 +91,14 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
   async tabs(): Promise<BrowserTabView[]> {
     if (this.closed) return [];
     const views: BrowserTabView[] = [];
+    for (const page of this.context.pages()) {
+      if (!page.isClosed()) this.registerPage(page, false);
+    }
     for (const [pageId, page] of this.pagesById) {
-      if (page.isClosed()) continue;
+      if (page.isClosed()) {
+        this.unregisterPage(pageId, page);
+        continue;
+      }
       views.push(await this.tabView(pageId, page));
     }
     return views;
@@ -256,6 +262,7 @@ export class PlaywrightBrowserBackend implements BrowserBackend {
   private unregisterPage(pageId: string, page: Page): void {
     if (this.pagesById.get(pageId) !== page) return;
     this.pagesById.delete(pageId);
+    this.idsByPage.delete(page);
     this.diagnosticsByPageId.delete(pageId);
     if (this.activePageId === pageId) {
       this.activePageId = this.pagesById.keys().next().value ?? null;

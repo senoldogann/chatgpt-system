@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BrowserError } from "../src/errors.js";
 import type {
   BrowserConsoleResult,
   BrowserHealth,
@@ -203,6 +204,74 @@ describe("BrowserService policy", () => {
     await expect(service.click(PAGE_ID, { by: "role", role: "button", name: "Save" })).rejects.toMatchObject({
       code: "BROWSER_TARGET_AMBIGUOUS",
     });
+  });
+
+  it("waits for a unique button added 200 ms after the click starts", async () => {
+    const fake = new FakeBrowserBackend();
+    let present = false;
+    let clicks = 0;
+    fake.targetCount = async () => present ? 1 : 0;
+    fake.click = async () => { clicks += 1; };
+    const { service } = makeService(fake, 750);
+    const timer = setTimeout(() => { present = true; }, 200);
+    try {
+      await expect(service.click(PAGE_ID, { by: "role", role: "button", name: "Delayed" })).resolves.toEqual({ ok: true });
+      expect(clicks).toBe(1);
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  it("bounds a missing target wait and never sends the click", async () => {
+    const fake = new FakeBrowserBackend();
+    fake.targetCountValue = 0;
+    let clicks = 0;
+    fake.click = async () => { clicks += 1; };
+    const { service } = makeService(fake, 90);
+    const started = performance.now();
+    await expect(service.click(PAGE_ID, TARGET)).rejects.toMatchObject({ code: "BROWSER_TARGET_NOT_FOUND" });
+    expect(performance.now() - started).toBeGreaterThanOrEqual(65);
+    expect(clicks).toBe(0);
+  });
+
+  it("refuses an ambiguous target that appears during the bounded wait", async () => {
+    const fake = new FakeBrowserBackend();
+    let count = 0;
+    let clicks = 0;
+    fake.targetCount = async () => count;
+    fake.click = async () => { clicks += 1; };
+    const { service } = makeService(fake, 250);
+    const timer = setTimeout(() => { count = 2; }, 25);
+    try {
+      await expect(service.click(PAGE_ID, TARGET)).rejects.toMatchObject({ code: "BROWSER_TARGET_AMBIGUOUS" });
+      expect(clicks).toBe(0);
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  it("refuses a delayed credential field without sending its text", async () => {
+    const fake = new FakeBrowserBackend();
+    let present = false;
+    fake.targetCount = async () => present ? 1 : 0;
+    fake.targetMetadataValue = { tagName: "INPUT", type: "password", labels: ["Password"] };
+    const { service } = makeService(fake, 250);
+    const timer = setTimeout(() => { present = true; }, 25);
+    try {
+      await expect(service.fill(PAGE_ID, TARGET, "secret")).rejects.toMatchObject({ code: "BROWSER_CREDENTIAL_ENTRY_REFUSED" });
+      expect(fake.fillCalls).toHaveLength(0);
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  it("fails closed if the page disappears during target discovery", async () => {
+    const fake = new FakeBrowserBackend();
+    let calls = 0;
+    fake.targetCount = async () => { calls += 1; throw new BrowserError("BROWSER_PAGE_NOT_FOUND", "Page gone"); };
+    const { service } = makeService(fake, 250);
+    await expect(service.click(PAGE_ID, TARGET)).rejects.toMatchObject({ code: "BROWSER_PAGE_NOT_FOUND" });
+    expect(calls).toBe(1);
   });
 
   it("refuses password fields before any fill reaches the backend", async () => {
