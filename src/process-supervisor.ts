@@ -602,6 +602,13 @@ export class ProcessSupervisor {
   }
 
   private refreshRecovered(record: ManagedRecord): void {
+    // Wrapper publication may lag behind its PID disappearing. An initial recovery
+    // can conservatively mark the record unknown; keep accepting its independent,
+    // validated result if it arrives later instead of making unknown permanent.
+    if (record.state === "unknown") {
+      if (this.applyIndependentResult(record)) this.persistRecord(record);
+      return;
+    }
     if (record.state === "stopping") {
       if (this.applyIndependentResult(record)) return;
       if (record.pid !== undefined && processAlive(record.pid)) return;

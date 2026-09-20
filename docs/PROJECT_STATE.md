@@ -1,5 +1,15 @@
 # chatgpt-system — Active Project State
 
+## 2026-09-20 Workflow fast path — isolated local optimization (not deployed)
+
+- Branch `fix/workflow-fast-path-20260920` is isolated at a managed worktree based on the preceding `9bd0736` resilience commit. Canonical `main`, `.freebuff/`, other worktrees, the live tunnel and the current runtime were not modified; no push, merge or deployment was performed.
+- The existing non-expiring Persistent Owner Admin lease is reused: `project_resume` first, and an existing Admin lease or one status lookup only if an Admin-only action becomes necessary. Explicit per-operation authority and hosted approval checks remain unchanged.
+- Vitest worker reuse (`--no-isolate`) and 50% available workers replace the prior isolated 25% configuration. On this 10-core/16-GiB Mac, the previous committed full Vitest run took 87.58 s; a 50%-worker trial took 49.09 s and the optimized `npm run check` test phase took 51.92 s. These are observations, not a cross-machine speed guarantee. All required checks remain enabled.
+- A higher-concurrency test exposed a real recovery race: after a wrapper exited but before its independent result was observable, a restored process could transition to `unknown` forever. A regression reproduced the late authentic result RED, then passed GREEN after `refreshRecovered` was limited to re-checking its validated result for unknown records. The cross-daemon test now coordinates exit through an explicit file handshake instead of a ten-second sleep. Unknown records without independent evidence stay unknown.
+- A screenshot displayed `Bağlantı kesildi. Tam yanıt bekleniyor` near 06:46 local time. A 15-minute sanitized local diagnostic shortly afterward showed a running daily-driver, 28 forwarded calls, zero WARN/ERROR, zero stdio failures and zero response-deadline events. This does not determine the hosted stream's cause or establish a local tunnel failure.
+- Candidate verification: `npm run check` exited 0 with 805 passed, 2 skipped, 0 failed tests across 124 test files. Exact committed-HEAD verification and hosted Node 22/24 CI remain pending at this writing.
+- **Next exact step:** review the full diff and `git diff --check`, commit the isolated branch, then rerun `npm run check` on the exact committed HEAD and checkpoint that result. Any publication, live runtime replacement or service restart is a separate authorized release operation.
+
 ## 2026-09-20 ChatGPT connection resilience — isolated local implementation (not deployed)
 
 - The user approved implementing the connection-resilience recommendations. Work is isolated on branch `fix/chatgpt-connection-resilience-20260920`, based on `main@2a7c8b7`, in plugin-managed worktree ID `dda81326-54b8-4b71-af3f-4886ea375fe2`. The canonical `main`, its user-owned `.freebuff/`, all pre-existing worktrees and the live daily-driver runtime remain untouched. No push, PR, merge, tunnel restart, catalog refresh, secret access or deployment occurred.

@@ -394,16 +394,54 @@ describe("ProcessSupervisor core", () => {
       child.once("error", reject);
       child.once("close", (code) => resolve({ code, stdout, stderr }));
     });
-    const first = await runDaemon(`import { ProcessSupervisor } from ${JSON.stringify(supervisorModule)}; const s = new ProcessSupervisor({ limits: ${limits}, audit: { record: async () => {} }, persistencePath: ${JSON.stringify(persistencePath)} }); const r = await s.start({ command: "node", args: ["-e", "setTimeout(() => process.exit(29), 10000)"], cwd: ${JSON.stringify(base)} }); console.log(r.processId); await s.close(true);`);
+    const releasePath = path.join(base, "release-child");
+    const readyPath = path.join(base, "reconnected-daemon-ready");
+    // A real file handshake proves the recovered daemon observed the still-running child
+    // before the test lets that child exit. Fixed 10/15-second timers were load-sensitive.
+    const childScript = `const fs = require("node:fs"); const release = ${JSON.stringify(releasePath)}; const timer = setInterval(() => { if (fs.existsSync(release)) { clearInterval(timer); process.exit(29); } }, 20); setTimeout(() => process.exit(99), 20000);`;
+    const first = await runDaemon(`import { ProcessSupervisor } from ${JSON.stringify(supervisorModule)}; const s = new ProcessSupervisor({ limits: ${limits}, audit: { record: async () => {} }, persistencePath: ${JSON.stringify(persistencePath)} }); const r = await s.start({ command: "node", args: ["-e", ${JSON.stringify(childScript)}], cwd: ${JSON.stringify(base)} }); console.log(r.processId); await s.close(true);`);
     expect(first.code).toBe(0);
     const processId = first.stdout.trim();
-    const second = await runDaemon(`import { ProcessSupervisor } from ${JSON.stringify(supervisorModule)}; const s = new ProcessSupervisor({ limits: ${limits}, audit: { record: async () => {} }, persistencePath: ${JSON.stringify(persistencePath)} }); const initial = s.status(${JSON.stringify(processId)}); console.log(JSON.stringify({ phase: "initial", state: initial?.state })); const timer = setInterval(() => { const current = s.status(${JSON.stringify(processId)}); if (current?.state === "exited") { console.log(JSON.stringify({ phase: "final", state: current.state, exitCode: current.exitCode, signal: current.signal })); clearInterval(timer); process.exit(0); } }, 20); setTimeout(() => process.exit(2), 15000);`);
+    const secondPromise = runDaemon(`import { writeFileSync } from "node:fs"; import { ProcessSupervisor } from ${JSON.stringify(supervisorModule)}; const s = new ProcessSupervisor({ limits: ${limits}, audit: { record: async () => {} }, persistencePath: ${JSON.stringify(persistencePath)} }); const initial = s.status(${JSON.stringify(processId)}); console.log(JSON.stringify({ phase: "initial", state: initial?.state })); if (initial?.state !== "running") process.exit(3); writeFileSync(${JSON.stringify(readyPath)}, "ready"); const timer = setInterval(() => { const current = s.status(${JSON.stringify(processId)}); if (current?.state === "exited") { console.log(JSON.stringify({ phase: "final", state: current.state, exitCode: current.exitCode, signal: current.signal })); clearInterval(timer); process.exit(0); } }, 20); setTimeout(() => process.exit(2), 15000);`);
+    await waitForPath(readyPath, 5_000);
+    await writeFile(releasePath, "release");
+    const second = await secondPromise;
     expect(second.code).toBe(0);
     const lines = second.stdout.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
     expect(lines).toEqual(expect.arrayContaining([
       { phase: "initial", state: "running" },
       { phase: "final", state: "exited", exitCode: 29, signal: null },
     ]));
+  });
+
+  it("recovers an authentic wrapper result that arrives after the job became unknown", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-late-result-"));
+    cleanups.push(base);
+    const persistencePath = path.join(base, "processes");
+    const options = { limits: { maxManagedProcesses: 4, maxProcessLogBytesPerStream: 128, processStopGraceMs: 100 }, persistencePath };
+    const first = new ProcessSupervisor({ ...options, audit: new AuditLogger(path.join(base, "audit-first.jsonl")) });
+    supervisors.push(first);
+    const started = await first.start({ command: "node", args: ["-e", "process.exit(29)"], cwd: base });
+    await first.close(true);
+    expect((await waitForState(first, started.processId, "exited", 5_000)).exitCode).toBe(29);
+
+    const recordPath = path.join(persistencePath, `${started.processId}.json`);
+    const resultPath = path.join(persistencePath, `${started.processId}.result.json`);
+    const authenticResult = await readFile(resultPath, "utf8");
+    const previous = JSON.parse(await readFile(recordPath, "utf8")) as Record<string, unknown>;
+    // Simulate an interrupted daemon: metadata still says running and the independently
+    // finalized result becomes visible just after the recovering daemon checks the PID.
+    previous.state = "running";
+    delete previous.exitedAt;
+    delete previous.exitCode;
+    delete previous.signal;
+    await unlink(resultPath);
+    await writeFile(recordPath, `${JSON.stringify(previous)}\n`, "utf8");
+    const second = new ProcessSupervisor({ ...options, audit: new AuditLogger(path.join(base, "audit-second.jsonl")) });
+    supervisors.push(second);
+    expect(second.status(started.processId)?.state).toBe("unknown");
+    await writeFile(resultPath, authenticResult, "utf8");
+    expect(second.status(started.processId)).toMatchObject({ state: "exited", exitCode: 29, signal: null, status: "failed" });
   });
 
   it("keeps a recovered running job unknown when no independent result exists", async () => {

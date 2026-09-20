@@ -18,6 +18,8 @@ When the user says `chatgpt-system kaldığı yerden devam et`, `continue chatgp
 5. Read only the currently relevant plan/spec sections, then continue from `Next exact step` after reconciling it with Git.
 6. If the recorded active worktree is dirty and may belong to another active agent, treat it as owned by that agent. Never reset, clean, revert, overwrite, or delete another agent's work. Use a separate worktree/branch for independent work.
 
+**Fast authority path (no redundant privilege setup):** For a registered project, call `project_resume` first and defer Admin acquisition until an Admin-only operation is actually necessary. Reuse a valid Admin lease already returned in this conversation; do not call `session_authority_start` on every new turn or every tool request. If there is no available Admin lease and Persistent Owner Mode is enabled, call `persistent_owner_mode` with `operation: "status"` once to obtain the existing lease instead of starting another one. If disabled, use the supported explicit authorization flow. Every privileged tool must still receive the actual valid `authorityLeaseId`; never invent, persist in project files, expose, or omit it. A Project lease from `project_resume` does not authorize Admin-only tools.
+
 If `project_resume` is unavailable or the alias is not registered, continue using `docs/PROJECT_STATE.md` plus Git reconciliation and explicitly note that continuity storage was unavailable. Do not guess missing state.
 
 ## Handoff and checkpoint discipline
@@ -82,6 +84,8 @@ These are project-wide mandatory rules for every agent and every change:
 Do not develop directly on `main`. Do not use a remote/PR as the primary test environment. A PR is the publication/review gate after local completion, not a substitute for local verification.
 
 ## Engineering gates
+
+**Fast verification loop:** During implementation, run only relevant focused tests after each small change; do not rerun the full suite after every patch. Run the complete `npm run check` on a stable candidate and again after the final source change before claiming completion. For a command expected to finish within the remote command deadline, prefer one bounded call that reports its actual exit code; use managed processes for genuinely long jobs and inspect status/logs at reasonable intervals rather than tight polling. A green test summary followed by an abnormal supervisor termination is not an exit-zero result.
 
 - For bugs/security findings: evidence/root cause → failing automated test → minimal fix → focused verification → regression/full gate.
 - For features: follow the approved plan/spec and preserve existing safety invariants.

@@ -497,6 +497,8 @@ project_exec
 
 `project_exec` requires a Project lease and the explicit Project-execution startup gate. It never falls back to `terminal_run`; Docker daemon/image/context failures fail closed.
 
+**Persistent Owner Mode startup fast path:** For an existing registered project, call `project_resume` first. Reuse a valid Admin lease already available in the conversation, and defer Admin lookup for Project-only work. If an Admin action is needed but the lease is unavailable, call `persistent_owner_mode` with `operation: "status"` once; when enabled, it returns the existing non-expiring lease. Do not repeatedly start a new Admin session. Every privileged operation still requires its explicit valid `authorityLeaseId`; Project and Admin authorities are not interchangeable, and this does not change macOS or hosted product approvals.
+
 ### Owner Runtime full-host shell and PTY
 
 ```text
