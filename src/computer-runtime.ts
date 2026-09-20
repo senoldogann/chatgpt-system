@@ -161,7 +161,7 @@ function verification(value: ComputerVerification | undefined): Record<string, u
   if (value.kind === "ax_changed") {
     return {
       kind: value.kind,
-      ...(value.timeoutMs !== undefined ? { timeoutMs: optionalTimeout(value.timeoutMs, 10_000) } : {}),
+      ...(value.timeoutMs !== undefined ? { timeoutMs: optionalTimeout(value.timeoutMs, 60_000) } : {}),
     };
   }
   if (value.kind === "text_appeared") {
@@ -170,7 +170,7 @@ function verification(value: ComputerVerification | undefined): Record<string, u
       kind: value.kind,
       text: value.text,
       ...(value.exact !== undefined ? { exact: value.exact } : {}),
-      ...(value.timeoutMs !== undefined ? { timeoutMs: optionalTimeout(value.timeoutMs, 10_000) } : {}),
+      ...(value.timeoutMs !== undefined ? { timeoutMs: optionalTimeout(value.timeoutMs, 60_000) } : {}),
     };
   }
   if (value.kind === "screen_region_changed") {
@@ -185,7 +185,7 @@ function verification(value: ComputerVerification | undefined): Record<string, u
       y: value.y,
       width: value.width,
       height: value.height,
-      ...(value.timeoutMs !== undefined ? { timeoutMs: optionalTimeout(value.timeoutMs, 10_000) } : {}),
+      ...(value.timeoutMs !== undefined ? { timeoutMs: optionalTimeout(value.timeoutMs, 60_000) } : {}),
     };
   }
   return invalid();
@@ -523,20 +523,20 @@ function preparedAction(action: ComputerAction, maxRetries: number): PreparedCom
       return { type: action.type, params: {}, physical: false, localWaitMs: action.durationMs };
     case "wait_for_frontmost": {
       const params = selectorParams(action);
-      if (action.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(action.timeoutMs, 10_000);
+      if (action.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(action.timeoutMs, 60_000);
       return { type: action.type, method: "wait_for_frontmost", params, physical: false };
     }
     case "wait_for_text": {
       if (action.text.length === 0 || action.text.length > MAX_SELECTOR_CHARS) invalid();
       const params: Record<string, unknown> = { text: action.text };
       if (action.exact !== undefined) params.exact = action.exact;
-      if (action.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(action.timeoutMs, 10_000);
+      if (action.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(action.timeoutMs, 60_000);
       return { type: action.type, method: "wait_for_text", params, physical: false };
     }
     case "wait_until_changed": {
       if (action.baselineDigest.length === 0 || action.baselineDigest.length > MAX_SELECTOR_CHARS) invalid();
       const params: Record<string, unknown> = { baselineDigest: action.baselineDigest };
-      if (action.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(action.timeoutMs, 10_000);
+      if (action.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(action.timeoutMs, 60_000);
       return { type: action.type, method: "wait_until_changed", params, physical: false };
     }
     case "release_inputs":
@@ -733,13 +733,13 @@ export class ComputerRuntime {
   async openApp(input: ComputerApplicationSelector & { timeoutMs?: number | undefined }): Promise<unknown> {
     const params = selectorParams(input);
     if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 60_000);
-    return this.physical("open_app", params);
+    return this.physical("open_app", params, this.requestBudget(params));
   }
 
   async focusApp(input: ComputerApplicationSelector & { timeoutMs?: number | undefined }): Promise<unknown> {
     const params = selectorParams(input);
     if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 60_000);
-    return this.physical("focus_app", params);
+    return this.physical("focus_app", params, this.requestBudget(params));
   }
 
   async moveMouse(input: ComputerActionLocation & {
@@ -935,23 +935,23 @@ export class ComputerRuntime {
 
   async waitForFrontmost(input: ComputerApplicationSelector & { timeoutMs?: number | undefined }): Promise<unknown> {
     const params = selectorParams(input);
-    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 10_000);
-    return this.read("wait_for_frontmost", params);
+    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 60_000);
+    return this.read("wait_for_frontmost", params, this.requestBudget(params));
   }
 
   async waitForText(input: { text: string; exact?: boolean | undefined; timeoutMs?: number | undefined }): Promise<unknown> {
     if (input.text.length === 0 || input.text.length > MAX_SELECTOR_CHARS) invalid();
     const params: Record<string, unknown> = { text: input.text };
     if (input.exact !== undefined) params.exact = input.exact;
-    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 10_000);
-    return this.read("wait_for_text", params);
+    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 60_000);
+    return this.read("wait_for_text", params, this.requestBudget(params));
   }
 
   async waitUntilChanged(input: { baselineDigest: string; timeoutMs?: number | undefined }): Promise<unknown> {
     if (input.baselineDigest.length === 0 || input.baselineDigest.length > MAX_SELECTOR_CHARS) invalid();
     const params: Record<string, unknown> = { baselineDigest: input.baselineDigest };
-    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 10_000);
-    return this.read("wait_until_changed", params);
+    if (input.timeoutMs !== undefined) params.timeoutMs = optionalTimeout(input.timeoutMs, 60_000);
+    return this.read("wait_until_changed", params, this.requestBudget(params));
   }
 
   async releaseInputs(): Promise<ComputerActionResult> {
@@ -1055,11 +1055,12 @@ export class ComputerRuntime {
         return Math.floor(deadline - this.now());
       };
 
-      const nativeTimeoutMs = (): number => {
+      const nativeTimeoutMs = (params: Record<string, unknown> = {}): number => {
         const remaining = remainingMs();
-        if (remaining === undefined) return this.config.requestTimeoutMs;
+        const requested = this.requestBudget(params);
+        if (remaining === undefined) return requested;
         if (remaining <= 0) throw new ComputerError("COMPUTER_TIMEOUT");
-        return Math.min(this.config.requestTimeoutMs, remaining);
+        return Math.min(requested, remaining);
       };
 
       const requireRequestActive = (): void => {
@@ -1096,7 +1097,7 @@ export class ComputerRuntime {
               const result = await this.native.request(
                 action.method!,
                 action.params,
-                nativeTimeoutMs(),
+                nativeTimeoutMs(action.params),
               );
               requireRequestActive();
               if (action.type === "observe") validateObservationOutput(result, this.config);
@@ -1212,7 +1213,7 @@ export class ComputerRuntime {
     const result = await this.native.request(
       prepared.method!,
       prepared.params,
-      this.config.requestTimeoutMs,
+      this.requestBudget(prepared.params),
     );
     if (prepared.type === "observe") return validateObservationOutput(result, this.config);
     if (nativeMethodReturnsActionResult(prepared.method!)) return validateActionResult(result);
@@ -1245,6 +1246,16 @@ export class ComputerRuntime {
     });
   }
 
+  private requestBudget(params: Record<string, unknown>): number {
+    const verify = isRecord(params.verify) ? params.verify.timeoutMs : undefined;
+    const requested = typeof params.timeoutMs === "number" ? params.timeoutMs
+      : typeof verify === "number" ? verify : undefined;
+    // One second is reserved for a native response after an explicit, bounded wait.
+    // Callers still enforce any shorter enclosing action-program deadline.
+    return requested === undefined ? this.config.requestTimeoutMs
+      : Math.max(this.config.requestTimeoutMs, Math.min(61_000, requested + 1_000));
+  }
+
   private async read(method: ComputerNativeMethod, params: Record<string, unknown>, timeoutMs = this.config.requestTimeoutMs): Promise<unknown> {
     this.requireEnabled();
     return this.native.request(method, params, timeoutMs);
@@ -1261,7 +1272,7 @@ export class ComputerRuntime {
   private async physicalAction(
     method: ComputerNativeMethod,
     params: Record<string, unknown>,
-    timeoutMs = this.config.requestTimeoutMs,
+    timeoutMs = this.requestBudget(params),
   ): Promise<ComputerActionResult> {
     return validateActionResult(await this.physical(method, params, timeoutMs));
   }

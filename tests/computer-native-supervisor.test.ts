@@ -146,6 +146,21 @@ describe("ComputerNativeSupervisor", () => {
     expect(runtime.healthState()).toBe("running");
   });
 
+  it("honors an explicitly bounded long verification request while keeping the default timeout short", async () => {
+    const fixture = spawnFixture((child) => {
+      child.stdin.on("data", (chunk) => {
+        const request = JSON.parse(chunk.toString("utf8")) as { requestId: string };
+        setTimeout(() => child.stdout.write(JSON.stringify({
+          protocolVersion: 1, requestId: request.requestId, ok: true, result: { state: "completed" },
+        }) + "\n"), 130);
+      });
+    });
+    const runtime = supervisor(fixture.spawn, { requestTimeoutMs: 100 });
+    await expect(runtime.request("wait_for_text", { text: "Ready", timeoutMs: 150 }, 180))
+      .resolves.toEqual({ state: "completed" });
+    await runtime.close();
+  });
+
   it("discards a timed-out child and recovers with a fresh child", async () => {
     const fixture = spawnFixture((child, index) => {
       if (index === 1) respondToRequests(child, () => ({ generation: 2 }));

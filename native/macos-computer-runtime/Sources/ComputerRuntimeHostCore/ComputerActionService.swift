@@ -1001,7 +1001,7 @@ struct ComputerActionService: ComputerActionHandling, Sendable {
               raw.isFinite,
               raw.rounded(.towardZero) == raw,
               raw >= 50,
-              raw <= 10_000
+              raw <= 60_000
         else {
             return nil
         }

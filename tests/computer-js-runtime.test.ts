@@ -245,6 +245,11 @@ describe("ComputerJsRuntime", () => {
     await expect(dispatchComputerJsRpc(session, "active_window", {})).resolves.toEqual({ title: "Fixture" });
     await expect(dispatchComputerJsRpc(session, "wait", { durationMs: 25 })).resolves.toEqual({ state: "completed" });
     expect(actions.at(-1)).toEqual({ type: "wait", durationMs: 25 });
+    await expect(dispatchComputerJsRpc(session, "wait_for_text", { text: "Ready", timeoutMs: 60_000 }))
+      .resolves.toEqual({ state: "completed" });
+    expect(actions.at(-1)).toEqual({ type: "wait_for_text", text: "Ready", timeoutMs: 60_000 });
+    await expect(dispatchComputerJsRpc(session, "wait_for_text", { text: "Ready", timeoutMs: 60_001 }))
+      .rejects.toMatchObject({ code: "COMPUTER_PROTOCOL_INVALID" });
 
     await expect(dispatchComputerJsRpc(session, "resolve_many", {
       targets: [

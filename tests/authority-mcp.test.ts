@@ -143,6 +143,31 @@ describe("session authority MCP tools", () => {
     }
   });
 
+  it("defaults only an omitted profile in opted-in personal mode and rejects malformed explicit profiles", async () => {
+    const { root, client, transport } = await fixture({ personalAdmin: true });
+    try {
+      for (const argumentsValue of [
+        { profile: "project ", projectRoots: [root] },
+        { profile: "admni" },
+        { profile: null },
+        { projectRoots: [root] },
+        { profile: "admin", projectRoots: [root] },
+      ]) {
+        const rejected = await client.callTool({ name: "session_authority_start", arguments: argumentsValue });
+        expect(rejected.isError, JSON.stringify(argumentsValue)).toBe(true);
+      }
+      const started = await client.callTool({ name: "session_authority_start", arguments: {} });
+      expect(started.isError).not.toBe(true);
+      const lease = started.structuredContent as { profile: string; createdAt: string; expiresAt: string; terminalEnabled: boolean };
+      expect(lease.profile).toBe("admin");
+      expect(lease.terminalEnabled).toBe(false);
+      expect(Date.parse(lease.expiresAt) - Date.parse(lease.createdAt)).toBe(3_600_000);
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
   it("discovers explicit session tools with schemas and annotations", async () => {
     const { client, transport } = await fixture();
     try {

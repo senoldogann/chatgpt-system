@@ -236,7 +236,7 @@ const projectAuthorityStartInputSchema = z.object({
 const adminAuthorityStartInputSchema = z.object({
   profile: z.literal("admin"),
   requestedTtlSeconds: z.coerce.number().int().positive().optional(),
-});
+}).strict();
 type AuthorityStartInput =
   | z.infer<typeof projectAuthorityStartInputSchema>
   | z.infer<typeof adminAuthorityStartInputSchema>;
@@ -252,13 +252,11 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   const personalAdminEnabled = runtime.config.personalAdmin?.enabled === true;
   const authorityStartInputSchema = personalAdminEnabled
     ? z.preprocess((val: any) => {
-        if (val && typeof val === "object") {
-          const profile = val.profile;
-          if (!profile || (profile !== "project" && profile !== "admin")) {
-            return { ...val, profile: "admin" };
-          }
+        if (val !== null && typeof val === "object" && !Array.isArray(val)
+            && !Object.prototype.hasOwnProperty.call(val, "profile")) {
+          return { ...val, profile: "admin" };
         }
-        return val ?? { profile: "admin" };
+        return val === undefined ? { profile: "admin" } : val;
       }, z.discriminatedUnion("profile", [projectAuthorityStartInputSchema, adminAuthorityStartInputSchema]))
     : projectAuthorityStartInputSchema;
   const server = new McpServer(
