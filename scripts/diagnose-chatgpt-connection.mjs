@@ -10,25 +10,36 @@ const DAILY_DRIVER_LABEL = "com.senoldogann.chatgpt-system.daily-driver";
 const DEFAULT_WINDOW_MINUTES = 15;
 const MAX_WINDOW_MINUTES = 120;
 const MAX_LOG_BYTES = 1_048_576;
+const MAX_FAILURE_EVENTS = 20;
 
 export function parseDiagnosticArgs(argv) {
   let windowMinutes = DEFAULT_WINDOW_MINUTES;
+  let atMs;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg !== "--minutes") throw new Error(`Unknown option: ${arg}`);
+    if (arg !== "--minutes" && arg !== "--at") throw new Error(`Unknown option: ${arg}`);
     const value = argv[index + 1];
-    if (!value || value.startsWith("--")) throw new Error("--minutes requires a value between 1 and 120.");
-    const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_WINDOW_MINUTES) {
-      throw new Error("--minutes must be an integer between 1 and 120.");
+    if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);
+    if (arg === "--minutes") {
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_WINDOW_MINUTES) {
+        throw new Error("--minutes must be an integer between 1 and 120.");
+      }
+      windowMinutes = parsed;
+    } else {
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
+        throw new Error("--at requires an ISO 8601 timestamp with an explicit timezone offset.");
+      }
+      const parsed = Date.parse(value);
+      if (!Number.isFinite(parsed)) throw new Error("--at requires a valid timestamp with a timezone offset.");
+      atMs = parsed;
     }
-    windowMinutes = parsed;
     index += 1;
   }
-  return { windowMinutes };
+  return atMs === undefined ? { windowMinutes } : { windowMinutes, atMs };
 }
 
-export function summarizeTunnelLog(stdoutText, { nowMs = Date.now(), windowMs } = {}) {
+export function summarizeTunnelLog(stdoutText, { nowMs = Date.now(), windowMs, strictEnd = false } = {}) {
   const effectiveWindowMs = Number.isFinite(windowMs) && windowMs >= 0
     ? windowMs
     : DEFAULT_WINDOW_MINUTES * 60_000;
@@ -37,6 +48,8 @@ export function summarizeTunnelLog(stdoutText, { nowMs = Date.now(), windowMs } 
   let warningCount = 0;
   let errorCount = 0;
   let stdioFailureCount = 0;
+  let responseDeadlineCount = 0;
+  const failureEvents = [];
   let recoveredPollBackoffCount = 0;
   let pendingPollBackoffCount = 0;
   let recentActivity = false;
@@ -51,7 +64,7 @@ export function summarizeTunnelLog(stdoutText, { nowMs = Date.now(), windowMs } 
     }
     if (!record || typeof record !== "object") continue;
     const timeMs = Date.parse(typeof record.time === "string" ? record.time : "");
-    if (!Number.isFinite(timeMs) || timeMs < cutoff || timeMs > nowMs + 60_000) continue;
+    if (!Number.isFinite(timeMs) || timeMs < cutoff || timeMs > nowMs + (strictEnd ? 0 : 60_000)) continue;
     recentActivity = true;
 
     const level = typeof record.level === "string" ? record.level.toUpperCase() : "";
@@ -59,8 +72,16 @@ export function summarizeTunnelLog(stdoutText, { nowMs = Date.now(), windowMs } 
     if (level === "WARN") warningCount += 1;
     if (level === "ERROR") errorCount += 1;
     if (message === "dispatcher forwarded command to MCP server") forwardedCommandCount += 1;
-    if (/stdio MCP command failed|stdio MCP command stdout closed|unexpected EOF/i.test(message)) {
-      stdioFailureCount += 1;
+    const stdioFailure = /stdio MCP command failed|stdio MCP command stdout closed|unexpected EOF/i.test(message);
+    const responseDeadline = message === "command response deadline reached; dropping without posting a response";
+    if (stdioFailure) stdioFailureCount += 1;
+    if (responseDeadline) responseDeadlineCount += 1;
+    if (stdioFailure || responseDeadline) {
+      failureEvents.push({
+        time: new Date(timeMs).toISOString(),
+        kind: stdioFailure ? "stdio_failure" : "response_deadline",
+      });
+      if (failureEvents.length > MAX_FAILURE_EVENTS) failureEvents.shift();
     }
     // A poll backoff that the poller itself recovers from is transient hosted-side
     // evidence, not a local failure that justifies restarting a healthy tunnel.
@@ -79,6 +100,8 @@ export function summarizeTunnelLog(stdoutText, { nowMs = Date.now(), windowMs } 
     warningCount,
     errorCount,
     stdioFailureCount,
+    responseDeadlineCount,
+    failureEvents,
     recoveredPollBackoffCount,
     recentActivity,
   };
@@ -129,6 +152,15 @@ export function detectRuntimeDependencyFailure(stderrText, runtimeRoot) {
 }
 
 export function classifyConnectionEvidence(evidence) {
+  // Current launchctl/runtime state cannot prove what was running at a past incident.
+  if (evidence.historical === true) {
+    if (evidence.tunnel.stdioFailureCount > 0 || evidence.tunnel.errorCount > 0
+      || evidence.tunnel.warningCount - evidence.tunnel.recoveredPollBackoffCount > 0) {
+      return "LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE";
+    }
+    if (evidence.tunnel.responseDeadlineCount > 0) return "MCP_RESPONSE_DEADLINE_EVIDENCE";
+    return "INSUFFICIENT_EVIDENCE";
+  }
   if (!evidence.dailyDriver.loaded || !evidence.dailyDriver.running) return "DAILY_DRIVER_UNAVAILABLE";
 
   if (
@@ -145,19 +177,23 @@ export function classifyConnectionEvidence(evidence) {
   ) {
     return "LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE";
   }
+  if (evidence.tunnel.responseDeadlineCount > 0) return "MCP_RESPONSE_DEADLINE_EVIDENCE";
   if (evidence.tunnel.recentActivity && evidence.tunnel.forwardedCommandCount > 0) {
     return "LOCAL_HEALTHY_NO_LOCAL_FAILURE_EVIDENCE";
   }
   return "INSUFFICIENT_EVIDENCE";
 }
 
-function guidanceFor(diagnosis, runtimeSource) {
+function guidanceFor(diagnosis, runtimeSource, historical = false) {
   const guidance = [];
+  if (historical) guidance.push("Historical classification uses retained tunnel logs only; daily-driver and runtime fields reflect the current machine, not the incident. The bounded 1 MiB log tail may omit older events.");
   if (runtimeSource === "managed-worktree") {
     guidance.push("The active MCP runtime is sourced from a managed worktree. Do not remove that worktree until the tunnel/profile is repointed and a fresh diagnostic no longer reports it as active.");
   }
 
-  if (diagnosis === "LOCAL_HEALTHY_NO_LOCAL_FAILURE_EVIDENCE") {
+  if (diagnosis === "MCP_RESPONSE_DEADLINE_EVIDENCE") {
+    guidance.push("The tunnel dropped one or more command responses after their deadline. Forwarded commands are not proof of response delivery. Inspect operation duration and split long work into an owned process plus short status/log calls; do not increase authority or restart the tunnel blindly.");
+  } else if (diagnosis === "LOCAL_HEALTHY_NO_LOCAL_FAILURE_EVIDENCE") {
     guidance.push("No strong local failure evidence was found in the inspected window. Do not restart a healthy tunnel solely because ChatGPT Web reported a stream interruption or developer-MCP surface loss.");
     guidance.push("If the conversation cannot use developer MCPs, continue in a new supported standard text chat and resume the exact Project Continuity alias before local mutation.");
   } else if (diagnosis === "LOCAL_RUNTIME_DEPENDENCY_FAILURE") {
@@ -172,16 +208,23 @@ function guidanceFor(diagnosis, runtimeSource) {
   return guidance;
 }
 
-export function buildDiagnosticReport(evidence, windowMinutes) {
-  const diagnosis = classifyConnectionEvidence(evidence);
+export function buildDiagnosticReport(evidence, windowMinutes, { atMs, nowMs = Date.now() } = {}) {
+  const endMs = atMs ?? nowMs;
+  const historical = evidence.historical === true || atMs !== undefined;
+  const diagnosis = classifyConnectionEvidence({ ...evidence, historical });
   return {
     diagnosis,
     windowMinutes,
+    window: {
+      startAt: new Date(endMs - windowMinutes * 60_000).toISOString(),
+      endAt: new Date(endMs).toISOString(),
+      historical,
+    },
     dailyDriver: { ...evidence.dailyDriver },
     tunnel: { ...evidence.tunnel },
     runtime: { ...evidence.runtime },
     stderr: { ...evidence.stderr },
-    guidance: guidanceFor(diagnosis, evidence.runtime.source),
+    guidance: guidanceFor(diagnosis, evidence.runtime.source, historical),
   };
 }
 
@@ -255,7 +298,7 @@ function findActiveMcpScriptPath(processText, homeDir) {
   return undefined;
 }
 
-function collectEvidence({ nowMs = Date.now(), windowMinutes, homeDir = homedir() }) {
+function collectEvidence({ nowMs = Date.now(), atMs, windowMinutes, homeDir = homedir() }) {
   const uid = process.getuid?.();
   if (uid === undefined) throw new Error("Unable to determine current user uid.");
   const windowMs = windowMinutes * 60_000;
@@ -270,7 +313,7 @@ function collectEvidence({ nowMs = Date.now(), windowMinutes, homeDir = homedir(
   });
   const dailyDriver = parseLaunchAgentStatus(launch.stdout, launch.status ?? 1);
 
-  const tunnel = summarizeTunnelLog(readBoundedText(stdoutPath), { nowMs, windowMs });
+  const tunnel = summarizeTunnelLog(readBoundedText(stdoutPath), { nowMs: atMs ?? nowMs, windowMs, strictEnd: atMs !== undefined });
 
   const ps = spawnSync("/bin/ps", ["-axo", "pid=,ppid=,command="], {
     shell: false,
@@ -295,13 +338,15 @@ function collectEvidence({ nowMs = Date.now(), windowMinutes, homeDir = homedir(
     dependencyFailureSignature: stderrRecent && detectRuntimeDependencyFailure(stderrText, runtimeRoot),
   };
 
-  return { dailyDriver, tunnel, runtime, stderr };
+  return { dailyDriver, tunnel, runtime, stderr, historical: atMs !== undefined };
 }
 
 async function main() {
-  const { windowMinutes } = parseDiagnosticArgs(process.argv.slice(2));
-  const evidence = collectEvidence({ windowMinutes });
-  console.log(JSON.stringify(buildDiagnosticReport(evidence, windowMinutes), null, 2));
+  const { windowMinutes, atMs } = parseDiagnosticArgs(process.argv.slice(2));
+  const nowMs = Date.now();
+  if (atMs !== undefined && atMs > nowMs) throw new Error("--at cannot be in the future.");
+  const evidence = collectEvidence({ windowMinutes, nowMs, atMs });
+  console.log(JSON.stringify(buildDiagnosticReport(evidence, windowMinutes, { nowMs, atMs }), null, 2));
 }
 
 const scriptPath = fileURLToPath(import.meta.url);

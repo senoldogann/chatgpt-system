@@ -28,6 +28,34 @@ async function waitForState(
   throw new Error(`process ${processId} did not reach ${expected}`);
 }
 
+async function waitForLogText(
+  supervisor: ProcessSupervisor,
+  processId: string,
+  expected: string,
+  timeoutMs = 3_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (supervisor.logs(processId)?.stdout.content.includes(expected)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`process ${processId} did not report readiness`);
+}
+
+async function waitForPath(file: string, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await stat(file);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("process control socket did not become ready");
+}
+
 async function fixture(options: {
   maxManagedProcesses?: number;
   maxProcessLogBytesPerStream?: number;
@@ -258,7 +286,7 @@ describe("ProcessSupervisor core", () => {
       persistencePath,
     });
     supervisors.push(first);
-    const started = await first.start({ command: "node", args: ["-e", "process.on('SIGTERM', () => {}); setTimeout(() => process.exit(0), 350)"], cwd: base });
+    const started = await first.start({ command: "node", args: ["-e", "process.on('SIGTERM', () => {}); process.stdout.write('READY'); setTimeout(() => process.exit(0), 350)"], cwd: base });
     await first.close(true);
     const second = new ProcessSupervisor({
       limits: { maxManagedProcesses: 4, maxProcessLogBytesPerStream: 100, processStopGraceMs: 100 },
@@ -266,11 +294,13 @@ describe("ProcessSupervisor core", () => {
       persistencePath,
     });
     supervisors.push(second);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // The control socket starts before the child installs its SIGTERM handler.
+    // Wait for application readiness so this tests ACK/result handling, not startup timing.
+    await waitForLogText(second, started.processId, "READY");
     const requested = await second.stop(started.processId);
     expect(requested).toMatchObject({ state: "stopping", status: "stopping" });
-    await new Promise((resolve) => setTimeout(resolve, 450));
-    expect(second.status(started.processId)).toMatchObject({ state: "exited", status: "completed", exitCode: 0, signal: null });
+    const completed = await waitForState(second, started.processId, "exited", 3_000);
+    expect(completed).toMatchObject({ state: "exited", status: "completed", exitCode: 0, signal: null });
   });
 
   it("reports control-channel loss separately and keeps the job running", async () => {
@@ -282,7 +312,7 @@ describe("ProcessSupervisor core", () => {
       persistencePath,
     });
     supervisors.push(first);
-    const started = await first.start({ command: "node", args: ["-e", "setTimeout(() => process.exit(0), 500)"], cwd: base });
+    const started = await first.start({ command: "node", args: ["-e", "setTimeout(() => process.exit(0), 1500)"], cwd: base });
     await first.close(true);
     const second = new ProcessSupervisor({
       limits: { maxManagedProcesses: 4, maxProcessLogBytesPerStream: 128, processStopGraceMs: 100 },
@@ -290,8 +320,9 @@ describe("ProcessSupervisor core", () => {
       persistencePath,
     });
     supervisors.push(second);
-    await new Promise((resolve) => setTimeout(resolve, 100));
     const internal = (second as unknown as { records: Map<string, { controlPath?: string }> }).records.get(started.processId)!;
+    // The wrapper creates its control socket asynchronously after start() acknowledges spawn.
+    await waitForPath(internal.controlPath!);
     await unlink(internal.controlPath!);
     await expect(second.stop(started.processId)).rejects.toMatchObject({ code: "PROCESS_CONTROL_UNAVAILABLE" });
     expect(second.status(started.processId)?.state).toBe("running");
@@ -307,7 +338,9 @@ describe("ProcessSupervisor core", () => {
     });
     supervisors.push(supervisor);
     const started = await supervisor.start({ command: "node", args: ["-e", "process.stdout.write('0123456789abcdef'); process.stderr.write('abcdefghijk')"], cwd: base });
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    // start() acknowledges wrapper spawn before log files exist; terminal state proves
+    // the wrapper completed initialization and flushed its bounded streams.
+    await waitForState(supervisor, started.processId, "exited", 3_000);
     expect((await stat(path.join(persistencePath, `${started.processId}.stdout.log`))).size).toBeLessThanOrEqual(7);
     expect((await stat(path.join(persistencePath, `${started.processId}.stderr.log`))).size).toBeLessThanOrEqual(7);
 

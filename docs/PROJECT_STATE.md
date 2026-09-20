@@ -1,5 +1,15 @@
 # chatgpt-system — Active Project State
 
+## 2026-09-20 ChatGPT connection resilience — isolated local implementation (not deployed)
+
+- The user approved implementing the connection-resilience recommendations. Work is isolated on branch `fix/chatgpt-connection-resilience-20260920`, based on `main@2a7c8b7`, in plugin-managed worktree ID `dda81326-54b8-4b71-af3f-4886ea375fe2`. The canonical `main`, its user-owned `.freebuff/`, all pre-existing worktrees and the live daily-driver runtime remain untouched. No push, PR, merge, tunnel restart, catalog refresh, secret access or deployment occurred.
+- Tunnel-client `0.0.14` retained logs contain 17 `INFO`-level `command response deadline reached; dropping without posting a response` events on 2026-09-19 that the old diagnostic missed. The fixed diagnostic adds a distinct `MCP_RESPONSE_DEADLINE_EVIDENCE` classification, bounded last-20 failure timestamps without identifiers, and offset-aware `--at` historical windows. Historical classification ignores present-day service/runtime health. A real 30-minute window ending `2026-09-19T19:05:30+03:00` reports 6 deadline drops; current diagnostic still reports no recent local-failure evidence.
+- Process-supervisor tests now wait for child readiness, control-socket readiness and terminal process state instead of fixed sleeps. The initially reproducible SIGTERM and intermittent missing-log/socket failures were isolated to test startup assumptions; `src/process-supervisor.ts` production execution and all authority/security boundaries remain unchanged.
+- `README.md`, `AGENTS.md` and `docs/CHATGPT_WEB_RESILIENCE.md` document the short-call managed-process workflow, the difference between per-command deadline and connection TTL, passive health inspection, and no blind restarts/authority escalation/concurrency tuning.
+- Verification after final code review: `npm run check` **exit 0: 803 passed, 2 skipped, 0 failed**, 124 test files (123 passed, 1 skipped). Focused diagnostics, docs and process suites separately passed. A prior managed `npm run check` printed a green Vitest summary but its supervising job ended with `SIGTERM`, so only the independently run gate with verified exit code 0 is claimed. The attempt to read new health routes at default `127.0.0.1:8080` returned 404; that URL was not established as the running tunnel's health listener and no health-failure claim is made.
+- **Next exact step:** review the isolated branch diff/commit and verify `git diff --check` plus source-branch status. Publication/deployment requires separately explicit authorization and fresh verification tied to the exact publish head. Before any live replacement, confirm active runtime source, supported tunnel health URL, real tool catalog compatibility and rollback readiness. Do not restart merely for the Web-stream symptom; preserve the clean release and any unrelated dirty worktree.
+
+
 ## 2026-09-19 final Git integrity gate
 
 - Current branch: `fix/computer-protocol-validation-2026-09-17`; working tree remains intentionally dirty with pre-existing and current uncommitted changes. No commit, push, reset, stash, cleanup, or live deployment was performed.
