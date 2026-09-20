@@ -18,6 +18,12 @@ export class PolicyError extends AppError {
   }
 }
 
+export class NotFoundError extends AppError {
+  constructor(message: string) {
+    super(message, "NOT_FOUND");
+  }
+}
+
 export class BrowserError extends AppError {
   constructor(code: BrowserErrorCode, message: string, details?: Record<string, unknown>) {
     super(message, code, details);
