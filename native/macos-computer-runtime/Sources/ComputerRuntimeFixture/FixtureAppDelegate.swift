@@ -1,9 +1,16 @@
 import AppKit
+import ComputerRuntimeFixtureOracle
 
 @MainActor
 final class FixtureAppDelegate: NSObject, NSApplicationDelegate {
+    private let oracleStore: FixtureOracleStore
     private var window: NSWindow?
     private var interactionView: FixtureInteractionView?
+
+    init(oracleStore: FixtureOracleStore) {
+        self.oracleStore = oracleStore
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let contentRect = NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -18,13 +25,14 @@ final class FixtureAppDelegate: NSObject, NSApplicationDelegate {
         window.setContentSize(contentRect.size)
         window.center()
 
-        let interactionView = FixtureInteractionView(frame: contentRect)
+        let interactionView = FixtureInteractionView(frame: contentRect, oracleStore: oracleStore)
         interactionView.autoresizingMask = [.width, .height]
         window.contentView = interactionView
 
         self.window = window
         self.interactionView = interactionView
         installMenu(target: interactionView)
+        try? oracleStore.markReady()
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

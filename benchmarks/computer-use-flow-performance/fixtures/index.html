@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Computer Flow Fixture</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; }
+    label, button, select, input { display: block; margin: 10px 0; }
+    .outer-scroll { height: 320px; overflow: auto; border: 1px solid #999; padding: 12px; }
+    .inner-scroll { height: 150px; overflow: auto; border: 1px solid #555; padding: 8px; }
+    .spacer { height: 650px; }
+    canvas { border: 1px solid #222; }
+  </style>
+</head>
+<body>
+  <main id="fixture-root" data-scenario="__SCENARIO_ID__"></main>
+  <script type="module" src="/fixture.js"></script>
+</body>
+</html>
