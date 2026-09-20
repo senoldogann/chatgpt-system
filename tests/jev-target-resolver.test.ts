@@ -97,6 +97,31 @@ describe("resolveSemanticTarget", () => {
     expect(result).toEqual({ outcome: "unresolved", reason: "ambiguous_duplicate", confidence: 0.97 });
   });
 
+  it("refuses a choice key that is not one of the supplied criteria", async () => {
+    const observation = buildObservation([
+      buildElement(0, "AXWindow", "Compose"),
+      buildElement(1, "AXButton", "Send"),
+    ]);
+    // Jev, kendi verdiğimiz aday kümesinin dışından sayısal bir anahtar döndürürse
+    // snapshot'ta bulunmayan bir hedefe çözülmemeli; fail-closed olmalı.
+    const answer = fixedAnswer({
+      model: "jev-latest",
+      answers: { target: { type: "choice", choice: "999", confidence: 0.99, probabilities: {} } },
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    await expect(resolveSemanticTarget(observation, "send it", answer)).rejects.toThrow();
+  });
+
+  it("refuses a non-numeric choice key", async () => {
+    const observation = buildObservation([buildElement(0, "AXButton", "Send")]);
+    const answer = fixedAnswer({
+      model: "jev-latest",
+      answers: { target: { type: "choice", choice: "not-an-index", confidence: 0.99, probabilities: {} } },
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    await expect(resolveSemanticTarget(observation, "send it", answer)).rejects.toThrow();
+  });
+
   it("throws when the response is missing the expected answer", async () => {
     const observation = buildObservation([buildElement(0, "AXButton", "Send")]);
     const askJev = fixedAnswer({

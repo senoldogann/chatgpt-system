@@ -80,6 +80,12 @@ export async function resolveSemanticTarget(
     throw new Error(`Jev response is missing the "${TARGET_QUESTION_ID}" answer.`);
   }
 
+  // Kendi verdiğimiz aday kümesinin dışındaki bir anahtar protokol ihlalidir;
+  // "eşleşme yok" değildir ve snapshot'ta bulunmayan bir indekse çözülmemelidir.
+  if (!Object.prototype.hasOwnProperty.call(criteria, answer.choice)) {
+    throw new Error(`Jev returned a choice outside the supplied criteria: "${answer.choice}".`);
+  }
+
   if (answer.choice === NONE_CRITERION_KEY) {
     return { outcome: "unresolved", reason: "no_match", confidence: answer.confidence };
   }

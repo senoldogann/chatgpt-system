@@ -7,7 +7,13 @@ import type { ComputerAction } from "./computer-types.js";
 import { AppError } from "./errors.js";
 import { createScopedRuntime, type ScopedRuntimeBase } from "./scoped-runtime.js";
 import { ScopedComputerService } from "./scoped-computer-service.js";
-import { JevApiError, JevClient, JEV_BASE_URL } from "./jev-client.js";
+import {
+  JevApiError,
+  JevClient,
+  JEV_BASE_URL,
+  JEV_REQUEST_TIMEOUT_MS,
+  JEV_RETRY_BASE_DELAY_MS,
+} from "./jev-client.js";
 import { JEV_MAX_ATTEMPTS, resolveSemanticTarget } from "./jev-target-resolver.js";
 import {
   computerActionResultOutputSchema,
@@ -463,12 +469,18 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       if (!runtime.config.jevTargeting.enabled || runtime.config.jevTargeting.apiKey === null) {
         throw new ComputerError("JEV_TARGETING_UNAVAILABLE");
       }
-      const client = new JevClient(runtime.config.jevTargeting.apiKey, JEV_BASE_URL);
+      const client = new JevClient({
+        apiKey: runtime.config.jevTargeting.apiKey,
+        baseUrl: JEV_BASE_URL,
+        timeoutMs: JEV_REQUEST_TIMEOUT_MS,
+        maxAttempts: JEV_MAX_ATTEMPTS,
+        retryBaseDelayMs: JEV_RETRY_BASE_DELAY_MS,
+      });
       try {
         return await resolveSemanticTarget(
           observation,
           instruction,
-          (request) => client.ask(request, JEV_MAX_ATTEMPTS),
+          (request) => client.ask(request),
         );
       } catch (error) {
         if (error instanceof JevApiError) {

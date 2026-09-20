@@ -233,6 +233,31 @@ If stronger host-process isolation is required, run the bridge inside a containe
 
 The Docker daemon is trusted infrastructure and the sandbox executes Linux tooling, so behavior can differ from the macOS host. Native Xcode/macOS tasks are intentionally not tunneled through this boundary. If the Docker executable/daemon, local Unix context, or fixed image is unavailable, the operation returns `SANDBOX_UNAVAILABLE`; it never retries through Admin host execution. A process with authority to control the local Docker daemon is itself highly privileged, so this boundary assumes the operator's local Docker installation/context is trusted.
 
+## Jev semantic targeting egress boundary
+
+`computer_resolve_semantic_target` is the only capability in this system that sends data to a third party. Every other boundary keeps data on the Mac or, for ChatGPT itself, inside the already-declared MCP transport. Enabling this capability is therefore a deliberate privacy decision, not an implementation detail.
+
+When the tool runs it takes a fresh `computer_observe` snapshot of the frontmost application and POSTs a derived payload to `https://api.typesafe.ai/v1/systemone`.
+
+What leaves the Mac:
+
+- the focused window title;
+- for each observed element, its accessibility role plus its AX title or description, bounded by the existing observation limits (`maxObservationElements`, default 500, and `maxObservationChars`, default 262144);
+- the caller's natural-language `instruction` text;
+- the TypeSafe API key, only as an `Authorization: Bearer` header.
+
+Because AX titles and descriptions are whatever the focused application renders, this payload can contain message subjects, document names, contact names, file paths, and similar user content. Do not enable Jev targeting while a window with sensitive content is frontmost unless that exposure is intended.
+
+What does not leave the Mac through this path: screenshots, OCR text, editable AX values, typed text, file contents, Git state, environment variables, and authority lease identifiers. The API key is never placed in the URL, request body, audit log, MCP arguments, or error output.
+
+The capability is disabled by default and fails closed. It requires `--enable-computer-use`, the separate `--enable-jev-targeting` gate, and a `TYPESAFE_API_KEY`; a missing gate or key returns `JEV_TARGETING_UNAVAILABLE`. The authority check runs before the gate check, so an unauthorized lease cannot learn whether the feature is configured. Startup rejects the gate without Computer Runtime or without a key.
+
+The tool is read-only: it never clicks, types, or moves input, and it carries no authority beyond the observation it already performed. It returns a suggested target that the calling agent must still act on through the existing Admin-gated `computer_*` tools.
+
+Responses are schema-validated before use. An answer missing `confidence`, carrying a confidence outside `0..1`, or naming a choice outside the supplied candidate set is rejected rather than resolved, because an unvalidated response previously bypassed the low-confidence gate. Confidence alone is not treated as sufficient: a chosen element whose description duplicates another candidate's resolves to `ambiguous_duplicate`. Requests are bounded by an abort timeout, retried only on network failures and retryable HTTP statuses, and never retried on a 4xx that cannot succeed. Retry warnings carry structured status metadata only, never the response body or instruction text.
+
+Availability of this third-party service is not a dependency of Computer Runtime. AX, OCR, and index targeting remain the primary path; Jev targeting is an optional accelerator.
+
 ## Git safety
 
 Built-in Git tooling separates read operations from narrow typed mutations. `git_status`, `git_diff`, and `git_log` are read-only. Local mutation tools expose only validated branch creation/switching, explicit file staging, bounded commit messages, and fixed-option merges; they do not accept arbitrary Git arguments. Repository hooks, external diff/textconv, pagers, and commit signing are disabled for these operations.
