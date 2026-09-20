@@ -1,5 +1,18 @@
 # chatgpt-system — Active Project State
 
+## 2026-09-20 Workspace cleanup — local delivery
+
+- Worktrees went from 21 to 3. Kept: the canonical checkout, `~/.chatgpt-system/runtime/releases/2a7c8b7` (live MCP child PID and the LaunchAgent runner both resolve here through `chatgpt-system-main -> current`), and `chatgpt-system-main-062f73a-20260919-v2` (the rollback target behind `previous -> releases/062f73a`, which is a symlink to that worktree, not a separate directory).
+- `npm run diagnose:chatgpt` reported runtime source `stable-runtime` before any removal, so the managed-worktree cleanup guard was satisfied. The live tunnel and MCP child were never restarted and remain up.
+- Every removed worktree had a HEAD that is an ancestor of `main`. Two were force-removed after their content was verified redundant and archived: the stale acceptance deployment (untracked `action-review-cli.ts`, `process-wrapper.ts` and their test were byte-identical to `main`) and the browser-reliability worktree carrying the Jev/MLX spike.
+- Archive at `~/.chatgpt-system/archive/20260920-cleanup/`: both uncommitted runtime diffs, the branch-tip and worktree inventories, the Jev/MLX spike minus its 1.3 GB re-downloadable model weights, and 20 stale managed-worktree ownership records.
+- All 20 local branches other than `main` were deleted with plain `git branch -d`; no force delete was needed because every branch was already merged. Remote branches were not touched and nothing was pushed.
+- Ownership records: 20 dangling entries removed (17 from this repo's removed worktrees, 3 from the defunct `/Users/dogan/chatgpt-system` checkout). The 6 remaining records belong to the separate MacAgent projects and were deliberately left alone.
+- Disk: `~/.chatgpt-system` 8.6 GB -> 1.5 GB; repository `.git` 39 MB -> 2.3 MB after `git gc --prune=now`.
+- Verification after cleanup, bound to `HEAD 04a295d`: `npm run check` **exit 0** (911 passed, 2 skipped) and `npm run test:computer:macos` **exit 0** (226/226). Live runtime process confirmed still running afterwards.
+- Safety refs retained: tags `backup/main-pre-merge-20260920` and `backup/docsbranch-pre-merge-20260920`.
+- **Next exact step:** unchanged from the integration entry below — restore the Project Docker sandbox lane so `project_check` can reach an exact-head PASS, then seek explicit authorization to push `main` and open the PR.
+
 ## 2026-09-20 Open-branch integration into main — local delivery
 
 - Every open local branch is now reachable from `main@fcaec9e`; `git branch --no-merged main` is empty. Publication was not performed: `main` is 127 commits ahead of `origin/main` and no push, PR or deployment occurred.
