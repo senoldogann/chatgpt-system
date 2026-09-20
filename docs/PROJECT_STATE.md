@@ -1,5 +1,16 @@
 # chatgpt-system — Active Project State
 
+## 2026-09-20 Open-branch integration into main — local delivery
+
+- Every open local branch is now reachable from `main@fcaec9e`; `git branch --no-merged main` is empty. Publication was not performed: `main` is 127 commits ahead of `origin/main` and no push, PR or deployment occurred.
+- Safety refs before the operation: tags `backup/main-pre-merge-20260920` (`0c1d5a0`) and `backup/docsbranch-pre-merge-20260920`. Branch-tip inventory kept at `/tmp/merge-all-20260920/`.
+- Uncommitted work in six development worktrees was committed on its own branch first, so nothing was discarded. Deliberately hidden spike artifacts (`.jev-mlx-spike-20260918/`, dot-prefixed `scripts/.stdio-timing-*`) were left untracked. The four detached runtime/release worktrees under `~/.chatgpt-system/runtime/` were not touched and no service was restarted.
+- Seven branches were content-merged. Six parallel computer-use lines carried 1-4% content not already present in `main` in refined form and were recorded with `-s ours` rather than resurrecting superseded implementations of a safety-critical input path. Their novel work was cherry-picked separately where it was not superseded: the personal-admin timeout contract and the native perception decoders landed; the `feat/computer-use-perception-reliability` daily-driver script change was skipped because its version predates TypeSafe Keychain support and would have regressed the credential path.
+- Branch-local `docs/PROJECT_STATE.md` sections were not union-merged; this consolidated entry replaces them. Per-branch handoff text remains in Git history.
+- Integration fallout fixed under test: `fs_apply_patch` had regressed to silently returning the unchanged file for hunk-free patch text, so `validateUnifiedPatch` now lives in `src/unified-patch.ts` and is shared by `fs-service` and `patch-set-service`; the computer-use flow benchmark gained the two Jev error codes; the semantic-target lease assertion was split by personal-admin mode.
+- Verification bound to exact `HEAD fcaec9e`: `npm run check` **exit 0** (134 files passed, 1 skipped; 911 tests passed, 2 skipped) and `npm run test:computer:macos` **exit 0** (226/226). `git diff --check` clean. Hosted CI, `project_check` publication evidence and live deployment were not run.
+- **Next exact step:** decide whether the six `-s ours` branches should stay recorded-only or have specific hunks re-integrated target-by-target. Before any publication, obtain fresh `project_check` PASS on the exact publish head — the Project Docker sandbox lane is still the open blocker — then push and open the PR under explicit authorization.
+
 ## 2026-09-20 Conservative branch cleanup — local handoff
 
 - Canonical `main` and `origin/main` remain exactly `0c1d5a0038db496d2bb6acc600db7d803e89f67d` with identical tree `11ec24f1494944e6ce52537e12ce9992ea906a5c`. The tracked tree is clean; user-owned `.freebuff/project-id` remains untracked and untouched.
