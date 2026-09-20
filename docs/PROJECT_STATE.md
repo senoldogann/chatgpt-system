@@ -1,5 +1,14 @@
 # chatgpt-system — Active Project State
 
+## 2026-09-20 Conservative branch cleanup — local handoff
+
+- Canonical `main` and `origin/main` remain exactly `0c1d5a0038db496d2bb6acc600db7d803e89f67d` with identical tree `11ec24f1494944e6ce52537e12ce9992ea906a5c`. The tracked tree is clean; user-owned `.freebuff/project-id` remains untracked and untouched.
+- Four local branches whose commits remain reachable from `main` were deleted with normal `git branch -d`: `feat/jev-semantic-target-resolution-2026-09-19`, `fix/computer-protocol-validation-2026-09-17`, `fix/jev-keychain-credential-transfer-2026-09-19` and `fix/swiftpm-project-check`. The clean plugin-owned SwiftPM worktree was removed through the managed worktree tool before its branch was deleted.
+- The remote branches for merged PRs #48, #54 and #56 were already absent and their stale remote-tracking refs were pruned. The exact remote branches for merged PRs #63, #64 and #65 were deleted normally. The remote now has only `main`, the open PR #49 head `dependabot/npm_and_yarn/types/node-26.5.1`, and intentionally retained `feat/computer-use-bridge`.
+- Runtime diagnosis returned `LOCAL_HEALTHY_NO_LOCAL_FAILURE_EVIDENCE` with source `stable-runtime`; no managed worktree was the active runtime. No service restart, deployment, force-delete, reset, stash, clean or force-push occurred.
+- `fix/chatgpt-connection-resilience-20260920` and `fix/workflow-fast-path-20260920` are ancestors of this retained docs branch, but their managed-worktree status calls were refused by the Project scope. That refusal was not bypassed through shell removal, so both remain. Branches with unique commits, dirty worktrees, open publication work or uncertain ownership also remain; their deletion would require an explicit target-by-target discard decision rather than broad cleanup.
+- **Next exact step:** keep the remaining dirty/runtime worktrees and the three unpublished integration candidates intact. If further pruning is desired, first classify each remaining unique branch and obtain explicit discard approval for the exact branch/worktree list; never use a broad force-delete. The separate publication blocker remains restoration of the declared Project sandbox lane before the three candidate branches can be updated, pushed and merged.
+
 ## 2026-09-20 GitHub integration handoff — PR #48 merged; local branches blocked
 
 - The user authorized publication and merge only for PR #48/#49 and the three prepared branches. `project_resume` returned Continuity v171 and the registered root `/Users/dogan/Desktop/chatgpt-system`; a Persistent Owner Admin lease was reused. No new persistent Admin session, force-push, reset, stash, live deployment or service restart occurred.
