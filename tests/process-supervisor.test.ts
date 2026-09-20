@@ -608,5 +608,27 @@ describe("ProcessSupervisor core", () => {
 
     const finished = await waitForState(supervisor, fixedId, "exited", 3_000);
     expect(finished.exitCode).toBe(0);
+
+    // The detached wrapper performs its final persistence writes shortly after the
+    // logical exit is observed. Wait for the directory to quiesce, remove the
+    // collision and the whole persistence tree here, and leave afterEach nothing
+    // to race against (CI showed an ENOTEMPTY rmdir in shared cleanup).
+    let previousListing = "";
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const listing = (await readdir(persistencePath)).sort().join(",");
+      if (listing === previousListing) break;
+      previousListing = listing;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    await supervisor.close();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        await rm(persistencePath, { recursive: true });
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOTEMPTY") throw error;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
   });
 });
