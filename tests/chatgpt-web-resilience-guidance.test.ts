@@ -59,4 +59,16 @@ describe("ChatGPT Web project resilience guidance", () => {
     expect(server).toMatch(/new.*chat|recovered chat/i);
     expect(server).toMatch(/project_resume[\s\S]*before.*mutation|before.*mutation[\s\S]*project_resume/i);
   });
+  it("reuses persistent admin authority without an unnecessary startup request", async () => {
+    const [agents, readme] = await Promise.all([
+      readFile(new URL("../AGENTS.md", import.meta.url), "utf8"),
+      readFile(new URL("../README.md", import.meta.url), "utf8"),
+    ]);
+    expect(agents).toMatch(/reuse.*admin.*lease/i);
+    expect(agents).toMatch(/persistent_owner_mode.*status/i);
+    expect(agents).toMatch(/do not.*session_authority_start.*every/i);
+    expect(readme).toMatch(/persistent_owner_mode.*status/i);
+    expect(readme).toMatch(/project_resume.*first/i);
+  });
+
 });

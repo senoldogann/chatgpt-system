@@ -337,6 +337,8 @@ Recovery flow for normal project work:
 4. Once developer MCP tools are available again, the **first project action** is `project_resume` for the exact registered alias; reconcile Git/worktree reality before project mutation.
 5. If tool/action definitions changed and the product exposes a supported **Refresh** action, use it to reload the current catalog. Do not disconnect/recreate the app merely to simulate refresh.
 
+Tunnel-client can also log `command response deadline reached; dropping without posting a response` at INFO level; the diagnostic reports `MCP_RESPONSE_DEADLINE_EVIDENCE` separately from daemon/stdio failure. For a historical incident, use `npm run diagnose:chatgpt -- --minutes 30 --at 2026-09-19T19:05:30+03:00` with the actual offset-aware time. See the runbook for short managed-process polling and passive health snapshots.
+
 `Connection interrupted. Waiting for the complete answer` is not evidence of local tunnel failure by itself. Do not restart an otherwise healthy tunnel solely for this Web-stream symptom; run `npm run diagnose:chatgpt` near the incident time to classify bounded local evidence. Container access is not the user's Mac and must not be substituted for an unavailable developer MCP surface.
 
 Stopping and continuing the same chat is not itself proof that the custom app remains available on the next message. The agent must use actual MCP tool availability as evidence. Safety or product-surface routing must never be worked around by keyword substitution or by pretending container access is equivalent to the user's Mac.
@@ -494,6 +496,8 @@ project_exec
 ```
 
 `project_exec` requires a Project lease and the explicit Project-execution startup gate. It never falls back to `terminal_run`; Docker daemon/image/context failures fail closed.
+
+**Persistent Owner Mode startup fast path:** For an existing registered project, call `project_resume` first. Reuse a valid Admin lease already available in the conversation, and defer Admin lookup for Project-only work. If an Admin action is needed but the lease is unavailable, call `persistent_owner_mode` with `operation: "status"` once; when enabled, it returns the existing non-expiring lease. Do not repeatedly start a new Admin session. Every privileged operation still requires its explicit valid `authorityLeaseId`; Project and Admin authorities are not interchangeable, and this does not change macOS or hosted product approvals.
 
 ### Owner Runtime full-host shell and PTY
 

@@ -37,6 +37,22 @@ describe("ChatGPT Web project resilience documentation", () => {
     }
   });
 
+  it("documents incident deadlines, read-only health evidence and short managed-process polling", async () => {
+    const { runbook } = await readDocs();
+    const agents = await readFile(new URL("../AGENTS.md", import.meta.url), "utf8");
+    expect(runbook).toContain("MCP_RESPONSE_DEADLINE_EVIDENCE");
+    expect(runbook).toContain("--at");
+    expect(runbook).toContain("/health/mcp");
+    expect(runbook).toContain("/health?details=true");
+    expect(runbook).toContain("max_concurrent_requests");
+    for (const value of ["process_start", "process_status", "process_logs"]) {
+      expect(runbook).toContain(value);
+      expect(agents).toContain(value);
+    }
+    expect(runbook).toMatch(/deadline.*not.*daemon|deadline.*without.*daemon/i);
+    expect(runbook).toMatch(/not.*increase.*concurrency|do not.*increase.*concurrency/i);
+  });
+
   it("documents diagnostic interpretation and managed-worktree cleanup safety", async () => {
     const { runbook } = await readDocs();
 

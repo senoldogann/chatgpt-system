@@ -273,6 +273,37 @@ describe("Project Continuity v1 integration hardening", () => {
     store.close();
   });
 
+  it("rejects worktree replacement even when a recycled metadata inode produces the same identity", async () => {
+    const fixture = await createFixture(false);
+    const store = new ContinuityStore({ databasePath: fixture.databasePath });
+    const authority = createAuthority(fixture);
+    const service = createService(fixture, store, authority);
+    await service.register(registrationInput(fixture));
+    const registered = store.getByAlias("project-x");
+    const beforeStarts = authority.startedLeaseIds.length;
+
+    // Ensure creation follows registration even on millisecond-resolution clocks.
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    await git(fixture.repository, ["worktree", "remove", "--force", fixture.worktree]);
+    await git(fixture.repository, ["worktree", "add", "-b", "feature/replacement", fixture.worktree]);
+    const replacement = await createInspector().inspect(fixture.worktree);
+
+    // Model inode recycling deterministically: the legacy path/dev/inode digest collides.
+    const database = new Database(fixture.databasePath);
+    database.prepare("UPDATE worktrees SET worktree_identity = ? WHERE project_id = ?").run(
+      replacement.identity.worktreeIdentity,
+      registered.id,
+    );
+    database.close();
+    expect(store.getByAlias("project-x").worktree.worktreeIdentity).toBe(replacement.identity.worktreeIdentity);
+
+    await expect(service.resume({ alias: "project-x" })).rejects.toMatchObject({
+      code: "CONTINUITY_WORKTREE_MISMATCH",
+    });
+    expect(authority.startedLeaseIds).toHaveLength(beforeStarts);
+    store.close();
+  });
+
   it("preserves last-good remote evidence and reports unverified when origin becomes unreachable after restart", async () => {
     const fixture = await createFixture(true);
     const firstStore = new ContinuityStore({ databasePath: fixture.databasePath });

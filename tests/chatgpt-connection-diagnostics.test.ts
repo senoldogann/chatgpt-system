@@ -22,6 +22,40 @@ describe("ChatGPT connection diagnostics", () => {
     expect(() => parseDiagnosticArgs(["--unknown"])).toThrow(/unknown/i);
   });
 
+  it("accepts an offset-aware incident time and rejects ambiguous timestamps", () => {
+    expect(parseDiagnosticArgs(["--minutes", "30", "--at", "2026-09-19T18:45:43+03:00"]))
+      .toEqual({ windowMinutes: 30, atMs: Date.parse("2026-09-19T18:45:43+03:00") });
+    expect(() => parseDiagnosticArgs(["--at", "2026-09-19T18:45:43"])).toThrow(/offset|timezone/i);
+    expect(() => parseDiagnosticArgs(["--at", "not-a-time"])).toThrow(/offset|timezone/i);
+  });
+
+  it("detects INFO-level dropped responses and returns a bounded identifier-free event timeline", () => {
+    const log = [
+      JSON.stringify({ time: "2026-09-15T10:20:00.000Z", level: "INFO", msg: "dispatcher forwarded command to MCP server", request_id: "private-request" }),
+      JSON.stringify({ time: "2026-09-15T10:21:00.000Z", level: "INFO", msg: "command response deadline reached; dropping without posting a response", request_id: "private-request", cmd_request_id: "private-command" }),
+      JSON.stringify({ time: "2026-09-15T10:22:00.000Z", level: "WARN", msg: "stdio MCP command failed; requesting tunnel-client shutdown", reason: "stdio MCP command stdout closed", request_id: "private-request" }),
+    ].join("\n");
+    const result = summarizeTunnelLog(log, { nowMs: NOW, windowMs: 15 * MINUTE });
+    expect(result).toMatchObject({ responseDeadlineCount: 1, stdioFailureCount: 1, forwardedCommandCount: 1 });
+    expect(result.failureEvents).toEqual([
+      { time: "2026-09-15T10:21:00.000Z", kind: "response_deadline" },
+      { time: "2026-09-15T10:22:00.000Z", kind: "stdio_failure" },
+    ]);
+    expect(JSON.stringify(result)).not.toMatch(/private-request|private-command|cmd_request_id/);
+  });
+
+  it("bounds event detail independently from aggregate failure counts", () => {
+    const lines = Array.from({ length: 30 }, (_, index) => JSON.stringify({
+      time: new Date(NOW - 30_000 + index * 1_000).toISOString(),
+      level: "INFO",
+      msg: "command response deadline reached; dropping without posting a response",
+    }));
+    const result = summarizeTunnelLog(lines.join("\n"), { nowMs: NOW, windowMs: MINUTE });
+    expect(result.responseDeadlineCount).toBe(30);
+    expect(result.failureEvents).toHaveLength(20);
+    expect(result.failureEvents[0]?.time).toBe(new Date(NOW - 20_000).toISOString());
+  });
+
   it("summarizes only recent safe tunnel metadata and drops identifiers", () => {
     const log = [
       JSON.stringify({
@@ -61,6 +95,8 @@ describe("ChatGPT connection diagnostics", () => {
       recoveredPollBackoffCount: 0,
       errorCount: 1,
       stdioFailureCount: 1,
+      responseDeadlineCount: 0,
+      failureEvents: [{ time: "2026-09-15T10:22:00.000Z", kind: "stdio_failure" }],
       recentActivity: true,
     });
     const serialized = JSON.stringify(summary);
@@ -211,6 +247,30 @@ describe("ChatGPT connection diagnostics", () => {
     expect(detectRuntimeDependencyFailure(ownFailure.replace("'zod'", "'left-pad'"), runtimeRoot)).toBe(false);
     // A stray mention without a resolvable import path cannot be attributed.
     expect(detectRuntimeDependencyFailure("Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'zod'", runtimeRoot)).toBe(false);
+  });
+
+  it("classifies response deadlines separately from transport failures and refuses historical healthy claims", () => {
+    const healthy = {
+      dailyDriver: { loaded: true, running: true, neverExited: false },
+      tunnel: { forwardedCommandCount: 4, warningCount: 0, recoveredPollBackoffCount: 0, errorCount: 0, stdioFailureCount: 0, responseDeadlineCount: 1, recentActivity: true, failureEvents: [] },
+      runtime: { source: "stable-runtime" as const, distCliPresent: true, nodeModulesPresent: true, zodPresent: true },
+      stderr: { recent: false, dependencyFailureSignature: false },
+    };
+    expect(classifyConnectionEvidence(healthy)).toBe("MCP_RESPONSE_DEADLINE_EVIDENCE");
+    expect(classifyConnectionEvidence({ ...healthy, tunnel: { ...healthy.tunnel, stdioFailureCount: 1 } }))
+      .toBe("LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE");
+    expect(classifyConnectionEvidence({ ...healthy, historical: true, dailyDriver: { loaded: false, running: false, neverExited: false } }))
+      .toBe("MCP_RESPONSE_DEADLINE_EVIDENCE");
+    expect(classifyConnectionEvidence({ ...healthy, historical: true, tunnel: { ...healthy.tunnel, responseDeadlineCount: 0 } }))
+      .toBe("INSUFFICIENT_EVIDENCE");
+    // A historical report must not classify today's service outage as a past outage
+    // even when callers only supply atMs to the public report builder.
+    expect(buildDiagnosticReport({ ...healthy, dailyDriver: { loaded: false, running: false, neverExited: false } }, 30, { atMs: NOW }).diagnosis)
+      .toBe("MCP_RESPONSE_DEADLINE_EVIDENCE");
+    expect(buildDiagnosticReport({ ...healthy, historical: true }, 30, { atMs: NOW })).toMatchObject({
+      diagnosis: "MCP_RESPONSE_DEADLINE_EVIDENCE",
+      window: { startAt: new Date(NOW - 30 * MINUTE).toISOString(), endAt: new Date(NOW).toISOString(), historical: true },
+    });
   });
 
   it("uses fail-safe classification priority", () => {

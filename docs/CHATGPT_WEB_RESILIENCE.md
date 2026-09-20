@@ -14,6 +14,7 @@ It also distinguishes those symptoms from genuine local Secure MCP Tunnel / MCP 
 | `This conversation does not support developer MCPs` | The current ChatGPT conversation/turn cannot expose developer MCP tools. It does **not** prove the local daemon or tunnel failed. | Stop local-change claims and do not repeatedly retry the unavailable namespace. |
 | `@chatgpt-system-local` no longer appears in the composer or tools surface | The custom app is absent from the current product surface. It does **not** prove the local Mac is unhealthy. | Use a new supported standard text chat in the same Project instead of repeatedly trying `@` in the broken conversation. |
 | `Connection interrupted. Waiting for the complete answer` | The Web response stream was interrupted. It is not evidence of local MCP failure by itself. | Preserve the current work state; do not restart a healthy tunnel solely for this message. |
+| `MCP_RESPONSE_DEADLINE_EVIDENCE` from `diagnose:chatgpt` | The tunnel logged an expired command response without posting it. A deadline does not by itself prove a daemon crash or a product safety rejection. | Correlate the command duration; use short, bounded tool requests for long workloads. |
 | `npm run diagnose:chatgpt` reports local failure evidence | The inspected local window contains a concrete daily-driver/tunnel/runtime failure signature. | Investigate the specific local signal before retrying. |
 
 ## Recovery when the custom app still exists in the current chat
@@ -67,17 +68,40 @@ Optional bounded evidence window:
 npm run diagnose:chatgpt -- --minutes 30
 ```
 
+To inspect a specific historical incident, supply the timestamp **with a timezone offset**. The time ends the requested window; for example, this covers 18:35–19:05 Helsinki time:
+
+```bash
+npm run diagnose:chatgpt -- --minutes 30 --at 2026-09-19T19:05:30+03:00
+```
+
+`window.startAt` and `window.endAt` are UTC instants. `window.historical=true` uses retained tunnel evidence for classification: the currently observed LaunchAgent/runtime cannot establish what was running at a past time, and forwarded commands alone cannot prove successful response delivery. The daily-driver log is a bounded 1 MiB tail, so old incident windows can be incomplete. `tunnel.failureEvents` returns only the last 20 matching categories and ISO timestamps; aggregate counts include all retained matching events in the window. `responseDeadlineCount` counts expired command responses even when tunnel-client logs them at `INFO` level.
+
 The accepted range is 1–120 minutes. The diagnostic emits sanitized JSON only. It does not emit raw log lines, request IDs, tunnel IDs, client instance IDs, PIDs, raw process commands, credentials, prompt content, tool arguments, file contents, browser data, screenshots, OCR/AX content, or authority lease IDs.
 
 Interpret the top-level `diagnosis` conservatively:
 
 - `LOCAL_HEALTHY_NO_LOCAL_FAILURE_EVIDENCE`: the inspected window contains recent forwarded MCP activity and no strong local failure signature. This does **not** prove an OpenAI fault; it means the local evidence inspected does not support a local crash. Do not restart a healthy tunnel solely for the hosted UI symptom.
-- `LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE`: recent tunnel WARN/ERROR/stdio-failure evidence exists. Investigate that local cause first.
-- `LOCAL_RUNTIME_DEPENDENCY_FAILURE`: the active runtime is missing required runtime material or recent stderr contains the bounded missing-`zod` dependency signature. Rebuild/repoint the runtime; do not hide it with a restart loop.
+- `LOCAL_TUNNEL_OR_MCP_FAILURE_EVIDENCE`: tunnel WARN/ERROR/stdio-failure evidence exists. Investigate that local cause first; a recovered poll backoff is counted separately.
+- `MCP_RESPONSE_DEADLINE_EVIDENCE`: the tunnel dropped a command response at its deadline. This is a response-delivery failure, not proof the daemon exited or that ChatGPT rejected the action. Inspect the operation duration and return results through shorter calls.
+- `LOCAL_RUNTIME_DEPENDENCY_FAILURE`: the current active runtime is missing required runtime material. A stale stderr signature from another worktree does not establish an active failure. Rebuild/repoint only with deployment approval; do not hide it with a restart loop.
 - `DAILY_DRIVER_UNAVAILABLE`: the configured daily-driver is not loaded and running. Diagnose the local service first.
-- `INSUFFICIENT_EVIDENCE`: the requested window does not contain enough local activity/failure evidence to classify the boundary. Capture a closer incident time and rerun.
+- `INSUFFICIENT_EVIDENCE`: the requested window does not contain enough local evidence to classify the boundary. Historical windows with forwarded commands but no failure do **not** claim local health, because current health and past response delivery are unproven.
 
-## Managed-worktree cleanup guard
+## Passive tunnel health and response delivery
+
+When the running tunnel exposes a loopback-only health listener, inspect its actual configured base URL without restarting the process:
+
+```bash
+# Example ONLY when the existing listener is at 127.0.0.1:8080:
+curl --fail --max-time 3 'http://127.0.0.1:8080/health/mcp'
+curl --fail --max-time 3 'http://127.0.0.1:8080/health?details=true'
+```
+
+Read `mcp`, `dispatcher`, `queue`, `control-plane`, and `response-delivery` component state and each component's `observed_at`: these are timestamped observations, not proof of end-to-end delivery. A response upload acceptance is stronger evidence than merely forwarding a command. Never present an unavailable health endpoint as failed MCP; older tunnel builds or different listen addresses may not expose these routes. Sanitize tool names, request identifiers and other diagnostic metadata before sharing health JSON outside the workstation. See the [official health reference](https://github.com/openai/tunnel-client/blob/master/docs/health.md).
+
+The tunnel configuration's `mcp.connection_max_ttl` default is `10m` and `mcp.max_concurrent_requests` default is `10`, but the control plane may impose a **shorter per-command `response_timeout`**. A 10-minute connection TTL therefore does not guarantee a 10-minute tool invocation. Under concurrent projects, inspect queue depth, dispatcher active age and response-delivery counts before considering tuning. **Do not increase concurrency, disable timeouts or widen authority merely to hide expired responses**; raise the limit only after evidence and a capacity test of the MCP server. See the [official configuration](https://github.com/openai/tunnel-client/blob/master/docs/configuration.md) and [protocol](https://github.com/openai/tunnel-client/blob/master/docs/protocol.md).
+
+## Managed-worktree cleanup guard## Managed-worktree cleanup guard
 
 The diagnostic reports only a categorical runtime source:
 
@@ -96,7 +120,17 @@ For long project work, agents should create a bounded Project Continuity **risk 
 
 Prefer existing bounded batching or parallel independent reads over unnecessary model/tool round trips. This is a reliability optimization only; never widen authority merely to batch work, and never collapse operations that require distinct safety verification into one opaque command.
 
-## Evidence for OpenAI Support
+## Long operations: keep the MCP call short
+
+Do not run a potentially lengthy build, test suite or automation inside a single synchronous `shell_run` or `computer_run_js` request solely because the local Owner Runtime permits an omitted timeout. The remote response deadline is independent and can expire while local work continues. Use the existing managed-process lifecycle **only when the task already has Admin terminal authority**:
+
+1. `process_start` with the command, explicit argument vector, working directory and a stable idempotency key; retain the returned opaque process ID. Confirm the process actually starts; a spawn acknowledgement is not application readiness.
+2. Make separate, short `process_status` and bounded `process_logs` calls. Keep the returned log cursor to read only new output. Stop polling on a terminal state; do not interpret `unknown` or `stopping` as a successful completion.
+3. When no longer needed, use `process_stop` on the same ID. On reconnect use a new compatible Admin lease and verify the persisted job's actual state before retrying a command; never repeat a non-idempotent mutation blindly.
+
+This is **not** permission to upgrade a Project lease to Admin. Project-only `project_exec` remains Docker-bound and has its own finite timeout; split its work into independently verifiable bounded checks instead. Use a Project Continuity checkpoint before long workflows and never bypass user takeover, product safety, or authorization rules.
+
+## Evidence for OpenAI Support## Evidence for OpenAI Support
 
 When the local diagnostic is healthy but ChatGPT Web repeatedly loses the response stream or developer-MCP capability, preserve privacy-safe correlation evidence for OpenAI Support. Useful evidence can include:
 
