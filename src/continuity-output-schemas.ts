@@ -27,7 +27,7 @@ export const continuityRemoteRefOutputSchema = z.object({
   checkedAt: z.string(),
   lastVerifiedSha: gitObjectIdSchema.optional(),
   lastVerifiedAt: z.string().optional(),
-  reason: z.enum(["detached_head", "remote_missing", "remote_error"]).optional(),
+  reason: z.enum(["detached_head", "remote_missing", "remote_error", "not_checked"]).optional(),
 }).strict();
 
 export const continuityPublishedStateOutputSchema = z.object({
