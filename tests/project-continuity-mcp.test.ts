@@ -1,14 +1,25 @@
+import { execFile } from "node:child_process";
 import { once } from "node:events";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { toNodeHandler, type NodeIncomingMessageLike, type NodeServerResponseLike } from "@modelcontextprotocol/node";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, it } from "vitest";
+import { AuthorityManager } from "../src/authority.js";
+import { ContinuityGitInspector } from "../src/continuity-git-inspector.js";
+import { ContinuityStore } from "../src/continuity-store.js";
 import { ContinuityNotFoundError } from "../src/continuity-errors.js";
+import { ProjectContinuityService } from "../src/project-continuity-service.js";
 import { registerProjectContinuityTools } from "../src/project-continuity-tool-registration.js";
 
+const execFileAsync = promisify(execFile);
 const servers: Server[] = [];
+const cleanups: string[] = [];
 
 async function closeServer(server: Server): Promise<void> {
   if (!server.listening) return;
@@ -19,6 +30,7 @@ async function closeServer(server: Server): Promise<void> {
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map(closeServer));
+  await Promise.all(cleanups.splice(0).map((entry) => rm(entry, { recursive: true, force: true })));
 });
 
 function task() {
@@ -245,6 +257,95 @@ describe("project continuity real MCP protocol", () => {
     } finally {
       await transport.terminateSession();
       await client.close();
+    }
+  });
+
+  it("accepts a real checkpoint with handoff fields on a remote-less repository", async () => {
+    // Checkpoint remote doğrulamayı atlar ve publishedState reason alanlarını
+    // "not_checked" üretir. Bu değer iç tipte vardı ama MCP output şemasında
+    // yoktu; SDK her checkpoint çağrısını Output validation error ile
+    // düşürüyordu. Bu test gerçek servis + gerçek şema validasyonunu korur.
+    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-continuity-mcp-checkpoint-"));
+    cleanups.push(base);
+    const project = path.join(base, "project");
+    const repository = path.join(project, "repository");
+    await mkdir(project, { recursive: true });
+    const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+    const runGit = (cwd: string, args: readonly string[]) => execFileAsync("git", [...args], {
+      cwd,
+      encoding: "utf8",
+      env: gitEnv,
+    });
+    await runGit(project, ["init", "-b", "main", repository]);
+    await runGit(repository, ["config", "user.name", "Continuity MCP"]);
+    await runGit(repository, ["config", "user.email", "continuity-mcp@example.test"]);
+    await writeFile(path.join(repository, "tracked.txt"), "initial\n");
+    await runGit(repository, ["add", "tracked.txt"]);
+    await runGit(repository, ["commit", "-m", "initial"]);
+
+    const store = new ContinuityStore({ databasePath: path.join(base, "continuity.db") });
+    try {
+      const authority = new AuthorityManager({ homeDir: base, commands: ["git"], terminalEnabled: false });
+      const inspector = new ContinuityGitInspector({
+        maxTrackedPaths: 100,
+        remoteVerificationTimeoutMs: 2_000,
+        maxCommandOutputBytes: 1_048_576,
+      });
+      const service = new ProjectContinuityService({
+        store,
+        inspector,
+        authority,
+        homeDir: base,
+        maxResumeChars: 12_000,
+      });
+      const { client, transport } = await fixture({ continuity: service } as never);
+      try {
+        const registered = await client.callTool({
+          name: "project_register",
+          arguments: {
+            alias: "McpCheckpoint",
+            worktreePath: repository,
+            projectRoots: [project],
+            task: task(),
+            uncertainties: [],
+            verificationSummary: [],
+          },
+        });
+        expect(registered.isError).not.toBe(true);
+        const recordVersion = (registered.structuredContent as { recordVersion: number }).recordVersion;
+
+        const resumed = await client.callTool({
+          name: "project_resume",
+          arguments: { alias: "McpCheckpoint" },
+        });
+        expect(resumed.isError).not.toBe(true);
+        const leaseId = (resumed.structuredContent as { authorityLease: { leaseId: string } }).authorityLease.leaseId;
+
+        const checkpoint = await client.callTool({
+          name: "project_checkpoint",
+          arguments: {
+            authorityLeaseId: leaseId,
+            alias: "McpCheckpoint",
+            expectedRecordVersion: recordVersion,
+            task: {
+              ...task(),
+              nextStep: "Resume from the checkpoint package.",
+              brief: "Checkpoint carries brief and plan steps.",
+              planSteps: [{ step: "Checkpoint", status: "done" }],
+            },
+            decisions: [],
+            uncertainties: [],
+            verificationSummary: ["Checkpoint accepted."],
+          },
+        });
+        expect(checkpoint.isError).not.toBe(true);
+        expect(JSON.stringify(checkpoint.structuredContent)).toContain("not_checked");
+      } finally {
+        await transport.terminateSession();
+        await client.close();
+      }
+    } finally {
+      store.close();
     }
   });
 });
