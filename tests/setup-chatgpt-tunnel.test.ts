@@ -64,6 +64,7 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.mcpCommand).toContain(ROOT);
     expect(setup.mcpCommand).not.toContain("--enable-control");
     expect(setup.mcpCommand).not.toContain("--control-socket");
+    expect(setup.mcpCommand).not.toContain("--enable-jev-targeting");
   });
 
   it("adds Owner Workstation as one preset flag without enabling browser", () => {
@@ -227,6 +228,24 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.mcpCommand).toContain("--enable-computer-use");
     expect(setup.mcpCommand).toContain("--enable-full-host-js");
     expect(setup.fullHostJsEnabled).toBe(true);
+  });
+
+  it("requires computer use before Jev targeting can be enabled", () => {
+    expect(() => buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-jev-targeting",
+    ], {}, context)).toThrow(/enable-computer-use/i);
+
+    const setup = buildTunnelSetup([
+      "--root", ROOT,
+      "--tunnel-id", VALID_TUNNEL,
+      "--enable-computer-use",
+      "--enable-jev-targeting",
+    ], {}, context);
+    expect(setup.mcpCommand).toContain("--enable-computer-use");
+    expect(setup.mcpCommand).toContain("--enable-jev-targeting");
+    expect(setup.jevTargetingEnabled).toBe(true);
   });
 
   it("documents and reports the explicit full-host JavaScript setup gate", async () => {
