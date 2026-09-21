@@ -801,4 +801,5 @@ export const handoffPrepareOutputSchema = z.object({
   brief: z.string(),
   bootstrap: z.string(),
   truncated: z.boolean(),
+  llmDrafted: z.boolean(),
 }).strict();
