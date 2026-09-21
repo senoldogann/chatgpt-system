@@ -446,7 +446,14 @@ An Admin lease provides host-wide scope where the current OS account has permiss
 
 True root-only operations remain a future typed ServiceManagement/XPC boundary, not password piping, `sudo -S`, passwordless sudo, or a reusable root shell.
 
+## SessionEventStore: opt-in session metadata
+
+`SessionEventStore` is a separate, private SQLite metadata store, independent of the Project Continuity database and Project task state. It is **disabled by default**. A future startup can explicitly opt in using `CHATGPT_SYSTEM_ENABLE_SESSION_EVENTS=true`; the configured state root then contains `session-events/metadata.db` with private directory/file permissions. Merely changing source or configuration in this checkout causes **no deployment or restart** of the running daemon.
+
+This is an **internal API** with no MCP tool. Only locally generated session IDs, project IDs, lifecycle state, revisions, and the fixed `session.started`/`session.closed` metadata events can be written by this slice. Bounded history uses an `afterSeq` cursor. There is **no verified external ChatGPT conversation binding**, **no transcript or tool bodies**, and **no automatic capture** of chats, tools, screenshots, clipboard, terminal output, or authority leases. The reserved binding/message/tool-call tables have no writer until a separate, evidence-backed provider design is approved; content recording and encryption/key lifecycle are also separate work. The metadata store is not a second authority, project, or task source of truth.
+
 ## MCP tool surface
+
 
 ### System and authority
 

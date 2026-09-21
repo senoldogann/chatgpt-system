@@ -42,6 +42,7 @@ import { ProjectPublishGate } from "./project-publish-gate.js";
 import { createProjectContinuityRuntime, type ProjectContinuityRuntime } from "./project-continuity-runtime.js";
 import { registerProjectContinuityTools } from "./project-continuity-tool-registration.js";
 import { registerTaskStateTool } from "./task-state-tool-registration.js";
+import { SessionEventStore } from "./session-event-store.js";
 import type { ProjectExecBackend } from "./project-exec-types.js";
 import { createScopedRuntime } from "./scoped-runtime.js";
 import { describeSystemEnvironment } from "./system-environment.js";
@@ -87,6 +88,7 @@ export interface RuntimeServices extends ProjectContinuityRuntime {
   taskStateRoot: string;
   worktreeRoot: string;
   browser: BrowserService;
+  sessionEventStore?: SessionEventStore;
   computer: ComputerRuntime;
   computerJs: ComputerJsRuntime;
 }
@@ -100,12 +102,16 @@ export interface RuntimeOptions extends BrowserFactoryOptions {
   projectExecBackend?: ProjectExecBackend;
   projectCheckHostExecutorFactory?: ProjectCheckHostExecutorFactory;
   taskStateRoot?: string;
+  sessionEventStore?: SessionEventStore;
   worktreeRoot?: string;
   persistentOwnerModePath?: string;
   processPersistencePath?: string;
 }
 
 export function createRuntimeServices(config: AppConfig, options: RuntimeOptions = {}): RuntimeServices {
+  if (options.sessionEventStore && config.sessionEvents?.enabled !== true) {
+    throw new PolicyError("An injected session metadata store requires explicit opt-in.");
+  }
   const policy = new PathPolicy(config.roots);
   const audit = new AuditLogger(config.auditFile);
   const authority = new AuthorityManager({
@@ -201,6 +207,20 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     }),
   );
   const continuityRuntime = createProjectContinuityRuntime(config, authority, { homeDir: homedir() });
+  const approvalBroker = options.approvalBroker ?? new MacOSLocalAuthorityBroker();
+  const fs = new FileSystemService(policy, audit, config.limits);
+  const git = new GitService(policy, audit, config);
+  const process = new ProcessService(policy, audit, config);
+  let sessionEventStore: SessionEventStore | undefined;
+  try {
+    if (config.sessionEvents?.enabled === true) {
+      sessionEventStore = options.sessionEventStore
+        ?? new SessionEventStore({ databasePath: path.join(taskStateRoot, "session-events", "metadata.db") });
+    }
+  } catch (error) {
+    continuityRuntime.continuityStore.close();
+    throw error;
+  }
   return {
     ...continuityRuntime,
     config,
@@ -208,10 +228,10 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     audit,
     authority,
     authorityRequests,
-    approvalBroker: options.approvalBroker ?? new MacOSLocalAuthorityBroker(),
-    fs: new FileSystemService(policy, audit, config.limits),
-    git: new GitService(policy, audit, config),
-    process: new ProcessService(policy, audit, config),
+    approvalBroker,
+    fs,
+    git,
+    process,
     processSupervisor,
     ownerShellSupervisor,
     terminalSessionSupervisor,
@@ -224,6 +244,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     browser,
     computer,
     computerJs,
+    ...(sessionEventStore ? { sessionEventStore } : {}),
   };
 }
 

@@ -1,11 +1,13 @@
 import type { ContinuityStore } from "./continuity-store.js";
+import type { SessionEventStore } from "./session-event-store.js";
 import type { ControlServerHandle } from "./control-server.js";
 import type { RuntimeServices } from "./server.js";
 
-export type RuntimeShutdownPhase = "computer-js" | "computer" | "terminal-sessions" | "owner-shell" | "processes" | "browser" | "continuity" | "control" | "transport";
+export type RuntimeShutdownPhase = "computer-js" | "computer" | "terminal-sessions" | "owner-shell" | "processes" | "browser" | "session-events" | "continuity" | "control" | "transport";
 
 export async function closeRuntimeResources(input: {
   runtime: Pick<RuntimeServices, "computerJs" | "computer" | "terminalSessionSupervisor" | "ownerShellSupervisor" | "processSupervisor" | "browser"> & {
+    sessionEventStore?: Pick<SessionEventStore, "close">;
     continuityStore?: Pick<ContinuityStore, "close">;
   };
   control?: ControlServerHandle;
@@ -29,6 +31,11 @@ export async function closeRuntimeResources(input: {
   await attempt("browser", async () => {
     await input.runtime.browser.close();
   });
+  if (input.runtime.sessionEventStore) {
+    await attempt("session-events", async () => {
+      input.runtime.sessionEventStore!.close();
+    });
+  }
   if (input.runtime.continuityStore) {
     await attempt("continuity", async () => {
       input.runtime.continuityStore!.close();

@@ -81,7 +81,7 @@ export const remoteRefStateSchema = z.object({
   checkedAt: z.string(),
   lastVerifiedSha: z.string().regex(/^[a-f0-9]{40,64}$/).optional(),
   lastVerifiedAt: z.string().optional(),
-  reason: z.enum(["detached_head", "remote_missing", "remote_error"]).optional(),
+  reason: z.enum(["detached_head", "remote_missing", "remote_error", "not_checked"]).optional(),
 }).strict();
 
 export const continuityPublishedStateSchema = z.object({

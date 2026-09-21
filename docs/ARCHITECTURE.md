@@ -318,14 +318,30 @@ cleanup complete
 
 Fatal protocol/timeout invalidation uses the same termination routine asynchronously, with the cleanup promise explicitly handled so an uncooperative child cannot create an unhandled rejection. MCP callers still never choose PIDs or signals.
 
+## SessionEventStore metadata boundary
+
+`SessionEventStore` is an optional runtime-owned SQLite metadata database under the private state root at `session-events/metadata.db`, separate from the Project Continuity database and task state. It is **disabled by default**: unless `CHATGPT_SYSTEM_ENABLE_SESSION_EVENTS=true` is explicitly set at startup, runtime construction does not open or create the metadata database. Opting in through code alone effects **no deployment or restart** of the live daemon.
+
+The store has an **internal API** only, with no MCP tool or autonomous collector. Its v1 writers create a local UUID session for a trusted caller-provided project ID and append only the atomic `session.started` and `session.closed` metadata events. Revisions use transactional compare-and-swap; history uses a bounded, project-scoped, ascending `afterSeq` cursor. Directories and database permissions are private, and unknown/corrupt schemas fail closed. This store is not an authority source or a replacement for Project Continuity.
+
+There is **no verified external ChatGPT conversation binding**, **no transcript or tool bodies**, and **no automatic capture** of chat, tool arguments/results, browser content, screenshots, clipboard, terminal output, or leases. Binding, message and tool-call tables are reserved with no ingestion API. A separate future provider-evidence integration and encryption/key-lifecycle design are required before introducing identity binding or content recording; do not infer conversation identity from a tab, URL or model-generated text. See the approved specification `docs/superpowers/specs/2026-09-21-session-event-store-metadata-design.md`.
+
+The optional store closes after browser resources and before Continuity during graceful runtime shutdown. No new MCP tool, deployment or daemon restart is part of this implementation.
+
 ## Runtime shutdown
 
 Clean runtime shutdown attempts resources in this order:
 
-1. stop all managed processes;
-2. close the owned browser runtime/context;
-3. close the private authority control socket;
-4. close MCP transport/server.
+1. close the computer JavaScript runner;
+2. close Computer Runtime and release held input;
+3. close terminal sessions;
+4. close the Owner Shell supervisor;
+5. close the managed process supervisor (persistent managed jobs may survive);
+6. close the owned browser runtime/context;
+7. close `SessionEventStore` when enabled;
+8. close the Project Continuity store when present;
+9. close the private authority control socket when configured;
+10. close MCP transport/server.
 
 A failure in one cleanup phase is reported categorically and does not prevent later phases from running.
 

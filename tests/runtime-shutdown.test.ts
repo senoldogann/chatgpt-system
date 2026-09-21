@@ -12,12 +12,13 @@ describe("closeRuntimeResources", () => {
         ownerShellSupervisor: { close: async () => { calls.push("owner-shell"); } },
         processSupervisor: { close: async () => { calls.push("processes"); } },
         browser: { close: async () => { calls.push("browser"); return { closed: true as const }; } },
+        sessionEventStore: { close: () => { calls.push("session-events"); } },
         continuityStore: { close: () => { calls.push("continuity"); } },
       } as never,
       control: { close: async () => { calls.push("control"); } } as never,
       closeTransport: async () => { calls.push("transport"); },
     });
-    expect(calls).toEqual(["computer-js", "computer", "terminal-sessions", "owner-shell", "processes", "browser", "continuity", "control", "transport"]);
+    expect(calls).toEqual(["computer-js", "computer", "terminal-sessions", "owner-shell", "processes", "browser", "session-events", "continuity", "control", "transport"]);
   });
 
   it("continues later cleanup phases after computer JavaScript, computer, process and browser failures", async () => {
@@ -61,6 +62,12 @@ describe("closeRuntimeResources", () => {
             throw new Error("browser stop failed");
           },
         },
+        sessionEventStore: {
+          close: () => {
+            calls.push("session-events");
+            throw new Error("session events close failed");
+          },
+        },
         continuityStore: {
           close: () => {
             calls.push("continuity");
@@ -72,7 +79,7 @@ describe("closeRuntimeResources", () => {
       closeTransport: async () => { calls.push("transport"); },
       reportError: (phase) => { errors.push(phase); },
     });
-    expect(calls).toEqual(["computer-js", "computer", "terminal-sessions", "owner-shell", "processes", "browser", "continuity", "control", "transport"]);
-    expect(errors).toEqual(["computer-js", "computer", "terminal-sessions", "owner-shell", "processes", "browser", "continuity"]);
+    expect(calls).toEqual(["computer-js", "computer", "terminal-sessions", "owner-shell", "processes", "browser", "session-events", "continuity", "control", "transport"]);
+    expect(errors).toEqual(["computer-js", "computer", "terminal-sessions", "owner-shell", "processes", "browser", "session-events", "continuity"]);
   });
 });
