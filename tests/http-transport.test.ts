@@ -61,6 +61,7 @@ const expectedAnnotations = {
   project_resume: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   project_checkpoint: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   project_context_read: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  project_list: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   browser_health: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   browser_tabs: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   browser_new_tab: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -135,6 +136,7 @@ const ownerRuntimeToolNames = [
 const continuityV1ToolNames = [
   "project_checkpoint",
   "project_context_read",
+  "project_list",
   "project_register",
   "project_resume",
 ] as const;

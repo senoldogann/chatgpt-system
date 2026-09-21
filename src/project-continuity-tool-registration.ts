@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AppError } from "./errors.js";
 import {
   projectContinuityResultOutputSchema,
+  projectListOutputSchema,
   projectResumeOutputSchema,
 } from "./continuity-output-schemas.js";
 import {
@@ -65,7 +66,7 @@ export const projectContextReadInputSchema = z.object({
 }).strict();
 
 export interface ProjectContinuityToolRuntime {
-  continuity: Pick<ProjectContinuityService, "register" | "resume" | "checkpoint" | "contextRead">;
+  continuity: Pick<ProjectContinuityService, "register" | "resume" | "checkpoint" | "contextRead" | "listProjects">;
 }
 
 const mutationAnnotations = {
@@ -155,7 +156,7 @@ export function registerProjectContinuityTools(
   server.registerTool(
     "project_resume",
     {
-      description: "Use when the user asks to continue a registered project by its exact alias in a new or current chat. Never fuzzy-match the alias. After developer MCP capability returns in a new or recovered chat, call project_resume before any project mutation. Revalidates the exact worktree and returns a fresh Project authority lease plus bounded resume context.",
+      description: "Use when the user asks to continue a registered project by its exact alias in a new or current chat. Never fuzzy-match the alias; when the alias is unknown, call project_list first. After developer MCP capability returns in a new or recovered chat, call project_resume before any project mutation. Revalidates the exact worktree and returns a fresh Project authority lease plus bounded resume context.",
       inputSchema: projectResumeInputSchema,
       outputSchema: projectResumeOutputSchema,
       annotations: mutationAnnotations,
@@ -189,5 +190,16 @@ export function registerProjectContinuityTools(
     async (input) => safeCall(async () => publicContinuityResult(
       await runtime.continuity.contextRead(input),
     )),
+  );
+
+  server.registerTool(
+    "project_list",
+    {
+      description: "List all registered project aliases with their roots, record versions, and worktree paths. Use first when the user wants to work on a project but the exact alias is unknown. Never fuzzy-match; resume the chosen alias exactly.",
+      inputSchema: z.object({}).strict(),
+      outputSchema: projectListOutputSchema,
+      annotations: readAnnotations,
+    },
+    async () => safeCall(async () => runtime.continuity.listProjects()),
   );
 }

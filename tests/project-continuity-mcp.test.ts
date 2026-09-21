@@ -175,6 +175,7 @@ describe("project continuity real MCP protocol", () => {
       expect(continuityTools.map((tool) => tool.name).sort()).toEqual([
         "project_checkpoint",
         "project_context_read",
+        "project_list",
         "project_register",
         "project_resume",
       ]);
@@ -340,6 +341,82 @@ describe("project continuity real MCP protocol", () => {
         });
         expect(checkpoint.isError).not.toBe(true);
         expect(JSON.stringify(checkpoint.structuredContent)).toContain("not_checked");
+      } finally {
+        await transport.terminateSession();
+        await client.close();
+      }
+    } finally {
+      store.close();
+    }
+  });
+
+  it("lists registered projects with roots and versions through the MCP output schema", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-continuity-mcp-list-"));
+    cleanups.push(base);
+    const gitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+    const runGit = (cwd: string, args: readonly string[]) => execFileAsync("git", [...args], {
+      cwd,
+      encoding: "utf8",
+      env: gitEnv,
+    });
+    const repositories: string[] = [];
+    for (const name of ["alpha", "beta"]) {
+      const project = path.join(base, name);
+      const repository = path.join(project, "repository");
+      await mkdir(project, { recursive: true });
+      await runGit(project, ["init", "-b", "main", repository]);
+      await runGit(repository, ["config", "user.name", "Continuity MCP"]);
+      await runGit(repository, ["config", "user.email", "continuity-mcp@example.test"]);
+      await writeFile(path.join(repository, "tracked.txt"), `${name}\n`);
+      await runGit(repository, ["add", "tracked.txt"]);
+      await runGit(repository, ["commit", "-m", "initial"]);
+      repositories.push(repository);
+    }
+
+    const store = new ContinuityStore({ databasePath: path.join(base, "continuity.db") });
+    try {
+      const authority = new AuthorityManager({ homeDir: base, commands: ["git"], terminalEnabled: false });
+      const inspector = new ContinuityGitInspector({
+        maxTrackedPaths: 100,
+        remoteVerificationTimeoutMs: 2_000,
+        maxCommandOutputBytes: 1_048_576,
+      });
+      const service = new ProjectContinuityService({
+        store,
+        inspector,
+        authority,
+        homeDir: base,
+        maxResumeChars: 12_000,
+      });
+      const { client, transport } = await fixture({ continuity: service } as never);
+      try {
+        for (const [index, repository] of repositories.entries()) {
+          const registered = await client.callTool({
+            name: "project_register",
+            arguments: {
+              alias: `McpList-${index}`,
+              worktreePath: repository,
+              projectRoots: [path.join(base, index === 0 ? "alpha" : "beta")],
+              task: task(),
+              uncertainties: [],
+              verificationSummary: [],
+            },
+          });
+          expect(registered.isError).not.toBe(true);
+        }
+
+        const listed = await client.callTool({ name: "project_list", arguments: {} });
+        expect(listed.isError).not.toBe(true);
+        const projects = (listed.structuredContent as {
+          projects: Array<{ alias: string; roots: string[]; recordVersion: number; worktreePath: string; updatedAt: string }>;
+        }).projects;
+        expect(projects.map((entry) => entry.alias).sort()).toEqual(["McpList-0", "McpList-1"]);
+        for (const entry of projects) {
+          expect(entry.roots).toHaveLength(1);
+          expect(entry.recordVersion).toBe(1);
+          expect(entry.worktreePath).toContain("repository");
+          expect(typeof entry.updatedAt).toBe("string");
+        }
       } finally {
         await transport.terminateSession();
         await client.close();

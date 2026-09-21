@@ -81,6 +81,18 @@ export const projectContinuityResultOutputSchema = z.object({
   currentRecord: continuitySemanticRecordOutputSchema,
 }).strict();
 
+export const projectListEntryOutputSchema = z.object({
+  alias: z.string(),
+  roots: z.array(z.string()),
+  recordVersion: z.number().int().nonnegative(),
+  worktreePath: z.string(),
+  updatedAt: z.string(),
+}).strict();
+
+export const projectListOutputSchema = z.object({
+  projects: z.array(projectListEntryOutputSchema).max(100),
+}).strict();
+
 export const projectResumeOutputSchema = z.object({
   projectId: z.string(),
   alias: z.string(),

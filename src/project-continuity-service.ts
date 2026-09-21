@@ -50,6 +50,16 @@ export interface ProjectResumeInput {
   requestedTtlSeconds?: number;
 }
 
+export interface ProjectListResult {
+  projects: Array<{
+    alias: string;
+    roots: string[];
+    recordVersion: number;
+    worktreePath: string;
+    updatedAt: string;
+  }>;
+}
+
 export interface ProjectResumeResult {
   projectId: string;
   alias: string;
@@ -264,6 +274,10 @@ export class ProjectContinuityService {
       }
       throw error;
     }
+  }
+
+  async listProjects(): Promise<ProjectListResult> {
+    return { projects: this.store.listProjects() };
   }
 
   async revalidateResumeContext(authorityLeaseId: string): Promise<ContinuityResumeContext> {
