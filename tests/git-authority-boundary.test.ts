@@ -103,8 +103,11 @@ describe("git authority boundary", () => {
     expect(bad.isError).not.toBe(true);
     expect((bad.structuredContent as { exitCode: number; stdout: string }).exitCode).not.toBe(0);
     expect((bad.structuredContent as { stdout: string }).stdout).toContain("trailing whitespace");
+    // Serbest model: kira verilmezse açık kapsam bootstrap köklerle çalışır.
     const noLease = await client.callTool({ name: "git_diff", arguments: { check: true, staged: true } });
-    expect(noLease.isError).toBe(true);
+    expect(noLease.isError).not.toBe(true);
+    expect((noLease.structuredContent as { exitCode: number }).exitCode).not.toBe(0);
+    expect((noLease.structuredContent as { stdout: string }).stdout).toContain("trailing whitespace");
     await writeFile(path.join(root, "fixture.txt"), "clean\n", "utf8");
     git(root, ["add", "fixture.txt"]);
     const clean = await client.callTool({

@@ -61,6 +61,9 @@ async function fixture(projectExecEnabled: boolean) {
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: true, commands: ["node", "npm", "git"] },
     projectExec: { enabled: projectExecEnabled },
+    skills: { enabled: true, directory: path.join(base, "skills") },
+    goal: { enabled: true, maxTranscriptChars: 120_000 },
+    workers: { enabled: true, maxWorkers: 8, maxParkedRuns: 16 },
     continuity: {
       databasePath: path.join(path.dirname(path.join(base, "audit.jsonl")), "continuity.db"),
       maxResumeChars: 12_000,
@@ -129,7 +132,7 @@ function textContent(result: Awaited<ReturnType<Client["callTool"]>>): string {
 async function startProjectLease(client: Client, root: string): Promise<string> {
   const started = await client.callTool({
     name: "session_authority_start",
-    arguments: { profile: "project", projectRoots: [root], requestedTtlSeconds: 120 },
+    arguments: { projectRoots: [root], requestedTtlSeconds: 120 },
   });
   expect(started.isError).not.toBe(true);
   return (started.structuredContent as { leaseId: string }).leaseId;
@@ -203,8 +206,8 @@ describe("project_exec MCP tool", () => {
     }
   });
 
-  it("fails closed for disallowed commands, out-of-scope cwd, and non-Project authority", async () => {
-    const { root, sibling, backend, runtime, client, transport } = await fixture(true);
+  it("fails closed for disallowed commands and out-of-scope cwd while Project and open scopes succeed", async () => {
+    const { root, sibling, backend, client, transport } = await fixture(true);
     try {
       const leaseId = await startProjectLease(client, root);
 
@@ -222,22 +225,24 @@ describe("project_exec MCP tool", () => {
       expect(pathDenied.isError).toBe(true);
       expect(textContent(pathDenied)).toContain("POLICY_DENIED");
 
-      const admin = await runtime.authority.start({ profile: "admin", requestedTtlSeconds: 60 });
-      const adminDenied = await client.callTool({
+      // Tekli proje kipi: proje lease açık kapsamla aynı sandboxa ulaşır.
+      const openScope = await client.callTool({
         name: "project_exec",
-        arguments: { authorityLeaseId: admin.leaseId, command: "node", args: ["--version"], cwd: root },
+        arguments: { command: "node", args: ["--version"], cwd: root },
       });
-      expect(adminDenied.isError).toBe(true);
-      expect(textContent(adminDenied)).toContain("AUTHORITY_DENIED");
+      expect(openScope.isError).not.toBe(true);
+      expect((openScope.structuredContent as { sandbox: { network: string } }).sandbox).toMatchObject({
+        network: "none",
+      });
 
-      const terminalStillDenied = await client.callTool({
+      // Tekli proje kipi: proje lease terminal komutlarını çalıştırabilir.
+      const terminalAllowed = await client.callTool({
         name: "terminal_run",
         arguments: { authorityLeaseId: leaseId, command: "node", args: ["--version"], cwd: root },
       });
-      expect(terminalStillDenied.isError).toBe(true);
-      expect(textContent(terminalStillDenied)).toContain("POLICY_DENIED");
+      expect(terminalAllowed.isError).not.toBe(true);
 
-      expect(backend.requests).toHaveLength(0);
+      expect(backend.requests).toHaveLength(1);
     } finally {
       await transport.terminateSession();
       await client.close();

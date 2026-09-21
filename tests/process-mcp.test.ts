@@ -30,6 +30,29 @@ async function fixture() {
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: true, commands: ["node", "git"] },
     projectExec: { enabled: false },
+    // Yeni zorunlu bloklar: kapalı varsayılanlarla doldurulur.
+    skills: { enabled: false, directory: path.join(base, "skills") },
+    goal: { enabled: false, maxTranscriptChars: 120_000 },
+    workers: { enabled: false, maxWorkers: 8, maxParkedRuns: 16 },
+    ownerRuntime: {
+      enabled: false,
+      shellPath: "/bin/sh",
+      maxScriptBytes: 262_144,
+      maxTimeoutMs: 120_000,
+      maxTerminalSessions: 32,
+      maxTerminalOutputBytes: 262_144,
+      maxTerminalInputBytes: 65_536,
+    },
+    jevTargeting: { enabled: false, apiKey: null },
+    sessionEvents: { enabled: false },
+    browser: {
+      enabled: false,
+      connectionMode: "managed",
+      headless: true,
+      timeoutMs: 10_000,
+      userDataDir: path.join(base, "browser-profile"),
+      existingChromeUserDataDir: null,
+    },
     continuity: {
       databasePath: path.join(path.dirname(path.join(base, "audit.jsonl")), "continuity.db"),
       maxResumeChars: 12_000,
@@ -39,6 +62,7 @@ async function fixture() {
 
     computerUse: {
       enabled: false,
+      fullHostJsEnabled: false,
       hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",
       requestTimeoutMs: 10_000,
       maxObservationElements: 500,
@@ -46,6 +70,10 @@ async function fixture() {
       maxScreenshotBytes: 8_388_608,
       maxActionProgramActions: 100,
       maxActionProgramRuntimeMs: 30_000,
+      maxAutomaticRetriesPerAction: 2,
+      maxJsSourceBytes: 262_144,
+      maxJsRuntimeMs: 30_000,
+      maxJsOutputBytes: 1_048_576,
     },
     control: { enabled: false, socketPath: path.join(base, "control.sock") },
     http: { host: "127.0.0.1", port: 0, allowNonLoopback: false, token },
@@ -92,8 +120,10 @@ async function waitForLogs(client: Client, authorityLeaseId: string, processId: 
 }
 
 describe("managed process MCP tools", () => {
-  it("exposes strict schemas and manages a process across compatible Admin leases", async () => {
+  it("exposes strict schemas and manages a process across compatible Project leases", async () => {
     const { root, runtime, client, transport } = await fixture();
+    const otherRoot = await mkdtemp(path.join(tmpdir(), "chatgpt-system-process-mcp-other-"));
+    cleanups.push(otherRoot);
     try {
       const { tools } = await client.listTools();
       const byName = new Map(tools.map((tool) => [tool.name, tool]));
@@ -102,11 +132,12 @@ describe("managed process MCP tools", () => {
         expect(byName.get(name)?.inputSchema).toMatchObject({ type: "object", additionalProperties: false });
       }
 
-      const adminA = await runtime.authority.start({ profile: "admin", requestedTtlSeconds: 120 });
+      // Serbest mod: tek profil project'tir; tüm lease'ler tam yetkilidir.
+      const projectA = await runtime.authority.start({ profile: "project", projectRoots: [root], requestedTtlSeconds: 120 });
       const started = await client.callTool({
         name: "process_start",
         arguments: {
-          authorityLeaseId: adminA.leaseId,
+          authorityLeaseId: projectA.leaseId,
           command: "node",
           args: ["-e", "console.log('process-ready'); console.error('process-warn'); setInterval(() => {}, 1000)"],
           cwd: root,
@@ -121,48 +152,42 @@ describe("managed process MCP tools", () => {
       });
       expect(JSON.stringify(started.structuredContent)).not.toContain("pid");
       const processId = (started.structuredContent as { processId: string }).processId;
-      await waitForLogs(client, adminA.leaseId, processId);
+      await waitForLogs(client, projectA.leaseId, processId);
 
-      const list = await client.callTool({ name: "process_list", arguments: { authorityLeaseId: adminA.leaseId } });
+      const list = await client.callTool({ name: "process_list", arguments: { authorityLeaseId: projectA.leaseId } });
       expect(list.structuredContent).toMatchObject({ processes: [expect.objectContaining({ processId })] });
 
       const invalidExtraField = await client.callTool({
         name: "process_status",
-        arguments: { authorityLeaseId: adminA.leaseId, processId, pid: 123 },
+        arguments: { authorityLeaseId: projectA.leaseId, processId, pid: 123 },
       });
       expect(invalidExtraField.isError).toBe(true);
 
-      const adminB = await runtime.authority.start({ profile: "admin", requestedTtlSeconds: 120 });
-      runtime.authority.end(adminA.leaseId);
-      const status = await client.callTool({ name: "process_status", arguments: { authorityLeaseId: adminB.leaseId, processId } });
+      const projectB = await runtime.authority.start({ profile: "project", projectRoots: [root], requestedTtlSeconds: 120 });
+      runtime.authority.end(projectA.leaseId);
+      const status = await client.callTool({ name: "process_status", arguments: { authorityLeaseId: projectB.leaseId, processId } });
       expect(status.structuredContent).toMatchObject({ processId, state: "running" });
 
-      const user = await runtime.authority.start({ profile: "user", requestedTtlSeconds: 120 });
-      const userStart = await client.callTool({
-        name: "process_start",
-        arguments: { authorityLeaseId: user.leaseId, command: "node", args: ["--version"], cwd: root },
-      });
-      expect(userStart.isError).toBe(true);
-      expect(textContent(userStart)).toContain("POLICY_DENIED");
-      expect(textContent(userStart)).toMatch(/"operationId":\s*"[0-9a-f-]{36}"/);
-      expect(textContent(userStart)).toContain('"started": false');
-      expect(textContent(userStart)).toContain('"source": "scope"');
-
-      const userLookup = await client.callTool({ name: "process_status", arguments: { authorityLeaseId: user.leaseId, processId } });
-      expect(userLookup.isError).toBe(true);
-      expect(textContent(userLookup)).toContain("PROCESS_NOT_FOUND");
+      // Farklı kapsama ait lease aynı kaydı göremez; yalıtım korunur.
+      const outsider = await runtime.authority.start({ profile: "project", projectRoots: [otherRoot], requestedTtlSeconds: 120 });
+      const outsiderLookup = await client.callTool({ name: "process_status", arguments: { authorityLeaseId: outsider.leaseId, processId } });
+      expect(outsiderLookup.isError).toBe(true);
+      expect(textContent(outsiderLookup)).toContain("PROCESS_NOT_FOUND");
 
       const shellDenied = await client.callTool({
         name: "process_start",
-        arguments: { authorityLeaseId: adminB.leaseId, command: "sh", args: ["-c", "echo nope"], cwd: root },
+        arguments: { authorityLeaseId: projectB.leaseId, command: "sh", args: ["-c", "echo nope"], cwd: root },
       });
       expect(shellDenied.isError).toBe(true);
       expect(textContent(shellDenied)).toContain("POLICY_DENIED");
+      expect(textContent(shellDenied)).toMatch(/"operationId":\s*"[0-9a-f-]{36}"/);
+      expect(textContent(shellDenied)).toContain('"started": false');
+      expect(textContent(shellDenied)).toContain('"source": "scope"');
       expect(textContent(shellDenied)).toContain('"processState": "not_started"');
 
-      const stopped = await client.callTool({ name: "process_stop", arguments: { authorityLeaseId: adminB.leaseId, processId } });
+      const stopped = await client.callTool({ name: "process_stop", arguments: { authorityLeaseId: projectB.leaseId, processId } });
       expect(stopped.structuredContent).toMatchObject({ processId, state: "stopped" });
-      const stoppedAgain = await client.callTool({ name: "process_stop", arguments: { authorityLeaseId: adminB.leaseId, processId } });
+      const stoppedAgain = await client.callTool({ name: "process_stop", arguments: { authorityLeaseId: projectB.leaseId, processId } });
       expect(stoppedAgain.structuredContent).toMatchObject({ processId, state: "stopped" });
     } finally {
       await transport.terminateSession();

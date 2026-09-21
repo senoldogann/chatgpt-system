@@ -39,7 +39,6 @@ async function fixture(ownerRuntimeEnabled: boolean) {
   const config = await loadConfig({
     roots: [root],
     auditFile: path.join(auditDir, "audit.jsonl"),
-    personalAdminEnabled: true,
     ownerRuntimeEnabled,
     ownerShellPath: "/bin/sh",
     terminalEnabled: true,
@@ -137,29 +136,14 @@ describe("terminal_session MCP tools", () => {
     }
   });
 
-  it("denies Project/User, denies disabled Admin, and lets enabled Admin use the PTY lifecycle", async () => {
+  it("lets an enabled Project lease use the PTY lifecycle and denies it when the runtime is disabled", async () => {
     const enabled = await fixture(true);
     try {
+      // Serbest mod: project lease tam yetkilidir; ayrı Admin kapısı yoktur.
       const project = await enabled.runtime.authority.start({ profile: "project", projectRoots: [enabled.root] });
-      const projectDenied = await enabled.client.callTool({
-        name: "terminal_session_list",
-        arguments: { authorityLeaseId: project.leaseId },
-      });
-      expect(projectDenied.isError).toBe(true);
-      expect(textContent(projectDenied)).toContain("POLICY_DENIED");
-
-      const user = await enabled.runtime.authority.start({ profile: "user" });
-      const userDenied = await enabled.client.callTool({
-        name: "terminal_session_list",
-        arguments: { authorityLeaseId: user.leaseId },
-      });
-      expect(userDenied.isError).toBe(true);
-      expect(textContent(userDenied)).toContain("POLICY_DENIED");
-
-      const admin = await enabled.runtime.authority.start({ profile: "admin" });
       const opened = await enabled.client.callTool({
         name: "terminal_session_open",
-        arguments: { authorityLeaseId: admin.leaseId, cwd: enabled.root, cols: 80, rows: 24 },
+        arguments: { authorityLeaseId: project.leaseId, cwd: enabled.root, cols: 80, rows: 24 },
       });
       expect(opened.isError).not.toBe(true);
       const sessionId = (opened.structuredContent as { sessionId: string }).sessionId;
@@ -167,28 +151,36 @@ describe("terminal_session MCP tools", () => {
 
       const listed = await enabled.client.callTool({
         name: "terminal_session_list",
-        arguments: { authorityLeaseId: admin.leaseId },
+        arguments: { authorityLeaseId: project.leaseId },
       });
       expect(listed.structuredContent).toMatchObject({ sessions: [expect.objectContaining({ sessionId, state: "running" })] });
 
       const resized = await enabled.client.callTool({
         name: "terminal_session_resize",
-        arguments: { authorityLeaseId: admin.leaseId, sessionId, cols: 100, rows: 30 },
+        arguments: { authorityLeaseId: project.leaseId, sessionId, cols: 100, rows: 30 },
       });
       expect(resized.isError).not.toBe(true);
       expect(resized.structuredContent).toMatchObject({ cols: 100, rows: 30 });
 
       const written = await enabled.client.callTool({
         name: "terminal_session_write",
-        arguments: { authorityLeaseId: admin.leaseId, sessionId, data: "printf 'MCP_PTY_OK\\n'\r" },
+        arguments: { authorityLeaseId: project.leaseId, sessionId, data: "printf 'MCP_PTY_OK\\n'\r" },
       });
       expect(written.isError).not.toBe(true);
-      const observed = await waitForOutput(enabled.client, admin.leaseId, sessionId, "MCP_PTY_OK");
+      const observed = await waitForOutput(enabled.client, project.leaseId, sessionId, "MCP_PTY_OK");
       expect(observed.data).toContain("MCP_PTY_OK");
+
+      // Lease verilmeden de açık kapsamla aynı yaşam döngüsü çalışır.
+      const openListed = await enabled.client.callTool({
+        name: "terminal_session_list",
+        arguments: {},
+      });
+      expect(openListed.isError).not.toBe(true);
+      expect(openListed.structuredContent).toMatchObject({ sessions: [expect.objectContaining({ sessionId })] });
 
       const closed = await enabled.client.callTool({
         name: "terminal_session_close",
-        arguments: { authorityLeaseId: admin.leaseId, sessionId },
+        arguments: { authorityLeaseId: project.leaseId, sessionId },
       });
       expect(closed.isError).not.toBe(true);
       expect(closed.structuredContent).toMatchObject({ state: "stopped" });
@@ -199,10 +191,10 @@ describe("terminal_session MCP tools", () => {
 
     const disabled = await fixture(false);
     try {
-      const admin = await disabled.runtime.authority.start({ profile: "admin" });
+      const project = await disabled.runtime.authority.start({ profile: "project", projectRoots: [disabled.root] });
       const result = await disabled.client.callTool({
         name: "terminal_session_open",
-        arguments: { authorityLeaseId: admin.leaseId },
+        arguments: { authorityLeaseId: project.leaseId },
       });
       expect(result.isError).toBe(true);
       expect(textContent(result)).toContain("OWNER_RUNTIME_DISABLED");
@@ -215,22 +207,22 @@ describe("terminal_session MCP tools", () => {
   it("rejects unexpected fields and malformed terminal session arguments at the MCP schema", async () => {
     const enabled = await fixture(true);
     try {
-      const admin = await enabled.runtime.authority.start({ profile: "admin" });
+      const project = await enabled.runtime.authority.start({ profile: "project", projectRoots: [enabled.root] });
       const unexpected = await enabled.client.callTool({
         name: "terminal_session_open",
-        arguments: { authorityLeaseId: admin.leaseId, unexpected: true },
+        arguments: { authorityLeaseId: project.leaseId, unexpected: true },
       });
       expect(unexpected.isError).toBe(true);
 
       const invalidResize = await enabled.client.callTool({
         name: "terminal_session_resize",
-        arguments: { authorityLeaseId: admin.leaseId, sessionId: "x".repeat(43), cols: 0, rows: 24 },
+        arguments: { authorityLeaseId: project.leaseId, sessionId: "x".repeat(43), cols: 0, rows: 24 },
       });
       expect(invalidResize.isError).toBe(true);
 
       const emptyWrite = await enabled.client.callTool({
         name: "terminal_session_write",
-        arguments: { authorityLeaseId: admin.leaseId, sessionId: "x".repeat(43), data: "" },
+        arguments: { authorityLeaseId: project.leaseId, sessionId: "x".repeat(43), data: "" },
       });
       expect(emptyWrite.isError).toBe(true);
     } finally {

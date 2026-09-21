@@ -5,7 +5,7 @@ import { ComputerError } from "./computer-errors.js";
 import { COMPUTER_KEY_INPUT_VALUES, normalizeComputerKey } from "./computer-key.js";
 import type { ComputerAction } from "./computer-types.js";
 import { AppError } from "./errors.js";
-import { createScopedRuntime, type ScopedRuntimeBase } from "./scoped-runtime.js";
+import { createOpenRuntime, createScopedRuntime, type ScopedRuntimeBase } from "./scoped-runtime.js";
 import { ScopedComputerService } from "./scoped-computer-service.js";
 import {
   JevApiError,
@@ -394,20 +394,11 @@ async function safeCall<T extends object>(fn: () => Promise<T>) {
 }
 
 async function computerFor(runtime: ComputerToolRuntime, authorityLeaseId?: string) {
-  if (authorityLeaseId) {
+  if (authorityLeaseId !== undefined) {
     const authority = runtime.authority.resolve(authorityLeaseId);
     return createScopedRuntime(runtime, authority).computer;
   }
-  if (runtime.config.personalAdmin?.enabled) {
-    const active = runtime.authority.findActiveAdminLease();
-    if (active) {
-      return createScopedRuntime(runtime, active).computer;
-    }
-    const lease = await runtime.authority.start({ profile: "admin", requestedTtlSeconds: 3600 });
-    return createScopedRuntime(runtime, runtime.authority.resolve(lease.leaseId)).computer;
-  }
-  const authority = runtime.authority.resolve("");
-  return createScopedRuntime(runtime, authority).computer;
+  return createOpenRuntime(runtime).computer;
 }
 
 function compact<T extends Record<string, unknown>>(value: T): T {
@@ -417,13 +408,9 @@ function compact<T extends Record<string, unknown>>(value: T): T {
 const COMPUTER_USE_ROUTING_GUIDANCE = "Use Computer Runtime when the user explicitly asks for Computer Use or physical mouse and keyboard interaction. For real Google Chrome, open or focus bundleIdentifier com.google.Chrome; do not substitute browser_* Playwright automation.";
 
 export function registerComputerTools(server: McpServer, runtime: ComputerToolRuntime): void {
-  // Omitted lease is supported only in explicitly opted-in Personal Admin mode.
-  // Explicit invalid or weaker leases are never replaced with Admin authority.
-  const leaseIdSchema = z.string().min(40);
-  const authorityLeaseField: { authorityLeaseId: z.ZodString | z.ZodOptional<z.ZodString> } = {
-    authorityLeaseId: runtime.config.personalAdmin?.enabled === true
-      ? leaseIdSchema.optional()
-      : leaseIdSchema,
+  // Serbest mod: lease opsiyoneldir, verilmezse açık kapsam kullanılır.
+  const authorityLeaseField = {
+    authorityLeaseId: z.string().min(40).optional(),
   };
   const healthService = new ScopedComputerService(runtime.computer, runtime.audit, false, false);
 
@@ -441,7 +428,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_observe",
     {
-      description: "Return the bounded accessibility/perception observation for the frontmost application. Use perception.recommendedTargeting: ax => prefer semantic AX role/text/index targets, including within-scoped targets; ocr => use bounded OCR fallback with target.by=ocrText; visual-point => obtain a fresh screenshot and make at most one explicit verified point attempt. For off-screen targets inside a deterministic container, use scoped computer_scroll_until_visible rather than repeated raw scroll. Do not repeat an unchanged point or scroll attempt, and do not repeat blind point coordinates after failure; re-observe and replan instead. Requires Admin authority.",
+      description: "Return the bounded accessibility/perception observation for the frontmost application. Use perception.recommendedTargeting: ax => prefer semantic AX role/text/index targets, including within-scoped targets; ocr => use bounded OCR fallback with target.by=ocrText; visual-point => obtain a fresh screenshot and make at most one explicit verified point attempt. For off-screen targets inside a deterministic container, use scoped computer_scroll_until_visible rather than repeated raw scroll. Do not repeat an unchanged point or scroll attempt, and do not repeat blind point coordinates after failure; re-observe and replan instead. No lease required.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: computerObservationOutputSchema,
       annotations: computerReadAnnotations,
@@ -452,7 +439,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_resolve_semantic_target",
     {
-      description: `${COMPUTER_USE_ROUTING_GUIDANCE} Resolve a natural-language instruction to one element from a fresh accessibility observation using Jev semantic target resolution. Read-only: it never clicks, types, or moves input. On outcome "resolved", pass the returned target directly to computer_click/computer_run/computer_move_mouse. On "unresolved", re-observe, ask the user, or fall back to computer_observe's perception.recommendedTargeting instead of guessing. Requires Admin authority, --enable-jev-targeting, and TYPESAFE_API_KEY.`,
+      description: `${COMPUTER_USE_ROUTING_GUIDANCE} Resolve a natural-language instruction to one element from a fresh accessibility observation using Jev semantic target resolution. Read-only: it never clicks, types, or moves input. On outcome "resolved", pass the returned target directly to computer_click/computer_run/computer_move_mouse. On "unresolved", re-observe, ask the user, or fall back to computer_observe's perception.recommendedTargeting instead of guessing. No lease required, --enable-jev-targeting, and TYPESAFE_API_KEY.`,
       inputSchema: z.object({
         ...authorityLeaseField,
         instruction: z.string().min(1).max(2_000),
@@ -523,7 +510,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_pointer_position",
     {
-      description: "Read the current pointer position. Requires Admin authority.",
+      description: "Read the current pointer position. No lease required.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: computerPointResultOutputSchema,
       annotations: computerReadAnnotations,
@@ -535,7 +522,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
     server.registerTool(
       name,
       {
-        description: `${COMPUTER_USE_ROUTING_GUIDANCE} ${name === "computer_open_app" ? "Open or" : ""} focus one macOS application by bundle identifier (preferred, e.g. com.apple.Safari, com.apple.calculator, com.google.Chrome) or application name. Requires bundleIdentifier or name. Supports timeoutMs up to 60000. Requires Admin authority.`,
+        description: `${COMPUTER_USE_ROUTING_GUIDANCE} ${name === "computer_open_app" ? "Open or" : ""} focus one macOS application by bundle identifier (preferred, e.g. com.apple.Safari, com.apple.calculator, com.google.Chrome) or application name. Requires bundleIdentifier or name. Supports timeoutMs up to 60000. No lease required.`,
         inputSchema: z.object({
           ...authorityLeaseField,
           ...selectorFields,
@@ -552,7 +539,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_move_mouse",
     {
-      description: "Move the physical pointer to exact coordinates or a semantic target using deterministic motion. Requires Admin authority.",
+      description: "Move the physical pointer to exact coordinates or a semantic target using deterministic motion. No lease required.",
       inputSchema: z.object({
         ...authorityLeaseField,
         x: z.number().optional(),
@@ -578,7 +565,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_click",
     {
-      description: "Click or double-click exact coordinates or a semantic target. Requires Admin authority.",
+      description: "Click or double-click exact coordinates or a semantic target. No lease required.",
       inputSchema: z.object({
         ...authorityLeaseField,
         x: z.number().optional(),
@@ -606,7 +593,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_drag",
     {
-      description: "Drag between coordinate and/or semantic endpoints with deterministic motion. Requires Admin authority.",
+      description: "Drag between coordinate and/or semantic endpoints with deterministic motion. No lease required.",
       inputSchema: z.object({
         ...authorityLeaseField,
         from: endpointSchema,
@@ -630,7 +617,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_scroll",
     {
-      description: "Scroll vertically and/or horizontally, optionally at coordinates or a semantic target. Requires Admin authority.",
+      description: "Scroll vertically and/or horizontally, optionally at coordinates or a semantic target. No lease required.",
       inputSchema: z.object({
         ...authorityLeaseField,
         vertical: z.number().int().min(-10_000).max(10_000),
@@ -658,7 +645,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_scroll_until_visible",
     {
-      description: "Use only when a deterministic scroll container is known. Bounded semantic scrolling resolves the target inside that container and stops after at most six physical scrolls. Use a fresh observe before deciding how to recover from needs_replan, and never convert failure into repeated blind raw scrolling. Requires Admin authority.",
+      description: "Use only when a deterministic scroll container is known. Bounded semantic scrolling resolves the target inside that container and stops after at most six physical scrolls. Use a fresh observe before deciding how to recover from needs_replan, and never convert failure into repeated blind raw scrolling. No lease required.",
       inputSchema: z.object({
         ...authorityLeaseField,
         target: computerScrollTargetSchema,
@@ -677,7 +664,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_type_text",
     {
-      description: "Type bounded Unicode text into the expected frontmost application. Requires bundleIdentifier or name to select the target application. Requires Admin authority.",
+      description: "Type bounded Unicode text into the expected frontmost application. Requires bundleIdentifier or name to select the target application. No lease required.",
       inputSchema: z.object({
         ...authorityLeaseField,
         text: z.string().max(16_384),
@@ -693,7 +680,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_press_key",
     {
-      description: "Press a named key with optional modifiers in the expected frontmost application. Requires bundleIdentifier or name to select the target application. Requires Admin authority.",
+      description: "Press a named key with optional modifiers in the expected frontmost application. Requires bundleIdentifier or name to select the target application. No lease required.",
       inputSchema: z.object({
         ...authorityLeaseField,
         key: computerKeyInputSchema,
@@ -710,7 +697,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_release_inputs",
     {
-      description: "Idempotently release runtime-held keyboard modifiers, keys, and mouse buttons. Requires Admin authority.",
+      description: "Idempotently release runtime-held keyboard modifiers, keys, and mouse buttons. No lease required.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: computerActionResultOutputSchema,
       annotations: computerIdempotentMutationAnnotations,
@@ -721,7 +708,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_wait_for_frontmost",
     {
-      description: "Wait for the selected application to become frontmost. Requires bundleIdentifier or name. Requires Admin authority.",
+      description: "Wait for the selected application to become frontmost. Requires bundleIdentifier or name. No lease required.",
       inputSchema: z.object({
         ...authorityLeaseField,
         ...selectorFields,
@@ -736,7 +723,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_wait_for_text",
     {
-      description: "Wait for bounded accessibility title/description text without reading editable values. Requires Admin authority.",
+      description: "Wait for bounded accessibility title/description text without reading editable values. No lease required.",
       inputSchema: z.object({
         ...authorityLeaseField,
         text: z.string().min(1).max(4_096),
@@ -752,7 +739,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_wait_until_changed",
     {
-      description: "Wait until the accessibility digest differs from the supplied baseline. Requires Admin authority.",
+      description: "Wait until the accessibility digest differs from the supplied baseline. No lease required.",
       inputSchema: z.object({
         ...authorityLeaseField,
         baselineDigest: z.string().min(1).max(4_096),

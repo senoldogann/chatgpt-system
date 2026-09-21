@@ -9,23 +9,23 @@
   <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-blue">
 </p>
 
-Secure local MCP authority gateway for controlled filesystem, Git, process, and browser automation from ChatGPT-compatible MCP clients.
+Open local MCP bridge for filesystem, Git, process, browser, and desktop automation from ChatGPT-compatible MCP clients. No leases required.
 
-`chatgpt-system` is deliberately not a permanently privileged natural-language shell. Authority is explicit, scoped, expiring, revocable, auditable, and enforced on the Mac. Browser automation follows the same rule instead of quietly becoming a side door around it.
+`chatgpt-system` runs every tool as the current macOS user with no lease or approval ceremony. Confinement is scope-based (bootstrap roots or an optional Project lease), writes stay conflict-safe, and every privileged action is auditable. Browser automation follows the same rule instead of quietly becoming a side door around it.
 
 ## At a glance
 
 | Capability | What it provides |
 | --- | --- |
 | **Secure MCP Tunnel** | Outbound-only personal ChatGPT connectivity without exposing a raw public MCP port |
-| **Scoped authority** | Project, User, and Admin profiles with fixed local privilege boundaries |
+| **Open scope** | No leases required: every tool works against the bootstrap roots, with optional Project leases for narrower scoping |
 | **Filesystem + Git** | Confined file operations plus typed Git read/write primitives |
 | **Project execution** | Explicitly enabled, Project-only Docker sandbox with no network and no host fallback |
-| **Admin / Owner execution** | Allowlisted `shell=false` commands plus explicitly gated unrestricted `shell_run` and persistent interactive PTY sessions |
-| **Browser Runtime** | Admin-only semantic Playwright automation, screenshots, and bounded browser diagnostics |
-| **Computer Runtime v2 Slice 5** | Native control plus semantic AX/OCR targets, bounded recovery, stale-target refusal, Admin-only full-host JavaScript, takeover safety, and redacted audit |
-| **Jev semantic target resolution** | Admin-only, read-only, explicitly gated: resolves a natural-language instruction to an observed element index using TypeSafe's Jev model, with a mandatory "no match" option and a duplicate-description guard so it fails closed instead of guessing |
-| **macOS trust** | LocalAuthentication for broad authority and Keychain-backed daily-driver credentials |
+| **Owner execution** | Allowlisted `shell=false` commands plus explicitly gated unrestricted `shell_run` and persistent interactive PTY sessions |
+| **Browser Runtime** | Semantic Playwright automation, screenshots, and bounded browser diagnostics |
+| **Computer Runtime v2 Slice 5** | Native control plus semantic AX/OCR targets, bounded recovery, stale-target refusal, separately gated full-host JavaScript, takeover safety, and redacted audit |
+| **Jev semantic target resolution** | Read-only, explicitly gated: resolves a natural-language instruction to an observed element index using TypeSafe's Jev model, with a mandatory "no match" option and a duplicate-description guard so it fails closed instead of guessing |
+| **macOS trust** | Keychain-backed daily-driver credentials and a stable signed Computer Runtime identity |
 | **Daily driver** | LaunchAgent startup, automatic tunnel reconnect, bounded logs, and no routine Terminal ceremony |
 
 ## Architecture
@@ -36,28 +36,24 @@ flowchart LR
     Tunnel --> Client["tunnel-client on macOS"]
     Client --> Runtime["chatgpt-system MCP runtime"]
 
-    Runtime --> Authority["Authority Manager"]
-    Authority --> Project["Project<br/>repo scoped"]
-    Authority --> User["User<br/>home scoped"]
-    Authority --> Admin["Admin<br/>host scope as current user"]
+    Runtime --> Authority["Project leases<br/>optional narrow scope"]
 
     Runtime --> Files["Filesystem"]
     Runtime --> Git["Typed Git"]
     Runtime --> ProjectExec["Project Docker sandbox\nnetwork=none"]
     ProjectExec --> Docker["Local Unix-socket Docker daemon"]
-    Runtime --> Exec["Admin host terminal + managed processes"]
-    Runtime --> Browser["Admin Browser Runtime"]
+    Runtime --> Exec["Host terminal + managed processes"]
+    Runtime --> Browser["Browser Runtime"]
     Browser --> Playwright["Playwright 1.63.0"]
-    Runtime --> Computer["Admin Computer Runtime"]
+    Runtime --> Computer["Computer Runtime"]
     Computer --> Native["Signed macOS helper\ninherited NDJSON stdio"]
     Playwright --> Chromium["Dedicated Chromium profile"]
     Runtime --> Audit["Redacted audit log"]
 
-    LocalAuth["macOS LocalAuthentication"] --> Authority
     Keychain["macOS Keychain"] --> Client
 ```
 
-The tunnel is transport, not authority. Privilege decisions remain local to the Mac. Admin still runs as the current macOS user rather than root. Browser automation and Computer Runtime are independently gated Admin capabilities; neither is a network or OS sandbox.
+The tunnel is transport, not authority. Everything runs as the current macOS user rather than root. Browser automation and Computer Runtime are independently gated capabilities; neither is a network or OS sandbox.
 
 ## Current implementation
 
@@ -66,28 +62,28 @@ The shared runtime currently includes:
 - MCP TypeScript SDK v2 / 2026-07-28 protocol support;
 - stdio and authenticated Streamable HTTP transports;
 - personal ChatGPT Plugin path through OpenAI Secure MCP Tunnel;
-- Project / User / Admin authority leases;
-- direct Project authority from MCP with no host-terminal/browser-content capability;
-- optional `project_exec` behind the separate `--enable-project-exec` gate, restricted to Project leases and a local Unix-socket Docker context with `network=none`, read-only container root, bounded resources, and no host-execution fallback;
-- local User/Admin authorization through a private Unix socket and macOS LocalAuthentication;
-- optional explicit personal-admin mode for a private daily-driver workstation;
-- protected root-owned native approval helper with pinned SHA-256 metadata;
+- optional Project leases for narrower scoping (every tool also works without a lease);
+- open host-terminal/process/shell/PTY capability behind explicit startup gates;
+- optional `project_exec` behind the separate `--enable-project-exec` gate, scoped to the active roots and a local Unix-socket Docker context with `network=none`, read-only container root, bounded resources, and no host-execution fallback;
+- no local approval ceremony: no control socket, no broker, no biometric gate;
+- explicit `--owner-workstation` preset composing the daily-driver capability set;
+- signed macOS Computer Runtime helper with a stable bundle identity;
 - filesystem confinement, symlink escape protection, optimistic SHA-256 mutation guards, and atomic replacement;
 - typed Git status/diff/log/branch/stage/commit/merge/push operations;
-- Admin-only allowlisted one-shot execution with `shell=false`;
-- Admin-only managed process supervision with opaque IDs, bounded logs, and POSIX process-group cleanup;
-- Admin-only deterministic Playwright Browser Runtime with semantic targeting and bounded diagnostics;
+- allowlisted one-shot execution with `shell=false`;
+- managed process supervision with opaque IDs, bounded logs, and POSIX process-group cleanup;
+- deterministic Playwright Browser Runtime with semantic targeting and bounded diagnostics;
 - browser credential-entry refusal and editable ARIA value redaction;
 - Swift 6/macOS 14+ Computer Runtime v2 helper with strict bounded NDJSON over inherited stdin/stdout;
 - passive Accessibility, Screen Recording, event-listen, and event-post readiness plus bounded app/window + AX observation and an 8 MiB ScreenCaptureKit screenshot path;
 - deterministic app open/focus, pointer movement, click/double-click, mouse down/up, drag, scroll, Unicode typing, named keys/chords, and `release_inputs` on one serialized physical-action lane;
 - one runtime-owned CoreGraphics event tag, listen-only takeover monitoring, fixed Control+Option+Command+Escape emergency stop, and deterministic AX/text/screen-region verification primitives;
 - dedicated TypeScript native-host supervisor with fixed helper path, strict request/response correlation, crash/restart handling, bounded frames, and one shared `ComputerRuntime`;
-- lease-free categorical `computer_health`, Admin-only strict `computer_*` MCP tools, and typed `computer_run`; in Admin Owner Runtime it has no legacy 100-action or implicit 30-second productivity cap, while returned step summaries and payloads remain bounded;
+- lease-free categorical `computer_health`, strict `computer_*` MCP tools, and typed `computer_run`; with Owner Runtime it has no legacy 100-action or implicit 30-second productivity cap, while returned step summaries and payloads remain bounded;
 - stable daily-driver installer at `~/.chatgpt-system/ChatGPTSystemComputerRuntime.app`, preserving the fixed bundle ID `com.senoldogann.chatgpt-system.computer-runtime` and designated requirement across updates;
-- Admin-only `computer_run_js` behind the separate `--enable-full-host-js` gate, using a fixed runner entrypoint, stdin-only source delivery, sanitized child environment, bounded source/output/result memory, private low-level computer RPC, and per-call process isolation; Admin Owner Runtime may omit the wall-clock deadline while explicit timeout/cancellation remain authoritative;
+- `computer_run_js` behind the separate `--enable-full-host-js` gate, using a fixed runner entrypoint, stdin-only source delivery, sanitized child environment, bounded source/output/result memory, private low-level computer RPC, and per-call process isolation; Owner Runtime may omit the wall-clock deadline while explicit timeout/cancellation remain authoritative;
 - semantic AX/label/text/index/point targets, focused-window Vision OCR fallback, bounded recovery, stale-snapshot refusal, `computer_scroll_until_visible`, and `computer_resolve_semantic_target`;
-- JSONL audit trail with redacted authority/process/browser/computer metadata;
+- JSONL audit trail with redacted scope/process/browser/computer metadata;
 - localhost Host/Origin validation for HTTP mode; non-loopback HTTP is fail-closed unless `--allow-non-loopback-http` or `CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP=true` explicitly acknowledges an authenticated TLS reverse-proxy deployment;
 - Node 22 / Node 24 / Node 26 CI plus native macOS build/install verification.
 
@@ -99,7 +95,7 @@ Computer Runtime v2 Slice 5 keeps the native physical-input layer deterministic 
 - npm
 - Git
 - Docker Desktop or another trusted local Docker daemon when `project_exec` is enabled; the active Docker context must resolve to a local Unix socket
-- macOS + Swift/Xcode command-line tools for native User/Admin approval; the standalone Computer Runtime v2 helper specifically requires macOS 14+
+- macOS + Swift/Xcode command-line tools for the native Computer Runtime v2 helper, which specifically requires macOS 14+
 - `tunnel-client` when using the personal ChatGPT Plugin route
 - Chromium installed through the repository-pinned Playwright CLI when Browser Runtime is enabled
 
@@ -132,7 +128,7 @@ Then start the runtime with the independent gate:
 npm run dev -- stdio --root /absolute/path/to/project --enable-project-exec
 ```
 
-`project_exec` accepts only a Project lease. The project root is bind-mounted at `/workspace`; container networking is disabled, the container root filesystem is read-only, and Docker/image/backend failures return `SANDBOX_UNAVAILABLE` rather than falling back to host execution. The sandbox is Linux-based, so macOS-native/Xcode tasks still require the existing explicit Admin host-execution path.
+`project_exec` is scoped to the active roots (a Project lease when one is given, otherwise the bootstrap roots). The project root is bind-mounted at `/workspace`; container networking is disabled, the container root filesystem is read-only, and Docker/image/backend failures return `SANDBOX_UNAVAILABLE` rather than falling back to host execution. The sandbox is Linux-based, so macOS-native/Xcode tasks still require the host terminal path.
 
 ## Browser Runtime
 
@@ -172,7 +168,7 @@ CHATGPT_SYSTEM_BROWSER_USER_DATA_DIR=~/.chatgpt-system/browser-profile
 
 The default user-data directory is intentionally a dedicated automation profile. Do not point normal automation at your everyday Chrome/Chromium profile unless you deliberately accept the additional exposure.
 
-Existing Chrome attach is a separate explicit mode for trusted use of the Chrome session you are already using, including existing authenticated state. On Chrome 144+, enable remote debugging yourself at `chrome://inspect/#remote-debugging`, then start with `--enable-browser --browser-existing-chrome`. Page/content access remains Admin-only, internal Chrome/extension/DevTools pages are not exposed, and runtime shutdown disconnects automation without intentionally closing the Chrome process or pre-existing tabs. See [docs/EXISTING_CHROME_ATTACH.md](docs/EXISTING_CHROME_ATTACH.md) for the consent, privacy, lifecycle, and non-default user-data-directory rules.
+Existing Chrome attach is a separate explicit mode for trusted use of the Chrome session you are already using, including existing authenticated state. On Chrome 144+, enable remote debugging yourself at `chrome://inspect/#remote-debugging`, then start with `--enable-browser --browser-existing-chrome`. Page/content access requires the browser gate, internal Chrome/extension/DevTools pages are not exposed, and runtime shutdown disconnects automation without intentionally closing the Chrome process or pre-existing tabs. See [docs/EXISTING_CHROME_ATTACH.md](docs/EXISTING_CHROME_ATTACH.md) for the consent, privacy, lifecycle, and non-default user-data-directory rules.
 
 ### Browser vs Computer Use routing
 
@@ -180,23 +176,11 @@ User intent wins over the generic web default. When a user explicitly asks for *
 
 Browser Runtime remains available when semantic Playwright automation is explicitly requested or when the user has not required Computer Use/physical desktop interaction. Existing-Chrome CDP attach is still Browser Runtime and therefore does not satisfy an explicit physical Computer Use request.
 
-### Browser authority boundary
+### Browser access model
 
 `browser_health` is lease-free and returns only categorical readiness.
 
-All other browser tools require an active Admin lease because tabs, URLs, page content, screenshots, console output, and network diagnostics can reveal authenticated user-session information unrelated to a Project/User filesystem scope.
-
-Project and User leases therefore cannot inspect or mutate browser content.
-
-### Local action review (review only)
-
-The local CLI can separately authenticate the macOS user and ask for confirmation of a caller-supplied, exact CLICK scope:
-
-```bash
-node dist/cli.js review-action --task-id task-1 --context-id context-1 --page-id page-1 --origin https://example.test --epoch 4 --target role:button:Submit
-```
-
-This requires a real interactive terminal and an installed, trusted macOS authority helper. The helper authenticates the **User profile only**; the terminal then asks for a separate, exact-scope review. The one-use result is consumed inside the CLI and is **not** an Admin/User lease, an MCP grant, proof of a ChatGPT conversation's intent, verification of actual browser state, or permission to click. The command never opens a browser or issues input. Without an interactive terminal, authentication, or explicit agreement it denies. Never pass `yes` by script or substitute this review for the unproven browser dispatch-time identity and uniqueness gate.
+All other browser tools work with no lease against the dedicated automation profile. Tabs, URLs, page content, screenshots, console output, and network diagnostics can reveal authenticated session information, so point the runtime at the dedicated profile and never at an everyday browsing profile unless that exposure is intended.
 
 ### Browser target model
 
@@ -217,7 +201,7 @@ Browser shared-state operations use a shared serialization chain, page operation
 
 ## Computer Runtime v2 Slice 5
 
-Slice 3 established the Swift helper, TypeScript native-host supervisor, Admin policy, strict low-level MCP tools, bounded typed `computer_run`, stable installation, takeover handling, and shutdown integration. Slice 4 added the separately gated `computer_run_js` full-host execution layer. Slice 5 adds semantic targets, focused-window Vision OCR enrichment, bounded recovery, scoped scrolling, stale-snapshot refusal, and matching semantic helpers inside `computer_run_js`. The helper requires macOS 14+ and communicates only over inherited stdin/stdout using strict bounded NDJSON; there is no caller-selected native executable path.
+Slice 3 established the Swift helper, TypeScript native-host supervisor, strict low-level MCP tools, bounded typed `computer_run`, stable installation, takeover handling, and shutdown integration. Slice 4 added the separately gated `computer_run_js` full-host execution layer. Slice 5 adds semantic targets, focused-window Vision OCR enrichment, bounded recovery, scoped scrolling, stale-snapshot refusal, and matching semantic helpers inside `computer_run_js`. The helper requires macOS 14+ and communicates only over inherited stdin/stdout using strict bounded NDJSON; there is no caller-selected native executable path.
 
 Build, test, and stage the fixed background app bundle with:
 
@@ -246,11 +230,11 @@ The helper bundle identifier is fixed to `com.senoldogann.chatgpt-system.compute
 
 Physical mutations are serialized and tagged with one runtime-owned CoreGraphics tag. A listen-only monitor ignores owned events, interrupts active automation on conservative unowned user input, and recognizes the fixed Control+Option+Command+Escape emergency chord. Verification uses bounded safe AX title/description state or in-memory screen-region digests; it does not read editable AX values or use OCR.
 
-Slice 5 preserves the strict Computer Runtime authority boundary. `computer_health` is lease-free and categorical; every observation, screenshot, app-focus, physical-input, wait, release, `computer_run`, `computer_run_js`, and semantic-target operation requires Admin authority. `computer_run_js` additionally requires the independent `--enable-full-host-js` startup gate. It runs as the current macOS user with normal Node.js APIs and is not an OS sandbox or filesystem-root confinement boundary. Source is stdin-only, the child receives a sanitized environment with daemon secret-bearing environment values removed, and ordinary descendants are cleaned through the owned process group. Deliberately detached or daemonized descendants are outside that containment claim. Raw `mouse_down` / `mouse_up` remain absent as direct MCP tools but are available inside bounded typed `computer_run`. `computer_resolve_semantic_target` is read-only and Jev-gated; OCR and recovery remain bounded and focused-window-only.
+Slice 5 preserves the strict Computer Runtime capability boundary. `computer_health` is lease-free and categorical; every observation, screenshot, app-focus, physical-input, wait, release, `computer_run`, `computer_run_js`, and semantic-target operation needs the computer gate but no lease. `computer_run_js` additionally requires the independent `--enable-full-host-js` startup gate. It runs as the current macOS user with normal Node.js APIs and is not an OS sandbox or filesystem-root confinement boundary. Source is stdin-only, the child receives a sanitized environment with daemon secret-bearing environment values removed, and ordinary descendants are cleaned through the owned process group. Deliberately detached or daemonized descendants are outside that containment claim. Raw `mouse_down` / `mouse_up` remain absent as direct MCP tools but are available inside bounded typed `computer_run`. `computer_resolve_semantic_target` is read-only and Jev-gated; OCR and recovery remain bounded and focused-window-only.
 
 ### Jev semantic target resolution
 
-`computer_resolve_semantic_target` is a separate, explicit, Admin-only, **read-only** capability: it never clicks, types, or moves input. Given a natural-language `instruction`, it takes a fresh `computer_observe` snapshot, asks [TypeSafe's Jev model](https://docs.typesafe.ai) which observed element (if any) matches, and returns either `{ outcome: "resolved", target: { by: "index", snapshotId, index }, confidence }` — ready to pass straight into `computer_click` / `computer_run` / `computer_move_mouse` — or `{ outcome: "unresolved", reason, confidence }`.
+`computer_resolve_semantic_target` is a separate, explicit, **read-only** capability: it never clicks, types, or moves input. Given a natural-language `instruction`, it takes a fresh `computer_observe` snapshot, asks [TypeSafe's Jev model](https://docs.typesafe.ai) which observed element (if any) matches, and returns either `{ outcome: "resolved", target: { by: "index", snapshotId, index }, confidence }` — ready to pass straight into `computer_click` / `computer_run` / `computer_move_mouse` — or `{ outcome: "unresolved", reason, confidence }`.
 
 Disabled by default. Enable with `--enable-jev-targeting` (or `CHATGPT_SYSTEM_ENABLE_JEV_TARGETING=true`) plus a `TYPESAFE_API_KEY` environment variable ([console.typesafe.ai/keys](https://console.typesafe.ai/keys)); both `--enable-computer-use` and the API key are required, or the tool fails closed with `JEV_TARGETING_UNAVAILABLE`.
 
@@ -259,13 +243,13 @@ It resolves to `unresolved` instead of guessing whenever:
 - confidence falls below the resolver's internal threshold (`reason: "low_confidence"`);
 - the chosen element's description is identical to another candidate's (`reason: "ambiguous_duplicate"`) — added because duplicate/near-duplicate candidates (e.g. two identically labeled buttons) were observed to return confidently wrong answers with high reported confidence, so confidence alone is not treated as sufficient.
 
-`computer_resolve_semantic_target` only ever suggests a target; it carries no authority beyond an observation, and the calling agent still performs the actual click through the existing Admin-gated computer tools.
+`computer_resolve_semantic_target` only ever suggests a target; it carries no authority beyond an observation, and the calling agent still performs the actual click through the existing computer tools.
 
 ## Personal ChatGPT Plugin
 
 For a personal ChatGPT Developer Mode plugin, use OpenAI Secure MCP Tunnel so the Mac does not expose a public inbound MCP port.
 
-Create the fixed Project execution image first if you want Project leases to run builds/tests without Admin host-terminal authority:
+Create the fixed Project execution image first if you want to run builds/tests inside the Docker sandbox:
 
 ```bash
 npm run setup:project-exec
@@ -281,7 +265,7 @@ npm run setup:chatgpt -- \
   --doctor
 ```
 
-`--owner-workstation` enables Personal Admin, Owner Runtime, structured host terminal/PTY capability, local Docker Project Exec, Computer Use, and full-host JavaScript. It is still current-user authority, **not root** and not an OS sandbox. macOS sudo, TCC, SIP, FileVault/login, and Keychain authentication boundaries remain authoritative. Browser Runtime stays independent and is never enabled by this preset; add `--enable-browser` separately only when the Playwright layer is intentionally wanted. The individual capability flags remain available for narrower configurations: `--enable-terminal`, `--enable-project-exec`, `--personal-admin`, `--enable-owner-runtime`, `--enable-computer-use`, and `--enable-full-host-js`. Omitting the preset preserves the secure defaults.
+`--owner-workstation` enables Owner Runtime, structured host terminal/PTY capability, local Docker Project Exec, Computer Use, and full-host JavaScript. It is still current-user authority, **not root** and not an OS sandbox. macOS sudo, TCC, SIP, FileVault/login, and Keychain authentication boundaries remain authoritative. Browser Runtime stays independent and is never enabled by this preset; add `--enable-browser` separately only when the Playwright layer is intentionally wanted. The individual capability flags remain available for narrower configurations: `--enable-terminal`, `--enable-project-exec`, `--enable-owner-runtime`, `--enable-computer-use`, and `--enable-full-host-js`. Omitting the preset preserves the secure defaults.
 
 The configured `--root` is a **bootstrap/default root**, not a permanent "only this project" restriction. A Project lease may target another explicit repository path outside the bootstrap root with `session_authority_start(profile="project", projectRoots=[...])`; `/` and the entire home directory remain forbidden Project roots. For a new project, the recommended flow is: open the exact Project lease, `project_register` it once for continuity, then use `project_resume` in later chats. Reconfiguring the tunnel is not required for each repository.
 
@@ -292,7 +276,6 @@ npm run setup:chatgpt -- \
   --root /absolute/path/to/disposable-test-project \
   --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
   --enable-terminal \
-  --personal-admin \
   --enable-browser \
   --browser-headless \
   --doctor
@@ -300,7 +283,7 @@ npm run setup:chatgpt -- \
 
 `--browser-headless` without `--enable-browser` is rejected.
 
-To use the already-running Chrome session instead of the managed Playwright profile, keep Chrome running, enable consent at `chrome://inspect/#remote-debugging`, and configure the tunnel with `--enable-browser --browser-existing-chrome`. Do not combine Existing-Chrome mode with `--browser-headless`; use it only when Admin-authorized access to the existing signed-in session is intended.
+To use the already-running Chrome session instead of the managed Playwright profile, keep Chrome running, enable consent at `chrome://inspect/#remote-debugging`, and configure the tunnel with `--enable-browser --browser-existing-chrome`. Do not combine Existing-Chrome mode with `--browser-headless`; use it only when access to the existing signed-in session is intended.
 
 If the `chatgpt-system` tunnel profile already exists and its child command is stale, replacement is intentionally explicit. Re-run setup with `--force`:
 
@@ -365,19 +348,9 @@ npm run daily-driver:uninstall
 
 The LaunchAgent runs as the logged-in user. The dedicated `chatgpt-system-keychain-helper` owns app-specific Keychain store/read/delete operations; runtime reads fail closed rather than opening authentication UI. The tunnel credential is not written to the plist, repository, audit log, runner logs, or spawned command argv. `owner-workstation:status` is passive: it reports stable Computer Runtime identity, Accessibility/Screen Recording/event permission booleans, and non-interactive credential readability without changing TCC or Keychain policy.
 
-## Authority privilege ladder
+## Open scope
 
-Every privileged filesystem/Git/process/browser-content call carries an opaque `authorityLeaseId`. The capability mapping is fixed by trusted local code and cannot be overridden by MCP input.
-
-| Profile | Scope | Maximum lease | Host terminal/process | Project sandbox | Browser content/actions | Authority creation |
-| --- | --- | ---: | --- | --- | --- | --- |
-| `project` | Explicit project root(s) | 8 hours | No | Yes only when `--enable-project-exec` is enabled | No | MCP `session_authority_start` |
-| `user` | Canonical current-user home | 4 hours | No | No | No | Local CLI + macOS authentication |
-| `admin` | `/` host-wide scope under current OS user | 1 hour | Yes when runtime gate enabled | No; use a Project lease | Yes when browser gate enabled | Local CLI by default; MCP direct in personal-admin mode |
-
-### Project authority
-
-Project mode is the default for normal repository work:
+Every tool works with no lease against the bootstrap roots. An optional Project lease narrows the scope to explicit roots:
 
 ```text
 session_authority_start({
@@ -386,63 +359,11 @@ session_authority_start({
 })
 ```
 
-It supports filesystem and built-in Git tools inside selected roots. These exact Project roots may be outside the tunnel's bootstrap/default root; a new tunnel profile is not required for another repository. When the independent Project execution gate is enabled, the same Project lease can also call `project_exec` inside those roots without gaining host-terminal authority. `/` and the entire user home directory are rejected as Project roots. Register the repository once with `project_register` when continuity is wanted, then use `project_resume` in later chats.
+Project roots may target repository paths outside the tunnel's bootstrap/default root; a new tunnel profile is not required for another repository. `/` and the entire user home directory are rejected as Project roots. There are no User/Admin profiles, no local approval ceremony, and no lease-gated capabilities: host terminal, processes, shells, browser, and computer tools are available as soon as their independent startup gates are enabled. Register the repository once with `project_register` when continuity is wanted, then use `project_resume` in later chats.
 
-### User/Admin local authorization
+## No privilege ladder
 
-By default broad authority starts physically on the Mac:
-
-```bash
-chatgpt-system authorize user
-chatgpt-system authorize admin
-```
-
-The flow is:
-
-```text
-local CLI
-   |
-   v
-~/.chatgpt-system/control.sock
-   |
-   v
-protected root-owned LocalAuthentication helper
-   |
-   v
-same in-memory AuthorityManager
-   |
-   v
-expiring lease
-```
-
-The normal CLI copies the raw lease to the clipboard rather than printing it. `--print-lease` is an explicit diagnostic escape hatch.
-
-## Protected native approval helper
-
-Build as the normal user:
-
-```bash
-npm run build:broker:macos
-```
-
-Install with explicit administrator authorization:
-
-```bash
-sudo npm run install:broker:macos
-```
-
-Protected production paths:
-
-```text
-/Library/Application Support/chatgpt-system/bin/chatgpt-system-authority-broker
-/Library/Application Support/chatgpt-system/etc/authority-broker.sha256
-```
-
-The runtime verifies path type, ownership, permissions, and SHA-256 identity before each User/Admin native approval. Repository-local `.build/release` output is never trusted as the production approval executable.
-
-## Admin is not root
-
-An Admin lease provides host-wide scope where the current OS account has permission and can enable structured terminal/process/browser capabilities when their independent runtime gates are enabled. It does not grant UID 0 and does not cache or expose sudo credentials.
+Everything runs as the current OS user. Nothing grants UID 0 and nothing caches or exposes sudo credentials.
 
 True root-only operations remain a future typed ServiceManagement/XPC boundary, not password piping, `sudo -S`, passwordless sudo, or a reusable root shell.
 
@@ -464,6 +385,26 @@ session_authority_start
 session_authority_status
 session_authority_end
 ```
+
+`authorityLeaseId` is optional everywhere else: omit it to work against the bootstrap roots, or pass a Project lease for narrower scoping.
+
+### Skills, goal, workers, handoff
+
+```text
+skills_list
+skills_read
+skills_import
+skills_remove
+goal_advise
+worker_spawn
+worker_status
+worker_message
+worker_sleep
+worker_finish
+handoff_prepare
+```
+
+Skills are managed `SKILL.md` texts (catalog metadata, never instructions). `goal_advise` decides stop/continue and drafts the next instruction without ever sending anything. Workers are prime-owned runs with inbox notes, sleep/wake, finish reports, and parked history. `handoff_prepare` builds the compaction brief plus the exact replacement opening message; persist it with `project_checkpoint` (`brief`/`planSteps`/`activity`), which the resume package then carries as `[BRIEF]`/`[PLAN]`/`[ACTIVITY]` sections.
 
 ### Filesystem
 
@@ -492,9 +433,9 @@ git_merge_branch
 git_push
 ```
 
-`git_push` is a dual-authority publication gate. `authorityLeaseId` must be an active Admin lease and `projectAuthorityLeaseId` must be the exact active Project lease returned by `project_resume` for the registered worktree. Publication is denied on `main`, on a dirty tree, when resumed worktree identity no longer matches, or unless `project_check` reports a fresh `PASS` for the exact current `HEAD` + `workingTreeDigest`. The final Git refspec uses that verified commit SHA and the validated current branch; remote/refspec/force/branch/head verification overrides are not exposed to MCP callers.
+`git_push` is a typed publication gate. `projectAuthorityLeaseId` must be the exact active Project lease returned by `project_resume` for the registered worktree. Publication is denied on `main`, on a dirty tree, when resumed worktree identity no longer matches, or unless `project_check` reports a fresh `PASS` for the exact current `HEAD` + `workingTreeDigest`. The final Git refspec uses that verified commit SHA and the validated current branch; remote/refspec/force/branch/head verification overrides are not exposed to MCP callers.
 
-An Admin lease supplied to `project_check run` for an `admin-host` native verification check authorizes only that local verification execution. `git_push` independently requires its own current Admin lease plus the exact resumed Project lease and a fresh `project_check report` `PASS`. Verification evidence stores categorical execution metadata plus output digests and byte counts; raw terminal stdout/stderr is not persisted.
+A lease supplied to `project_check run` for an `admin-host` native verification check authorizes only that local verification execution. `git_push` independently requires the exact resumed Project lease and a fresh `project_check report` `PASS`. Verification evidence stores categorical execution metadata plus output digests and byte counts; raw terminal stdout/stderr is not persisted.
 
 ### Sandboxed Project execution
 
@@ -502,9 +443,9 @@ An Admin lease supplied to `project_check run` for an `admin-host` native verifi
 project_exec
 ```
 
-`project_exec` requires a Project lease and the explicit Project-execution startup gate. It never falls back to `terminal_run`; Docker daemon/image/context failures fail closed.
+`project_exec` requires the explicit Project-execution startup gate plus an optional Project lease for narrower scoping. It never falls back to `terminal_run`; Docker daemon/image/context failures fail closed.
 
-**Persistent Owner Mode startup fast path:** For an existing registered project, call `project_resume` first. Reuse a valid Admin lease already available in the conversation, and defer Admin lookup for Project-only work. If an Admin action is needed but the lease is unavailable, call `persistent_owner_mode` with `operation: "status"` once; when enabled, it returns the existing non-expiring lease. Do not repeatedly start a new Admin session. Every privileged operation still requires its explicit valid `authorityLeaseId`; Project and Admin authorities are not interchangeable, and this does not change macOS or hosted product approvals.
+**Project fast path:** For an existing registered project, call `project_resume` first and reuse its lease for the session. This does not change macOS or hosted product approvals.
 
 ### Owner Runtime full-host shell and PTY
 
@@ -518,13 +459,13 @@ terminal_session_close
 terminal_session_list
 ```
 
-`Owner Runtime` is an explicit private-workstation capability for a locally approved Admin session. It requires `--personal-admin --enable-owner-runtime`; Personal Admin alone is not sufficient. `shell_run` executes arbitrary login-shell syntax through the trusted startup shell (macOS default `/bin/zsh`) as the current macOS user, including pipes, redirects, compound commands, installed compilers/package managers, normal host network access, and executable paths that are not in the structured terminal allowlist. It is **not an OS sandbox** and Project/User leases cannot use it.
+`Owner Runtime` is an explicit private-workstation capability. It requires `--enable-owner-runtime`. `shell_run` executes arbitrary login-shell syntax through the trusted startup shell (macOS default `/bin/zsh`) as the current macOS user, including pipes, redirects, compound commands, installed compilers/package managers, normal host network access, and executable paths that are not in the structured terminal allowlist. It is **not an OS sandbox**.
 
 Unlike `terminal_run`, `shell_run` has no inherited command allowlist or default legacy command wall-clock timeout. Caller-supplied finite timeout, MCP cancellation, and daemon shutdown terminate the owned process group. stdout/stderr retention remains bounded in memory and overflow drops old bytes instead of killing the job. The child receives the sanitized daemon environment; control-plane/authority secrets are not automatically forwarded. Audit stores only lifecycle metadata plus script byte count/SHA-256, never raw script, output, environment, or lease content.
 
-`terminal_session_*` is the persistent interactive counterpart. `terminal_session_open` starts the same trusted login shell in a real PTY and returns an opaque daemon-local session ID, never an OS PID. Reads use a monotonic output-event cursor over a bounded UTF-8-safe in-memory ring; writes and resize requests are bounded; sessions may outlive the Admin lease that created them but only a later active Admin Owner Runtime lease can rediscover or operate them. Project/User cannot list or use PTYs. Sessions do not survive daemon restart, and daemon shutdown owns SIGTERM -> grace -> SIGKILL cleanup. PTY input/output and session identifiers are not durable audit content.
+`terminal_session_*` is the persistent interactive counterpart. `terminal_session_open` starts the same trusted login shell in a real PTY and returns an opaque daemon-local session ID, never an OS PID. Reads use a monotonic output-event cursor over a bounded UTF-8-safe in-memory ring; writes and resize requests are bounded. Sessions do not survive daemon restart, and daemon shutdown owns SIGTERM -> grace -> SIGKILL cleanup. PTY input/output and session identifiers are not durable audit content.
 
-Owner Runtime also changes only the **productivity ceilings** of Computer Runtime for an approved Admin. `computer_run` may execute more than the legacy 100-action cap and, when `timeoutMs` is omitted, has no implicit 30-second program deadline. `computer_run_js` likewise has no implicit 30-second runner deadline in Owner mode. A supplied finite timeout, MCP cancellation, user takeover, the fixed emergency chord, and daemon/runtime shutdown remain authoritative. An already-issued native action is allowed to finish as one atomic operation bounded by the existing native request timeout; cancellation prevents later actions and cleanup releases held input. JS source/output/result, screenshots, observations, recovery retries, protocol frames, and returned `computer_run` step summaries remain bounded.
+Owner Runtime also changes only the **productivity ceilings** of Computer Runtime. `computer_run` may execute more than the legacy 100-action cap and, when `timeoutMs` is omitted, has no implicit 30-second program deadline. `computer_run_js` likewise has no implicit 30-second runner deadline in Owner mode. A supplied finite timeout, MCP cancellation, user takeover, the fixed emergency chord, and daemon/runtime shutdown remain authoritative. An already-issued native action is allowed to finish as one atomic operation bounded by the existing native request timeout; cancellation prevents later actions and cleanup releases held input. JS source/output/result, screenshots, observations, recovery retries, protocol frames, and returned `computer_run` step summaries remain bounded.
 
 Use `terminal_run` for narrow deterministic argv/allowlist commands, `shell_run` for unrestricted one-shot shell work, and `terminal_session_*` when a compiler, REPL, debugger, prompt, or dev server genuinely needs a TTY or persistent interactive state.
 
@@ -539,7 +480,7 @@ process_logs
 process_stop
 ```
 
-Process execution requires terminal-capable authority, currently Admin. MCP never accepts or returns OS PIDs, process-group IDs, arbitrary signals, shell mode, detached mode, or caller-provided child environments.
+Process execution requires the terminal gate for `terminal_run`/`process_start`. MCP never accepts or returns OS PIDs, process-group IDs, arbitrary signals, shell mode, detached mode, or caller-provided child environments.
 
 ### Browser
 
@@ -562,7 +503,7 @@ browser_network_errors
 browser_close
 ```
 
-`browser_health` needs no lease; every other browser tool is Admin-only.
+`browser_health` needs no lease; no other browser tool needs one either once the browser gate is enabled.
 
 Computer Runtime v2 Slice 5 exposes the following MCP surface:
 
@@ -589,7 +530,7 @@ computer_run_js
 computer_resolve_semantic_target
 ```
 
-`computer_health` is lease-free; every other computer tool is Admin-only. `computer_run_js` additionally requires the explicit full-host JavaScript gate and returns only its bounded structured `stdout`, `stderr`, and optional JSON-compatible `result`; it does not report a synthetic cleanup-success field. `computer_resolve_semantic_target` additionally requires the explicit `--enable-jev-targeting` gate and a `TYPESAFE_API_KEY`; it is read-only and never clicks. Semantic physical actions and `computer_scroll_until_visible` use bounded fresh-observation/recovery rules and never guess coordinates. With Admin Owner Runtime enabled, omitted `computer_run` / `computer_run_js` timeout means no local productivity deadline, while finite timeout/cancellation/takeover/emergency/shutdown and all payload/memory/recovery bounds remain in force. Direct raw `computer_mouse_down` / `computer_mouse_up` are not registered. Hold primitives exist only inside typed `computer_run`, whose returned step-detail tail is bounded independently of the number of actions executed.
+`computer_health` is lease-free; no other computer tool needs a lease either once the computer gate is enabled. `computer_run_js` additionally requires the explicit full-host JavaScript gate and returns only its bounded structured `stdout`, `stderr`, and optional JSON-compatible `result`; it does not report a synthetic cleanup-success field. `computer_resolve_semantic_target` additionally requires the explicit `--enable-jev-targeting` gate and a `TYPESAFE_API_KEY`; it is read-only and never clicks. Semantic physical actions and `computer_scroll_until_visible` use bounded fresh-observation/recovery rules and never guess coordinates. With Owner Runtime enabled, omitted `computer_run` / `computer_run_js` timeout means no local productivity deadline, while finite timeout/cancellation/takeover/emergency/shutdown and all payload/memory/recovery bounds remain in force. Direct raw `computer_mouse_down` / `computer_mouse_up` are not registered. Hold primitives exist only inside typed `computer_run`, whose returned step-detail tail is bounded independently of the number of actions executed.
 
 Every MCP tool declares explicit safety annotations and output schemas. Successful calls return readable text plus validated structured content.
 
@@ -616,24 +557,24 @@ Creating a new file does not require `expectedSha256`.
 
 Managed processes additionally use opaque IDs and daemon-controlled stop semantics. On POSIX the daemon sends `SIGTERM`, waits the configured grace period, and escalates to `SIGKILL` only if required.
 
-Neither structured one-shot/managed Admin host execution nor Owner Runtime `shell_run` / `terminal_session_*` is an OS sandbox. Owner tools are intentionally separate: `shell_run` is unrestricted one-shot login-shell execution, while `terminal_session_*` owns a persistent PTY with bounded retained output, opaque handles, later-Admin rediscovery, and daemon-shutdown process-group cleanup.
+Neither structured one-shot/managed host execution nor Owner Runtime `shell_run` / `terminal_session_*` is an OS sandbox. Owner tools are intentionally separate: `shell_run` is unrestricted one-shot login-shell execution, while `terminal_session_*` owns a persistent PTY with bounded retained output, opaque handles, and daemon-shutdown process-group cleanup.
 
-`project_exec` is a separate Docker isolation boundary: it accepts only Project leases, requires explicit startup opt-in, rejects non-local Docker contexts, disables container networking, uses a read-only container root plus bounded `/tmp`, and bind-mounts only the selected project root at `/workspace`. Its Linux environment may differ from the macOS host, and the Docker daemon itself remains trusted infrastructure. A missing/unhealthy daemon, missing fixed image, or backend failure is reported as `SANDBOX_UNAVAILABLE`; there is no host fallback.
+`project_exec` is a separate Docker isolation boundary: it requires explicit startup opt-in, rejects non-local Docker contexts, disables container networking, uses a read-only container root plus bounded `/tmp`, and bind-mounts only the selected project root at `/workspace`. Its Linux environment may differ from the macOS host, and the Docker daemon itself remains trusted infrastructure. A missing/unhealthy daemon, missing fixed image, or backend failure is reported as `SANDBOX_UNAVAILABLE`; there is no host fallback.
 
 ## Verification and publication workflow
 
 Normal repository development is local-first in `/Users/dogan/Desktop/chatgpt-system` on `main`. Create a branch only when explicitly requested; use a worktree only when explicitly requested or needed to protect another active owner. This local default is independent from publication: commit, GitHub push, PR, merge, and live deployment are separate operations with separate authorization.
 
-`project_check detect` and `project_check report` are Project-scoped inspection operations. `project_check run` runs the detected Project-sandbox checks with the Project lease; a detected `admin-host` check, such as `package-script:test:computer:macos`, runs only when the call supplies a separate valid `adminAuthorityLeaseId`. The native Admin lease authorizes that verification only; it does not authorize `git_push`.
+`project_check detect` and `project_check report` are Project-scoped inspection operations. `project_check run` runs the detected Project-sandbox checks; a detected `admin-host` check, such as `package-script:test:computer:macos`, runs only when the call supplies a separate valid `adminAuthorityLeaseId`. That lease authorizes only that local verification execution; it does not authorize `git_push`.
 
-`git_push` remains a separate typed publication boundary. It requires the exact resumed Project lease, a current Admin `authorityLeaseId`, a clean non-`main` branch, and fresh overall `project_check report` `PASS` evidence bound to the exact HEAD and working-tree digest. A local `main` development workflow does not make direct main publication supported. If MCP tools are absent from a ChatGPT conversation, that is a product-surface/tool-routing availability problem, not removal of the local Admin/Project authority model; do not substitute containers or unsupported tools.
+`git_push` remains a separate typed publication boundary. It requires the exact resumed Project lease, a clean non-`main` branch, and fresh overall `project_check report` `PASS` evidence bound to the exact HEAD and working-tree digest. A local `main` development workflow does not make direct main publication supported. If MCP tools are absent from a ChatGPT conversation, that is a product-surface/tool-routing availability problem; do not substitute containers or unsupported tools.
 
 ## Browser safety
 
 Browser Runtime intentionally does not expose the full Playwright API. It is a narrow semantic capability with:
 
 - independent startup opt-in;
-- Admin-only page/content/action access;
+- open page/content/action access once enabled;
 - dedicated persistent automation profile;
 - opaque in-memory page IDs;
 - semantic locator allowlist;
@@ -658,7 +599,6 @@ full-host JavaScript runner/process-group cleanup
       -> computer runtime / held-input cleanup
       -> managed processes
       -> browser runtime/context
-      -> local authority control socket
       -> MCP transport/server
 ```
 
@@ -711,6 +651,6 @@ Local development defaults to the authoritative Desktop checkout on `main`. Crea
 
 ## Capability boundary
 
-Browser Runtime remains the structured web layer. Computer Runtime v2 Slice 5 provides the separate native desktop-control layer through explicit Admin-gated MCP tools, bounded semantic/OCR recovery, scoped scrolling, typed `computer_run`, and separately gated owner-trust `computer_run_js`.
+Browser Runtime remains the structured web layer. Computer Runtime v2 Slice 5 provides the separate native desktop-control layer through explicitly gated MCP tools, bounded semantic/OCR recovery, scoped scrolling, typed `computer_run`, and separately gated owner-trust `computer_run_js`.
 
 The remaining separate boundary is typed root-only ServiceManagement/XPC operations only when a concrete need justifies them. Historical design and implementation documents under `docs/superpowers/specs/` and `docs/superpowers/plans/` describe earlier or proposed states; they are not current runtime instructions.

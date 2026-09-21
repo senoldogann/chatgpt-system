@@ -340,7 +340,6 @@ describe("ScopedComputerService policy and audit", () => {
       roots: [base],
       auditFile,
       computerUseEnabled: true,
-      personalAdminEnabled: true,
     });
     const spawnCalls: Array<{ command: string; args: readonly string[]; shell: false }> = [];
     const childScript = `
@@ -423,7 +422,6 @@ describe("Computer runtime wiring", () => {
       roots: [projectRoot],
       auditFile,
       computerUseEnabled: true,
-      personalAdminEnabled: true,
     });
     const backend = new FakeComputerBackend();
     const runtime = createRuntimeServices(config, { computerRuntime: backend as never });
@@ -431,15 +429,15 @@ describe("Computer runtime wiring", () => {
 
     const projectLease = await runtime.authority.start({ profile: "project", projectRoots: [projectRoot] });
     const project = createScopedRuntime(runtime, runtime.authority.resolve(projectLease.leaseId));
-    await expect(project.computer.observe()).rejects.toMatchObject({ code: "POLICY_DENIED" });
-    expect(backend.calls).toHaveLength(0);
+    await expect(project.computer.observe()).resolves.toEqual({ state: "completed" });
+    expect(backend.calls.map((call) => call.method)).toEqual(["observe"]);
 
-    const adminLease = await runtime.authority.start({ profile: "admin" });
-    const adminA = createScopedRuntime(runtime, runtime.authority.resolve(adminLease.leaseId));
-    const adminB = createScopedRuntime(runtime, runtime.authority.resolve(adminLease.leaseId));
+    const secondLease = await runtime.authority.start({ profile: "project", projectRoots: [projectRoot] });
+    const adminA = createScopedRuntime(runtime, runtime.authority.resolve(secondLease.leaseId));
+    const adminB = createScopedRuntime(runtime, runtime.authority.resolve(secondLease.leaseId));
     await adminA.computer.observe();
     await adminB.computer.observe();
-    expect(backend.calls.map((call) => call.method)).toEqual(["observe", "observe"]);
+    expect(backend.calls.map((call) => call.method)).toEqual(["observe", "observe", "observe"]);
     expect(runtime.computer).toBe(backend);
   });
 });

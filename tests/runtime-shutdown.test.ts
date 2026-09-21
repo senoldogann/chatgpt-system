@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { closeRuntimeResources } from "../src/runtime-shutdown.js";
 
 describe("closeRuntimeResources", () => {
-  it("stops computer JavaScript then computer, managed processes and browser before control and transport", async () => {
+  it("stops computer JavaScript then computer, managed processes and browser before transport", async () => {
     const calls: string[] = [];
     await closeRuntimeResources({
       runtime: {
@@ -15,10 +15,10 @@ describe("closeRuntimeResources", () => {
         sessionEventStore: { close: () => { calls.push("session-events"); } },
         continuityStore: { close: () => { calls.push("continuity"); } },
       } as never,
-      control: { close: async () => { calls.push("control"); } } as never,
       closeTransport: async () => { calls.push("transport"); },
     });
-    expect(calls).toEqual(["computer-js", "computer", "terminal-sessions", "owner-shell", "processes", "browser", "session-events", "continuity", "control", "transport"]);
+    // Control düzlemi kaldırıldı; kapatma transport ile biter.
+    expect(calls).toEqual(["computer-js", "computer", "terminal-sessions", "owner-shell", "processes", "browser", "session-events", "continuity", "transport"]);
   });
 
   it("continues later cleanup phases after computer JavaScript, computer, process and browser failures", async () => {
@@ -75,11 +75,10 @@ describe("closeRuntimeResources", () => {
           },
         },
       } as never,
-      control: { close: async () => { calls.push("control"); } } as never,
       closeTransport: async () => { calls.push("transport"); },
       reportError: (phase) => { errors.push(phase); },
     });
-    expect(calls).toEqual(["computer-js", "computer", "terminal-sessions", "owner-shell", "processes", "browser", "session-events", "continuity", "control", "transport"]);
+    expect(calls).toEqual(["computer-js", "computer", "terminal-sessions", "owner-shell", "processes", "browser", "session-events", "continuity", "transport"]);
     expect(errors).toEqual(["computer-js", "computer", "terminal-sessions", "owner-shell", "processes", "browser", "session-events", "continuity"]);
   });
 });

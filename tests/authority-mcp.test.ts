@@ -22,7 +22,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-async function fixture(options: { personalAdmin?: boolean; terminalEnabled?: boolean } = {}) {
+async function fixture(options: { terminalEnabled?: boolean } = {}) {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-authority-mcp-"));
   cleanups.push(base);
   const root = path.join(base, "root");
@@ -44,8 +44,19 @@ async function fixture(options: { personalAdmin?: boolean; terminalEnabled?: boo
       maxTrackedPaths: 100,
       remoteVerificationTimeoutMs: 1_000,
     },
-
-    personalAdmin: { enabled: options.personalAdmin ?? false },
+    // Serbest model: kişisel yönetici alanı yoktur, yetenek blokları sabittir.
+    skills: { enabled: true, directory: path.join(base, "skills") },
+    goal: { enabled: true, maxTranscriptChars: 120_000 },
+    workers: { enabled: true, maxWorkers: 8, maxParkedRuns: 16 },
+    ownerRuntime: {
+      enabled: false,
+      shellPath: "/bin/sh",
+      maxScriptBytes: 262_144,
+      maxTimeoutMs: 120_000,
+      maxTerminalSessions: 32,
+      maxTerminalOutputBytes: 262_144,
+      maxTerminalInputBytes: 65_536,
+    },
     computerUse: {
       enabled: true,
       hostBundlePath: path.join(base, "ChatGPTSystemComputerRuntime.app"),
@@ -98,14 +109,23 @@ async function startProjectLease(client: Client, root: string): Promise<string> 
 }
 
 describe("session authority MCP tools", () => {
-  it("reports personal admin capability state", async () => {
-    const { client, transport } = await fixture({ personalAdmin: true });
+  it("reports project authority semantics without personal admin blocks", async () => {
+    const { client, transport } = await fixture();
     try {
       const capabilities = await client.callTool({ name: "system_capabilities", arguments: {} });
       expect(capabilities.isError).not.toBe(true);
+      // Kişisel yönetici ve kalıcı sahip blokları kalktı.
+      expect(capabilities.structuredContent).not.toHaveProperty("personalAdmin");
+      expect(capabilities.structuredContent).not.toHaveProperty("persistentOwnerMode");
       expect(capabilities.structuredContent).toMatchObject({
-        personalAdmin: { enabled: true, adminLeaseMaxTtlSeconds: 3600 },
-        computerUse: { enabled: true, fullHostJsEnabled: false },
+        projectAuthority: {
+          bootstrapRootsAreDefaultsOnly: true,
+          dynamicProjectRootsSupported: true,
+        },
+        skills: { enabled: true },
+        goal: { enabled: true },
+        workers: { enabled: true },
+        computerUse: { enabled: true },
         projectExecution: {
           enabled: false,
           sandboxed: true,
@@ -121,18 +141,18 @@ describe("session authority MCP tools", () => {
     }
   });
 
-  it("mints personal Admin without bypassing the runtime terminal gate", async () => {
+  it("mints project leases with gate-driven terminal capability", async () => {
+    // Terminal kabiliyeti global kapıyı aynen yansıtır.
     for (const terminalEnabled of [false, true]) {
-      const { client, transport } = await fixture({ personalAdmin: true, terminalEnabled });
+      const { root, client, transport } = await fixture({ terminalEnabled });
       try {
         const started = await client.callTool({
           name: "session_authority_start",
-          arguments: { profile: "admin", requestedTtlSeconds: 60 },
+          arguments: { profile: "project", projectRoots: [root], requestedTtlSeconds: 60 },
         });
         expect(started.isError).not.toBe(true);
         expect(started.structuredContent).toMatchObject({
-          profile: "admin",
-          roots: ["/"],
+          profile: "project",
           terminalEnabled,
           commands: terminalEnabled ? ["node", "git"] : [],
         });
@@ -143,25 +163,35 @@ describe("session authority MCP tools", () => {
     }
   });
 
-  it("defaults only an omitted profile in opted-in personal mode and rejects malformed explicit profiles", async () => {
-    const { root, client, transport } = await fixture({ personalAdmin: true });
+  it("defaults omitted profile to project and rejects malformed inputs", async () => {
+    const { root, client, transport } = await fixture();
     try {
       for (const argumentsValue of [
         { profile: "project ", projectRoots: [root] },
         { profile: "admni" },
         { profile: null },
-        { projectRoots: [root] },
         { profile: "admin", projectRoots: [root] },
+        { profile: "project" },
+        {},
       ]) {
         const rejected = await client.callTool({ name: "session_authority_start", arguments: argumentsValue });
         expect(rejected.isError, JSON.stringify(argumentsValue)).toBe(true);
       }
-      const started = await client.callTool({ name: "session_authority_start", arguments: {} });
-      expect(started.isError).not.toBe(true);
-      const lease = started.structuredContent as { profile: string; createdAt: string; expiresAt: string; terminalEnabled: boolean };
-      expect(lease.profile).toBe("admin");
+      // Profil verilmezse proje varsayılır.
+      const defaulted = await client.callTool({
+        name: "session_authority_start",
+        arguments: { projectRoots: [root], requestedTtlSeconds: 60 },
+      });
+      expect(defaulted.isError).not.toBe(true);
+      const lease = defaulted.structuredContent as { profile: string; createdAt: string; expiresAt: string; terminalEnabled: boolean };
+      expect(lease.profile).toBe("project");
       expect(lease.terminalEnabled).toBe(false);
-      expect(Date.parse(lease.expiresAt) - Date.parse(lease.createdAt)).toBe(3_600_000);
+      const explicit = await client.callTool({
+        name: "session_authority_start",
+        arguments: { profile: "project", projectRoots: [root], requestedTtlSeconds: 60 },
+      });
+      expect(explicit.isError).not.toBe(true);
+      expect((explicit.structuredContent as { profile: string }).profile).toBe("project");
     } finally {
       await transport.terminateSession();
       await client.close();
@@ -254,8 +284,8 @@ describe("session authority MCP tools", () => {
     }
   });
 
-  it("requires an authority lease on every privileged filesystem, git, and terminal tool", async () => {
-    const { client, transport } = await fixture();
+  it("treats the authority lease as optional scoping for filesystem, git, and terminal tools", async () => {
+    const { root, client, transport } = await fixture();
     try {
       const privileged = [
         "fs_list", "fs_stat", "fs_read", "fs_write", "fs_apply_patch", "fs_mkdir", "fs_move", "fs_remove",
@@ -268,7 +298,8 @@ describe("session authority MCP tools", () => {
       for (const name of privileged) {
         const schema = byName.get(name)?.inputSchema as { properties?: Record<string, unknown>; required?: string[] } | undefined;
         expect(schema?.properties).toHaveProperty("authorityLeaseId");
-        expect(schema?.required).toContain("authorityLeaseId");
+        // Serbest model: kira opsiyoneldir, zorunlu değildir.
+        expect(schema?.required ?? []).not.toContain("authorityLeaseId");
       }
 
       const pushSchema = byName.get("git_push")?.inputSchema as {
@@ -281,14 +312,22 @@ describe("session authority MCP tools", () => {
         "cwd",
         "projectAuthorityLeaseId",
       ]);
-      expect(pushSchema?.required).toEqual(expect.arrayContaining([
-        "authorityLeaseId",
-        "projectAuthorityLeaseId",
-      ]));
+      expect(pushSchema?.required ?? []).toContain("projectAuthorityLeaseId");
+      expect(pushSchema?.required ?? []).not.toContain("authorityLeaseId");
       expect(pushSchema?.additionalProperties).toBe(false);
 
-      const noLease = await client.callTool({ name: "fs_read", arguments: { path: "fixture.txt" } });
-      expect(noLease.isError).toBe(true);
+      // Kirasız çağrı açık kapsamla çalışır.
+      const noLease = await client.callTool({ name: "fs_read", arguments: { path: "fixture.txt", encoding: "utf8" } });
+      expect(noLease.isError).not.toBe(true);
+      expect(noLease.structuredContent).toMatchObject({ content: "before\n" });
+
+      const leaseId = await startProjectLease(client, root);
+      const withLease = await client.callTool({
+        name: "fs_read",
+        arguments: { authorityLeaseId: leaseId, path: "fixture.txt", encoding: "utf8" },
+      });
+      expect(withLease.isError).not.toBe(true);
+      expect(withLease.structuredContent).toMatchObject({ content: "before\n" });
     } finally {
       await transport.terminateSession();
       await client.close();
@@ -311,8 +350,9 @@ describe("session authority MCP tools", () => {
     }
   });
 
-  it("confines project lease reads and rejects all terminal execution", async () => {
-    const { root, sibling, client, transport } = await fixture();
+  it("confines project lease reads while allowlisted terminal follows the gate", async () => {
+    // Uç durum: kira dışı okuma engellenir, izinli komut kapı açıksa çalışır.
+    const { root, sibling, client, transport } = await fixture({ terminalEnabled: true });
     try {
       const leaseId = await startProjectLease(client, root);
 
@@ -330,21 +370,19 @@ describe("session authority MCP tools", () => {
       expect(outside.isError).toBe(true);
       expect(textContent(outside)).toContain("POLICY_DENIED");
 
-      for (const [command, args] of [["sh", ["-c", "echo nope"]], ["node", ["--version"]]] as const) {
-        const denied = await client.callTool({
-          name: "terminal_run",
-          arguments: { authorityLeaseId: leaseId, command, args: [...args], cwd: root },
-        });
-        expect(denied.isError).toBe(true);
-        expect(textContent(denied)).toContain("POLICY_DENIED");
-      }
+      const allowed = await client.callTool({
+        name: "terminal_run",
+        arguments: { authorityLeaseId: leaseId, command: "node", args: ["--version"], cwd: root },
+      });
+      expect(allowed.isError).not.toBe(true);
+      expect((allowed.structuredContent as { exitCode: number }).exitCode).toBe(0);
 
-      const pushDenied = await client.callTool({
+      const pushNeedsResume = await client.callTool({
         name: "git_push",
         arguments: { authorityLeaseId: leaseId, projectAuthorityLeaseId: leaseId, cwd: root },
       });
-      expect(pushDenied.isError).toBe(true);
-      expect(textContent(pushDenied)).toContain("AUTHORITY_DENIED");
+      expect(pushNeedsResume.isError).toBe(true);
+      expect(textContent(pushNeedsResume)).toContain("PROJECT_RESUME_REQUIRED");
     } finally {
       await transport.terminateSession();
       await client.close();

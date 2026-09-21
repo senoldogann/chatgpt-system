@@ -8,7 +8,7 @@ For a `chatgpt-system` continuation, call `project_resume` once with the exact a
 
 Reconcile in order: **Git/worktree reality** > **Project Continuity** > **docs/PROJECT_STATE.md** > current **plan/spec** > older chats. Use the current, relevant `Next exact step`, not obsolete historical entries. If continuation tooling is unavailable, use Git and the handoff file without inventing a checkpoint. Treat uncertain dirty worktrees as owned by another agent.
 
-Defer Admin authority until needed; reuse a valid Admin lease. If Persistent Owner Mode is enabled and no lease is available, call `persistent_owner_mode` with `operation: "status"` once. Do not call `session_authority_start` on every turn or action. Every privileged call requires an actual valid `authorityLeaseId`; do not invent or expose it. A Project lease never grants Admin capabilities.
+Serbest mod: Admin profili, local onay ve lease-gated kabiliyet yoktur. Tüm araçlar bootstrap rootlara karşı doğrudan çalışır; proje kapsamı gerekiyorsa `session_authority_start(profile="project")` ile opsiyonel proje leasesi alınır, süreklilik için `project_register`/`project_resume` alias akışı kullanılır. When a project scope needs a lease, use an actual valid `authorityLeaseId`; do not invent or expose it.
 
 Local continuation and checkpoint inspect worktree identity/state without contacting origin; remote verification is explicit when publication or accurate current remote state requires it. Cached remote refs must never be described as freshly verified.
 
@@ -20,7 +20,7 @@ A checkpoint before handoff records the actual branch/HEAD, verified results, bl
 
 ## ChatGPT Web / developer-MCP resilience
 
-Use a **risk checkpoint** only before an exceptional irreversible transition with material recovery risk, not as a mandatory prelude to ordinary tests or tool calls. Prefer one bounded batch tool and parallel independent read-only operations, but do not widen authority merely to batch work. For genuinely long native commands, use `process_start`, `process_status`, and `process_logs` with bounded polling when the Admin lane is already authorized; use `project_exec` for Project-only commands. A response deadline is not proof of daemon failure.
+Use a **risk checkpoint** only before an exceptional irreversible transition with material recovery risk, not as a mandatory prelude to ordinary tests or tool calls. Prefer one bounded batch tool and parallel independent read-only operations, but do not widen filesystem scope merely to batch work. For genuinely long native commands, use `process_start`, `process_status`, and `process_logs` with bounded polling; use `project_exec` for Project-only commands. A response deadline is not proof of daemon failure.
 
 If ChatGPT says `This conversation does not support developer MCPs`, do not repeatedly retry the unavailable namespace or substitute a container for the user's Mac. Continue in a new supported standard text chat in the same Project and call `project_resume` before mutation after capability returns. `Connection interrupted. Waiting for the complete answer` alone does not establish local failure; do not restart a healthy tunnel. Use `npm run diagnose:chatgpt` near the incident time and distinguish historical evidence from present health.
 
@@ -34,7 +34,7 @@ Never reset, clean, revert, overwrite, or delete another agent's work. Do not re
 
 Develop directly on `main` by default in the authoritative checkout; create a branch only when the user explicitly requests one or publication/isolation requires it. Do not develop directly on `main` when another active owner may be using it. Keep commits limited to owned changes. Commit, push, PR, merge, and deployment are separate operations; do not infer authorization for live deployment from publication authorization.
 
-For publication, use a non-`main` clean worktree and fresh `project_check` PASS for exact `HEAD` and `workingTreeDigest`, including every required Node and native lane. Typed `git_push` requires the exact resumed Project authority lease and active Admin `authorityLeaseId`; do not replace a failed sandbox gate with an unauthorized host fallback. Reverify after any HEAD or worktree change. Wait for actual hosted CI conclusions and merge conditions; avoid long `--watch` commands. Preserve branch protection, file confinement, optimistic write checks, approval/authority boundaries, data-loss guards, and fail-closed behavior. Live deployment requires explicit user authorization.
+For publication, use a non-`main` clean worktree and fresh `project_check` PASS for exact `HEAD` and `workingTreeDigest`, including every required Node and native lane. Typed `git_push` requires the exact resumed Project continuity context (`project_resume` alias) plus a clean worktree and `project_check` PASS; do not replace a failed sandbox gate with an unauthorized host fallback. Reverify after any HEAD or worktree change. Wait for actual hosted CI conclusions and merge conditions; avoid long `--watch` commands. Preserve branch protection, file confinement, optimistic write checks, data-loss guards, and fail-closed behavior. Live deployment requires explicit user authorization.
 
 ## Risk-tiered development and verification
 

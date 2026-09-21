@@ -1,16 +1,4 @@
-import { parseAuthorizeArgs, type AuthorizeArgs } from "./authorize-cli.js";
-import { parseActionReviewArgs, type ActionReviewScope } from "./action-review-cli.js";
 import { applyOwnerWorkstationPreset, type ConfigOverrides } from "./config.js";
-
-export interface AuthorizeCliCommand {
-  kind: "authorize";
-  args: AuthorizeArgs;
-}
-
-export interface ActionReviewCliCommand {
-  kind: "review-action";
-  args: ActionReviewScope;
-}
 
 export interface ServerCliCommand {
   kind: "server";
@@ -19,7 +7,7 @@ export interface ServerCliCommand {
   overrides: ConfigOverrides;
 }
 
-export type CliCommand = AuthorizeCliCommand | ActionReviewCliCommand | ServerCliCommand;
+export type CliCommand = ServerCliCommand;
 
 function takeValue(argv: string[], index: number, flag: string): string {
   const value = argv[index + 1];
@@ -37,17 +25,8 @@ function takePositiveInteger(argv: string[], index: number, flag: string): numbe
 }
 
 export function parseCliCommand(argv: string[]): CliCommand {
-  if (argv[0] === "authorize") {
-    return { kind: "authorize", args: parseAuthorizeArgs(argv.slice(1)) };
-  }
-  if (argv[0] === "review-action") {
-    return { kind: "review-action", args: parseActionReviewArgs(argv.slice(1)) };
-  }
-
   let mode: "stdio" | "http" = "stdio";
   let help = false;
-  let controlEnabled = false;
-  let controlSocketPath: string | undefined;
   let ownerShellPath: string | undefined;
   const roots: string[] = [];
   const commands: string[] = [];
@@ -73,10 +52,6 @@ export function parseCliCommand(argv: string[]): CliCommand {
     }
     if (arg === "--enable-project-exec") {
       overrides.projectExecEnabled = true;
-      continue;
-    }
-    if (arg === "--personal-admin") {
-      overrides.personalAdminEnabled = true;
       continue;
     }
     if (arg === "--enable-owner-runtime") {
@@ -127,13 +102,19 @@ export function parseCliCommand(argv: string[]): CliCommand {
       index += 1;
       continue;
     }
-    if (arg === "--enable-control") {
-      controlEnabled = true;
-      overrides.controlEnabled = true;
-      continue;
-    }
     if (arg === "--allow-non-loopback-http") {
       overrides.allowNonLoopbackHttp = true;
+      continue;
+    }
+    // Kaldırılan kapılar: eski tunnel profilleri bu flaglerle üretilmiş
+    // olabilir. Yükseltmede çökmesin diye yoksayılır.
+    if (arg === "--personal-admin" || arg === "--enable-control") {
+      console.error(`[chatgpt-system] Uyarı: ${arg} kaldırıldı, yoksayılıyor.`);
+      continue;
+    }
+    if (arg === "--control-socket") {
+      console.error("[chatgpt-system] Uyarı: --control-socket kaldırıldı, yoksayılıyor.");
+      index += 1;
       continue;
     }
     if (arg === "--root") {
@@ -146,13 +127,12 @@ export function parseCliCommand(argv: string[]): CliCommand {
       index += 1;
       continue;
     }
-    if (["--audit-file", "--host", "--port", "--token", "--control-socket"].includes(arg)) {
+    if (["--audit-file", "--host", "--port", "--token"].includes(arg)) {
       const value = takeValue(argv, index, arg);
       if (arg === "--audit-file") overrides.auditFile = value;
       if (arg === "--host") overrides.host = value;
       if (arg === "--port") overrides.port = Number(value);
       if (arg === "--token") overrides.token = value;
-      if (arg === "--control-socket") controlSocketPath = value;
       index += 1;
       continue;
     }
@@ -162,10 +142,6 @@ export function parseCliCommand(argv: string[]): CliCommand {
   if (ownerShellPath !== undefined) {
     if (overrides.ownerRuntimeEnabled !== true) throw new Error("--owner-shell-path requires --enable-owner-runtime or --owner-workstation.");
     overrides.ownerShellPath = ownerShellPath;
-  }
-  if (controlSocketPath !== undefined) {
-    if (!controlEnabled) throw new Error("--control-socket requires --enable-control.");
-    overrides.controlSocketPath = controlSocketPath;
   }
   if (roots.length > 0) overrides.roots = roots;
   if (commands.length > 0) overrides.commands = commands;

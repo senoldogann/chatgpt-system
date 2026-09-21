@@ -15,7 +15,6 @@ import {
   PolicyError,
 } from "../src/errors.js";
 import { createScopedRuntime } from "../src/scoped-runtime.js";
-import { createRuntimeServices } from "../src/server.js";
 
 describe("AuthorityManager", () => {
   let fixtureRoot: string;
@@ -93,28 +92,30 @@ describe("AuthorityManager", () => {
     expect(lease.leaseId).toMatch(/^[A-Za-z0-9_-]{40,}$/);
     expect(lease.profile).toBe("project");
     expect(lease.roots).toEqual([canonicalProject]);
-    expect(lease.terminalEnabled).toBe(false);
-    expect(lease.commands).toEqual([]);
+    // Serbest model: terminal kabiliyeti global kapıdan gelir, profilden değil.
+    expect(lease.terminalEnabled).toBe(true);
+    expect(lease.commands).toEqual(["git", "node"]);
 
     const resolved = authority.resolve(lease.leaseId);
     expect(resolved).toMatchObject({
       profile: "project",
       roots: [canonicalProject],
-      terminalEnabled: false,
-      commands: [],
+      terminalEnabled: true,
+      commands: ["git", "node"],
     });
 
     lease.roots.push(projectB);
     expect(authority.resolve(lease.leaseId).roots).toEqual([canonicalProject]);
   });
 
-  it("clamps ttl by profile and expires fail closed", async () => {
+  it("clamps ttl at 8h and expires fail closed", async () => {
     const authority = manager();
-    const lease = await authority.start({ profile: "admin", requestedTtlSeconds: 99_999 });
+    // Üst sınır aşımı 8 saate sabitlenir.
+    const lease = await authority.start({ profile: "project", projectRoots: [projectA], requestedTtlSeconds: 99_999 });
 
-    expect(Date.parse(lease.expiresAt) - Date.parse(lease.createdAt)).toBe(3_600_000);
+    expect(Date.parse(lease.expiresAt) - Date.parse(lease.createdAt)).toBe(8 * 60 * 60 * 1000);
 
-    now += 3_600_001;
+    now += 8 * 60 * 60 * 1000 + 1;
     expect(() => authority.resolve(lease.leaseId)).toThrowError(AuthorityExpiredError);
     expect(() => authority.status(lease.leaseId)).toThrowError(AuthorityRequiredError);
   });
@@ -144,43 +145,40 @@ describe("AuthorityManager", () => {
     await expect(authority.start({ profile: "project" })).rejects.toThrowError(AuthorityDeniedError);
   });
 
-  it("maps user and admin profiles to fixed scopes and terminal capabilities", async () => {
+  it("maps project leases to explicit roots with gate-driven terminal capability", async () => {
+    // Proje kapsamı yalnızca verilen köklerden kurulur.
     const authority = manager();
 
-    const userLease = await authority.start({ profile: "user" });
-    const adminLease = await authority.start({ profile: "admin" });
+    const leaseA = await authority.start({ profile: "project", projectRoots: [projectA] });
+    const leaseB = await authority.start({ profile: "project", projectRoots: [projectB] });
 
-    expect(userLease.roots).toEqual([await realpath(home)]);
-    expect(userLease.terminalEnabled).toBe(false);
-    expect(userLease.commands).toEqual([]);
-
-    expect(adminLease.roots).toEqual([path.parse(home).root]);
-    expect(adminLease.terminalEnabled).toBe(true);
-    expect(adminLease.commands).toEqual(["git", "node"]);
+    expect(leaseA.roots).toEqual([await realpath(projectA)]);
+    expect(leaseB.roots).toEqual([await realpath(projectB)]);
+    expect(leaseA.terminalEnabled).toBe(true);
+    expect(leaseA.commands).toEqual(["git", "node"]);
   });
 
-  it("keeps admin terminal capability behind the runtime terminal gate", async () => {
-    const base = baseConfig();
-    const config: AppConfig = {
-      ...base,
-      control: {
-        enabled: false,
-        socketPath: path.join(fixtureRoot, "control.sock"),
-      },
-      limits: {
-        ...base.limits,
-        maxManagedProcesses: 4,
-        maxProcessLogBytesPerStream: 1024,
-        processStopGraceMs: 100,
-      },
-    };
-    const runtime = createRuntimeServices(config);
+  it("keeps project terminal capability behind the runtime terminal gate", async () => {
+    // Kapı kapalıysa komut listesi boşalır, açıksa global liste aynen taşınır.
+    const closed = new AuthorityManager({
+      homeDir: home,
+      commands: ["git", "node"],
+      terminalEnabled: false,
+      now: () => now,
+    });
+    const closedLease = await closed.start({ profile: "project", projectRoots: [projectA] });
+    expect(closedLease.terminalEnabled).toBe(false);
+    expect(closedLease.commands).toEqual([]);
 
-    const adminLease = await runtime.authority.start({ profile: "admin" });
-
-    expect(adminLease.terminalEnabled).toBe(false);
-    expect(adminLease.commands).toEqual([]);
-    await runtime.authority.flushAudit();
+    const open = new AuthorityManager({
+      homeDir: home,
+      commands: ["git", "node"],
+      terminalEnabled: true,
+      now: () => now,
+    });
+    const openLease = await open.start({ profile: "project", projectRoots: [projectA] });
+    expect(openLease.terminalEnabled).toBe(true);
+    expect(openLease.commands).toEqual(["git", "node"]);
   });
 
   it("keeps concurrent leases isolated", async () => {
@@ -200,63 +198,29 @@ describe("AuthorityManager", () => {
     await writeFile(path.join(projectA, "inside.txt"), "inside\n");
     await writeFile(path.join(projectB, "outside.txt"), "outside\n");
     await writeFile(path.join(home, "user.txt"), "user\n");
-    const adminReadable = path.join(fixtureRoot, "admin-readable.txt");
-    await writeFile(adminReadable, "admin\n");
 
     const authority = manager();
     const config = baseConfig();
     const base = { config, audit: new AuditLogger(config.auditFile) };
 
-    const projectLease = await authority.start({ profile: "project", projectRoots: [projectA] });
-    const projectRuntime = createScopedRuntime(base, authority.resolve(projectLease.leaseId));
-    expect((await projectRuntime.fs.read("inside.txt", "utf8")).content).toBe("inside\n");
-    await expect(projectRuntime.fs.read(path.join(projectB, "outside.txt"), "utf8")).rejects.toBeInstanceOf(PolicyError);
+    // Her proje kirası yalnızca kendi kökünü görür.
+    const leaseA = await authority.start({ profile: "project", projectRoots: [projectA] });
+    const runtimeA = createScopedRuntime(base, authority.resolve(leaseA.leaseId));
+    expect((await runtimeA.fs.read("inside.txt", "utf8")).content).toBe("inside\n");
+    await expect(runtimeA.fs.read(path.join(projectB, "outside.txt"), "utf8")).rejects.toBeInstanceOf(PolicyError);
+    await expect(runtimeA.fs.read(path.join(home, "user.txt"), "utf8")).rejects.toBeInstanceOf(PolicyError);
 
-    const userLease = await authority.start({ profile: "user" });
-    const userRuntime = createScopedRuntime(base, authority.resolve(userLease.leaseId));
-    expect((await userRuntime.fs.read(path.join(home, "user.txt"), "utf8")).content).toBe("user\n");
-
-    const adminLease = await authority.start({ profile: "admin" });
-    const adminRuntime = createScopedRuntime(base, authority.resolve(adminLease.leaseId));
-    expect((await adminRuntime.fs.read(adminReadable, "utf8")).content).toBe("admin\n");
+    const leaseB = await authority.start({ profile: "project", projectRoots: [projectB] });
+    const runtimeB = createScopedRuntime(base, authority.resolve(leaseB.leaseId));
+    expect((await runtimeB.fs.read("outside.txt", "utf8")).content).toBe("outside\n");
+    await expect(runtimeB.fs.read(path.join(projectA, "inside.txt"), "utf8")).rejects.toBeInstanceOf(PolicyError);
   });
 
-  it("persists explicitly enabled Persistent Owner Mode across manager restarts without expiry", async () => {
-    const persistentOwnerModePath = path.join(fixtureRoot, "state", "persistent-owner-mode.json");
-    const first = new AuthorityManager({
-      homeDir: home,
-      commands: ["git"],
-      terminalEnabled: true,
-      persistentOwnerModePath,
-      now: () => now,
-    });
-
-    const enabled = first.enablePersistentOwnerMode();
-    expect(enabled).toMatchObject({ enabled: true, profile: "admin", expiresAt: "never" });
-    expect(enabled.leaseId).toBeTruthy();
-    now += 24 * 60 * 60 * 1000;
-
-    const restarted = new AuthorityManager({
-      homeDir: home,
-      commands: ["git"],
-      terminalEnabled: true,
-      persistentOwnerModePath,
-      now: () => now,
-    });
-    expect(restarted.persistentOwnerMode()).toMatchObject({ enabled: true, expiresAt: "never", leaseId: enabled.leaseId });
-    expect(restarted.resolve(enabled.leaseId!)).toMatchObject({ profile: "admin", expiresAt: "never", terminalEnabled: true });
-    expect((await restarted.start({ profile: "admin", requestedTtlSeconds: 1 })).leaseId).toBe(enabled.leaseId);
-
-    expect(restarted.disablePersistentOwnerMode()).toMatchObject({ enabled: false, expiresAt: "never" });
-    const afterDisable = new AuthorityManager({
-      homeDir: home,
-      commands: ["git"],
-      terminalEnabled: true,
-      persistentOwnerModePath,
-      now: () => now,
-    });
-    expect(afterDisable.persistentOwnerMode().enabled).toBe(false);
-    expect(() => restarted.resolve(enabled.leaseId!)).toThrowError(AuthorityRequiredError);
+  it("defaults project ttl to 8h when omitted", async () => {
+    // TTL verilmezse üst sınır uygulanır, kiralama 8 saat yaşar.
+    const authority = manager();
+    const lease = await authority.start({ profile: "project", projectRoots: [projectA] });
+    expect(Date.parse(lease.expiresAt) - Date.parse(lease.createdAt)).toBe(8 * 60 * 60 * 1000);
   });
 
   it("audits authority lifecycle without logging raw lease ids", async () => {

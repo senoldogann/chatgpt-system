@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -8,7 +7,9 @@ import {
   AuthorityRequiredError,
 } from "./errors.js";
 
-export type AuthorityProfile = "project" | "user" | "admin";
+// Serbest mod: tek profil vardır (project). user/admin ayrımı kaldırıldı.
+// Her lease tam yetkilidir; kabiliyet kapıları yalnızca startup flaglerine bakar.
+export type AuthorityProfile = "project";
 
 export interface AuthorityContext {
   profile: AuthorityProfile;
@@ -29,23 +30,6 @@ export interface AuthorityLeaseView extends AuthorityContext {
   leaseId: string;
 }
 
-export interface PersistentOwnerModeView {
-  enabled: boolean;
-  leaseId?: string;
-  profile: "admin";
-  createdAt?: string;
-  expiresAt: "never";
-}
-
-interface PersistentOwnerRecord {
-  version: 1;
-  leaseId: string;
-  createdAt: string;
-  roots: string[];
-  terminalEnabled: boolean;
-  commands: string[];
-}
-
 export interface AuthorityLifecycleAuditEvent {
   event: "authority.start" | "authority.end" | "authority.expired";
   profile: AuthorityProfile;
@@ -54,7 +38,7 @@ export interface AuthorityLifecycleAuditEvent {
   expiresAt?: string;
 }
 
-/** A lease that never resolved has no profile or scope to report, only a coarse reason and count. */
+/** Çözülemeyen lease için kaba ret nedeni ve sayacı. */
 export type AuthorityDenialReason = "missing" | "unknown";
 
 export interface AuthorityDenialAuditEvent {
@@ -70,19 +54,15 @@ export interface AuthorityManagerOptions {
   homeDir: string;
   commands: string[];
   terminalEnabled: boolean;
-  persistentOwnerModePath?: string;
   now?: () => number;
   audit?: (event: AuthorityAuditEvent) => void | Promise<void>;
 }
 
 interface StoredLease extends AuthorityContext {
   expiresAtMs: number;
-  persistent?: boolean;
-  persistentLeaseId?: string;
 }
 
-// Denials are attacker-triggerable, so they are coalesced per reason into at most
-// one window-opening record plus one window-summary record per window.
+// Red kayıtları saldırgan tarafından tetiklenebilir, bu yüzden pencere başına özetlenir.
 const DENIAL_WINDOW_MS = 60_000;
 
 interface DenialWindow {
@@ -91,13 +71,7 @@ interface DenialWindow {
   pending: number;
 }
 
-const PROFILE_MAX_TTL_SECONDS: Record<AuthorityProfile, number> = {
-  project: 8 * 60 * 60,
-  user: 4 * 60 * 60,
-  admin: 60 * 60,
-};
-
-const PERSISTENT_OWNER_EXPIRES_AT = "never";
+const PROJECT_MAX_TTL_SECONDS = 8 * 60 * 60;
 
 function digestLease(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
@@ -171,7 +145,6 @@ export class AuthorityManager {
   private readonly commands: string[];
   private readonly terminalGateEnabled: boolean;
   private readonly audit: ((event: AuthorityAuditEvent) => void | Promise<void>) | undefined;
-  private readonly persistentOwnerModePath: string | undefined;
   private readonly denialWindows = new Map<AuthorityDenialReason, DenialWindow>();
   private auditChain: Promise<void> = Promise.resolve();
 
@@ -181,26 +154,20 @@ export class AuthorityManager {
     this.terminalGateEnabled = options.terminalEnabled;
     this.now = options.now ?? Date.now;
     this.audit = options.audit;
-    this.persistentOwnerModePath = options.persistentOwnerModePath;
-    this.restorePersistentOwnerMode();
   }
 
   async start(request: StartAuthorityRequest): Promise<AuthorityLeaseView> {
-    if (request.profile === "admin") {
-      const persistent = this.persistentOwnerLease();
-      if (persistent) return { leaseId: this.findPersistentLeaseId(persistent), ...cloneContext(persistent) };
-    }
     const roots = await this.resolveRoots(request);
     const nowMs = this.now();
-    const maxTtl = PROFILE_MAX_TTL_SECONDS[request.profile];
-    const requestedTtl = request.requestedTtlSeconds ?? maxTtl;
-    const ttlSeconds = Math.max(1, Math.min(requestedTtl, maxTtl));
+    const requestedTtl = request.requestedTtlSeconds ?? PROJECT_MAX_TTL_SECONDS;
+    const ttlSeconds = Math.max(1, Math.min(requestedTtl, PROJECT_MAX_TTL_SECONDS));
     const expiresAtMs = nowMs + ttlSeconds * 1000;
     const leaseId = newLeaseId();
-    const terminalEnabled = request.profile === "admin" && this.terminalGateEnabled;
+    // Serbest mod: terminal kabiliyeti profile değil global gate'e bağlıdır.
+    const terminalEnabled = this.terminalGateEnabled;
 
     const stored: StoredLease = {
-      profile: request.profile,
+      profile: "project",
       roots: [...roots],
       terminalEnabled,
       commands: terminalEnabled ? [...this.commands] : [],
@@ -212,61 +179,6 @@ export class AuthorityManager {
     this.leases.set(digestLease(leaseId), stored);
     this.emitAudit(stored, "authority.start", true);
     return { leaseId, ...cloneContext(stored) };
-  }
-
-  persistentOwnerMode(): PersistentOwnerModeView {
-    const lease = this.persistentOwnerLease();
-    return lease
-      ? { enabled: true, leaseId: this.findPersistentLeaseId(lease), profile: "admin", createdAt: lease.createdAt, expiresAt: "never" }
-      : { enabled: false, profile: "admin", expiresAt: "never" };
-  }
-
-  enablePersistentOwnerMode(): PersistentOwnerModeView {
-    if (!this.persistentOwnerModePath) throw new AuthorityDeniedError("Persistent Owner Mode storage is unavailable.");
-    const existing = this.persistentOwnerLease();
-    if (existing) return this.persistentOwnerMode();
-    const nowMs = this.now();
-    const leaseId = newLeaseId();
-    const stored: StoredLease = {
-      profile: "admin",
-      roots: [path.parse(this.homeDirInput).root],
-      terminalEnabled: this.terminalGateEnabled,
-      commands: this.terminalGateEnabled ? [...this.commands] : [],
-      createdAt: new Date(nowMs).toISOString(),
-      expiresAt: PERSISTENT_OWNER_EXPIRES_AT,
-      expiresAtMs: Number.POSITIVE_INFINITY,
-      persistent: true,
-      persistentLeaseId: leaseId,
-    };
-    this.leases.set(digestLease(leaseId), stored);
-    this.persistOwnerRecord({ version: 1, leaseId, createdAt: stored.createdAt, roots: stored.roots, terminalEnabled: stored.terminalEnabled, commands: stored.commands });
-    this.emitAudit(stored, "authority.start", false);
-    return { enabled: true, leaseId, profile: "admin", createdAt: stored.createdAt, expiresAt: "never" };
-  }
-
-  disablePersistentOwnerMode(): PersistentOwnerModeView {
-    const lease = this.persistentOwnerLease();
-    if (lease) {
-      const leaseId = this.findPersistentLeaseId(lease);
-      this.leases.delete(digestLease(leaseId));
-      this.emitAudit(lease, "authority.end", false);
-    }
-    if (this.persistentOwnerModePath) {
-      try { unlinkSync(this.persistentOwnerModePath); } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-    }
-    return { enabled: false, profile: "admin", expiresAt: "never" };
-  }
-
-  findActiveAdminLease(): AuthorityContext | undefined {
-    const nowMs = this.now();
-    for (const stored of this.leases.values()) {
-      if (stored.profile === "admin" && nowMs <= stored.expiresAtMs) {
-        return cloneContext(stored);
-      }
-    }
-    return undefined;
   }
 
   resolve(leaseId: string): AuthorityContext {
@@ -287,11 +199,6 @@ export class AuthorityManager {
       throw new AuthorityRequiredError();
     }
     this.leases.delete(key);
-    if (stored.persistent && this.persistentOwnerModePath) {
-      try { unlinkSync(this.persistentOwnerModePath); } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-    }
     this.emitAudit(stored, "authority.end", false);
     return { ended: true };
   }
@@ -323,7 +230,7 @@ export class AuthorityManager {
     return digestLease(leaseId);
   }
 
-  /** Coalesce attacker-triggerable denials so a forged-lease flood cannot grow the audit file without bound. */
+  /** Sahte lease seli audit dosyasını şişirmesin diye reddedişler pencerede birleştirilir. */
   private recordDenial(reason: AuthorityDenialReason): void {
     const nowMs = this.now();
     const open = this.denialWindows.get(reason);
@@ -365,64 +272,12 @@ export class AuthorityManager {
       try {
         await this.audit?.(record);
       } catch {
-        // Authority enforcement must remain fail-closed even if operational audit storage is unavailable.
+        // Yetki denetimi audit deposuna bağlı kalmadan fail-closed çalışır.
       }
     });
   }
 
-  private persistentOwnerLease(): StoredLease | undefined {
-    for (const stored of this.leases.values()) {
-      if (stored.persistent && stored.profile === "admin") return stored;
-    }
-    return undefined;
-  }
-
-  private findPersistentLeaseId(lease: StoredLease): string {
-    if (lease.persistentLeaseId) return lease.persistentLeaseId;
-    if (!this.persistentOwnerModePath) throw new AuthorityRequiredError();
-    const record = JSON.parse(readFileSync(this.persistentOwnerModePath, "utf8")) as PersistentOwnerRecord;
-    return record.leaseId;
-  }
-
-  private persistOwnerRecord(record: PersistentOwnerRecord): void {
-    if (!this.persistentOwnerModePath) return;
-    mkdirSync(path.dirname(this.persistentOwnerModePath), { recursive: true, mode: 0o700 });
-    writeFileSync(this.persistentOwnerModePath, `${JSON.stringify(record)}\n`, { encoding: "utf8", mode: 0o600 });
-    chmodSync(this.persistentOwnerModePath, 0o600);
-  }
-
-  private restorePersistentOwnerMode(): void {
-    if (!this.persistentOwnerModePath) return;
-    try {
-      const record = JSON.parse(readFileSync(this.persistentOwnerModePath, "utf8")) as Partial<PersistentOwnerRecord>;
-      if (record.version !== 1 || typeof record.leaseId !== "string" || !/^[A-Za-z0-9_-]{40,}$/.test(record.leaseId)
-        || typeof record.createdAt !== "string" || !Array.isArray(record.roots) || record.roots.length !== 1
-        || typeof record.terminalEnabled !== "boolean" || !Array.isArray(record.commands)) return;
-      const expectedRoot = path.parse(this.homeDirInput).root;
-      if (record.roots[0] !== expectedRoot) return;
-      const stored: StoredLease = {
-        profile: "admin",
-        roots: [expectedRoot],
-        terminalEnabled: record.terminalEnabled && this.terminalGateEnabled,
-        commands: record.terminalEnabled && this.terminalGateEnabled ? [...this.commands] : [],
-        createdAt: record.createdAt,
-        expiresAt: PERSISTENT_OWNER_EXPIRES_AT,
-        expiresAtMs: Number.POSITIVE_INFINITY,
-        persistent: true,
-        persistentLeaseId: record.leaseId,
-      };
-      this.leases.set(digestLease(record.leaseId), stored);
-    } catch {
-      // A corrupt preference never grants authority; it is reported as disabled and can be replaced by explicit enable.
-    }
-  }
-
   private async resolveRoots(request: StartAuthorityRequest): Promise<string[]> {
-    const home = await realpath(path.resolve(this.homeDirInput));
-    const filesystemRoot = path.parse(home).root;
-
-    if (request.profile === "user") return [home];
-    if (request.profile === "admin") return [filesystemRoot];
     return canonicalizeProjectRoots(this.homeDirInput, request.projectRoots ?? []);
   }
 }

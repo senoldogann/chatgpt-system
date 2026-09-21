@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { OWNER_SHELL_MAX_SCRIPT_BYTES } from "./config.js";
 import { AppError } from "./errors.js";
-import { createScopedRuntime } from "./scoped-runtime.js";
+import { createOpenRuntime, createScopedRuntime } from "./scoped-runtime.js";
 import type { RuntimeServices } from "./server.js";
 import { shellRunOutputSchema } from "./tool-output-schemas.js";
 
@@ -41,9 +41,9 @@ export function registerOwnerShellTool(server: McpServer, runtime: RuntimeServic
   server.registerTool(
     "shell_run",
     {
-      description: "Run arbitrary full-host login-shell syntax as the current user inside a locally approved Admin Owner Runtime session. This is not OS-sandboxed.",
+      description: "Run arbitrary full-host login-shell syntax as the current user inside the open Owner Runtime session. This is not OS-sandboxed.",
       inputSchema: z.object({
-        authorityLeaseId: z.string().min(40),
+        authorityLeaseId: z.string().min(40).optional(),
         script: z.string().min(1).max(runtime.config.ownerRuntime?.maxScriptBytes ?? OWNER_SHELL_MAX_SCRIPT_BYTES),
         cwd: z.string().min(1).max(16_384).optional(),
         timeoutMs: z.number().int().positive().nullable().optional(),
@@ -52,8 +52,10 @@ export function registerOwnerShellTool(server: McpServer, runtime: RuntimeServic
       annotations: mutationAnnotations,
     },
     async ({ authorityLeaseId, script, cwd, timeoutMs }, ctx) => safeCall(() => {
-      const authority = runtime.authority.resolve(authorityLeaseId);
-      return createScopedRuntime(runtime, authority).shell.run({
+      const scope = authorityLeaseId === undefined
+        ? createOpenRuntime(runtime)
+        : createScopedRuntime(runtime, runtime.authority.resolve(authorityLeaseId));
+      return scope.shell.run({
         script,
         ...(cwd !== undefined ? { cwd } : {}),
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),

@@ -34,7 +34,9 @@ async function fixture(commands: string[]) {
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: true, commands },
     projectExec: { enabled: true },
-    personalAdmin: { enabled: true },
+    skills: { enabled: true, directory: path.join(base, "skills") },
+    goal: { enabled: true, maxTranscriptChars: 120_000 },
+    workers: { enabled: true, maxWorkers: 8, maxParkedRuns: 16 },
     ownerRuntime: {
       enabled: false,
       shellPath: "/bin/zsh",
@@ -93,7 +95,8 @@ async function fixture(commands: string[]) {
     terminalEnabled: true,
     audit: async () => undefined,
   });
-  const lease = await authority.start({ profile: "admin", requestedTtlSeconds: 120 });
+  // Tekli proje kipi: her lease proje köküne bağlı tam yetkilidir.
+  const lease = await authority.start({ profile: "project", projectRoots: [root], requestedTtlSeconds: 120 });
   const projectExecBackend: ProjectExecBackend = {
     async run() {
       throw new Error("project sandbox must not run in host executor tests");
@@ -114,7 +117,7 @@ function errorCode(error: unknown): unknown {
 }
 
 describe("native project verification host executor", () => {
-  it("uses the Admin command allowlist before launching a native check", async () => {
+  it("uses the Project command allowlist before launching a native check", async () => {
     const connected = await fixture(["git"]);
     const factory = createProjectCheckHostExecutorFactory(connected.runtime, connected.leaseId);
     const executor = factory(connected.root);
@@ -124,7 +127,7 @@ describe("native project verification host executor", () => {
     );
   });
 
-  it("confines native verification cwd to the Project repository root rather than Admin filesystem scope", async () => {
+  it("confines native verification cwd to the Project repository root rather than lease filesystem scope", async () => {
     const connected = await fixture(["swift"]);
     const factory = createProjectCheckHostExecutorFactory(connected.runtime, connected.leaseId);
     const executor = factory(connected.root);

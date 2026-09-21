@@ -98,7 +98,7 @@ async function connectRuntime(config: AppConfig, taskStateRoot: string) {
 async function projectLease(client: Client, root: string): Promise<string> {
   const result = await client.callTool({
     name: "session_authority_start",
-    arguments: { profile: "project", projectRoots: [root], requestedTtlSeconds: 120 },
+    arguments: { projectRoots: [root], requestedTtlSeconds: 120 },
   });
   expect(result.isError).not.toBe(true);
   return (result.structuredContent as { leaseId: string }).leaseId;
@@ -139,6 +139,9 @@ async function fixture() {
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: false, commands: ["node", "git"] },
     projectExec: { enabled: false },
+    skills: { enabled: true, directory: path.join(base, "skills") },
+    goal: { enabled: true, maxTranscriptChars: 120_000 },
+    workers: { enabled: true, maxWorkers: 8, maxParkedRuns: 16 },
     continuity: {
       databasePath: path.join(path.dirname(path.join(base, "audit.jsonl")), "continuity.db"),
       maxResumeChars: 12_000,
@@ -364,22 +367,27 @@ describe("task_state MCP tool", () => {
     }
   });
 
-  it("restricts durable task state to Project authority and supports explicit failure terminal state", async () => {
-    const { root, taskStateRoot, config } = await fixture();
+  it("scopes durable task state to lease roots and supports explicit failure terminal state", async () => {
+    const { base, root, taskStateRoot, config } = await fixture();
     const connected = await connectRuntime(config, taskStateRoot);
     try {
-      const admin = await connected.client.callTool({
-        name: "session_authority_start",
-        arguments: { profile: "admin", requestedTtlSeconds: 120 },
-      });
-      expect(admin.isError).not.toBe(true);
-      const adminLeaseId = (admin.structuredContent as { leaseId: string }).leaseId;
+      // Tekli proje kipi: kapsam dışı lease kökleri reddedilir.
+      const outside = path.join(base, "outside-scope");
+      await mkdir(outside, { recursive: true });
+      const outsideLease = await projectLease(connected.client, outside);
       const denied = await connected.client.callTool({
         name: "task_state",
-        arguments: { authorityLeaseId: adminLeaseId, operation: "start", cwd: root, goal: "should fail" },
+        arguments: { authorityLeaseId: outsideLease, operation: "start", cwd: root, goal: "should fail" },
       });
       expect(denied.isError).toBe(true);
-      expect(resultText(denied)).toContain("AUTHORITY_DENIED");
+      expect(resultText(denied)).toMatch(/POLICY_DENIED|AUTHORITY_DENIED/);
+
+      // Tekli proje kipi: leasesiz açık kapsam da çalışır.
+      const openStarted = await connected.client.callTool({
+        name: "task_state",
+        arguments: { operation: "start", cwd: root, goal: "Open scope task" },
+      });
+      expect(openStarted.isError).not.toBe(true);
 
       const leaseId = await projectLease(connected.client, root);
       const started = await connected.client.callTool({

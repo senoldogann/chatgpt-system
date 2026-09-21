@@ -59,6 +59,9 @@ async function fixture() {
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: false, commands: ["node", "git"] },
     projectExec: { enabled: false },
+    skills: { enabled: true, directory: path.join(base, "skills") },
+    goal: { enabled: true, maxTranscriptChars: 120_000 },
+    workers: { enabled: true, maxWorkers: 8, maxParkedRuns: 16 },
     continuity: {
       databasePath: path.join(path.dirname(path.join(base, "audit.jsonl")), "continuity.db"),
       maxResumeChars: 12_000,
@@ -109,7 +112,7 @@ async function fixture() {
   await client.connect(transport);
   const started = await client.callTool({
     name: "session_authority_start",
-    arguments: { profile: "project", projectRoots: [root], requestedTtlSeconds: 120 },
+    arguments: { projectRoots: [root], requestedTtlSeconds: 120 },
   });
   expect(started.isError).not.toBe(true);
   return {
@@ -208,7 +211,7 @@ describe("git_worktree MCP tool", () => {
     }
   });
 
-  it("rejects dirty sources, invalid branches, unmanaged paths, and non-Project authority", async () => {
+  it("rejects dirty sources, invalid branches, unmanaged paths, and out-of-scope leases", async () => {
     const { base, root, stateRoot, client, transport, authorityLeaseId } = await fixture();
     try {
       await writeFile(path.join(root, "README.md"), "dirty source\n", "utf8");
@@ -305,18 +308,39 @@ describe("git_worktree MCP tool", () => {
       expect(await readFile(path.join(unmanaged, "README.md"), "utf8")).toBe("base\n");
       expect(await readFile(path.join(managedBody.path, "README.md"), "utf8")).toBe("base\n");
 
-      const adminStart = await client.callTool({
-        name: "session_authority_start",
-        arguments: { profile: "admin", requestedTtlSeconds: 60 },
-      });
-      expect(adminStart.isError).not.toBe(true);
-      const adminLeaseId = (adminStart.structuredContent as { leaseId: string }).leaseId;
-      const adminAttempt = await client.callTool({
+      // Tekli proje kipi: leasesiz açık kapsam çalışır.
+      const openCreate = await client.callTool({
         name: "git_worktree",
-        arguments: { authorityLeaseId: adminLeaseId, operation: "status", worktreeId: managedBody.worktreeId },
+        arguments: { operation: "create", cwd: root, branch: "agent/open-scope" },
       });
-      expect(adminAttempt.isError).toBe(true);
-      expect(textResult(adminAttempt)).toContain("AUTHORITY_DENIED");
+      expect(openCreate.isError).not.toBe(true);
+      const openBody = openCreate.structuredContent as unknown as WorktreeView;
+      const openStatus = await client.callTool({
+        name: "git_worktree",
+        arguments: { operation: "status", worktreeId: openBody.worktreeId },
+      });
+      expect(openStatus.isError).not.toBe(true);
+      const openRemove = await client.callTool({
+        name: "git_worktree",
+        arguments: { operation: "remove", worktreeId: openBody.worktreeId },
+      });
+      expect(openRemove.isError).not.toBe(true);
+
+      // Tekli proje kipi: kapsam dışı lease reddedilir.
+      const outsideDir = path.join(base, "outside-scope");
+      await mkdir(outsideDir, { recursive: true });
+      const outsideStart = await client.callTool({
+        name: "session_authority_start",
+        arguments: { projectRoots: [outsideDir], requestedTtlSeconds: 60 },
+      });
+      expect(outsideStart.isError).not.toBe(true);
+      const outsideLeaseId = (outsideStart.structuredContent as { leaseId: string }).leaseId;
+      const outsideAttempt = await client.callTool({
+        name: "git_worktree",
+        arguments: { authorityLeaseId: outsideLeaseId, operation: "create", cwd: root, branch: "agent/outside-scope" },
+      });
+      expect(outsideAttempt.isError).toBe(true);
+      expect(textResult(outsideAttempt)).toMatch(/POLICY_DENIED|AUTHORITY_DENIED/);
     } finally {
       await transport.terminateSession();
       await client.close();

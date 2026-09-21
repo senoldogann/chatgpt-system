@@ -125,7 +125,9 @@ async function fixture() {
       remoteVerificationTimeoutMs: 1_000,
     },
 
-    personalAdmin: { enabled: false },
+    skills: { enabled: true, directory: path.join(base, "skills") },
+    goal: { enabled: true, maxTranscriptChars: 120_000 },
+    workers: { enabled: true, maxWorkers: 8, maxParkedRuns: 16 },
     computerUse: {
       enabled: false,
       hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",
@@ -181,7 +183,7 @@ function textContent(result: Awaited<ReturnType<Client["callTool"]>>): string {
 }
 
 describe("browser MCP tools", () => {
-  it("exposes a strict Admin-scoped browser surface with lease-free health", async () => {
+  it("exposes a strict browser surface with lease-free health", async () => {
     const { root, runtime, client, transport, fake, factoryStarts } = await fixture();
     try {
       const { tools } = await client.listTools();
@@ -223,17 +225,15 @@ describe("browser MCP tools", () => {
 
       const project = await runtime.authority.start({ profile: "project", projectRoots: [root], requestedTtlSeconds: 120 });
       const projectTabs = await client.callTool({ name: "browser_tabs", arguments: { authorityLeaseId: project.leaseId } });
-      expect(projectTabs.isError).toBe(true);
-      expect(textContent(projectTabs)).toContain("POLICY_DENIED");
-      expect(factoryStarts()).toBe(0);
+      expect(projectTabs.isError).not.toBe(true);
+      expect(projectTabs.structuredContent).toMatchObject({ tabs: [expect.objectContaining({ pageId: PAGE_ID, title: "Example" })] });
+      expect(factoryStarts()).toBe(1);
 
-      const user = await runtime.authority.start({ profile: "user", requestedTtlSeconds: 120 });
-      const userTabs = await client.callTool({ name: "browser_tabs", arguments: { authorityLeaseId: user.leaseId } });
-      expect(userTabs.isError).toBe(true);
-      expect(textContent(userTabs)).toContain("POLICY_DENIED");
-      expect(factoryStarts()).toBe(0);
+      const openTabs = await client.callTool({ name: "browser_tabs", arguments: {} });
+      expect(openTabs.isError).not.toBe(true);
+      expect(factoryStarts()).toBe(1);
 
-      const admin = await runtime.authority.start({ profile: "admin", requestedTtlSeconds: 120 });
+      const admin = await runtime.authority.start({ profile: "project", projectRoots: [root], requestedTtlSeconds: 120 });
       const tabs = await client.callTool({ name: "browser_tabs", arguments: { authorityLeaseId: admin.leaseId } });
       expect(tabs.isError).not.toBe(true);
       expect(tabs.structuredContent).toMatchObject({ tabs: [expect.objectContaining({ pageId: PAGE_ID, title: "Example" })] });

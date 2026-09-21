@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { AppError } from "./errors.js";
-import { createScopedRuntime } from "./scoped-runtime.js";
+import { createOpenRuntime, createScopedRuntime } from "./scoped-runtime.js";
 import type { RuntimeServices } from "./server.js";
 import {
   terminalSessionListOutputSchema,
@@ -63,7 +63,13 @@ async function safeCall<T extends object>(fn: () => Promise<T>) {
   }
 }
 
-const lease = { authorityLeaseId: z.string().min(40) };
+const lease = { authorityLeaseId: z.string().min(40).optional() };
+
+function scopeFor(runtime: RuntimeServices, authorityLeaseId?: string) {
+  return authorityLeaseId === undefined
+    ? createOpenRuntime(runtime)
+    : createScopedRuntime(runtime, runtime.authority.resolve(authorityLeaseId));
+}
 const sessionId = { sessionId: z.string().min(40).max(128) };
 const dimension = z.number().int().min(1).max(1000);
 
@@ -71,7 +77,7 @@ export function registerTerminalSessionTools(server: McpServer, runtime: Runtime
   server.registerTool(
     "terminal_session_open",
     {
-      description: "Open one persistent unrestricted Owner Runtime PTY using the trusted configured login shell. Requires an Admin authority lease and does not expose the native PID.",
+      description: "Open one persistent unrestricted Owner Runtime PTY using the trusted configured login shell. No lease required and does not expose the native PID.",
       inputSchema: z.object({
         ...lease,
         cwd: z.string().min(1).max(16_384).optional(),
@@ -82,8 +88,8 @@ export function registerTerminalSessionTools(server: McpServer, runtime: Runtime
       annotations: openAnnotations,
     },
     async ({ authorityLeaseId, cwd, cols, rows }) => safeCall(async () => {
-      const authority = runtime.authority.resolve(authorityLeaseId);
-      return createScopedRuntime(runtime, authority).terminals.open({
+      const scope = scopeFor(runtime, authorityLeaseId);
+      return scope.terminals.open({
         ...(cwd !== undefined ? { cwd } : {}),
         ...(cols !== undefined ? { cols } : {}),
         ...(rows !== undefined ? { rows } : {}),
@@ -104,8 +110,8 @@ export function registerTerminalSessionTools(server: McpServer, runtime: Runtime
       annotations: readAnnotations,
     },
     async ({ authorityLeaseId, sessionId: id, afterSequence }) => safeCall(async () => {
-      const authority = runtime.authority.resolve(authorityLeaseId);
-      return createScopedRuntime(runtime, authority).terminals.read(id, afterSequence ?? 0);
+      const scope = scopeFor(runtime, authorityLeaseId);
+      return scope.terminals.read(id, afterSequence ?? 0);
     }),
   );
 
@@ -122,8 +128,8 @@ export function registerTerminalSessionTools(server: McpServer, runtime: Runtime
       annotations: writeAnnotations,
     },
     async ({ authorityLeaseId, sessionId: id, data }) => safeCall(async () => {
-      const authority = runtime.authority.resolve(authorityLeaseId);
-      return createScopedRuntime(runtime, authority).terminals.write(id, data);
+      const scope = scopeFor(runtime, authorityLeaseId);
+      return scope.terminals.write(id, data);
     }),
   );
 
@@ -141,8 +147,8 @@ export function registerTerminalSessionTools(server: McpServer, runtime: Runtime
       annotations: resizeAnnotations,
     },
     async ({ authorityLeaseId, sessionId: id, cols, rows }) => safeCall(async () => {
-      const authority = runtime.authority.resolve(authorityLeaseId);
-      return createScopedRuntime(runtime, authority).terminals.resize(id, cols, rows);
+      const scope = scopeFor(runtime, authorityLeaseId);
+      return scope.terminals.resize(id, cols, rows);
     }),
   );
 
@@ -155,22 +161,22 @@ export function registerTerminalSessionTools(server: McpServer, runtime: Runtime
       annotations: closeAnnotations,
     },
     async ({ authorityLeaseId, sessionId: id }) => safeCall(async () => {
-      const authority = runtime.authority.resolve(authorityLeaseId);
-      return createScopedRuntime(runtime, authority).terminals.close(id);
+      const scope = scopeFor(runtime, authorityLeaseId);
+      return scope.terminals.close(id);
     }),
   );
 
   server.registerTool(
     "terminal_session_list",
     {
-      description: "List daemon-owned terminal sessions visible to the active Admin Owner Runtime scope. Raw OS process identifiers are never returned.",
+      description: "List daemon-owned terminal sessions visible to the active scope. Raw OS process identifiers are never returned.",
       inputSchema: z.object(lease).strict(),
       outputSchema: terminalSessionListOutputSchema,
       annotations: readAnnotations,
     },
     async ({ authorityLeaseId }) => safeCall(async () => {
-      const authority = runtime.authority.resolve(authorityLeaseId);
-      return createScopedRuntime(runtime, authority).terminals.list();
+      const scope = scopeFor(runtime, authorityLeaseId);
+      return scope.terminals.list();
     }),
   );
 }

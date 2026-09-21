@@ -10,6 +10,12 @@ export const CONTINUITY_MAX_CONSTRAINTS = 32;
 export const CONTINUITY_MAX_SUCCESS_CRITERIA = 32;
 export const CONTINUITY_MAX_NEXT_STEP_CHARS = 4_000;
 export const CONTINUITY_MAX_DETAIL_CHARS = 32_000;
+export const CONTINUITY_MAX_BRIEF_CHARS = 8_000;
+export const CONTINUITY_MAX_PLAN_STEPS = 20;
+export const CONTINUITY_MAX_PLAN_STEP_CHARS = 2_000;
+export const CONTINUITY_MAX_PLAN_DETAIL_CHARS = 4_000;
+export const CONTINUITY_MAX_ACTIVITY_LINES = 50;
+export const CONTINUITY_MAX_ACTIVITY_LINE_CHARS = 500;
 export const CONTINUITY_MAX_DECISIONS = 20;
 export const CONTINUITY_MAX_DECISION_CHARS = 4_000;
 export const CONTINUITY_MAX_RATIONALE_CHARS = 8_000;
@@ -24,6 +30,14 @@ export const continuityPathSchema = z.string().min(1).max(CONTINUITY_MAX_PATH_CH
 export const continuityProjectRootsSchema = z.array(continuityPathSchema).min(1).max(CONTINUITY_MAX_PROJECT_ROOTS);
 export const continuitySemanticLineSchema = z.string().min(1).max(CONTINUITY_MAX_SEMANTIC_LINE_CHARS);
 
+export const continuityPlanStepSchema = z.object({
+  step: z.string().min(1).max(CONTINUITY_MAX_PLAN_STEP_CHARS),
+  status: z.string().min(1).max(64),
+  details: z.string().max(CONTINUITY_MAX_PLAN_DETAIL_CHARS).optional(),
+}).strict();
+
+export const continuityActivityLineSchema = z.string().min(1).max(CONTINUITY_MAX_ACTIVITY_LINE_CHARS);
+
 export const continuityTaskSchema = z.object({
   goal: z.string().min(1).max(CONTINUITY_MAX_GOAL_CHARS),
   constraints: z.array(continuitySemanticLineSchema).max(CONTINUITY_MAX_CONSTRAINTS),
@@ -31,6 +45,9 @@ export const continuityTaskSchema = z.object({
   status: z.enum(["active", "blocked", "completed"]),
   nextStep: z.string().min(1).max(CONTINUITY_MAX_NEXT_STEP_CHARS),
   detail: z.string().max(CONTINUITY_MAX_DETAIL_CHARS).optional(),
+  brief: z.string().max(CONTINUITY_MAX_BRIEF_CHARS).optional(),
+  planSteps: z.array(continuityPlanStepSchema).max(CONTINUITY_MAX_PLAN_STEPS).optional(),
+  activity: z.array(continuityActivityLineSchema).max(CONTINUITY_MAX_ACTIVITY_LINES).optional(),
 }).strict();
 
 export const continuityDecisionSchema = z.object({

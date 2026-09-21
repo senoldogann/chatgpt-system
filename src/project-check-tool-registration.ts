@@ -4,6 +4,7 @@ import { errorPayload } from "./errors.js";
 import {
   createProjectCheckHostExecutorFactory,
   createProjectCheckService,
+  createProjectCheckServiceForRoots,
   type ProjectCheckRuntimeDependencies,
 } from "./project-check-factory.js";
 import { projectCheckOutputSchema } from "./tool-output-schemas.js";
@@ -18,7 +19,7 @@ const annotations = {
 };
 
 const baseFields = {
-  authorityLeaseId: z.string().min(40),
+  authorityLeaseId: z.string().min(40).optional(),
   cwd: z.string().default("."),
 };
 
@@ -63,13 +64,15 @@ export function registerProjectCheckTool(server: McpServer, runtime: ProjectChec
   server.registerTool(
     "project_check",
     {
-      description: "Detect repository-defined verification checks, run only detected checks through their declared Project-sandbox or explicitly Admin-authorized native-host lane, and report freshness-bound evidence without persisting raw command output.",
+      description: "Detect repository-defined verification checks, run only detected checks through their declared Project-sandbox or explicitly enabled native-host lane, and report freshness-bound evidence without persisting raw command output.",
       inputSchema,
       outputSchema: projectCheckOutputSchema,
       annotations,
     },
     async (input) => safeCall(async () => {
-      const service = createProjectCheckService(runtime, input.authorityLeaseId);
+      const service = input.authorityLeaseId === undefined
+        ? createProjectCheckServiceForRoots(runtime, runtime.config.roots)
+        : createProjectCheckService(runtime, input.authorityLeaseId);
       if (input.operation === "detect") return service.detect(input.cwd);
       if (input.operation === "report") return service.report(input.cwd);
       const hostExecutorFactory = input.adminAuthorityLeaseId === undefined

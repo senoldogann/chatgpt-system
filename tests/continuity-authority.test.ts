@@ -54,7 +54,15 @@ describe("project authority root canonicalization", () => {
     });
     const lease = await authority.start({ profile: "project", projectRoots: [projectA, projectB] });
     expect(lease.roots).toEqual([canonicalA, canonicalB]);
-    expect(lease.terminalEnabled).toBe(false);
-    expect(lease.commands).toEqual([]);
+    // Serbest model: terminal kabiliyeti global kapıdan gelir.
+    expect(lease.terminalEnabled).toBe(true);
+    expect(lease.commands).toEqual(["git", "node"]);
+
+    // Ayrı kökler birbirine karışmaz: her kira kendi kapsamına hapsolur.
+    const leaseA = await authority.start({ profile: "project", projectRoots: [projectA] });
+    const leaseB = await authority.start({ profile: "project", projectRoots: [projectB] });
+    expect(leaseA.roots).toEqual([canonicalA]);
+    expect(leaseB.roots).toEqual([canonicalB]);
+    expect(leaseA.roots).not.toEqual(leaseB.roots);
   });
 });

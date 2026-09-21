@@ -195,8 +195,9 @@ describe("ProjectContinuityService registration", () => {
     await fixture.service.register(registrationInput(fixture));
     const validLease = await fixture.authority.start({ profile: "project", projectRoots: [fixture.projectRoot] });
     const wrongProjectLease = await fixture.authority.start({ profile: "project", projectRoots: [fixture.otherRoot] });
-    const userLease = await fixture.authority.start({ profile: "user" });
-    const adminLease = await fixture.authority.start({ profile: "admin" });
+    // Tekli proje kipi: kayıtlı kök kümesinden farklı her lease reddedilir.
+    const narrowLease = await fixture.authority.start({ profile: "project", projectRoots: [fixture.worktree] });
+    const siblingLease = await fixture.authority.start({ profile: "project", projectRoots: [fixture.secondWorktree] });
     const checkpoint = {
       authorityLeaseId: validLease.leaseId,
       alias: "project-x",
@@ -210,7 +211,7 @@ describe("ProjectContinuityService registration", () => {
       verificationSummary: ["Registration integration is green."],
     };
 
-    for (const lease of [wrongProjectLease, userLease, adminLease]) {
+    for (const lease of [wrongProjectLease, narrowLease, siblingLease]) {
       await expect(fixture.service.checkpoint({
         ...checkpoint,
         authorityLeaseId: lease.leaseId,
