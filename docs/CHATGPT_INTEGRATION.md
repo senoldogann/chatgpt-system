@@ -571,7 +571,7 @@ No destructive system operation is needed for acceptance.
 
 ## 12. Managed Process Supervisor acceptance
 
-With an active Admin lease, start a harmless inline Node fixture:
+With terminal enabled, start a harmless inline Node fixture:
 
 ```text
 process_start:
@@ -671,7 +671,7 @@ Serbest modda local onay töreni yoktur. İptal/ret/timeout durumlarında yarım
 
 ## 17. Legacy control socket (removed from the runtime)
 
-Serbest modda local-approval control socket yoktur. Eski kurulumlardan kalan `~/.chatgpt-system/control.sock` ve `persistent-owner-mode.json` daemon ilk açılışta yok sayılır/silinir. Üretim broker yolu `/Library/Application Support/chatgpt-system/...` yalnızca geriye dönük uyumluluk için setup çıktısında görünür; runtime artık çağırmaz.
+Serbest modda local-approval control socket yoktur. Eski kurulumlardan kalan `~/.chatgpt-system/control.sock` ve `persistent-owner-mode.json` daemon ilk açılışta yok sayılır/silinir. Setup çıktısı artık broker/control yolu içermez; runtime broker'ı çağırmaz.
 
 ## 18. Shutdown acceptance
 

@@ -21,9 +21,9 @@ describe("SessionEventStore operator documentation", () => {
     expect(architecture).toMatch(/separate.*provider.*encryption/i);
   });
 
-  it("lists session metadata shutdown before Continuity and control/transport", async () => {
+  it("lists session metadata shutdown before Continuity and transport", async () => {
     const architecture = await readFile("docs/ARCHITECTURE.md", "utf8");
     const shutdown = architecture.split("## Runtime shutdown\n")[1]?.split("## Audit boundary")[0] ?? "";
-    expect(shutdown).toMatch(/SessionEventStore[\s\S]*Continuity[\s\S]*control[\s\S]*transport/i);
+    expect(shutdown).toMatch(/SessionEventStore[\s\S]*Continuity[\s\S]*transport/i);
   });
 });

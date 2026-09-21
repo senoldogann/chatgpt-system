@@ -10,7 +10,7 @@ describe("Coding Harness v2 operator runbook", () => {
 
     for (const required of [
       "Project sandbox execution",
-      "Admin host execution",
+      "Host execution",
       "npm run setup:project-exec",
       "--enable-project-exec",
       "project_exec",

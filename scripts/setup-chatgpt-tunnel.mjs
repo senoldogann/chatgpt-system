@@ -9,8 +9,6 @@ import { inspectInstalledComputerRuntime } from "./setup-macos-computer-runtime.
 
 const scriptPath = fileURLToPath(import.meta.url);
 const defaultRepoDir = path.resolve(path.dirname(scriptPath), "..");
-const protectedBrokerHelperPath = "/Library/Application Support/chatgpt-system/bin/chatgpt-system-authority-broker";
-const protectedBrokerMetadataPath = "/Library/Application Support/chatgpt-system/etc/authority-broker.sha256";
 
 function usage() {
   console.log(`Usage:
@@ -253,14 +251,6 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   }
 
   const serverPath = path.join(repoDir, "dist", "cli.js");
-  const brokerPackageDir = path.join(repoDir, "native", "macos-authority-broker");
-  const brokerBuildPath = path.join(
-    brokerPackageDir,
-    ".build",
-    "release",
-    "chatgpt-system-authority-broker",
-  );
-  const controlSocketPath = path.join(homeDir, ".chatgpt-system", "control.sock");
   const computerRuntimeBundlePath = path.join(
     homeDir,
     ".chatgpt-system",
@@ -308,17 +298,12 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     root,
     tunnelId: options.tunnelId,
     serverPath,
-    controlSocketPath,
     ownerWorkstationEnabled: options.ownerWorkstation,
     projectExecEnabled: options.projectExec,
     ownerRuntimeEnabled: options.ownerRuntime,
     computerUseEnabled: options.computerUse,
     fullHostJsEnabled: options.fullHostJs,
     computerRuntimeBundlePath,
-    brokerPackageDir,
-    brokerBuildPath,
-    brokerHelperPath: protectedBrokerHelperPath,
-    brokerMetadataPath: protectedBrokerMetadataPath,
     mcpCommand,
     displayMcpCommand,
     initArgs,
@@ -401,9 +386,6 @@ async function main() {
   console.log(`  Profile: ${setup.profile}`);
   console.log(`  MCP command: ${setup.displayMcpCommand}`);
   console.log("  Authority: open, no local approval needed");
-  console.log(`  Native broker build: ${setup.brokerBuildPath}`);
-  console.log(`  Protected native broker: ${setup.brokerHelperPath}`);
-  console.log(`  Protected broker metadata: ${setup.brokerMetadataPath}`);
   console.log(`  Init: ${printableCommand("tunnel-client", setup.displayInitArgs)}`);
   console.log(`  Doctor: ${printableCommand("tunnel-client", setup.doctorArgs)}`);
   console.log(`  Run: ${printableCommand("tunnel-client", setup.runArgs)}`);

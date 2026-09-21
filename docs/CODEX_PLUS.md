@@ -2,7 +2,7 @@
 
 ChatGPT web and Codex are different product surfaces. Full custom MCP write/modify support in ChatGPT web is plan-gated, but Codex local can use local MCP servers over stdio and Codex is included with ChatGPT plans.
 
-For `chatgpt-system`, that gives a practical local path without publishing the MCP server or paying for a workspace plan just to test filesystem/Git tooling. Normal repository work uses Project authority; Admin is reserved for explicitly gated host operations such as native `project_check` checks, terminal/process/browser/computer capabilities, and is not needed for every small development step.
+For `chatgpt-system`, that gives a practical local path without publishing the MCP server or paying for a workspace plan just to test filesystem/Git tooling. Every tool runs in open scope against the registered roots; host operations such as native `project_check` checks and terminal/process/browser/computer capabilities only need their explicit startup flags, and are not needed for every small development step.
 
 ## Architecture
 
