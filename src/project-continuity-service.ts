@@ -92,6 +92,7 @@ export interface ProjectContinuityServiceOptions {
   maxResumeChars: number;
   resumeRegistry?: ContinuityResumeRegistry;
   packageBuilder?: (input: ResumePackageInput, maxChars: number) => ReturnType<typeof buildResumePackage>;
+  onActive?: (alias: string) => Promise<void>;
 }
 
 function pathIsInside(root: string, candidate: string): boolean {
@@ -125,6 +126,7 @@ export class ProjectContinuityService {
   private readonly homeDir: string;
   private readonly maxResumeChars: number;
   private readonly packageBuilder: (input: ResumePackageInput, maxChars: number) => ReturnType<typeof buildResumePackage>;
+  private readonly onActive: ((alias: string) => Promise<void>) | undefined;
   readonly resumeRegistry: ContinuityResumeRegistry;
 
   constructor(options: ProjectContinuityServiceOptions) {
@@ -135,6 +137,20 @@ export class ProjectContinuityService {
     this.maxResumeChars = options.maxResumeChars;
     this.resumeRegistry = options.resumeRegistry ?? new ContinuityResumeRegistry();
     this.packageBuilder = options.packageBuilder ?? buildResumePackage;
+    this.onActive = options.onActive;
+  }
+
+  private async recordActiveAlias(alias: string): Promise<void> {
+    if (this.onActive === undefined) return;
+    try {
+      await this.onActive(alias);
+    } catch (error) {
+      // İzleyici yalnızca uzantı ipucudur; yazılamazsa süreklilik işlemi
+      // tamamlanmış sayılır ve köprü en güncel kayda düşer.
+      console.error(
+        `[chatgpt-system] active project record failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   async register(input: ProjectRegisterInput): Promise<ProjectRegistrationResult> {
@@ -171,6 +187,7 @@ export class ProjectContinuityService {
         verificationSummary: input.verificationSummary ?? [],
       },
     });
+    await this.recordActiveAlias(stored.alias);
     return continuityResult(stored);
   }
 
@@ -198,6 +215,7 @@ export class ProjectContinuityService {
       publishedState: inspection.published,
       checkedAt: inspection.local.checkedAt,
     });
+    await this.recordActiveAlias(stored.alias);
     return continuityResult(this.store.getByAlias(stored.alias));
   }
 
@@ -249,6 +267,7 @@ export class ProjectContinuityService {
         repositoryIdentity: project.worktree.repositoryIdentity,
         expiresAt: authorityLease.expiresAt,
       });
+      await this.recordActiveAlias(project.alias);
       return {
         projectId: project.id,
         alias: project.alias,

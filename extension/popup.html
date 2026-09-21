@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <title>chatgpt-system</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="head">
+        <span class="dot" id="dot" data-state="idle"></span>
+        <h1>chatgpt-system</h1>
+        <span class="meta" id="state">Uygulama aranıyor</span>
+      </header>
+      <p class="alert" id="alert" hidden></p>
+      <section class="card" id="snapshot" hidden></section>
+      <details id="flowBox" hidden>
+        <summary>Akış</summary>
+        <div id="flow"></div>
+      </details>
+      <details id="settingsBox" open>
+        <summary>Eşleşme</summary>
+        <label>Port <input id="port" inputmode="numeric" autocomplete="off" /></label>
+        <label>Token <input id="token" type="password" autocomplete="off" /></label>
+        <label>Proje <select id="alias"></select></label>
+        <p class="hint" id="aliasHint"></p>
+        <p class="hint" id="pairHint"></p>
+        <div class="actions">
+          <button id="saveBtn" type="button">Kaydet</button>
+          <button id="testBtn" type="button">Dene</button>
+        </div>
+      </details>
+      <p class="version" id="version"></p>
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>
