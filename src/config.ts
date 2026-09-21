@@ -86,9 +86,17 @@ export interface SkillsConfig {
   directory: string;
 }
 
+export interface GoalLlmConfig {
+  readonly baseUrl: string;
+  readonly model: string;
+  readonly timeoutMs: number;
+}
+
 export interface GoalConfig {
   enabled: boolean;
   maxTranscriptChars: number;
+  // Yoksa goal_advise kural motoruyla çalışır; testler bu alanı kurmaz.
+  llm?: GoalLlmConfig;
 }
 
 export interface WorkersConfig {
@@ -213,6 +221,9 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_ALLOW_NON_LOOPBACK_HTTP: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_HTTP_PORT: z.coerce.number().int().min(1).max(65535).optional(),
   CHATGPT_SYSTEM_HTTP_TOKEN: z.string().min(16).optional(),
+  CHATGPT_SYSTEM_GOAL_LLM_BASE_URL: z.string().min(1).optional(),
+  CHATGPT_SYSTEM_GOAL_LLM_MODEL: z.string().min(1).optional(),
+  CHATGPT_SYSTEM_GOAL_LLM_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_MAX_READ_BYTES: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_MAX_WRITE_BYTES: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_MAX_DIRECTORY_ENTRIES: z.coerce.number().int().positive().optional(),
@@ -384,6 +395,11 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     goal: {
       enabled: true,
       maxTranscriptChars: 120_000,
+      llm: {
+        baseUrl: env.CHATGPT_SYSTEM_GOAL_LLM_BASE_URL ?? "https://opencode.ai/zen/go/v1/chat/completions",
+        model: env.CHATGPT_SYSTEM_GOAL_LLM_MODEL ?? "glm-5.3-flash",
+        timeoutMs: env.CHATGPT_SYSTEM_GOAL_LLM_TIMEOUT_MS ?? 60_000,
+      },
     },
     workers: {
       enabled: true,
