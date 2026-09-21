@@ -28,6 +28,7 @@ Options:
   --enable-browser        Opt in to the Playwright browser capability. Disabled by default.
   --enable-computer-use   Opt in to the native Computer Runtime. Disabled by default.
   --enable-full-host-js   Opt in to full-host Node.js for Computer Runtime; requires --enable-computer-use. Disabled by default.
+  --enable-jev-targeting  Opt in to Jev semantic target resolution; requires --enable-computer-use and TYPESAFE_API_KEY. Disabled by default.
   --browser-headless      Run the opted-in browser headlessly; requires --enable-browser.
   --browser-existing-chrome
                           Attach browser tools to the user's already-running Chrome; requires --enable-browser.
@@ -68,6 +69,7 @@ function parseArgs(argv) {
     browser: false,
     computerUse: false,
     fullHostJs: false,
+    jevTargeting: false,
     browserHeadless: false,
     browserExistingChrome: false,
     browserExistingChromeUserDataDir: undefined,
@@ -118,6 +120,10 @@ function parseArgs(argv) {
     }
     if (arg === "--enable-full-host-js") {
       options.fullHostJs = true;
+      continue;
+    }
+    if (arg === "--enable-jev-targeting") {
+      options.jevTargeting = true;
       continue;
     }
     if (arg === "--browser-headless") {
@@ -245,6 +251,9 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   if (options.fullHostJs && !options.computerUse) {
     throw new Error("--enable-full-host-js requires --enable-computer-use.");
   }
+  if (options.jevTargeting && !options.computerUse) {
+    throw new Error("--enable-jev-targeting requires --enable-computer-use.");
+  }
   for (const command of options.commands) {
     if (command !== path.basename(command)) throw new Error("--allow-command values must be executable basenames, not paths.");
     if (!/^[A-Za-z0-9._+-]+$/.test(command)) throw new Error(`Invalid command basename: ${command}`);
@@ -270,6 +279,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     if (options.ownerRuntime) commandParts.push("--enable-owner-runtime");
     if (options.computerUse) commandParts.push("--enable-computer-use");
     if (options.fullHostJs) commandParts.push("--enable-full-host-js");
+    if (options.jevTargeting) commandParts.push("--enable-jev-targeting");
   }
   if (options.ownerShellPath !== undefined) commandParts.push("--owner-shell-path", options.ownerShellPath);
   if (options.browser) commandParts.push("--enable-browser");
@@ -303,6 +313,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     ownerRuntimeEnabled: options.ownerRuntime,
     computerUseEnabled: options.computerUse,
     fullHostJsEnabled: options.fullHostJs,
+    jevTargetingEnabled: options.jevTargeting,
     computerRuntimeBundlePath,
     mcpCommand,
     displayMcpCommand,
@@ -400,6 +411,7 @@ async function main() {
   console.log("  Browser: " + (setup.mcpCommand.includes("--enable-browser") ? (setup.mcpCommand.includes("--browser-headless") ? "EXPLICITLY ENABLED (headless)" : "EXPLICITLY ENABLED (headed)") : "disabled"));
   console.log("  Computer Runtime: " + (setup.computerUseEnabled ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Full-host JavaScript: " + (setup.fullHostJsEnabled ? "EXPLICITLY ENABLED" : "disabled"));
+  console.log("  Jev targeting: " + (setup.jevTargetingEnabled ? "EXPLICITLY ENABLED (requires TYPESAFE_API_KEY)" : "disabled"));
   if (setup.computerUseEnabled) console.log(`  Computer Runtime bundle: ${setup.computerRuntimeBundlePath}`);
   console.log("  Skills/goal/workers/handoff: available with no lease");
 
