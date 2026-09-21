@@ -98,6 +98,9 @@ export interface AppConfig {
   computerUse: ComputerUseConfig;
   jevTargeting: JevTargetingConfig;
   continuity: ContinuityConfig;
+  sessionEvents: {
+    enabled: boolean;
+  };
   browser: BrowserConfig;
   control: {
     enabled: boolean;
@@ -127,6 +130,7 @@ export interface ConfigOverrides {
   jevTargetingEnabled?: boolean;
   typesafeApiKey?: string;
   continuityDatabasePath?: string;
+  sessionEventsEnabled?: boolean;
   commands?: string[];
   browserEnabled?: boolean;
   browserHeadless?: boolean;
@@ -170,6 +174,7 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_ENABLE_JEV_TARGETING: z.enum(["true", "false", "1", "0"]).optional(),
   TYPESAFE_API_KEY: z.string().min(1).optional(),
   CHATGPT_SYSTEM_CONTINUITY_DATABASE: z.string().optional(),
+  CHATGPT_SYSTEM_ENABLE_SESSION_EVENTS: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_COMPUTER_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_OBSERVATION_ELEMENTS: z.coerce.number().int().positive().optional(),
   CHATGPT_SYSTEM_COMPUTER_MAX_OBSERVATION_CHARS: z.coerce.number().int().positive().optional(),
@@ -394,6 +399,9 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       maxResumeChars: CONTINUITY_MAX_RESUME_CHARS,
       maxTrackedPaths: CONTINUITY_MAX_TRACKED_PATHS,
       remoteVerificationTimeoutMs: CONTINUITY_REMOTE_TIMEOUT_MS,
+    },
+    sessionEvents: {
+      enabled: effectiveOverrides.sessionEventsEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_SESSION_EVENTS),
     },
     browser: {
       enabled: browserEnabled,
