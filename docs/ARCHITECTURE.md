@@ -2,7 +2,7 @@
 
 ## Goal
 
-Provide an MCP boundary between an AI client and a developer workstation with narrow Project/User capabilities and an explicitly enabled Admin Owner Runtime for full-host development when the operator chooses that trust level.
+Provide an MCP boundary between an AI client and a developer workstation. Serbest mod: there is no privilege ladder and no lease-gated capability. Every tool runs directly against the bootstrap roots; startup flags (`--enable-terminal`, `--enable-owner-runtime`, `--enable-browser`, `--enable-computer-use`, `--enable-project-exec`) are the only gates, and `project_register`/`project_resume` provide optional project identity for continuity.
 
 ## Layers
 
@@ -16,17 +16,17 @@ Transport layer
    v
 MCP tool registry
    |
-   +--> AuthorityManager ----> expiring Project/User/Admin leases
-   |
+   +--> AuthorityManager ----> optional expiring Project leases (open scope otherwise)
+    |
    +--> PathPolicy ----------> canonical allowed roots
-   |
+    |
    +--> FileSystemService ---> read/list/stat/write/patch/move/remove
-   |
-   +--> GitService ----------> read status/diff/log + typed local mutations + Admin-only GitHub push
-   |
+    |
+   +--> GitService ----------> read status/diff/log + typed local mutations + project-gated push
+    |
    +--> ProcessService ------> bounded structured one-shot execution
-   |
-   +--> OwnerShellService (Admin + Owner Runtime facade)
+    |
+   +--> OwnerShellService (Owner Runtime facade, startup-gated only)
    |          |
    |          v
    |     OwnerShellSupervisor --> arbitrary trusted login-shell execution + owned process groups
@@ -36,7 +36,7 @@ MCP tool registry
    |          v
    |     ProcessSupervisor --> shared in-memory registry, logs, lifecycle
    |
-   +--> ScopedBrowserService (Admin-only facade)
+   +--> ScopedBrowserService (startup-gated facade)
    |          |
    |          v
    |     BrowserService ----> URL/target/credential/redaction policy + serialization
@@ -51,7 +51,7 @@ MCP tool registry
 AuditLogger (redacted JSONL metadata)
 ```
 
-One `RuntimeServices` instance owns one `AuthorityManager`, one `ProcessSupervisor`, one `OwnerShellSupervisor`, and one optional browser service/runtime. HTTP, stdio, the local authority control socket, and every authority-scoped MCP call reuse that same runtime. There is no shadow lease store, per-request process registry, or second browser agent.
+One `RuntimeServices` instance owns one `AuthorityManager`, one `ProcessSupervisor`, one `OwnerShellSupervisor`, and one optional browser service/runtime. HTTP, stdio, and every open-scope MCP call reuse that same runtime. There is no control socket, no approval broker, no shadow lease store, per-request process registry, or second browser agent.
 
 ## Filesystem path decision
 
@@ -80,17 +80,16 @@ rather than blindly replacing whatever was in model context earlier.
 
 ## Authority model
 
-The privilege ladder is enforced by local trusted code:
+Serbest mod: there is no privilege ladder. One `project` profile exists and every lease is fully authorized; capability gates are startup flags only.
 
 ```text
-Project -> explicit roots, filesystem/Git, no terminal, no browser content/action access
-User    -> current-user home, filesystem/Git, no terminal, no browser content/action access
-Admin   -> host scope as current OS user, structured terminal/process + optional Owner Runtime + browser capability
+open scope  -> bootstrap roots, every tool, no lease required
+project     -> optional explicit roots for project identity, same full capability
 ```
 
-Project authority may be created directly through MCP. By default, User/Admin authority begins locally on the Mac through the private Unix control socket and protected LocalAuthentication helper. An explicit `--personal-admin` runtime mode is the one intentional exception: on a private daily-driver workstation, MCP may request the existing fixed Admin profile directly. The lease remains short-lived, in-memory, and governed by the same `AuthorityManager`; the mode does not create arbitrary roots and does not bypass the separate `--enable-terminal`, `--enable-owner-runtime`, or `--enable-browser` startup gates. Owner Runtime itself additionally requires Personal Admin and never widens Project/User.
+`session_authority_start(profile="project", projectRoots=[...])` opens an optional project scope; `project_register`/`project_resume` carry the continuity alias across chats. `/` and the entire home directory remain forbidden Project roots. There is no User/Admin profile, no control socket, no approval broker, and no `authorize` command.
 
-`browser_health` is deliberately lease-free because it returns categorical readiness only. Every page/content/action/diagnostic browser tool is resolved through an active Admin lease before reaching the browser service.
+`browser_health` and `computer_health` return categorical readiness only. Page/content/action browser tools, Computer Runtime actuation, Owner Runtime shell, terminal, and Project execution are gated exclusively by their `--enable-*` startup flags.
 
 ## MCP transports
 
@@ -107,9 +106,9 @@ The project targets the MCP TypeScript SDK v2 and the 2026-07-28 protocol line.
 
 Local development defaults to the authoritative checkout on `main`; branches and worktrees are exceptional isolation choices, not an automatic per-task workflow. Commit, push, PR, merge, and deployment remain separate operator decisions.
 
-`project_check` has three distinct operations. `detect` derives fixed checks from repository metadata and is Project-scoped. `run` executes selected detected checks: Project-sandbox checks use the Project lease, while `admin-host` checks require a separate valid Admin authority lease and cannot accept arbitrary commands or paths. `report` reads freshness-bound evidence and does not execute a check. The Admin lease used for a native check is not a publication lease.
+`project_check` has three distinct operations. `detect` derives fixed checks from repository metadata. `run` executes selected detected checks: Project-sandbox checks run containerized, while `admin-host` checks run native commands from a fixed allowlist and cannot accept arbitrary commands or paths. `report` reads freshness-bound evidence and does not execute a check.
 
-The typed `git_push` boundary independently requires the exact resumed Project lease, Admin authority, a clean non-`main` branch, and fresh overall `project_check` PASS evidence for the exact HEAD and working-tree digest. A local `main` development default therefore does not weaken the non-main publication boundary.
+The typed `git_push` boundary independently requires the exact resumed Project context, a clean non-`main` branch, and fresh overall `project_check` PASS evidence for the exact HEAD and working-tree digest. A local `main` development default therefore does not weaken the non-main publication boundary.
 
 ## One-shot process boundary
 
@@ -126,14 +125,14 @@ It is intentionally not described as an OS sandbox. An interpreter or build tool
 
 ## Owner Runtime shell and PTY architecture
 
-`terminal_run` stays the narrow structured executor. Owner Runtime adds a separate `shell_run` path only for Admin when `--personal-admin --enable-owner-runtime` is active:
+`terminal_run` stays the narrow structured executor. Owner Runtime adds a separate `shell_run` path when `--enable-owner-runtime` (or `--owner-workstation`) is active:
 
 ```text
-Admin lease + ownerRuntime.enabled
+ownerRuntime.enabled
         |
         v
 OwnerShellService
-  - Admin/gate check
+  - startup-gate check
   - authority PathPolicy cwd check
   - script size/NUL validation
   - content-free audit metadata
@@ -153,18 +152,18 @@ The MCP caller supplies shell **script content**, not the shell executable, chil
 
 ## Owner Computer Runtime productivity policy
 
-The existing persistent Computer Runtime helper remains the only desktop-control session. Owner Runtime does not introduce a second session or video stream; ChatGPT continues to use direct `computer_*` calls or the local fast paths `computer_run` / `computer_run_js`. The scoped Admin service passes an internal Owner flag only when the Owner Runtime startup gate is enabled. Non-Owner Admin calls retain the legacy action/runtime caps for compatibility.
+The existing persistent Computer Runtime helper remains the only desktop-control session. Owner Runtime does not introduce a second session or video stream; ChatGPT continues to use direct `computer_*` calls or the local fast paths `computer_run` / `computer_run_js`. The scoped computer service passes an internal Owner flag only when the Owner Runtime startup gate is enabled.
 
 In Owner mode, execution count/duration and retained result memory are deliberately separate concerns. `computer_run` can execute beyond the legacy 100-action count and can omit a program deadline, but it retains only a fixed bounded tail of step summaries while preserving exact `completedCount` / `actionCount`. `computer_run_js` can omit its runner timer, but JS source and combined output/result remain bounded. Explicit deadlines, MCP cancellation, physical-input serialization, native per-request timeout, recovery budget `2`, user takeover, emergency stop, and ordered shutdown remain authoritative. Cancellation can abort local waits immediately; an already-issued native helper request remains atomic and bounded, after which no later action starts and cleanup runs.
 
 Persistent interactive work uses a separate PTY path rather than changing `terminal_run` or overloading `shell_run`:
 
 ```text
-Admin lease + ownerRuntime.enabled
+ownerRuntime.enabled
         |
         v
 TerminalSessionService
-  - Admin/gate + PathPolicy visibility
+  - startup-gate + PathPolicy visibility
   - input/dimension/cursor validation
   - content-free lifecycle audit
         |
@@ -172,7 +171,7 @@ TerminalSessionService
 shared TerminalSessionSupervisor
   - opaque session registry
   - bounded UTF-8 output ring + monotonic sequence cursors
-  - later-Admin rediscovery; Project/User hidden
+  - later open-scope rediscovery; incompatible scope hidden
   - SIGTERM / grace / SIGKILL daemon cleanup
         |
         v
@@ -197,12 +196,12 @@ process_stop
 
 `ProcessSupervisor` owns the private child handles, OS PID/process-group information, lifecycle state, and bounded log tails. MCP receives only opaque random managed-process IDs.
 
-`ManagedProcessService` is recreated for each active authority scope and performs authorization before using the shared supervisor:
+`ManagedProcessService` is recreated for each active scope and performs authorization before using the shared supervisor:
 
 ```text
-active lease
+open scope / active lease
    |
-   +-- terminal capability?
+   +-- terminal enabled?
    +-- command still allowlisted?
    +-- stored cwd still inside PathPolicy roots?
    |
@@ -210,7 +209,7 @@ active lease
 shared ProcessSupervisor
 ```
 
-A compatible later Admin lease can therefore recover a process created by an earlier Admin lease. A User or incompatible scope cannot enumerate it. Unknown and unauthorized IDs return the same `PROCESS_NOT_FOUND` result.
+A compatible later scope can therefore recover a process created by an earlier one. An incompatible scope cannot enumerate it. Unknown and unauthorized IDs return the same `PROCESS_NOT_FOUND` result.
 
 ### Spawn and logs
 
@@ -257,7 +256,7 @@ The default/personal Chrome profile is not the documented automation target.
 The browser path is intentionally layered:
 
 ```text
-Admin lease
+open scope (browser startup-gate)
    |
    v
 ScopedBrowserService
@@ -340,8 +339,7 @@ Clean runtime shutdown attempts resources in this order:
 6. close the owned browser runtime/context;
 7. close `SessionEventStore` when enabled;
 8. close the Project Continuity store when present;
-9. close the private authority control socket when configured;
-10. close MCP transport/server.
+9. close MCP transport/server.
 
 A failure in one cleanup phase is reported categorically and does not prevent later phases from running.
 

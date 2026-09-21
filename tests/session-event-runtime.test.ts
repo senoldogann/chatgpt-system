@@ -26,7 +26,7 @@ async function fixture(enabled: boolean) {
     roots: [project], auditFile: path.join(root, "audit.jsonl"),
     continuityDatabasePath: path.join(root, "continuity", "continuity.db"),
     sessionEventsEnabled: enabled,
-    terminalEnabled: false, projectExecEnabled: false, personalAdminEnabled: false,
+    terminalEnabled: false, projectExecEnabled: false,
     computerUseEnabled: false, fullHostJsEnabled: false, browserEnabled: false, controlEnabled: false,
   });
   return { root, config, taskStateRoot, databasePath: path.join(taskStateRoot, "session-events", "metadata.db") };

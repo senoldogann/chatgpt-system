@@ -1,6 +1,6 @@
 # Coding Harness v2 Operator Runbook
 
-Coding Harness v2 extends `chatgpt-system` with a least-privilege software-engineering execution layer. It does not replace the existing authority model and does not turn Project authority into host-shell access.
+Coding Harness v2 extends `chatgpt-system` with a least-privilege software-engineering execution layer. It keeps the startup-gated execution boundaries: the Docker sandbox does not gain host-shell access.
 
 ## Execution boundaries
 
@@ -8,10 +8,10 @@ There are two deliberately separate execution paths.
 
 ### Project sandbox execution
 
-`project_exec` is available only to an active Project lease and only when the runtime was started with the explicit Project-execution gate.
+`project_exec` is available in open scope only when the runtime was started with the explicit Project-execution gate.
 
 ```text
-Project authority
+open scope + projectExec.enabled
     ↓
 project_exec
     ↓
@@ -36,12 +36,12 @@ The Docker daemon is trusted infrastructure. Anyone able to control the host Doc
 
 The sandbox is Linux-based. Xcode/macOS-native checks, Apple-platform signing, simulator work, and similar tasks remain outside this path.
 
-### Admin host execution
+### Host execution
 
-`terminal_run`, `process_start`, and related process tools remain Admin-only host execution.
+`terminal_run`, `process_start`, and related process tools run as host execution when terminal is enabled:
 
 ```text
-Admin authority
+terminal startup-gate
     ↓
 terminal_run / managed processes
     ↓
@@ -49,8 +49,6 @@ current macOS user account
 ```
 
 This path uses `shell=false`, an executable allowlist, scoped cwd checks, bounded output/runtime, and sanitized environment handling, but it is not an OS sandbox.
-
-Project and User authority do not gain host-terminal capability from Coding Harness v2.
 
 ## One-time sandbox setup
 
@@ -156,9 +154,9 @@ run
 report
 ```
 
-Detection is repository-derived. Existing Node package scripts keep their current precedence and run in the Project Docker sandbox. If no Node check is detected and the repository root contains a regular non-symlink Package.swift, project_check detects fixed SwiftPM test/build checks. Those checks are marked admin-host and project_check run requires an explicit active Admin lease; callers still cannot submit command/args/cwd overrides. Detect/report remain Project-only. All lanes write the same freshness-bound digest-only evidence.
+Detection is repository-derived. Existing Node package scripts keep their current precedence and run in the Project Docker sandbox. If no Node check is detected and the repository root contains a regular non-symlink Package.swift, project_check detects fixed SwiftPM test/build checks. Those checks are marked `admin-host` (native lane name) and run without a lease in open scope; callers still cannot submit command/args/cwd overrides. All lanes write the same freshness-bound digest-only evidence.
 
-Docker/image/backend failure never causes automatic fallback from a `project-sandbox` check to host execution. Native `admin-host` checks are a separately detected lane with explicit Admin authorization, not a recovery path for failed sandbox checks.
+Docker/image/backend failure never causes automatic fallback from a `project-sandbox` check to host execution. Native `admin-host` checks are a separately detected lane, not a recovery path for failed sandbox checks.
 
 Statuses:
 
@@ -306,7 +304,7 @@ When Project Docker execution itself changed, additionally perform a real Docker
 ## Known boundaries
 
 - The Docker sandbox is Linux, not macOS.
-- Xcode/macOS-native checks require explicit Admin host execution.
+- Xcode/macOS-native checks require explicit native host execution.
 - Docker daemon trust is outside the container isolation boundary.
 - TypeScript is the first semantic language-service adapter; other languages return explicit unsupported semantic behavior until an adapter exists.
 - Source-map correlation is reported only when deterministic; otherwise it remains unavailable.

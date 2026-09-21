@@ -48,7 +48,6 @@ async function leasedClient(base: string, root: string): Promise<LeasedClient> {
     auditFile: path.join(base, "audit.jsonl"),
     terminalEnabled: false,
     projectExecEnabled: false,
-    personalAdminEnabled: false,
     computerUseEnabled: false,
     fullHostJsEnabled: false,
     browserEnabled: false,

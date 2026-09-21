@@ -125,7 +125,6 @@ describe("production continuity runtime wiring", () => {
       continuityDatabasePath: path.join(root, "continuity", "continuity.db"),
       terminalEnabled: false,
       projectExecEnabled: false,
-      personalAdminEnabled: false,
       computerUseEnabled: false,
       fullHostJsEnabled: false,
       browserEnabled: false,

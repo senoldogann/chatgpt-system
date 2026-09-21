@@ -122,13 +122,13 @@ Prefer existing bounded batching or parallel independent reads over unnecessary 
 
 ## Long operations: keep the MCP call short
 
-Do not run a potentially lengthy build, test suite or automation inside a single synchronous `shell_run` or `computer_run_js` request solely because the local Owner Runtime permits an omitted timeout. The remote response deadline is independent and can expire while local work continues. Use the existing managed-process lifecycle **only when the task already has Admin terminal authority**:
+Do not run a potentially lengthy build, test suite or automation inside a single synchronous `shell_run` or `computer_run_js` request solely because the local Owner Runtime permits an omitted timeout. The remote response deadline is independent and can expire while local work continues. Use the existing managed-process lifecycle when terminal is enabled:
 
 1. `process_start` with the command, explicit argument vector, working directory and a stable idempotency key; retain the returned opaque process ID. Confirm the process actually starts; a spawn acknowledgement is not application readiness.
 2. Make separate, short `process_status` and bounded `process_logs` calls. Keep the returned log cursor to read only new output. Stop polling on a terminal state; do not interpret `unknown` or `stopping` as a successful completion.
-3. When no longer needed, use `process_stop` on the same ID. On reconnect use a new compatible Admin lease and verify the persisted job's actual state before retrying a command; never repeat a non-idempotent mutation blindly.
+3. When no longer needed, use `process_stop` on the same ID. On reconnect re-inspect the persisted job's actual state before retrying a command; never repeat a non-idempotent mutation blindly.
 
-This is **not** permission to upgrade a Project lease to Admin. Project-only `project_exec` remains Docker-bound and has its own finite timeout; split its work into independently verifiable bounded checks instead. Use a Project Continuity checkpoint before long workflows and never bypass user takeover, product safety, or authorization rules.
+`project_exec` remains Docker-bound and has its own finite timeout; split its work into independently verifiable bounded checks instead. Use a Project Continuity checkpoint before long workflows and never bypass user takeover, product safety, or authorization rules.
 
 ## Evidence for OpenAI Support
 
@@ -148,7 +148,7 @@ Do not post API keys, bearer tokens, tunnel credentials, cookies, prompt content
 - Do not repeatedly retry an unavailable developer-MCP namespace.
 - Do not restart a healthy tunnel just because ChatGPT Web shows either hosted symptom.
 - Do not substitute container access for the user's Mac.
-- Do not widen Project/User/Admin authority to recover product UI availability.
+- Do not widen tool scope to recover product UI availability.
 - Do not delete an active `managed-worktree` runtime source.
 - Do not claim local changes when developer MCP access was unavailable.
 

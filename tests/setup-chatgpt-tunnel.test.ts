@@ -461,19 +461,13 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     ]);
   });
 
-  it("separates repository build input from fixed protected runtime helper paths", () => {
+  it("separates repository build input from the fixed installed Computer Runtime path", () => {
     const setup = buildTunnelSetup(["--root", ROOT, "--tunnel-id", VALID_TUNNEL], {}, context);
-    expect(setup.brokerPackageDir).toBe("/opt/chatgpt-system/native/macos-authority-broker");
-    expect(setup.brokerBuildPath).toBe(
-      "/opt/chatgpt-system/native/macos-authority-broker/.build/release/chatgpt-system-authority-broker",
+    expect(setup.serverPath).toBe("/opt/chatgpt-system/dist/cli.js");
+    expect(setup.computerRuntimeBundlePath).toBe(
+      "/home/tester/.chatgpt-system/ChatGPTSystemComputerRuntime.app",
     );
-    expect(setup.brokerHelperPath).toBe(
-      "/Library/Application Support/chatgpt-system/bin/chatgpt-system-authority-broker",
-    );
-    expect(setup.brokerMetadataPath).toBe(
-      "/Library/Application Support/chatgpt-system/etc/authority-broker.sha256",
-    );
-    expect(setup.brokerHelperPath).not.toContain("/opt/chatgpt-system");
+    expect(setup.computerRuntimeBundlePath).not.toContain("/opt/chatgpt-system");
     expect(JSON.stringify(setup)).not.toContain("CONTROL_PLANE_API_KEY");
   });
 });
