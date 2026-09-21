@@ -404,7 +404,7 @@ worker_finish
 handoff_prepare
 ```
 
-Skills are managed `SKILL.md` texts (catalog metadata, never instructions). `goal_advise` decides stop/continue and drafts the next instruction without ever sending anything. Workers are prime-owned runs with inbox notes, sleep/wake, finish reports, and parked history. `handoff_prepare` builds the compaction brief plus the exact replacement opening message; persist it with `project_checkpoint` (`brief`/`planSteps`/`activity`), which the resume package then carries as `[BRIEF]`/`[PLAN]`/`[ACTIVITY]` sections.
+Skills are managed `SKILL.md` texts (catalog metadata, never instructions). `goal_advise` decides stop/continue and drafts the next instruction without ever sending anything. Workers are prime-owned runs with a directed 200-message inbox queue (prime/worker sender, read-on-status consumption), sleep/wake, finish reports, parked history, and a retired-alias fence: `worker_finish` retires the worker alias, and later `project_checkpoint`/`git_push` writes from it fail closed with `WORKER_RETIRED`. `handoff_prepare` builds the compaction brief plus the exact replacement opening message; persist it with `project_checkpoint` (`brief`/`planSteps`/`activity`), which the resume package then carries as `[BRIEF]`/`[PLAN]`/`[ACTIVITY]` sections.
 
 ### Filesystem
 

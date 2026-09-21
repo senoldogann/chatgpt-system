@@ -387,6 +387,22 @@ Record the release directory, its Git HEAD, the actual `dist` artifact identity,
 
 A supported transition stops/restarts only the deployment-owned daily-driver/tunnel/MCP chain after preparation is complete. It does not restart Chrome, the computer runtime, or unrelated services. Afterward, verify the child command resolves to the new release, rerun the configured health/diagnostic checks, confirm the MCP catalog and harmless read-only calls, and retain the previous release for rollback. If any required authority or exact-head verification is unavailable, stop rather than bypassing it.
 
+### Continuous runtime updates (extension-style)
+
+The manual deployment above is automated by `scripts/auto-update-runtime.mjs`, which runs hourly as a separate LaunchAgent (`com.senoldogann.chatgpt-system.auto-update`). Each pass fetches `origin/main`, refuses unexpected remotes, and stops when the live release already matches. A newer commit is deployed only when its CI check-runs report success (best-effort via `gh`, mandatory `--require-ci` available) **and** a fresh `releases/<sha>` worktree passes the full local `npm run check`. The `current` symlink is flipped atomically, the daily-driver runner is pinned to the stable `runtime/chatgpt-system-main/...` path so the tunnel profile never needs rewriting, the daily-driver restarts, and `healthz`/`readyz` plus `diagnose-chatgpt-connection --minutes 10` must pass. Any verification failure flips `current` back to `previous` and restarts again. Old releases are pruned to the retention count (default 3, always keeping current and previous).
+
+```bash
+cd ~/chatgpt-system
+npm run setup:auto-update          # hourly agent, --interval-sec 3600 default
+npm run auto-update:check          # dry run, no changes
+npm run auto-update:status         # current/previous + last result
+npm run auto-update:uninstall      # remove the agent
+```
+
+State and bounded logs live in `~/.chatgpt-system/auto-update/` (`state.json`, `auto-update.log`); no credentials are logged. The updater never touches the Desktop checkout branch: it only fetches and creates detached worktrees.
+
+Limitation: the updater refreshes the Mac side only. When the MCP tool catalog changes, ChatGPT Web/Desktop still needs a manual catalog Refresh in the plugin configuration; new tools are invisible until that Refresh happens. After every `deployed` result, Refresh the ChatGPT plugin catalog.
+
 ## 7. Tool catalog
 
 Authority tools:

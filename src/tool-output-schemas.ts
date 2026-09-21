@@ -767,6 +767,14 @@ export const goalAdviseOutputSchema = z.object({
   reason: z.string(),
 }).strict();
 
+export const workerMessageOutputSchema = z.object({
+  id: z.string(),
+  from: z.enum(["prime", "worker"]),
+  text: z.string(),
+  sentAt: z.string(),
+  readAt: z.string().nullable(),
+}).strict();
+
 export const workerInfoOutputSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -774,6 +782,9 @@ export const workerInfoOutputSchema = z.object({
   state: z.enum(["active", "sleeping", "finished", "failed"]),
   alias: z.string().nullable(),
   worktreePath: z.string().nullable(),
+  inbox: z.array(workerMessageOutputSchema),
+  inboxTotal: z.number().int().nonnegative(),
+  unreadCount: z.number().int().nonnegative(),
   createdAt: z.string(),
   lastSeenAt: z.string(),
   result: z.string().nullable(),

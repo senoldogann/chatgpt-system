@@ -1,6 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import type { AuditLogger } from "./audit.js";
+import type { AppConfig } from "./config.js";
 import { AppError } from "./errors.js";
+import { assertWorkerAliasLive } from "./worker-store.js";
 import {
   projectContinuityResultOutputSchema,
   projectListOutputSchema,
@@ -67,6 +70,21 @@ export const projectContextReadInputSchema = z.object({
 
 export interface ProjectContinuityToolRuntime {
   continuity: Pick<ProjectContinuityService, "register" | "resume" | "checkpoint" | "contextRead" | "listProjects">;
+  audit: AuditLogger;
+  config: AppConfig;
+  taskStateRoot: string;
+}
+
+async function assertAliasLive(runtime: ProjectContinuityToolRuntime, alias: string): Promise<void> {
+  await assertWorkerAliasLive(
+    {
+      taskStateRoot: runtime.taskStateRoot,
+      audit: runtime.audit,
+      maxWorkers: runtime.config.workers.maxWorkers,
+      maxParkedRuns: runtime.config.workers.maxParkedRuns,
+    },
+    alias,
+  );
 }
 
 const mutationAnnotations = {
@@ -174,9 +192,12 @@ export function registerProjectContinuityTools(
       outputSchema: projectContinuityResultOutputSchema,
       annotations: mutationAnnotations,
     },
-    async (input) => safeCall(async () => publicContinuityResult(
-      await runtime.continuity.checkpoint(input as ProjectCheckpointInput),
-    )),
+    async (input) => safeCall(async () => {
+      await assertAliasLive(runtime, input.alias);
+      return publicContinuityResult(
+        await runtime.continuity.checkpoint(input as ProjectCheckpointInput),
+      );
+    }),
   );
 
   server.registerTool(

@@ -1,5 +1,10 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { AuditLogger } from "../src/audit.js";
 import { ContinuityNotFoundError } from "../src/continuity-errors.js";
+import { WorkerStore } from "../src/worker-store.js";
 import { projectContinuityResultOutputSchema, projectListOutputSchema, projectResumeOutputSchema } from "../src/continuity-output-schemas.js";
 import {
   registerProjectContinuityTools,
@@ -77,6 +82,9 @@ function fakeRuntime() {
 
   return {
     calls,
+    taskStateRoot: mkdtempSync(path.join(tmpdir(), "chatgpt-system-fence-")),
+    audit: new AuditLogger(path.join(mkdtempSync(path.join(tmpdir(), "chatgpt-system-fence-audit-")), "audit.jsonl")),
+    config: { workers: { maxWorkers: 8, maxParkedRuns: 16 } },
     continuity: {
       register: async (input: unknown) => { calls.push({ method: "register", input }); return result; },
       checkpoint: async (input: unknown) => { calls.push({ method: "checkpoint", input }); return result; },
@@ -364,6 +372,25 @@ describe("project continuity MCP registration", () => {
     expect(registerResult.content[0]?.text).not.toContain("password=secret-internal");
     expect(resumeResult.isError).toBe(true);
     expect(resumeResult.content[0]?.text).toContain("CONTINUITY_NOT_FOUND");
+  });
+
+  it("refuses checkpoint writes from retired worker aliases before reaching the service", async () => {
+    const { tools, runtime } = registerFixture();
+    const workerStore = await WorkerStore.open(runtime.taskStateRoot, runtime.audit, 8, 16);
+    const run = await workerStore.spawn("prime", "", [{ task: "Do the work.", alias: "Project-X" }]);
+    await workerStore.finish(run.runId, run.workers[0]!.id, "Done.", false);
+
+    const result = await tools.get("project_checkpoint")!.handler({
+      authorityLeaseId: "A".repeat(43),
+      alias: "Project-X",
+      expectedRecordVersion: 1,
+      task: validTask(),
+      decisions: [],
+    } as never) as { isError?: boolean; content: Array<{ type: string; text: string }> };
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("WORKER_RETIRED");
+    expect(runtime.calls.some((call) => call.method === "checkpoint")).toBe(false);
   });
 
 });
