@@ -1,0 +1,274 @@
+/* chatgpt-system paneli: sayfanın rengine uyar, kendi temasını dayatmaz.
+   Metin currentColor'dan türetilir; açık ve koyu temada okunur kalır. */
+
+/* --- panel kabuğu ------------------------------------------------ */
+
+.cs-stage {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 48rem;
+  margin: 0 auto 0.7rem;
+  padding: 0.65rem 0.9rem 0.8rem;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 1rem;
+  background: var(--main-surface-secondary, color-mix(in srgb, currentColor 8%, transparent));
+  box-shadow: 0 2px 10px rgb(0 0 0 / 10%);
+  color: inherit;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.cs-stage[hidden] {
+  display: none;
+}
+
+.cs-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.cs-dot {
+  flex: none;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 9999px;
+  background: color-mix(in srgb, currentColor 30%, transparent);
+}
+
+.cs-dot[data-state='ok'] {
+  background: #10a37f;
+}
+
+.cs-dot[data-state='warn'] {
+  background: #d97706;
+}
+
+.cs-dot[data-state='error'] {
+  background: #dc2626;
+}
+
+.cs-title {
+  flex: none;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.cs-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.65;
+}
+
+.cs-action {
+  flex: none;
+  padding: 0.28rem 0.8rem;
+  border: 0;
+  border-radius: 9999px;
+  background: #10a37f;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.cs-action:hover:not(:disabled) {
+  background: #0e8f6f;
+}
+
+.cs-action:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.cs-toggle {
+  flex: none;
+  padding: 0.2rem 0.45rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  opacity: 0.6;
+}
+
+.cs-toggle:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  opacity: 1;
+}
+
+.cs-stage.cs-collapsed .cs-body {
+  display: none;
+}
+
+.cs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+}
+
+/* --- içerik kartları ---------------------------------------------- */
+
+.cs-card {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid color-mix(in srgb, currentColor 9%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+}
+
+.cs-card-title {
+  margin: 0 0 0.3rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.cs-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.cs-row {
+  display: flex;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.cs-k {
+  flex: none;
+  width: 4.2rem;
+  font-weight: 600;
+  opacity: 0.55;
+}
+
+.cs-v {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cs-brief {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cs-plan {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.cs-plan-step {
+  overflow-wrap: anywhere;
+  opacity: 0.88;
+}
+
+/* --- kurulum ve hata kartları -------------------------------------- */
+
+.cs-onboard {
+  padding: 0.7rem 0.8rem;
+  border: 1px dashed color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 0.75rem;
+}
+
+.cs-onboard-title {
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.cs-steps {
+  margin: 0 0 0.5rem;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.cs-step-line {
+  overflow-wrap: anywhere;
+}
+
+.cs-step-line code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.82em;
+}
+
+.cs-retry {
+  padding: 0.3rem 0.85rem;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 9999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.cs-retry:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.cs-notice {
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, #10a37f 16%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.cs-error-card {
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, #dc2626 14%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.cs-empty {
+  opacity: 0.6;
+}
+
+/* --- akış satırları ------------------------------------------------ */
+
+.cs-flow {
+  border-top: 1px solid color-mix(in srgb, currentColor 9%, transparent);
+  padding: 0.22rem 0;
+}
+
+.cs-flow:first-child {
+  border-top: 0;
+}
+
+.cs-flow-label {
+  cursor: pointer;
+  opacity: 0.88;
+}
+
+.cs-flow-text {
+  margin: 0.25rem 0 0;
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  opacity: 0.92;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-action,
+  .cs-toggle,
+  .cs-retry {
+    transition: none;
+  }
+}

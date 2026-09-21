@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   localhostHostValidation,
   localhostOriginValidation,
@@ -9,6 +10,16 @@ import {
 } from "@modelcontextprotocol/node";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import {
+  bridgeHello,
+  prepareBridgeHandoff,
+  readBridgeActivity,
+  readBridgeContext,
+  readBridgeStatusForAlias,
+  resolveBridgeAlias,
+} from "./bridge.js";
+import { ContinuityNotFoundError } from "./continuity-errors.js";
+import { PolicyError } from "./errors.js";
 import { isLoopbackHost } from "./config.js";
 import type { RuntimeServices } from "./server.js";
 import { createMcpServer } from "./server.js";
@@ -25,6 +36,107 @@ export function startStdio(runtime: RuntimeServices) {
     legacy: "serve",
     onerror: (error) => console.error("[chatgpt-system] MCP stdio error:", error),
   });
+}
+
+function bridgeJson(res: ServerResponse, status: number, value: unknown): void {
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+  res.end(JSON.stringify(value));
+}
+
+// POST gövdesini 64KB tavanla okur; bozuk ya da büyük gövde null döner.
+function readBridgeBody(req: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size <= 65_536) chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (size > 65_536) {
+        resolve(null);
+        return;
+      }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
+      } catch {
+        resolve(null);
+      }
+    });
+    req.on("error", () => resolve(null));
+  });
+}
+
+async function handleBridgeRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  runtime: RuntimeServices,
+): Promise<void> {
+  const alias = (url.searchParams.get("alias") ?? "").slice(0, 128);
+  try {
+    if (req.method === "GET" && url.pathname === "/bridge/status") {
+      bridgeJson(res, 200, await readBridgeStatusForAlias(runtime, alias));
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/bridge/context") {
+      const resolved = await resolveBridgeAlias(runtime, alias);
+      if (resolved === "") {
+        bridgeJson(res, 400, { error: "alias_required" });
+        return;
+      }
+      bridgeJson(res, 200, await readBridgeContext(runtime, resolved));
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/bridge/activity") {
+      const resolved = await resolveBridgeAlias(runtime, alias);
+      if (resolved === "") {
+        bridgeJson(res, 400, { error: "alias_required" });
+        return;
+      }
+      const limit = Number(url.searchParams.get("limit") ?? "50");
+      bridgeJson(res, 200, await readBridgeActivity(runtime, resolved, limit));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/bridge/handoff/prepare") {
+      const body = await readBridgeBody(req);
+      if (body === null || typeof body !== "object") {
+        bridgeJson(res, 400, { error: "invalid_body" });
+        return;
+      }
+      const record = body as { alias?: unknown; sessionId?: unknown };
+      const bodyAlias = typeof record.alias === "string" ? record.alias : alias;
+      const resolved = await resolveBridgeAlias(runtime, bodyAlias);
+      if (resolved === "") {
+        bridgeJson(res, 400, { error: "alias_required" });
+        return;
+      }
+      bridgeJson(res, 200, await prepareBridgeHandoff(
+        runtime,
+        resolved,
+        typeof record.sessionId === "string" ? record.sessionId : undefined,
+      ));
+      return;
+    }
+    bridgeJson(res, 404, { error: "not_found" });
+  } catch (error) {
+    if (error instanceof ContinuityNotFoundError) {
+      bridgeJson(res, 404, { error: "alias_not_found" });
+      return;
+    }
+    if (error instanceof PolicyError) {
+      bridgeJson(res, 422, { error: "handoff_unavailable", reason: error.message });
+      return;
+    }
+    // Süreklilik DB'si MCP yazarı tarafından anlık kilitliyse 503 dönülür;
+    // uzantı bir sonraki yoklamada yeniden dener.
+    const code = (error as { code?: unknown }).code;
+    if (code === "SQLITE_BUSY" || code === "SQLITE_LOCKED") {
+      bridgeJson(res, 503, { error: "busy" });
+      return;
+    }
+    throw error;
+  }
 }
 
 export function startHttp(runtime: RuntimeServices): HttpServer {
@@ -49,13 +161,45 @@ export function startHttp(runtime: RuntimeServices): HttpServer {
   const validateOrigin = isLoopbackHost(runtime.config.http.host) ? localhostOriginValidation() : undefined;
 
   const server = createHttpServer((req, res) => {
-    if (validateHost && !validateHost(req, res)) return;
-    if (validateOrigin && !validateOrigin(req, res)) return;
-
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    const isBridge = url.pathname === "/bridge/hello" || url.pathname.startsWith("/bridge/");
+    if (validateHost && !validateHost(req, res)) return;
+    // Tarayıcı uzantısı köprüsü tarayıcıdan chrome-extension:// kaynağıyla
+    // gelir; MCP SDK'nın localhost Origin kapısı bunu reddeder. Köprü zaten
+    // bearer token ister, bu yüzden Origin kapısı yalnızca /mcp için uygulanır.
+    if (!isBridge && validateOrigin && !validateOrigin(req, res)) return;
+
     if (req.method === "GET" && url.pathname === "/health") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
       res.end(JSON.stringify({ ok: true, name: "chatgpt-system", version: "0.1.0" }));
+      return;
+    }
+
+    // Tarayıcı uzantısı köprüsü: hello kimlik yoklaması açıktır, veri
+    // uçları MCP ile aynı bearer token ister. Content-script tokenı hiç
+    // görmez; yalnızca service worker bu uçlara erişir.
+    if (isBridge) {
+      if (req.method === "GET" && url.pathname === "/bridge/hello") {
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        res.end(JSON.stringify(bridgeHello()));
+        return;
+      }
+      if (!tokenMatches(req.headers.authorization, token)) {
+        res.writeHead(401, {
+          "content-type": "application/json; charset=utf-8",
+          "www-authenticate": "Bearer",
+          "cache-control": "no-store",
+        });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      void handleBridgeRequest(req, res, url, runtime).catch((error) => {
+        console.error("[chatgpt-system] bridge error:", error instanceof Error ? error.message : String(error));
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+          res.end(JSON.stringify({ error: "bridge_failed" }));
+        }
+      });
       return;
     }
 

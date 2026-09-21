@@ -1,0 +1,190 @@
+body {
+  margin: 0;
+  font: 13px/1.5 -apple-system, system-ui, sans-serif;
+  color: #ececec;
+  background: #1e1e1e;
+}
+
+.shell {
+  width: 330px;
+  padding: 12px 14px 14px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 9999px;
+  background: #6b6b6b;
+}
+
+.dot[data-state='ok'] {
+  background: #10a37f;
+}
+
+.dot[data-state='warn'] {
+  background: #d97706;
+}
+
+.dot[data-state='error'] {
+  background: #dc2626;
+}
+
+h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  opacity: 0.6;
+  text-align: right;
+}
+
+.alert {
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: #5a2b2b;
+  font-size: 12px;
+}
+
+.alert[hidden] {
+  display: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 8px 0;
+  padding: 9px 11px;
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 10px;
+  background: #262626;
+}
+
+.card[hidden] {
+  display: none;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.name {
+  flex: none;
+  width: 72px;
+  font-weight: 600;
+  opacity: 0.55;
+}
+
+.meta-row,
+.meta {
+  overflow-wrap: anywhere;
+}
+
+.row .meta {
+  text-align: left;
+}
+
+details {
+  margin-top: 6px;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+
+#flow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+#flow pre {
+  margin: 2px 0 0;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+input {
+  padding: 6px 9px;
+  border: 1px solid #4a4a4a;
+  border-radius: 8px;
+  background: #141414;
+  color: inherit;
+  font: inherit;
+}
+
+.hint {
+  font-size: 12px;
+  opacity: 0.65;
+}
+
+.hint:empty {
+  display: none;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+button {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 9999px;
+  background: #3a3a3a;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #4a4a4a;
+}
+
+#saveBtn {
+  background: #10a37f;
+  color: #fff;
+}
+
+#saveBtn:hover {
+  background: #0e8f6f;
+}
+
+.version {
+  margin: 10px 0 0;
+  font-size: 11px;
+  opacity: 0.45;
+  text-align: center;
+}

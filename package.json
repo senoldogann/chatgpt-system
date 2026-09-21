@@ -34,6 +34,7 @@
     "auto-update:check": "node scripts/auto-update-runtime.mjs check",
     "auto-update:status": "node scripts/auto-update-runtime.mjs status",
     "auto-update:uninstall": "node scripts/auto-update-runtime.mjs uninstall",
+    "setup:extension-bridge": "node scripts/setup-extension-bridge.mjs",
     "test": "vitest run --maxWorkers=50% --no-isolate --testTimeout=30000",
     "check": "npm run build && npm test",
     "setup:computer:macos": "node scripts/setup-macos-computer-runtime.mjs",

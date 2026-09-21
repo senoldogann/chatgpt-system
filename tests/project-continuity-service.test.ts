@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AuthorityManager } from "../src/authority.js";
 import { ContinuityGitInspector } from "../src/continuity-git-inspector.js";
 import { ContinuityStore } from "../src/continuity-store.js";
@@ -389,6 +389,55 @@ describe("ProjectContinuityService registration", () => {
       code: "CONTINUITY_WORKTREE_INVALID",
     });
     expect(fixture.authority.startedLeaseIds).toHaveLength(before);
+    fixture.store.close();
+  });
+
+  it("kayit, devam ve checkpoint sonrasi aktif alias bildirilir", async () => {
+    const fixture = await createFixture();
+    const seen: string[] = [];
+    const service = new ProjectContinuityService({
+      store: fixture.store,
+      inspector: fixture.inspector,
+      authority: fixture.authority,
+      homeDir: fixture.home,
+      maxResumeChars: 12_000,
+      onActive: async (alias) => {
+        seen.push(alias);
+      },
+    });
+
+    await service.register(registrationInput(fixture));
+    const resumed = await service.resume({ alias: "project-x" });
+    await service.checkpoint({
+      authorityLeaseId: resumed.authorityLease.leaseId,
+      alias: "project-x",
+      expectedRecordVersion: 1,
+      task: registrationInput(fixture).task,
+      decisions: [],
+    });
+
+    expect(seen).toEqual(["Project-X", "Project-X", "Project-X"]);
+    fixture.store.close();
+  });
+
+  it("aktif alias ipucu yazilamazsa sureklilik islemi dusmez", async () => {
+    const fixture = await createFixture();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const service = new ProjectContinuityService({
+      store: fixture.store,
+      inspector: fixture.inspector,
+      authority: fixture.authority,
+      homeDir: fixture.home,
+      maxResumeChars: 12_000,
+      onActive: async () => {
+        throw new Error("state directory is read-only");
+      },
+    });
+
+    await expect(service.register(registrationInput(fixture))).resolves.toMatchObject({ alias: "Project-X" });
+    await expect(service.resume({ alias: "project-x" })).resolves.toMatchObject({ alias: "Project-X" });
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
     fixture.store.close();
   });
 });
