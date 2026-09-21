@@ -115,7 +115,7 @@ export function registerWorkerTools(server: McpServer, runtime: WorkerToolRuntim
   server.registerTool(
     "worker_spawn",
     {
-      description: "Start one worker run for a prime project alias with 1-8 workers. Each worker gets the shared context plus its own task. Worker chats are separate project aliases or worktrees; no browser tabs are opened. No lease required.",
+      description: "Start one tracked worker run for a prime project alias with 1-8 workers. Workers are coordination records: they store the shared context, each task, inbox messages and the finish report, but they do not execute work, spawn agents or run code. The prime session performs the work and records results with worker_finish. Worker chats are separate project aliases or worktrees; no browser tabs are opened. No lease required.",
       inputSchema: z.object({
         primeAlias: z.string().min(1).max(128),
         sharedContext: z.string().max(4_000).default(""),
@@ -182,7 +182,7 @@ export function registerWorkerTools(server: McpServer, runtime: WorkerToolRuntim
   server.registerTool(
     "worker_finish",
     {
-      description: "Close one worker with its final report and retire its alias: later checkpoint/push writes from that alias fail closed with WORKER_RETIRED. When every worker of the run is terminal, the run parks as retained history. No lease required.",
+      description: "Close one worker with its final report as recorded by the prime session: this stores the report, it does not run the task. Retires the worker alias: later checkpoint/push writes from that alias fail closed with WORKER_RETIRED. When every worker of the run is terminal, the run parks as retained history. No lease required.",
       inputSchema: z.object({
         runId: z.string().min(1).max(128),
         workerId: z.string().min(1).max(64),

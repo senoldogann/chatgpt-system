@@ -18,6 +18,7 @@ import {
   readBridgeStatusForAlias,
   resolveBridgeAlias,
 } from "./bridge.js";
+import { normalizeChatId } from "./chat-bindings.js";
 import { ContinuityNotFoundError } from "./continuity-errors.js";
 import { PolicyError } from "./errors.js";
 import { isLoopbackHost } from "./config.js";
@@ -41,6 +42,28 @@ export function startStdio(runtime: RuntimeServices) {
 function bridgeJson(res: ServerResponse, status: number, value: unknown): void {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
   res.end(JSON.stringify(value));
+}
+
+// İstek yolu Host başlığından bağımsız çözülür: bozuk ya da düşmanca bir
+// Host başlığı URL ayrıştırmasını etkileyemez ve isteği çökertemez.
+function requestUrl(req: IncomingMessage): URL | null {
+  try {
+    return new URL(req.url ?? "/", "http://127.0.0.1");
+  } catch {
+    return null;
+  }
+}
+
+// Sohbet bağı yalnızca gözlem ipucudur; yazılamazsa köprü isteği düşmez.
+async function bindChatAlias(runtime: RuntimeServices, chatId: string, alias: string): Promise<void> {
+  if (chatId === "" || alias === "") return;
+  try {
+    await runtime.chatBindings.bind(chatId, alias);
+  } catch (error) {
+    console.error(
+      `[chatgpt-system] chat binding failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 // POST gövdesini 64KB tavanla okur; bozuk ya da büyük gövde null döner.
@@ -74,22 +97,26 @@ async function handleBridgeRequest(
   runtime: RuntimeServices,
 ): Promise<void> {
   const alias = (url.searchParams.get("alias") ?? "").slice(0, 128);
+  const chat = normalizeChatId(url.searchParams.get("chat") ?? "");
   try {
     if (req.method === "GET" && url.pathname === "/bridge/status") {
-      bridgeJson(res, 200, await readBridgeStatusForAlias(runtime, alias));
+      bridgeJson(res, 200, await readBridgeStatusForAlias(runtime, alias, chat));
       return;
     }
     if (req.method === "GET" && url.pathname === "/bridge/context") {
-      const resolved = await resolveBridgeAlias(runtime, alias);
+      const resolved = await resolveBridgeAlias(runtime, alias, chat);
       if (resolved === "") {
         bridgeJson(res, 400, { error: "alias_required" });
         return;
       }
+      // Panelden açık proje seçimi o sohbete sabitlenir; sonraki yoklamalar
+      // alias göndermese de bağ korunur.
+      if (alias.trim() !== "") await bindChatAlias(runtime, chat, resolved);
       bridgeJson(res, 200, await readBridgeContext(runtime, resolved));
       return;
     }
     if (req.method === "GET" && url.pathname === "/bridge/activity") {
-      const resolved = await resolveBridgeAlias(runtime, alias);
+      const resolved = await resolveBridgeAlias(runtime, alias, chat);
       if (resolved === "") {
         bridgeJson(res, 400, { error: "alias_required" });
         return;
@@ -104,18 +131,21 @@ async function handleBridgeRequest(
         bridgeJson(res, 400, { error: "invalid_body" });
         return;
       }
-      const record = body as { alias?: unknown; sessionId?: unknown };
+      const record = body as { alias?: unknown; sessionId?: unknown; chat?: unknown };
       const bodyAlias = typeof record.alias === "string" ? record.alias : alias;
-      const resolved = await resolveBridgeAlias(runtime, bodyAlias);
+      const bodyChat = normalizeChatId(record.chat) || chat;
+      const resolved = await resolveBridgeAlias(runtime, bodyAlias, bodyChat);
       if (resolved === "") {
         bridgeJson(res, 400, { error: "alias_required" });
         return;
       }
-      bridgeJson(res, 200, await prepareBridgeHandoff(
+      const result = await prepareBridgeHandoff(
         runtime,
         resolved,
         typeof record.sessionId === "string" ? record.sessionId : undefined,
-      ));
+      );
+      await bindChatAlias(runtime, bodyChat, resolved);
+      bridgeJson(res, 200, result);
       return;
     }
     bridgeJson(res, 404, { error: "not_found" });
@@ -161,9 +191,16 @@ export function startHttp(runtime: RuntimeServices): HttpServer {
   const validateOrigin = isLoopbackHost(runtime.config.http.host) ? localhostOriginValidation() : undefined;
 
   const server = createHttpServer((req, res) => {
-    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-    const isBridge = url.pathname === "/bridge/hello" || url.pathname.startsWith("/bridge/");
+    // Host kapısı ilk adımdır: başlık doğrulanmadan istek yolu çözülmez.
+    // SDK doğrulayıcısı bozuk Host'u kendisi 403 ile kapatır.
     if (validateHost && !validateHost(req, res)) return;
+    const url = requestUrl(req);
+    if (url === null) {
+      res.writeHead(400, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      res.end(JSON.stringify({ error: "invalid_url" }));
+      return;
+    }
+    const isBridge = url.pathname === "/bridge/hello" || url.pathname.startsWith("/bridge/");
     // Tarayıcı uzantısı köprüsü tarayıcıdan chrome-extension:// kaynağıyla
     // gelir; MCP SDK'nın localhost Origin kapısı bunu reddeder. Köprü zaten
     // bearer token ister, bu yüzden Origin kapısı yalnızca /mcp için uygulanır.

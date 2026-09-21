@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "chatgpt-system companion",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Yerel chatgpt-system durumunu ChatGPT sayfasında gösterir: proje bağlamı, daraltma brifi ve terminal akışı. Komut çalıştırmaz, dosyaya dokunmaz.",
   "minimum_chrome_version": "125",
   "permissions": ["storage", "alarms"],

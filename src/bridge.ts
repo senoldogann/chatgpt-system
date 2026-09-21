@@ -4,8 +4,10 @@
 // veridir, talimat değildir; uzantı bunları olduğu gibi gösterir.
 
 import { defaultOpencodeAuthPath } from "./opencode-auth.js";
+import { normalizeChatId } from "./chat-bindings.js";
 import { prepareHandoff, type HandoffPrepareResult } from "./handoff-tool-registration.js";
 import { SkillsStore } from "./skills-store.js";
+import type { TerminalMirrorSession } from "./terminal-mirror.js";
 import { WorkerStore } from "./worker-store.js";
 import type { RuntimeServices } from "./server.js";
 
@@ -106,16 +108,51 @@ export function bridgeHello(): BridgeHello {
   return { app: BRIDGE_APP, protocol: BRIDGE_PROTOCOL, version: BRIDGE_VERSION };
 }
 
-// Uzantı alias seçmediğinde sırayla: sohbette en son dokunulan proje
-// (izleyici), sonra en güncel kayıt. Hiçbiri yoksa boş döner ve taşıma
-// katmanı alias_required ile kapatır.
-export async function resolveBridgeAlias(runtime: RuntimeServices, rawAlias: string): Promise<string> {
+// Uzantı alias seçmediğinde sırayla: sohbet bağı (kullanıcı panelden o
+// sohbete proje sabitlediyse), sohbette en son dokunulan proje (izleyici),
+// sonra en güncel kayıt. Hiçbiri yoksa boş döner ve taşıma katmanı
+// alias_required ile kapatır.
+export async function resolveBridgeAlias(
+  runtime: RuntimeServices,
+  rawAlias: string,
+  rawChatId: string,
+): Promise<string> {
   const explicit = aliasOf(rawAlias);
-  if (explicit !== "") return explicit;
   const projects = runtime.continuityStore.listProjects();
+  if (explicit !== "") return explicit;
+  const chatId = normalizeChatId(rawChatId);
+  if (chatId !== "") {
+    const bound = await runtime.chatBindings.read(chatId);
+    if (bound !== null && projects.some((project) => project.alias === bound)) return bound;
+  }
   const tracked = await runtime.activeProject.read();
   if (tracked !== null && projects.some((project) => project.alias === tracked)) return tracked;
   return projects[0]?.alias ?? "";
+}
+
+// Ayna okuması gözlemdir; erişilemez ya da bozuk dizin köprü isteğini
+// düşürmez, terminal bölümü boş kalır.
+async function safeMirrorSessions(runtime: RuntimeServices): Promise<TerminalMirrorSession[]> {
+  try {
+    return await runtime.terminalMirror.list();
+  } catch {
+    return [];
+  }
+}
+
+// Hiç kayıt yokken bile yetenek bayrağı yapılandırmadan okunur; ayna
+// dosyaları MCP sürecinin terminal oturumlarını taşır.
+async function terminalSummary(runtime: RuntimeServices): Promise<{ enabled: boolean; sessions: number; running: number }> {
+  const sessions = await safeMirrorSessions(runtime);
+  let running = 0;
+  for (const session of sessions) {
+    if (session.state === "running") running += 1;
+  }
+  return {
+    enabled: runtime.config.ownerRuntime.enabled === true || sessions.length > 0,
+    sessions: sessions.length,
+    running,
+  };
 }
 
 export async function readBridgeStatus(runtime: RuntimeServices): Promise<BridgeStatus> {
@@ -143,7 +180,7 @@ export async function readBridgeStatus(runtime: RuntimeServices): Promise<Bridge
     },
     skills: { enabled: runtime.config.skills.enabled, count: skillCount },
     workers: { enabled: runtime.config.workers.enabled, runs: 0, activeWorkers: 0, unread: 0 },
-    terminal: { enabled: false, sessions: 0, running: 0 },
+    terminal: await terminalSummary(runtime),
     goal: { enabled: runtime.config.goal.enabled, llm: runtime.config.goal.llm !== undefined },
   };
 }
@@ -177,18 +214,8 @@ async function workerSummary(
   }
 }
 
-function terminalSummary(runtime: RuntimeServices): { enabled: boolean; sessions: number; running: number } {
-  if (runtime.config.ownerRuntime.enabled !== true) return { enabled: false, sessions: 0, running: 0 };
-  const descriptors = runtime.terminalSessionSupervisor.descriptors();
-  let running = 0;
-  for (const descriptor of descriptors) {
-    if (runtime.terminalSessionSupervisor.status(descriptor.sessionId)?.state === "running") running += 1;
-  }
-  return { enabled: true, sessions: descriptors.length, running };
-}
-
 export async function readBridgeContext(runtime: RuntimeServices, rawAlias: string): Promise<BridgeContext> {
-  const alias = await resolveBridgeAlias(runtime, rawAlias);
+  const alias = await resolveBridgeAlias(runtime, rawAlias, "");
   const stored = runtime.continuityStore.getByAlias(alias);
   const task = stored.currentRecord.task;
   return {
@@ -227,27 +254,23 @@ export async function readBridgeActivity(
   rawAlias: string,
   rawLimit: number,
 ): Promise<{ alias: string; items: BridgeActivityItem[] }> {
-  const alias = await resolveBridgeAlias(runtime, rawAlias);
+  const alias = await resolveBridgeAlias(runtime, rawAlias, "");
   const limit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), MAX_ITEMS) : MAX_ITEMS;
   const stored = runtime.continuityStore.getByAlias(alias);
   const items: BridgeActivityItem[] = [];
   for (const line of (stored.currentRecord.task.activity ?? []).slice(-limit)) {
     items.push({ kind: "record", label: "checkpoint", text: clipBridgeText(line, MAX_LINE_CHARS) });
   }
-  if (runtime.config.ownerRuntime.enabled === true) {
-    for (const descriptor of runtime.terminalSessionSupervisor.descriptors().slice(0, MAX_SESSIONS)) {
-      const summary = runtime.terminalSessionSupervisor.status(descriptor.sessionId);
-      if (!summary) continue;
-      const output = runtime.terminalSessionSupervisor.read(descriptor.sessionId, 0);
-      const tail = output ? output.data.slice(-MAX_TAIL_CHARS).trim() : "";
-      if (tail === "") continue;
-      items.push({
-        kind: "terminal",
-        label: `terminal ${descriptor.sessionId.slice(0, 8)} ${summary.state}`,
-        text: tail,
-      });
-      if (items.length >= limit + MAX_SESSIONS) break;
-    }
+  // Terminal çıktısı ayrı süreçte üretilir; canlı yerine sınırlı disk
+  // aynasından okunur ki MCP süreciyle köprü süreci ayrı olsa da aksın.
+  const mirrored = await safeMirrorSessions(runtime);
+  for (const session of mirrored.slice(0, MAX_SESSIONS)) {
+    if (session.tail === "") continue;
+    items.push({
+      kind: "terminal",
+      label: `terminal ${session.sessionId.slice(0, 8)} ${session.state}`,
+      text: clipBridgeText(session.tail, MAX_TAIL_CHARS),
+    });
   }
   if (runtime.config.workers.enabled) {
     try {
@@ -282,7 +305,7 @@ export async function prepareBridgeHandoff(
   rawAlias: string,
   sessionId?: string,
 ): Promise<HandoffPrepareResult> {
-  const alias = await resolveBridgeAlias(runtime, rawAlias);
+  const alias = await resolveBridgeAlias(runtime, rawAlias, "");
   const stored = runtime.continuityStore.getByAlias(alias);
   const task = stored.currentRecord.task;
   return prepareHandoff(
@@ -311,11 +334,12 @@ export async function prepareBridgeHandoff(
 export async function readBridgeStatusForAlias(
   runtime: RuntimeServices,
   rawAlias: string,
+  rawChatId: string,
 ): Promise<BridgeStatus> {
   const base = await readBridgeStatus(runtime);
-  const terminal = terminalSummary(runtime);
-  const alias = await resolveBridgeAlias(runtime, rawAlias);
-  if (alias === "") return { ...base, terminal };
+  // Sohbet bağı burada da geçerlidir: sayaçlar panelle aynı projeyi göstersin.
+  const alias = await resolveBridgeAlias(runtime, rawAlias, rawChatId);
+  if (alias === "") return base;
   const workers = await workerSummary(runtime, alias);
-  return { ...base, workers: { enabled: runtime.config.workers.enabled, ...workers }, terminal };
+  return { ...base, workers: { enabled: runtime.config.workers.enabled, ...workers } };
 }

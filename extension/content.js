@@ -29,6 +29,10 @@
     context: null,
     activity: null,
     page: null,
+    chatId: '',
+    pin: '',
+    pendingPin: '',
+    pickerSignature: '',
     error: '',
     notice: '',
     noticeAt: 0,
@@ -45,7 +49,13 @@
     }
   });
 
-  const ask = (path, extra) => send({ type: 'cs-bridge', path, ...extra });
+  const ask = (path, extra) => send({
+    type: 'cs-bridge',
+    path,
+    chat: state.chatId,
+    ...(state.pin !== '' ? { alias: state.pin } : {}),
+    ...extra,
+  });
 
   const el = (tag, className, text) => {
     const node = document.createElement(tag);
@@ -111,6 +121,51 @@
     }
   };
 
+  // Sohbete özel proje seçimi yerelde de tutulur; sunucu tarafı bağı da
+  // kaydettiği için uzantı yeniden yüklense bile seçim korunur.
+  const loadPin = async (chatId) => {
+    if (chatId === '') return '';
+    try {
+      const stored = await chrome.storage.local.get(['chatPins']);
+      const pins = stored.chatPins && typeof stored.chatPins === 'object' ? stored.chatPins : {};
+      return typeof pins[chatId] === 'string' ? pins[chatId] : '';
+    } catch {
+      return '';
+    }
+  };
+
+  const savePin = async (chatId, alias) => {
+    if (chatId === '') return;
+    try {
+      const stored = await chrome.storage.local.get(['chatPins']);
+      const pins = stored.chatPins && typeof stored.chatPins === 'object' ? stored.chatPins : {};
+      if (alias === '') delete pins[chatId];
+      else pins[chatId] = alias;
+      await chrome.storage.local.set({ chatPins: pins });
+    } catch {
+      // Yerel kayıt başarısız olsa da sunucu bağı sürer.
+    }
+  };
+
+  const onPickProject = async (event) => {
+    const value = event && event.target && typeof event.target.value === 'string' ? event.target.value : '';
+    state.pin = value;
+    if (state.chatId === '') {
+      // Yeni sohbetin kimliği ilk mesajla oluşur; seçim o ana kadar bekletilir.
+      state.pendingPin = value;
+    } else {
+      state.pendingPin = '';
+      await savePin(state.chatId, value);
+    }
+    state.notice = value === ''
+      ? 'Proje seçimi otomatiğe döndü.'
+      : `Bu sohbet ${value} projesine sabitlendi.`;
+    state.noticeAt = Date.now();
+    state.error = '';
+    paint();
+    await refresh();
+  };
+
   // Hata kodu her zaman string gelmez (sürüm karışımında nesne
   // gelebilir); ham nesne asla panele basılmaz.
   const errorText = (code) => {
@@ -170,6 +225,10 @@
       dot.setAttribute('data-cs-dot', '');
       const title = el('span', 'cs-title', 'chatgpt-system');
       const meta = el('span', 'cs-meta', '');
+      const picker = el('select', 'cs-project');
+      picker.setAttribute('data-cs-project', '');
+      picker.title = 'Bu sohbetin projesi';
+      picker.addEventListener('change', (event) => { void onPickProject(event); });
       const action = el('button', 'cs-action', '◐ Daralt');
       action.type = 'button';
       action.setAttribute('data-cs-action', '');
@@ -183,6 +242,7 @@
       head.appendChild(dot);
       head.appendChild(title);
       head.appendChild(meta);
+      head.appendChild(picker);
       head.appendChild(action);
       head.appendChild(toggle);
       stage.appendChild(head);
@@ -201,10 +261,12 @@
   const headerMeta = () => {
     const suffix = EXT_VERSION === '' ? '' : ` · uzantı v${EXT_VERSION}`;
     if (state.context) {
-      // Popup'ta alias seçilmediyse proje sunucudan otomatik gelir; bunu
+      // Panelden sabitlenmediyse proje sunucudan otomatik gelir; bunu
       // başlıkta belli et ki kullanıcı "hangi proje?" diye sormasın.
-      const auto = state.settings && !state.settings.hasAlias ? ' (otomatik)' : '';
-      return `${state.context.alias}${auto} · v${state.context.recordVersion} · ${state.context.status}${suffix}`;
+      const mode = state.pin !== ''
+        ? ' (sabit)'
+        : (state.settings && !state.settings.hasAlias ? ' (otomatik)' : '');
+      return `${state.context.alias}${mode} · v${state.context.recordVersion} · ${state.context.status}${suffix}`;
     }
     if (state.probe && state.probe.found) {
       // Token yolunda probe portsuz kurulur; portu ayarlardan al.
@@ -214,6 +276,35 @@
     return `bağlantı bekleniyor${suffix}`;
   };
 
+  // Sohbet seçici: "Otomatik" varsayılandır; seçim yapılırsa bu sohbet o
+  // projeye sabitlenir ve diğer sohbetler etkilenmez.
+  const paintPicker = (stage) => {
+    const picker = stage.querySelector('[data-cs-project]');
+    if (!picker) return;
+    const aliases = state.status && state.status.projects && Array.isArray(state.status.projects.aliases)
+      ? state.status.projects.aliases
+        .map((entry) => (entry && typeof entry.alias === 'string' ? entry.alias : ''))
+        .filter((alias) => alias !== '')
+      : [];
+    if (state.pin !== '' && !aliases.includes(state.pin)) aliases.unshift(state.pin);
+    const signature = aliases.join('\n');
+    if (state.pickerSignature !== signature) {
+      state.pickerSignature = signature;
+      picker.textContent = '';
+      const auto = el('option', '', 'Otomatik');
+      auto.value = '';
+      picker.appendChild(auto);
+      for (const alias of aliases) {
+        const option = el('option', '', alias);
+        option.value = alias;
+        picker.appendChild(option);
+      }
+    }
+    picker.value = state.pin;
+    picker.hidden = !state.settings || !state.settings.hasToken;
+    picker.disabled = state.busy;
+  };
+
   const paint = () => {
     const stage = ensurePanel();
     if (!stage) return;
@@ -221,6 +312,7 @@
     if (dot) dot.setAttribute('data-state', dotState());
     const meta = stage.querySelector('.cs-meta');
     if (meta) meta.textContent = headerMeta();
+    paintPicker(stage);
     const action = stage.querySelector('[data-cs-action]');
     if (action) {
       action.disabled = state.busy;
@@ -273,7 +365,7 @@
       ? [
         'Köprü sunucusu bulundu. Sıradaki adım eşleşme.',
         'Uzantı simgesine tıkla, Eşleşme bölümüne token gir.',
-        'Proje seçimi otomatiktir: sohbette project_resume/checkpoint çağrılınca panel o projeyi izler.',
+        'Proje seçimi otomatiktir; panelden bu sohbete özel proje de seçebilirsin.',
       ]
       : [
         'Önce köprü sunucusunu başlat. Terminalde proje dizininde çalıştır:',
@@ -372,6 +464,19 @@
     try {
       const api = dom();
       state.page = readPage(api);
+      // SPA gezinmesinde sohbet değişir; kimlik değiştiyse o sohbetin
+      // sabitlenmiş projesi yerelden okunur.
+      const chatId = api && typeof api.chatId === 'function' ? api.chatId() : '';
+      if (chatId !== state.chatId) {
+        // Yeni sohbette seçilen proje, kimlik oluşunca o sohbete yazılır.
+        const carried = state.chatId === '' ? state.pendingPin : '';
+        state.chatId = chatId;
+        const stored = await loadPin(chatId);
+        state.pin = stored !== '' ? stored : carried;
+        if (stored === '' && carried !== '') await savePin(chatId, carried);
+        if (carried !== '' || stored !== '') state.pendingPin = '';
+        state.pickerSignature = '';
+      }
       const settings = await send({ type: 'cs-settings' });
       state.settings = {
         port: Number(settings.port) || 4312,

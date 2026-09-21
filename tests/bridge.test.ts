@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
@@ -7,7 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { bridgeHello, clipBridgeText, BRIDGE_APP, BRIDGE_PROTOCOL } from "../src/bridge.js";
 import type { AppConfig } from "../src/config.js";
 import { createRuntimeServices, type RuntimeServices } from "../src/server.js";
+import { TERMINAL_MIRROR_DIRECTORY_NAME } from "../src/terminal-mirror.js";
 import { startHttp } from "../src/transport.js";
+import { WorkerStore } from "../src/worker-store.js";
 
 const cleanups: string[] = [];
 const servers: ReturnType<typeof startHttp>[] = [];
@@ -78,7 +80,7 @@ function projectFixture(alias: string, worktreePath: string, brief: string | nul
   };
 }
 
-async function fixture(): Promise<{ baseUrl: string; token: string; runtime: RuntimeServices }> {
+async function fixture(options?: { workersEnabled?: boolean }): Promise<{ baseUrl: string; token: string; runtime: RuntimeServices }> {
   const base = await mkdtemp(path.join(tmpdir(), "cos-bridge-"));
   cleanups.push(base);
   const root = path.join(base, "root");
@@ -90,7 +92,7 @@ async function fixture(): Promise<{ baseUrl: string; token: string; runtime: Run
     projectExec: { enabled: false },
     skills: { enabled: false, directory: path.join(base, "skills") },
     goal: { enabled: false, maxTranscriptChars: 120_000 },
-    workers: { enabled: false, maxWorkers: 8, maxParkedRuns: 16 },
+    workers: { enabled: options?.workersEnabled === true, maxWorkers: 8, maxParkedRuns: 16 },
     ownerRuntime: {
       enabled: false,
       shellPath: "/bin/sh",
@@ -144,7 +146,7 @@ async function fixture(): Promise<{ baseUrl: string; token: string; runtime: Run
       processStopGraceMs: 3_000,
     },
   };
-  const runtime = createRuntimeServices(config);
+  const runtime = createRuntimeServices(config, { taskStateRoot: path.join(base, "state") });
   const server = startHttp(runtime);
   servers.push(server);
   await once(server, "listening");
@@ -285,5 +287,109 @@ describe("bridge HTTP uclari", () => {
       },
     });
     expect(res.status).toBe(403);
+  });
+
+  it("sohbet bagi aktif proje ipucunu gecersiz kilar", async () => {
+    const { baseUrl, token, runtime } = await fixture();
+    const auth = { authorization: `Bearer ${token}` };
+    runtime.continuityStore.register(projectFixture("alpha", "/tmp/cos-bridge-alpha", "Alpha brifi."));
+    runtime.continuityStore.register(projectFixture("beta", "/tmp/cos-bridge-beta", "Beta brifi."));
+    await runtime.activeProject.record("beta");
+    await runtime.chatBindings.bind("chat-aaa", "alpha");
+
+    const bound = await (await fetch(`${baseUrl}/bridge/context?chat=chat-aaa`, { headers: auth })).json();
+    expect(bound.alias).toBe("alpha");
+    // Bagimsiz sohbet hala aktif projeyi izler.
+    const other = await (await fetch(`${baseUrl}/bridge/context`, { headers: auth })).json();
+    expect(other.alias).toBe("beta");
+  });
+
+  it("panelden acik secim sohbeti o projeye sabitler", async () => {
+    const { baseUrl, token, runtime } = await fixture();
+    const auth = { authorization: `Bearer ${token}` };
+    runtime.continuityStore.register(projectFixture("alpha", "/tmp/cos-bridge-alpha", "Alpha brifi."));
+    runtime.continuityStore.register(projectFixture("beta", "/tmp/cos-bridge-beta", "Beta brifi."));
+    await runtime.activeProject.record("beta");
+
+    const picked = await fetch(`${baseUrl}/bridge/context?alias=alpha&chat=chat-bbb`, { headers: auth });
+    expect(picked.status).toBe(200);
+    expect((await picked.json()).alias).toBe("alpha");
+    expect(await runtime.chatBindings.read("chat-bbb")).toBe("alpha");
+
+    // Sonraki yoklama alias gondermese de bag korunur.
+    const followup = await (await fetch(`${baseUrl}/bridge/context?chat=chat-bbb`, { headers: auth })).json();
+    expect(followup.alias).toBe("alpha");
+  });
+
+  it("handoff istegi sohbet bagini yazar", async () => {
+    const { baseUrl, token, runtime } = await fixture();
+    const auth = { authorization: `Bearer ${token}` };
+    runtime.continuityStore.register(projectFixture("alpha", "/tmp/cos-bridge-alpha", "Alpha brifi."));
+    await runtime.activeProject.record("alpha");
+
+    const res = await fetch(`${baseUrl}/bridge/handoff/prepare`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ chat: "chat-ccc" }),
+    });
+    expect(res.status).toBe(200);
+    expect(await runtime.chatBindings.read("chat-ccc")).toBe("alpha");
+  });
+
+  it("terminal aynasi akista ve durumda gorunur", async () => {
+    const { baseUrl, token, runtime } = await fixture();
+    const auth = { authorization: `Bearer ${token}` };
+    runtime.continuityStore.register(projectFixture("alpha", "/tmp/cos-bridge-alpha", "Alpha brifi."));
+    runtime.terminalMirror.start("session-1", "/tmp/cos-bridge-alpha");
+    runtime.terminalMirror.append("session-1", "$ npm run check\nPASS\n");
+    await runtime.terminalMirror.flush();
+
+    const activity = await (await fetch(`${baseUrl}/bridge/activity`, { headers: auth })).json();
+    expect(activity.items.some((item: { kind: string; text: string }) => (
+      item.kind === "terminal" && item.text.includes("PASS")
+    ))).toBe(true);
+
+    const status = await (await fetch(`${baseUrl}/bridge/status`, { headers: auth })).json();
+    expect(status.terminal).toMatchObject({ enabled: true, sessions: 1, running: 1 });
+  });
+
+  it("durum sayaclari sohbet bagini izler", async () => {
+    const { baseUrl, token, runtime } = await fixture({ workersEnabled: true });
+    const auth = { authorization: `Bearer ${token}` };
+    runtime.continuityStore.register(projectFixture("alpha", "/tmp/cos-bridge-alpha", "Alpha brifi."));
+    runtime.continuityStore.register(projectFixture("beta", "/tmp/cos-bridge-beta", "Beta brifi."));
+    await runtime.activeProject.record("beta");
+    await runtime.chatBindings.bind("chat-ddd", "alpha");
+    const store = await WorkerStore.open(runtime.taskStateRoot, runtime.audit, 8, 16);
+    await store.spawn("alpha", "Paylasilan baglam.", [{ task: "Alfa isi." }]);
+
+    const bound = await (await fetch(`${baseUrl}/bridge/status?chat=chat-ddd`, { headers: auth })).json();
+    expect(bound.workers.runs).toBe(1);
+    expect(bound.workers.activeWorkers).toBe(1);
+
+    // Bagimsiz sohbet aktif projeyi izler; alfa kosusu orada gorunmez.
+    const other = await (await fetch(`${baseUrl}/bridge/status`, { headers: auth })).json();
+    expect(other.workers.runs).toBe(0);
+  });
+
+  it("erisilemez terminal aynasi kopru istegini dusurmez", async () => {
+    const { baseUrl, token, runtime } = await fixture();
+    const auth = { authorization: `Bearer ${token}` };
+    runtime.continuityStore.register(projectFixture("alpha", "/tmp/cos-bridge-alpha", "Alpha brifi."));
+    const mirrorDir = path.join(runtime.taskStateRoot, TERMINAL_MIRROR_DIRECTORY_NAME);
+    await mkdir(mirrorDir, { recursive: true });
+    await chmod(mirrorDir, 0o000);
+    try {
+      const status = await fetch(`${baseUrl}/bridge/status`, { headers: auth });
+      expect(status.status).toBe(200);
+      expect((await status.json()).terminal).toEqual({ enabled: false, sessions: 0, running: 0 });
+
+      const activity = await fetch(`${baseUrl}/bridge/activity?alias=alpha`, { headers: auth });
+      expect(activity.status).toBe(200);
+      const items = (await activity.json()).items as { kind: string }[];
+      expect(items.some((item) => item.kind === "terminal")).toBe(false);
+    } finally {
+      await chmod(mirrorDir, 0o700);
+    }
   });
 });

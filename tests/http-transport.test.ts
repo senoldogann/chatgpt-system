@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { request } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
@@ -262,6 +263,22 @@ function textContent(result: Awaited<ReturnType<Client["callTool"]>>): string {
     .join("\n");
 }
 
+function rawRequest(port: number, pathname: string, hostHeader: string): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      { host: "127.0.0.1", port, path: pathname, method: "GET", headers: { host: hostHeader } },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => { body += chunk; });
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 describe("HTTP MCP transport", () => {
   it("serves health and rejects unauthenticated MCP requests", async () => {
     const { baseUrl } = await fixture();
@@ -286,6 +303,19 @@ describe("HTTP MCP transport", () => {
     });
 
     expect(response.status).toBe(403);
+  });
+
+  it("rejects a malformed Host header without crashing the listener", async () => {
+    const { baseUrl } = await fixture();
+    const port = Number(new URL(baseUrl).port);
+
+    const malformed = await rawRequest(port, "/health", "[");
+    expect(malformed.status).toBe(403);
+
+    // Dogrulama sirasi: bozuk Host URL ayristirmasina hic ulasmaz ve
+    // dinleyici ayakta kalir.
+    const health = await fetch(`${baseUrl}/health`);
+    expect(health.status).toBe(200);
   });
 
   it("completes a real MCP handshake and exposes structured, safety-described tools", async () => {

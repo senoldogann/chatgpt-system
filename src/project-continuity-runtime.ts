@@ -1,6 +1,7 @@
 import type { AuthorityManager } from "./authority.js";
 import path from "node:path";
 import { ActiveProjectTracker } from "./active-project.js";
+import { ChatProjectBindings } from "./chat-bindings.js";
 import { ContinuityGitInspector } from "./continuity-git-inspector.js";
 import { ContinuityStore } from "./continuity-store.js";
 import { ContinuityResumeRegistry } from "./continuity-resume-registry.js";
@@ -30,6 +31,7 @@ export interface ProjectContinuityRuntime {
   continuity: ProjectContinuityService;
   continuityResumeRegistry: ContinuityResumeRegistry;
   activeProject: ActiveProjectTracker;
+  chatBindings: ChatProjectBindings;
 }
 
 export function createProjectContinuityRuntime(
@@ -47,6 +49,7 @@ export function createProjectContinuityRuntime(
     ?? options.continuityService?.resumeRegistry
     ?? new ContinuityResumeRegistry();
   const activeProject = new ActiveProjectTracker(path.dirname(config.continuity.databasePath));
+  const chatBindings = new ChatProjectBindings(path.dirname(config.continuity.databasePath));
   const continuity = options.continuityService
     ?? new ProjectContinuityService({
       store: continuityStore,
@@ -62,5 +65,5 @@ export function createProjectContinuityRuntime(
       onActive: (alias) => activeProject.record(alias),
     });
 
-  return { continuityStore, continuity, continuityResumeRegistry, activeProject };
+  return { continuityStore, continuity, continuityResumeRegistry, activeProject, chatBindings };
 }

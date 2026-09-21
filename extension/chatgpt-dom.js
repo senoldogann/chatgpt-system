@@ -66,6 +66,14 @@
     return readComposerText().includes(probe);
   }, false);
 
+  // Sohbet kimliği URL'den okunur: /c/<id> ya da /g/<gpt>/c/<id>. Birden çok
+  // sohbet açıkken panelin hangi sohbete bağlı olduğunu sunucuya bildirir.
+  // Bulunamazsa boş döner ve panel otomatik modda kalır.
+  const chatId = () => safe(() => {
+    const match = String(location.pathname).match(/\/c\/([A-Za-z0-9-]{8,128})/);
+    return match ? match[1] : '';
+  }, '');
+
   // Sayfa sohbetinin boyutu: yalnızca sayı ve toplam karakter sayılır,
   // metin toplanmaz ve dışarı gönderilmez. ~4 karakter = 1 token sayılır.
   // chat: yazma alanı varsa bu sayfa sohbet sayfasıdır.
@@ -106,5 +114,5 @@
     return stage;
   }, null);
 
-  globalThis.CS_DOM = { findComposer, readPageStats, setComposerText, ensureStage };
+  globalThis.CS_DOM = { chatId, findComposer, readPageStats, setComposerText, ensureStage };
 })();
