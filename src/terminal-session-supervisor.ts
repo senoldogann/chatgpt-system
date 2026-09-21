@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { LimitError } from "./errors.js";
 import { sanitizedChildEnvironment } from "./process-policy.js";
 import type { TerminalPtyBackend, TerminalPtyHandle } from "./terminal-pty-backend.js";
+import type { TerminalMirror } from "./terminal-mirror.js";
 import { TerminalOutputBuffer } from "./terminal-output-buffer.js";
 
 export type TerminalSessionState = "running" | "exited" | "stopped";
@@ -62,6 +63,9 @@ export interface TerminalSessionSupervisorOptions {
   now?: () => number;
   newSessionId?: () => string;
   signalProcess?: (target: number, signal: NodeJS.Signals) => void;
+  // Gözlem aynası: MCP süreci ile köprü süreci ayrı olduğu için terminal
+  // çıktısı diske yazılır. Yoksa yalnızca bellek içi davranış sürer.
+  mirror?: TerminalMirror;
 }
 
 function defaultSessionId(): string {
@@ -99,6 +103,7 @@ export class TerminalSessionSupervisor {
   private readonly now: () => number;
   private readonly newSessionId: () => string;
   private readonly signalProcess: (target: number, signal: NodeJS.Signals) => void;
+  private readonly mirror: TerminalMirror | undefined;
   private pendingStarts = 0;
   private closing = false;
 
@@ -107,6 +112,7 @@ export class TerminalSessionSupervisor {
     this.now = options.now ?? Date.now;
     this.newSessionId = options.newSessionId ?? defaultSessionId;
     this.signalProcess = options.signalProcess ?? ((target, signal) => process.kill(target, signal));
+    this.mirror = options.mirror;
   }
 
   async open(input: { shellPath: string; cwd: string; cols: number; rows: number }): Promise<TerminalSessionSummary> {
@@ -149,9 +155,11 @@ export class TerminalSessionSupervisor {
       resolveClosed,
     };
     this.records.set(record.sessionId, record);
+    this.mirror?.start(record.sessionId, input.cwd);
 
     pty.onData((data) => {
       record.output.append(data);
+      this.mirror?.append(record.sessionId, data);
     });
     pty.onExit((event) => {
       if (record.state !== "running") return;
@@ -159,6 +167,7 @@ export class TerminalSessionSupervisor {
       record.exitedAt = new Date(this.now()).toISOString();
       record.exitCode = event.exitCode;
       record.signal = event.signal ?? null;
+      this.mirror?.finish(record.sessionId, record.state, event.exitCode ?? null);
       record.resolveClosed();
     });
 
@@ -298,6 +307,7 @@ export class TerminalSessionSupervisor {
     record.exitedAt = new Date(this.now()).toISOString();
     record.exitCode = null;
     record.signal = null;
+    this.mirror?.finish(record.sessionId, record.state, null);
     record.resolveClosed();
   }
 

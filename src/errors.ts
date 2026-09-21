@@ -351,8 +351,15 @@ export class ProcessIdentityUnverifiedError extends AppError {
 }
 
 export class AuthorityRequiredError extends AppError {
-  constructor(message = "An active authority lease is required.", details?: Record<string, unknown>) {
-    super(message, "AUTHORITY_REQUIRED", details);
+  constructor(
+    message = "No authority lease matched the provided authorityLeaseId (unknown or expired).",
+    details?: Record<string, unknown>,
+  ) {
+    super(message, "AUTHORITY_REQUIRED", {
+      resolution:
+        "Free mode: omit authorityLeaseId to run against the configured roots. Never reuse a lease id from an earlier session; call session_authority_start only when an explicit scoped project lease is required.",
+      ...(details ?? {}),
+    });
   }
 }
 

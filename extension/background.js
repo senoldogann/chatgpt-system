@@ -100,18 +100,20 @@ async function probeHello() {
 }
 
 async function handleBridgeMessage(message) {
-  const { port, alias } = await settings();
-  const withAlias = (path) => {
-    if (!alias) return path;
-    if (
-      path.startsWith('/bridge/status')
-      || path.startsWith('/bridge/context')
-      || path.startsWith('/bridge/activity')
-    ) {
-      const separator = path.includes('?') ? '&' : '?';
-      return `${path}${separator}alias=${encodeURIComponent(alias)}`;
+  const { port, alias: savedAlias } = await settings();
+  // Panelden seçilen alias bu isteğe özeldir; yoksa popup'taki genel seçim.
+  const alias = typeof message.alias === 'string' && message.alias !== '' ? message.alias : savedAlias;
+  const chat = typeof message.chat === 'string' ? message.chat : '';
+  const withParams = (path) => {
+    if (!(path.startsWith('/bridge/status') || path.startsWith('/bridge/context') || path.startsWith('/bridge/activity'))) {
+      return path;
     }
-    return path;
+    const params = [];
+    if (alias) params.push(`alias=${encodeURIComponent(alias)}`);
+    if (chat) params.push(`chat=${encodeURIComponent(chat)}`);
+    if (params.length === 0) return path;
+    const separator = path.includes('?') ? '&' : '?';
+    return `${path}${separator}${params.join('&')}`;
   };
   if (message.path === '/bridge/handoff/prepare') {
     // Alias seçilmediyse sunucu aktif projeyi kendisi çözer; burada
@@ -120,6 +122,7 @@ async function handleBridgeMessage(message) {
       method: 'POST',
       body: {
         ...(alias ? { alias } : {}),
+        ...(chat ? { chat } : {}),
         ...(message.sessionId ? { sessionId: message.sessionId } : {}),
       },
     });
@@ -127,7 +130,7 @@ async function handleBridgeMessage(message) {
     if (result.status !== 200) return { ok: false, error: errorText(result.data?.error, `HTTP_${result.status}`) };
     return { ok: true, data: result.data, port };
   }
-  const result = await fetchBridge(withAlias(message.path), { method: message.method || 'GET' });
+  const result = await fetchBridge(withParams(message.path), { method: message.method || 'GET' });
   await journal({ route: message.path, status: result.status });
   if (result.status !== 200) return { ok: false, error: errorText(result.data?.error, `HTTP_${result.status}`) };
   return { ok: true, data: result.data, port };

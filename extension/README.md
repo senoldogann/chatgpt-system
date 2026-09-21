@@ -18,7 +18,6 @@ yetki değiştirmez. Tek yönlü okuma + Daralt ile composer doldurma.
    panel, sohbette `project_register`/`project_resume`/`project_checkpoint`
    çağrılan projeyi izler. Belirli bir projeye sabitlemek istersen listeden
    seç; liste `project_list` kayıtlarından gelir.
-
 Durum bakma: `npm run setup:extension-bridge -- status`
 Kanıt: `npm run setup:extension-bridge -- verify --alias <alias>`
 Kaldırma: `npm run setup:extension-bridge -- uninstall`
@@ -37,19 +36,31 @@ bilerek alınmadı.
 ## Köprü uçları (hepsi loopback, hello hariç token ister)
 
 - `GET /bridge/hello` — kimlik yoklaması, kimlik doğrulamasız.
-- `GET /bridge/status?alias=` — proje/skill/worker/terminal sayaçları,
+- `GET /bridge/status?alias=&chat=` — proje/skill/worker/terminal sayaçları,
   kayıtlı proje listesi ve otomatik seçimdeki aktif alias.
-- `GET /bridge/context?alias=` — kayıtlı bağlam + brif + plan.
-  `alias` verilmezse sunucu sırayla: aktif proje ipucu → en güncel kayıt.
-- `GET /bridge/activity?alias=&limit=` — kayıt satırları + terminal
-  kuyrukları + okunmamış worker mesajları.
-- `POST /bridge/handoff/prepare {alias?, sessionId?}` — brif taslağı ve
-  composer açılış metni. Alias verilmezse aynı çözüm uygulanır. Kayıtlı
-  brif varsa aynen taşınır, yoksa OpenCode Go ile yazdırılır; ikisi de
-  yoksa fail-closed hata döner.
+- `GET /bridge/context?alias=&chat=` — kayıtlı bağlam + brif + plan.
+  `alias` verilmezse sunucu sırayla: sohbet bağı → aktif proje ipucu → en
+  güncel kayıt. `alias` açıkça verilirse o sohbet (`chat`) belirtilen
+  projeye sabitlenir.
+- `GET /bridge/activity?alias=&chat=&limit=` — kayıt satırları + terminal
+  kuyrukları (MCP süreci ayrı çalıştığı için sınırlı disk aynasından okunur)
+  + okunmamış worker mesajları.
+- `POST /bridge/handoff/prepare {alias?, chat?, sessionId?}` — brif taslağı ve
+  composer açılış metni. Alias verilmezse aynı çözüm uygulanır ve istek
+  başarılıysa sohbet o projeye bağlanır. Kayıtlı brif varsa aynen taşınır,
+  yoksa OpenCode Go ile yazdırılır; ikisi de yoksa fail-closed hata döner.
 
 Tek eylem noktası panel başlığındaki ◐ Daralt düğmesidir; yazma
 alanının içine ayrı simge konmaz.
+
+## Birden çok sohbet
+
+Paneldeki proje seçici varsayılan olarak **Otomatik**tir. Aynı anda birden
+çok projede çalışırken her sohbette seçiciden ilgili projeyi seç: seçim o
+sohbetin URL kimliğine bağlanır (`chat` parametresi), sunucuya ve yerel
+depoya yazılır. Sonraki yoklamalar alias göndermese bile o sohbet seçili
+projede kalır; diğer sohbetler etkilenmez. Daralt'a basmak da o anki
+projeyi sohbete bağlar. Otomatiğe dönmek için seçiciden **Otomatik**'i seç.
 
 ## Kullanım (3 adım)
 

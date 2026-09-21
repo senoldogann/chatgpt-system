@@ -27,6 +27,12 @@ import { ProcessSupervisor } from "./process-supervisor.js";
 import { OwnerShellSupervisor } from "./owner-shell-supervisor.js";
 import { NodePtyBackend } from "./terminal-pty-backend.js";
 import { TerminalSessionSupervisor } from "./terminal-session-supervisor.js";
+import {
+  DEFAULT_MAX_MIRROR_FILE_BYTES,
+  DEFAULT_MAX_MIRROR_SESSIONS,
+  TERMINAL_MIRROR_DIRECTORY_NAME,
+  TerminalMirror,
+} from "./terminal-mirror.js";
 import { registerTerminalSessionTools } from "./terminal-session-tool-registration.js";
 import { registerOwnerShellTool } from "./owner-shell-tool-registration.js";
 import { createProjectCheckService } from "./project-check-factory.js";
@@ -81,6 +87,7 @@ export interface RuntimeServices extends ProjectContinuityRuntime {
   processSupervisor: ProcessSupervisor;
   ownerShellSupervisor: OwnerShellSupervisor;
   terminalSessionSupervisor: TerminalSessionSupervisor;
+  terminalMirror: TerminalMirror;
   projectExecBackend: ProjectExecBackend;
   projectCheckHostExecutorFactory?: ProjectCheckHostExecutorFactory;
   taskStateRoot: string;
@@ -151,18 +158,23 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     maxRetainedBytesPerStream: config.limits.maxCommandOutputBytes,
     processStopGraceMs: config.limits.processStopGraceMs,
   });
+  const taskStateRoot = path.resolve(options.taskStateRoot ?? path.join(homedir(), ".chatgpt-system", "state"));
+  const terminalMirror = new TerminalMirror(path.join(taskStateRoot, TERMINAL_MIRROR_DIRECTORY_NAME), {
+    maxFileBytes: DEFAULT_MAX_MIRROR_FILE_BYTES,
+    maxSessions: DEFAULT_MAX_MIRROR_SESSIONS,
+  });
   const terminalSessionSupervisor = new TerminalSessionSupervisor({
     backend: new NodePtyBackend(),
     maxSessions: config.ownerRuntime?.maxTerminalSessions ?? 32,
     maxOutputBytes: config.ownerRuntime?.maxTerminalOutputBytes ?? 262_144,
     maxInputBytes: config.ownerRuntime?.maxTerminalInputBytes ?? 65_536,
     processStopGraceMs: config.limits.processStopGraceMs,
+    mirror: terminalMirror,
   });
   const projectExecBackend = options.projectExecBackend ?? new DockerProjectExecBackend({
     maxOutputBytes: config.limits.maxCommandOutputBytes,
     cleanupTimeoutMs: config.limits.processStopGraceMs,
   });
-  const taskStateRoot = path.resolve(options.taskStateRoot ?? path.join(homedir(), ".chatgpt-system", "state"));
   const worktreeRoot = path.resolve(options.worktreeRoot ?? path.join(homedir(), ".chatgpt-system", "worktrees"));
   const browser = createBrowserService(config, options);
   const computer = options.computerRuntime ?? new ComputerRuntime(
@@ -209,6 +221,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     processSupervisor,
     ownerShellSupervisor,
     terminalSessionSupervisor,
+    terminalMirror,
     projectExecBackend,
     ...(options.projectCheckHostExecutorFactory !== undefined
       ? { projectCheckHostExecutorFactory: options.projectCheckHostExecutorFactory }
