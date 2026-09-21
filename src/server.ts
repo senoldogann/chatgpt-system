@@ -763,6 +763,6 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   registerSkillsTools(server, runtime);
   registerGoalTool(server, runtime);
   registerWorkerTools(server, runtime);
-  registerHandoffTool(server);
+  registerHandoffTool(server, runtime);
   return server;
 }
