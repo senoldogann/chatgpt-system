@@ -4,88 +4,60 @@
 
 ## Security invariants
 
-1. **Explicit session authority**: privileged filesystem, Git, process, and browser content/action calls require an active opaque authority lease. Leases expire, can be revoked immediately, and are stored internally only by hash.
-2. **Fixed privilege ladder**: Project has project filesystem/Git access and no host-terminal/browser content access; User has home filesystem/Git access and no host-terminal/browser content access; Admin has host-wide scope under the current OS user and is the only host-terminal/process/browser-capable profile. Project-only sandboxed execution is a separate explicit startup capability and never upgrades the lease to Admin.
-3. **Local creation of broad authority by default**: ChatGPT's default MCP catalog can create Project authority only. Project roots are explicit per lease and may target project directories outside the daemon bootstrap/default roots; `/` and the entire home directory are still refused. User/Admin authority is created from the Mac through `chatgpt-system authorize user|admin`, a private Unix control socket, and native LocalAuthentication unless the operator explicitly starts the runtime with `--personal-admin`.
-4. **Shared authoritative runtime**: the CLI never creates a shadow `AuthorityManager`. The control socket talks to the same running process that serves MCP, so a locally created lease exists in exactly one authoritative in-memory lease store.
-5. **Private local control plane**: the default control socket is `~/.chatgpt-system/control.sock`; its parent is `0700`, the socket is `0600`, frames are bounded/versioned JSON, only one request is accepted per connection, stale/live socket ownership is checked, and only `ping` plus `authorize(user|admin)` exist.
-6. **No credential-shaped control input**: the local control protocol accepts no helper path, free-form authentication reason, shell command, password, sudo credential, API key, cookie, or biometric material. The lease capability itself is intentionally returned to the local CLI after successful authorization.
-7. **Single-flight native approval**: only one User/Admin LocalAuthentication flow may be in flight. A concurrent request fails with `AUTHORIZATION_BUSY`.
-8. **No orphan lease on disconnect**: if the local CLI disconnects after native approval but before successful lease delivery, the newly created lease is immediately revoked.
-9. **Protected native helper**: production native approval executes only from the fixed root-owned installation under `/Library/Application Support/chatgpt-system`, never from mutable repository build output. Ownership, type, permissions, and SHA-256 metadata are verified before each approval execution.
-10. **Filesystem confinement**: filesystem requests are resolved against the active lease roots with symlink-target validation.
+1. **Open scope, no leases required**: filesystem, Git, process, browser, and computer tools work directly against the bootstrap roots. An optional Project lease narrows the scope to explicit roots. Leases expire, can be revoked immediately, and are stored internally only by hash.
+2. **No privilege ladder**: every scope runs as the current OS user with the same capabilities. Host terminal, Owner shell/PTY, browser, and computer tools are available as soon as their independent startup gates are enabled. Sandboxed Project execution is a separate explicit Docker capability.
+3. **No local approval ceremony**: there is no control socket, no broker, and no biometric gate. Project roots are explicit per lease and may target project directories outside the daemon bootstrap/default roots; `/` and the entire home directory are still refused.
+4. **Single authoritative runtime**: the CLI never creates a shadow scope. All MCP tools resolve against the same running process and its configured roots.
+5. **No private control plane**: no Unix socket, no versioned control frames, and no `authorize` commands exist. The only local trust decisions left are the startup flags themselves.
+6. **No credential-shaped tool input**: MCP tools accept no helper path, shell command, password, sudo credential, API key, cookie, or biometric material. The tunnel credential lives only in the Keychain-backed daily-driver path, never in tool input.
+7. **Removed**: single-flight native approval no longer exists.
+8. **Removed**: orphan-lease-on-disconnect handling no longer exists; leases are plain scoped handles.
+9. **Signed native helper**: the Computer Runtime helper executes only from the fixed installed app bundle under `~/.chatgpt-system`, never from mutable repository build output. Bundle identity is verified before use.
+10. **Filesystem confinement**: filesystem requests are resolved against the active scope roots with symlink-target validation.
 11. **No blind overwrite**: modifying or deleting an existing regular file requires its current SHA-256 from `fs_read` or `fs_stat`.
 12. **Atomic replacement**: file writes use temporary sibling files plus rename to reduce partial-write risk.
 13. **Bounded I/O**: file reads/writes, directory listings, native helper output, control frames, command output, managed process count/log tails, Owner PTY session count/input/output retention, browser diagnostics, snapshots, and screenshots have limits. Owner PTY lifetime is not given an arbitrary wall-clock deadline while the daemon is alive.
 14. **Audit redaction**: authority/approval/process/browser/Owner-terminal lifecycle records contain categorical metadata only. Raw lease IDs, managed-process IDs, terminal session IDs, browser page IDs, request IDs, credentials, biometric material, argument or typed values, environments, file contents, command/process/PTY output, PTY input, snapshot text, screenshot bytes, console payloads, and URL query strings/fragments are not copied into audit metadata.
-15. **Structured terminal execution**: Admin `terminal_run` uses `shell=false`, an executable basename allowlist, cwd checks, sanitized environment variables, timeouts, and output limits.
-15a. **Owner Runtime is separately explicit full-host execution**: `shell_run` and `terminal_session_*` are disabled unless the daemon starts with `--enable-owner-runtime` / `CHATGPT_SYSTEM_ENABLE_OWNER_RUNTIME=true`, require the existing Admin profile and Personal Admin startup mode, and never become available to Project/User. They execute the trusted configured login shell as the current OS user and are not an OS sandbox. The trusted shell executable is startup configuration rather than MCP input. One-shot stdout/stderr and persistent PTY output are retained only in bounded memory; script/PTY content/environment/lease/session identifiers are not persisted to audit. One-shot cancellation and daemon shutdown terminate owned process groups, while PTY sessions remain stoppable and always terminate at daemon shutdown.
-16. **Sandboxed Project execution is independently gated**: `project_exec` is disabled by default and requires `--enable-project-exec` / `CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC=true`, an active Project lease, an allowlisted executable basename, and a cwd inside that lease. It uses only a local Unix-socket Docker context, `network=none`, a read-only container root, bounded `/tmp`/CPU/memory/PIDs/output/runtime, the selected Project root bind-mounted at `/workspace`, and no host-execution fallback.
-17. **Managed processes are authority-scoped**: `process_start`, `process_list`, `process_status`, `process_logs`, and `process_stop` require an active lease. Start requires terminal capability, which currently means Admin.
+15. **Structured terminal execution**: `terminal_run` uses `shell=false`, an executable basename allowlist, scope cwd checks, sanitized environment variables, timeouts, and output limits.
+15a. **Owner Runtime is separately explicit full-host execution**: `shell_run` and `terminal_session_*` are disabled unless the daemon starts with `--enable-owner-runtime` / `CHATGPT_SYSTEM_ENABLE_OWNER_RUNTIME=true`. They execute the trusted configured login shell as the current OS user and are not an OS sandbox. The trusted shell executable is startup configuration rather than MCP input. One-shot stdout/stderr and persistent PTY output are retained only in bounded memory; script/PTY content/environment/session identifiers are not persisted to audit. One-shot cancellation and daemon shutdown terminate owned process groups, while PTY sessions remain stoppable and always terminate at daemon shutdown.
+16. **Sandboxed Project execution is independently gated**: `project_exec` is disabled by default and requires `--enable-project-exec` / `CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC=true`, an allowlisted executable basename, and a cwd inside the active scope. It uses only a local Unix-socket Docker context, `network=none`, a read-only container root, bounded `/tmp`/CPU/memory/PIDs/output/runtime, the selected project root bind-mounted at `/workspace`, and no host-execution fallback.
+17. **Managed processes are scope-bound**: `process_start`, `process_list`, `process_status`, `process_logs`, and `process_stop` work without a lease. Start requires the terminal gate.
 18. **No raw PID surface**: MCP never accepts or returns an OS PID, process-group ID, arbitrary signal, shell flag, detached flag, or caller-supplied child environment for managed processes.
 19. **No process-registry oracle**: unknown and unauthorized managed-process IDs both return `PROCESS_NOT_FOUND`; lists filter records outside the current authority scope.
 20. **Bounded lifecycle management**: managed children use bounded in-memory stdout/stderr tails and an in-memory registry. Running records are never evicted to make room.
 21. **Graceful process-group cleanup**: on POSIX, managed children use their own process group. Stop/shutdown sends `SIGTERM`, waits the configured grace period, then escalates to `SIGKILL` internally if required.
 22. **HTTP authentication**: HTTP transport refuses to start without a bearer token and binds to loopback by default.
 23. **Loopback request validation**: the localhost HTTP listener applies Host and Origin validation before routing requests.
-24. **Personal Admin is explicit**: `--personal-admin` is disabled by default. When enabled, MCP may mint the existing fixed Admin profile directly, but leases remain bounded/in-memory and terminal/process/browser capability still depends on separate startup gates.
+24. **Removed**: Personal Admin no longer exists. There is no profile to mint and no flag to enable.
 25. **Daily-driver credential confinement**: the optional macOS LaunchAgent stores the Secure MCP Tunnel control-plane key in the login Keychain. The key is not placed in the plist, repository, audit log, runner logs, or spawned command argv.
-26. **Browser is independently gated**: browser automation is disabled by default and requires explicit `--enable-browser` / `CHATGPT_SYSTEM_ENABLE_BROWSER=true`. Admin authority cannot silently enable a disabled browser runtime.
+26. **Browser is independently gated**: browser automation is disabled by default and requires explicit `--enable-browser` / `CHATGPT_SYSTEM_ENABLE_BROWSER=true`. No lease can silently enable a disabled browser runtime.
 27. **Browser semantic surface only**: MCP browser tools accept fixed role/text/label/test-id targets and a fixed key vocabulary. They expose no CSS/XPath selectors, arbitrary JavaScript, Playwright code, CDP/WebSocket endpoints, executable paths, proxy settings, browser flags, cookies, storage APIs, or file-upload primitives.
 28. **Browser navigation is scheme-bounded**: caller navigation accepts only `http:` and `https:`. `file:`, `javascript:`, `data:`, browser-internal schemes, and custom application schemes are rejected before Playwright receives them.
 29. **Browser credential entry is refused**: `browser_fill` and focused key actions fail closed for deterministic password, OTP, verification-code, CVV/CVC, card-number, and sensitive autocomplete signals.
 30. **Browser content is redacted/bounded**: editable ARIA values are removed before snapshots leave the runtime; network diagnostic URLs have query strings/fragments stripped; console/network tails are bounded; screenshots remain in-memory for the MCP result and are never written by the runtime solely for tool delivery.
 31. **Dedicated browser profile**: the documented/default persistent user-data directory is `~/.chatgpt-system/browser-profile`. The operator's normal Chrome/Chromium profile is not the default automation target.
 
-## Why User/Admin creation is local
+## Open mode trust decision
 
-A model-mediated request to expand its own authority may be rejected by independent product safety controls before the MCP server receives it. More importantly, authority creation is a local trust decision and should not depend on whether a remote product chooses to forward an escalation-shaped tool call.
+There is no authority to escalate to: every tool is already available subject only to its startup gate. A model-mediated request therefore cannot expand its own capability beyond what the operator enabled at startup. Independent ChatGPT/OpenAI product safety checks can still block a specific later action. That is not treated as a local bypass opportunity.
 
-Therefore User/Admin creation begins on the physical Mac:
+`--owner-workstation` is the single explicit private-Mac preset for that trust decision. It composes Owner Runtime, terminal/PTY, Project Exec, Computer Use, and full-host JavaScript. Browser Runtime remains independently gated. The preset grants the current macOS user's normal filesystem/network/process capability; it does not grant root or bypass sudo, TCC, SIP, FileVault/login, or Keychain authentication.
 
-```text
-chatgpt-system authorize user|admin
-        |
-        v
-private Unix socket
-        |
-        v
-same running MCP/tunnel runtime
-        |
-        v
-protected macOS LocalAuthentication helper
-        |
-        v
-expiring lease
-```
-
-The CLI copies the resulting lease to the clipboard by default using `/usr/bin/pbcopy` with `shell=false` and the lease on stdin. The lease is not placed in argv, environment variables, a temp file, or authority audit metadata. `--print-lease` is explicit diagnostic opt-in.
-
-Independent ChatGPT/OpenAI product safety checks can still block a specific later action. That is not treated as a local authority bypass opportunity.
-
-## Personal Admin exception
-
-`--personal-admin` is an explicit private-workstation trust mode for the operator who does not want to approve and paste an Admin lease during every normal session. In this mode `session_authority_start(profile="admin")` is exposed directly to MCP. The request still maps to the fixed Admin profile in trusted code, receives the existing one-hour maximum TTL, stays only in memory, and is audited without the raw lease value.
-
-Personal Admin does **not** imply terminal, Owner Runtime, or browser capability. If the daemon was not also started with `--enable-terminal`, the resulting Admin lease has host-wide filesystem scope but `terminalEnabled=false` and an empty command allowlist. `shell_run` and `terminal_session_*` additionally require the separate `--enable-owner-runtime` gate; enabling it does not change `terminal_run` and never widens Project/User. If browser startup is not enabled, browser content/action tools remain unavailable. These independent runtime gates remain authoritative.
-
-This mode materially increases the impact of a malicious or prompt-injected MCP request and should be enabled only on a private workstation controlled by the same user. The default local-approval path remains available and unchanged when the flag is absent.
-
-`--owner-workstation` is the single explicit private-Mac preset for that trust decision. It composes Personal Admin, Owner Runtime, terminal/PTY, Project Exec, Computer Use, and full-host JavaScript without changing their underlying authority checks. Browser Runtime remains independently gated. The preset grants the current macOS user's normal filesystem/network/process capability; it does not grant root or bypass sudo, TCC, SIP, FileVault/login, or Keychain authentication.
+Running with the full preset materially increases the impact of a malicious or prompt-injected MCP request and should be enabled only on a private workstation controlled by the same user.
 
 ## Owner Runtime shell and PTY boundary
 
-Owner Runtime is the deliberate escape hatch for Codex-class local development on a private workstation. `shell_run` invokes only the trusted configured login shell (macOS default `/bin/zsh`) with `-lc`, `shell=false` at the Node spawn boundary, the Admin-authorized cwd, and the sanitized child environment. The script may contain pipes, redirects, command substitution, compound shell syntax, arbitrary executable paths, package managers, compilers, Git, and normal host-network operations that the current OS user could run from Terminal.
+Owner Runtime is the deliberate escape hatch for Codex-class local development on a private workstation. `shell_run` invokes only the trusted configured login shell (macOS default `/bin/zsh`) with `-lc`, `shell=false` at the Node spawn boundary, the active-scope cwd, and the sanitized child environment. The script may contain pipes, redirects, command substitution, compound shell syntax, arbitrary executable paths, package managers, compilers, Git, and normal host-network operations that the current OS user could run from Terminal.
 
-That power is explicit and local: `--enable-owner-runtime` requires `--personal-admin`, Project/User cannot use it, and the MCP request cannot choose the shell executable or supply a child environment. The daemon does not inject sudo passwords, modify sudo policy, bypass Keychain/TCC/SIP, or automatically become root. If a shell command invokes normal `sudo`, macOS/user authentication behaves exactly as it would in the user's Terminal.
+That power is explicit and local: `--enable-owner-runtime` is required, and the MCP request cannot choose the shell executable or supply a child environment. The daemon does not inject sudo passwords, modify sudo policy, bypass Keychain/TCC/SIP, or automatically become root. If a shell command invokes normal `sudo`, macOS/user authentication behaves exactly as it would in the user's Terminal.
 
 Owner shell execution is long-work friendly but not uncontained. Omitting `timeoutMs` means there is no product-imposed wall-clock deadline; a finite caller timeout remains available. stdout/stderr use bounded in-memory tails and may truncate old bytes without killing the process. MCP abort and daemon shutdown terminate the owned POSIX process group with SIGTERM followed by SIGKILL after the configured grace period. Audit records only safe lifecycle metadata plus script byte count/SHA-256; it never stores raw script, stdout/stderr, child environment, or lease values.
 
-Persistent `terminal_session_*` sessions use an exact native PTY backend behind the same Owner Runtime gate. The MCP surface exposes only opaque daemon-local session IDs; raw PIDs, process-group IDs, signals, shell paths, environments, and detached flags remain internal. Sessions can outlive the Admin lease that created them so a later approved Admin Owner lease can rediscover and continue the terminal, but Project/User cannot enumerate or manage them. Output is a bounded UTF-8-safe in-memory ring addressed by monotonic event sequence; writes and dimensions are bounded. Sessions are not persisted across daemon restart. Daemon shutdown owns SIGTERM -> grace -> SIGKILL cleanup for every running PTY. Audit stores only lifecycle and byte-count metadata, never PTY input/output or session identifiers.
+Persistent `terminal_session_*` sessions use an exact native PTY backend behind the same Owner Runtime gate. The MCP surface exposes only opaque daemon-local session IDs; raw PIDs, process-group IDs, signals, shell paths, environments, and detached flags remain internal. Output is a bounded UTF-8-safe in-memory ring addressed by monotonic event sequence; writes and dimensions are bounded. Sessions are not persisted across daemon restart. Daemon shutdown owns SIGTERM -> grace -> SIGKILL cleanup for every running PTY. Audit stores only lifecycle and byte-count metadata, never PTY input/output or session identifiers.
 
 ## Owner Computer Runtime ceiling boundary
 
-For an Admin lease while Owner Runtime is enabled, the old `computer_run` 100-action ceiling and implicit 30-second program deadline are productivity limits, not security boundaries, and are removed. The same Owner mode lets `computer_run_js` omit its legacy 30-second wall-clock deadline. This does **not** make execution unbounded in memory or unstoppable: explicit finite timeout, MCP cancellation, native request timeout, user takeover, the fixed emergency chord, runtime/daemon shutdown, and held-input release remain authoritative. Cancellation aborts local waits and prevents future actions; a native request already handed to the persistent helper is treated as one atomic bounded operation and is followed by fail-closed cleanup rather than killing the permission-bearing helper mid-action.
+While Owner Runtime is enabled, the old `computer_run` 100-action ceiling and implicit 30-second program deadline are productivity limits, not security boundaries, and are removed. The same Owner mode lets `computer_run_js` omit its legacy 30-second wall-clock deadline. This does **not** make execution unbounded in memory or unstoppable: explicit finite timeout, MCP cancellation, native request timeout, user takeover, the fixed emergency chord, runtime/daemon shutdown, and held-input release remain authoritative. Cancellation aborts local waits and prevents future actions; a native request already handed to the persistent helper is treated as one atomic bounded operation and is followed by fail-closed cleanup rather than killing the permission-bearing helper mid-action.
 
 Containment remains bounded for MCP/native frames, JavaScript source, stdout/stderr/result bytes, screenshots, observations, returned `computer_run` step summaries, and semantic recovery (`maxAutomaticRetriesPerAction = 2`). Audit records only categorical/count/lifecycle metadata and never stores action bodies, typed text, screenshots, OCR/AX text, JS source/output, AbortSignal objects, credentials, environment values, or native identifiers. TCC is never bypassed: release acceptance requires a stable signed helper plus categorical `computer_health` readiness for Accessibility, Screen Recording, event listen, and event post.
 
@@ -97,31 +69,29 @@ Runtime `read` uses Security.framework with authentication UI disabled/fail-clos
 
 This key authenticates `tunnel-client` to the Secure MCP Tunnel control plane. It is not a model invocation credential used by `chatgpt-system`, and the bridge does not turn daily-driver startup into direct model API usage.
 
-## Why Project/User do not have host terminal or browser content capability
+## Why host tools stay behind startup gates
 
-A child process is not confined merely because its working directory is inside a lease root. An allowlisted executable such as Node, Python, a package manager, compiler, or build tool can exercise the OS account's permissions and open files outside that cwd.
+A child process is not confined merely because its working directory is inside a scope root. An allowlisted executable such as Node, Python, a package manager, compiler, or build tool can exercise the OS account's permissions and open files outside that cwd.
 
-Likewise, an authenticated browser page, accessibility snapshot, screenshot, console message, or network diagnostic may expose information unrelated to a Project/User filesystem root. Browser content cannot honestly inherit a filesystem-only scope.
+Likewise, an authenticated browser page, accessibility snapshot, screenshot, console message, or network diagnostic may expose information unrelated to a filesystem root. Browser content cannot honestly inherit a filesystem-only scope.
 
-Therefore Project/User authority exposes neither host terminal/process start nor browser page/content/action tools. Otherwise the narrower authority profiles would be cosmetic rather than meaningful boundaries.
+Therefore host terminal/process start and browser page/content/action tools stay behind their explicit startup gates even though no lease is required. Otherwise the gates would be cosmetic rather than meaningful boundaries.
 
-Project leases may optionally use `project_exec`, but only when the operator explicitly enables that separate runtime gate. `project_exec` does not reuse the host `ProcessService`: it executes through the fixed Docker sandbox backend, accepts no User/Admin lease, requires the cwd to remain inside the Project roots, and fails closed when Docker is unavailable.
+`project_exec` is available only when the operator explicitly enables that separate runtime gate. `project_exec` does not reuse the host `ProcessService`: it executes through the fixed Docker sandbox backend, requires the cwd to remain inside the active scope roots, and fails closed when Docker is unavailable.
 
 ## Verification authority is separate from publication authority
 
-`project_check detect` and `project_check report` are Project-scoped inspection operations. `project_check run` executes repository-derived checks without accepting arbitrary command, argument, or cwd overrides: Project-sandbox checks use the Project lease, while a detected `admin-host` check requires a separate valid `adminAuthorityLeaseId`. That native Admin lease authorizes only the requested verification execution; it does not authorize GitHub publication or deployment.
+`project_check detect` and `project_check report` are Project-scoped inspection operations. `project_check run` executes repository-derived checks without accepting arbitrary command, argument, or cwd overrides: Project-sandbox checks use the active scope, while a detected `admin-host` check requires a separate valid `adminAuthorityLeaseId`. That native lease authorizes only the requested verification execution; it does not authorize GitHub publication or deployment.
 
-`git_push` remains an independent dual-authority boundary. It requires the exact resumed Project lease, a current Admin `authorityLeaseId`, a clean non-`main` branch, and fresh overall `project_check report` PASS evidence bound to the exact HEAD and working-tree digest. Local development may default to `main`, but that preference does not permit direct main publication.
+`git_push` remains an independent typed publication boundary. It requires the exact resumed Project lease, a clean non-`main` branch, and fresh overall `project_check report` PASS evidence bound to the exact HEAD and working-tree digest. Local development may default to `main`, but that preference does not permit direct main publication.
 
-If a ChatGPT conversation does not expose MCP tools, that is a product-surface/tool-routing availability failure. It does not remove or simplify the local authority ladder. Do not substitute container access, an unsupported endpoint, or another tool to bypass the missing MCP surface.
+If a ChatGPT conversation does not expose MCP tools, that is a product-surface/tool-routing availability failure. Do not substitute container access, an unsupported endpoint, or another tool to bypass the missing MCP surface.
 
-Admin is the only profile allowed to reach the unsandboxed host/user-session capabilities. `browser_health` remains lease-free because it exposes only categorical readiness and does not start or inspect browsing content.
+`browser_health` remains lease-free because it exposes only categorical readiness and does not start or inspect browsing content.
 
-## Admin is not root
+## Not root
 
-LocalAuthentication proves local user presence. It does not grant UID 0.
-
-An Admin lease still runs as the OS account that launched `chatgpt-system`. This phase does not provide:
+Everything runs as the OS account that launched `chatgpt-system`. This phase does not provide:
 
 - password piping;
 - `sudo -S`;
@@ -148,7 +118,7 @@ process_stop
 
 The daemon owns the real child handles and process-group identifiers. Callers receive only opaque random managed-process IDs.
 
-A later Admin lease may manage a process created by an earlier Admin lease when command allowlist and cwd scope are still compatible. Revoking the original lease does not automatically terminate the child. This is deliberate so an operator can recover and stop a development server with a newly approved compatible lease.
+A later call may manage a process created by an earlier call when command allowlist and cwd scope are still compatible. Revoking the original lease does not automatically terminate the child. This is deliberate so an operator can recover and stop a development server with a newly opened compatible scope.
 
 Managed records and logs exist only in memory. Clean daemon shutdown attempts to stop every running managed process group. An abrupt daemon crash or `SIGKILL` can leave a detached child alive; the next daemon does **not** scan or kill arbitrary OS PIDs because it has no trustworthy ownership proof. There is no persistence guarantee across daemon restart.
 
@@ -181,45 +151,17 @@ browser_network_errors
 browser_close
 ```
 
-Except for categorical `browser_health`, every operation requires an active Admin lease. Browser operations are serialized so concurrent ChatGPT sessions do not race tab/focus/page mutations inside the owned context.
+Except for categorical `browser_health`, every operation requires the browser gate; no lease is needed. Browser operations are serialized so concurrent ChatGPT sessions do not race tab/focus/page mutations inside the owned context.
 
 The browser runtime is **not a network sandbox**. HTTP(S) navigation may load arbitrary remote application code and follow redirects. The browser process has the OS/network permissions of the account running it. Use a separate OS account, VM, containerized browser environment, or network policy if stronger isolation is required.
 
-The runtime also does not automate credential entry. Existing authenticated state in the dedicated profile may still make sensitive pages visible to an Admin-authorized browser tool; operators should treat that profile as privileged local state.
+The runtime also does not automate credential entry. Existing authenticated state in the dedicated profile may still make sensitive pages visible to a browser tool; operators should treat that profile as privileged local state.
 
-Clean shutdown attempts managed processes first, then the browser context, then the authority control socket, then MCP transport. A failure in one cleanup phase does not skip later phases.
+Clean shutdown attempts managed processes first, then the browser context, then MCP transport. A failure in one cleanup phase does not skip later phases.
 
-## Protected native helper boundary
+## Legacy native helper and control socket (removed)
 
-The Swift LocalAuthentication helper is built in the repository but installed separately to:
-
-```text
-/Library/Application Support/chatgpt-system/bin/chatgpt-system-authority-broker
-```
-
-Its pinned hash metadata is stored at:
-
-```text
-/Library/Application Support/chatgpt-system/etc/authority-broker.sha256
-```
-
-The production broker rejects missing, symlinked, non-root-owned, group/other-writable, malformed, or hash-mismatched protected artifacts. Repository-local `.build/release` output is never trusted as the production approval executable.
-
-The installer is intentionally separate from ChatGPT/MCP authority. It is human-run with explicit macOS administrator authorization and accepts no password or path override arguments.
-
-## Control socket boundary
-
-The local Unix socket is a capability-creation control plane, not a second MCP transport. It intentionally supports only a tiny protocol:
-
-```text
-ping
-authorize user [bounded TTL]
-authorize admin [bounded TTL]
-```
-
-The server owns the socket path. Existing regular files/symlinks are never unlinked as "stale" sockets. A compatible live socket is treated as in use. Only an owned stale socket may be removed before bind.
-
-A client connection stays open while native approval runs. If the connection disappears before a success response can deliver the lease, the server revokes that lease rather than leaving an authority capability with no recipient.
+The Swift LocalAuthentication broker (`native/macos-authority-broker`) and the local Unix control socket no longer exist in the runtime: there is no `authorize` command, no `ping`/`authorize` protocol, and no approval executable verification. The native sources and the `install:broker:macos` script remain in the repository for reference, but the MCP server never invokes them.
 
 ## Filesystem race limitation
 
@@ -231,15 +173,15 @@ For adversarial multi-process isolation, use a container, VM, or dedicated OS ac
 
 ## Host terminal limitation
 
-Admin process execution is **not an operating-system sandbox**. The command allowlist limits the requested top-level executable name, not what an interpreter/compiler/package manager may subsequently do with the Admin OS account's permissions.
+Host process execution is **not an operating-system sandbox**. The command allowlist limits the requested top-level executable name, not what an interpreter/compiler/package manager may subsequently do with the OS account's permissions.
 
 If stronger host-process isolation is required, run the bridge inside a container, VM, sandbox, or dedicated account with only the required resources exposed.
 
 ## Project Docker sandbox boundary
 
-`project_exec` is a distinct least-privilege path, not a claim that the host account is sandboxed. The runtime accepts only Project leases, checks the cwd through the same `PathPolicy`, rejects non-local Docker contexts, and launches the fixed image with no network, no added capabilities, `no-new-privileges`, a read-only container root, bounded resources, and only the selected Project root bind-mounted at `/workspace`. The Docker client process receives a narrow environment and does not inherit daemon secret variables or caller-controlled Docker host/context overrides.
+`project_exec` is a distinct least-privilege path, not a claim that the host account is sandboxed. The runtime checks the cwd through the same `PathPolicy`, rejects non-local Docker contexts, and launches the fixed image with no network, no added capabilities, `no-new-privileges`, a read-only container root, bounded resources, and only the selected project root bind-mounted at `/workspace`. The Docker client process receives a narrow environment and does not inherit daemon secret variables or caller-controlled Docker host/context overrides.
 
-The Docker daemon is trusted infrastructure and the sandbox executes Linux tooling, so behavior can differ from the macOS host. Native Xcode/macOS tasks are intentionally not tunneled through this boundary. If the Docker executable/daemon, local Unix context, or fixed image is unavailable, the operation returns `SANDBOX_UNAVAILABLE`; it never retries through Admin host execution. A process with authority to control the local Docker daemon is itself highly privileged, so this boundary assumes the operator's local Docker installation/context is trusted.
+The Docker daemon is trusted infrastructure and the sandbox executes Linux tooling, so behavior can differ from the macOS host. Native Xcode/macOS tasks are intentionally not tunneled through this boundary. If the Docker executable/daemon, local Unix context, or fixed image is unavailable, the operation returns `SANDBOX_UNAVAILABLE`; it never retries through host execution. A process with authority to control the local Docker daemon is itself highly privileged, so this boundary assumes the operator's local Docker installation/context is trusted.
 
 ## Jev semantic targeting egress boundary
 
@@ -258,9 +200,9 @@ Because AX titles and descriptions are whatever the focused application renders,
 
 What does not leave the Mac through this path: screenshots, OCR text, editable AX values, typed text, file contents, Git state, environment variables, and authority lease identifiers. The API key is never placed in the URL, request body, audit log, MCP arguments, or error output.
 
-The capability is disabled by default and fails closed. It requires `--enable-computer-use`, the separate `--enable-jev-targeting` gate, and a `TYPESAFE_API_KEY`; a missing gate or key returns `JEV_TARGETING_UNAVAILABLE`. The authority check runs before the gate check, so an unauthorized lease cannot learn whether the feature is configured. Startup rejects the gate without Computer Runtime or without a key.
+The capability is disabled by default and fails closed. It requires `--enable-computer-use`, the separate `--enable-jev-targeting` gate, and a `TYPESAFE_API_KEY`; a missing gate or key returns `JEV_TARGETING_UNAVAILABLE`. Startup rejects the gate without Computer Runtime or without a key.
 
-The tool is read-only: it never clicks, types, or moves input, and it carries no authority beyond the observation it already performed. It returns a suggested target that the calling agent must still act on through the existing Admin-gated `computer_*` tools.
+The tool is read-only: it never clicks, types, or moves input, and it carries no authority beyond the observation it already performed. It returns a suggested target that the calling agent must still act on through the existing `computer_*` tools.
 
 Responses are schema-validated before use. An answer missing `confidence`, carrying a confidence outside `0..1`, or naming a choice outside the supplied candidate set is rejected rather than resolved, because an unvalidated response previously bypassed the low-confidence gate. Confidence alone is not treated as sufficient: a chosen element whose description duplicates another candidate's resolves to `ambiguous_duplicate`. Requests are bounded by an abort timeout, retried only on network failures and retryable HTTP statuses, and never retried on a 4xx that cannot succeed. Retry warnings carry structured status metadata only, never the response body or instruction text.
 
@@ -270,7 +212,7 @@ Availability of this third-party service is not a dependency of Computer Runtime
 
 Built-in Git tooling separates read operations from narrow typed mutations. `git_status`, `git_diff`, and `git_log` are read-only. Local mutation tools expose only validated branch creation/switching, explicit file staging, bounded commit messages, and fixed-option merges; they do not accept arbitrary Git arguments. Repository hooks, external diff/textconv, pagers, and commit signing are disabled for these operations.
 
-`git_push` is a separate remote-write boundary with two independent active leases: `authorityLeaseId` must resolve to Admin and `projectAuthorityLeaseId` must resolve to the exact Project lease created by `project_resume`. The resumed context is kept only in bounded in-memory digest-keyed state; generic Project leases do not satisfy it. Immediately before publication, Project Continuity revalidates the registered worktree identity, the tree must be clean and non-`main`, and existing `ProjectCheckService` evidence must be a fresh `PASS` bound to the exact current `HEAD` and `workingTreeDigest`. A stale/missing/failed/unavailable verification fails closed. The final remote write rechecks branch/HEAD and pushes the verified commit SHA only to the same validated branch at the existing credential-free GitHub `origin`. MCP accepts no remote/refspec/force/branch/head or verification-override input, and interactive Git prompting remains disabled.
+`git_push` is a separate remote-write boundary: `projectAuthorityLeaseId` must resolve to the exact Project lease created by `project_resume`. The resumed context is kept only in bounded in-memory digest-keyed state; generic Project leases do not satisfy it. Immediately before publication, Project Continuity revalidates the registered worktree identity, the tree must be clean and non-`main`, and existing `ProjectCheckService` evidence must be a fresh `PASS` bound to the exact current `HEAD` and `workingTreeDigest`. A stale/missing/failed/unavailable verification fails closed. The final remote write rechecks branch/HEAD and pushes the verified commit SHA only to the same validated branch at the existing credential-free GitHub `origin`. MCP accepts no remote/refspec/force/branch/head or verification-override input, and interactive Git prompting remains disabled.
 
 Git audit metadata records operation categories and bounded counts/flags, not commit messages, staged path values, remote URLs, or credentials.
 

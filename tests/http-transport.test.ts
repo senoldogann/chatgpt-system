@@ -19,7 +19,6 @@ const expectedAnnotations = {
   session_authority_start: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   session_authority_status: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   session_authority_end: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
-  persistent_owner_mode: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   fs_list: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   fs_stat: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   fs_read: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -98,6 +97,18 @@ const expectedAnnotations = {
   computer_wait_until_changed: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   computer_run: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   computer_run_js: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  // Yeni model: kalıcı owner/control düzlemi yoktur; skills/goal/workers/handoff araçları kataloğa eklendi.
+  skills_list: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  skills_read: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  skills_import: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  skills_remove: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  goal_advise: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  worker_spawn: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  worker_status: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  worker_message: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  worker_sleep: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  worker_finish: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  handoff_prepare: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
 } as const;
 
 const codingHarnessV2ToolNames = [
@@ -127,6 +138,21 @@ const continuityV1ToolNames = [
   "project_register",
   "project_resume",
 ] as const;
+const skillsV1ToolNames = [
+  "skills_import",
+  "skills_list",
+  "skills_read",
+  "skills_remove",
+] as const;
+const goalV1ToolNames = ["goal_advise"] as const;
+const workerV1ToolNames = [
+  "worker_finish",
+  "worker_message",
+  "worker_sleep",
+  "worker_spawn",
+  "worker_status",
+] as const;
+const handoffV1ToolNames = ["handoff_prepare"] as const;
 const baselineToolCatalogSha256 = "9cdc86efe227f7d92b2da227aa3ff508c11ceb165b2e5877a6727c9620620051";
 const baselineToolCount = 62;
 
@@ -158,6 +184,29 @@ async function fixture() {
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: false, commands: ["node"] },
     projectExec: { enabled: false },
+    // Yeni zorunlu bloklar: bu testin kapsamı dışında, kapalı tutulur.
+    skills: { enabled: false, directory: path.join(base, "skills") },
+    goal: { enabled: false, maxTranscriptChars: 120_000 },
+    workers: { enabled: false, maxWorkers: 8, maxParkedRuns: 16 },
+    ownerRuntime: {
+      enabled: false,
+      shellPath: "/bin/sh",
+      maxScriptBytes: 262_144,
+      maxTimeoutMs: 120_000,
+      maxTerminalSessions: 32,
+      maxTerminalOutputBytes: 262_144,
+      maxTerminalInputBytes: 65_536,
+    },
+    jevTargeting: { enabled: false, apiKey: null },
+    sessionEvents: { enabled: false },
+    browser: {
+      enabled: false,
+      connectionMode: "managed",
+      headless: true,
+      timeoutMs: 10_000,
+      userDataDir: path.join(base, "browser-profile"),
+      existingChromeUserDataDir: null,
+    },
     continuity: {
       databasePath: path.join(base, "continuity.db"),
       maxResumeChars: 12_000,
@@ -166,6 +215,7 @@ async function fixture() {
     },
     computerUse: {
       enabled: false,
+      fullHostJsEnabled: false,
       hostBundlePath: path.join(base, "ChatGPTSystemComputerRuntime.app"),
       requestTimeoutMs: 10_000,
       maxObservationElements: 500,
@@ -173,6 +223,10 @@ async function fixture() {
       maxScreenshotBytes: 8_388_608,
       maxActionProgramActions: 100,
       maxActionProgramRuntimeMs: 30_000,
+      maxAutomaticRetriesPerAction: 2,
+      maxJsSourceBytes: 262_144,
+      maxJsRuntimeMs: 30_000,
+      maxJsOutputBytes: 1_048_576,
     },
     control: { enabled: false, socketPath: path.join(base, "control.sock") },
     http: { host: "127.0.0.1", port: 0, allowNonLoopback: false, token },
@@ -255,7 +309,10 @@ describe("HTTP MCP transport", () => {
         ...continuityV1ToolNames,
         ...computerReliabilityV2ToolNames,
         ...ownerRuntimeToolNames,
-        "persistent_owner_mode",
+        ...skillsV1ToolNames,
+        ...goalV1ToolNames,
+        ...workerV1ToolNames,
+        ...handoffV1ToolNames,
         "git_inventory",
         "git_file_review",
       ]);

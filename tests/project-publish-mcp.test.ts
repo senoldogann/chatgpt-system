@@ -129,10 +129,6 @@ async function fixture() {
     expect(registered.isError).not.toBe(true);
   }
 
-  const admin = await client.callTool({ name: "session_authority_start", arguments: { profile: "admin", requestedTtlSeconds: 120 } });
-  expect(admin.isError).not.toBe(true);
-  const adminLeaseId = (admin.structuredContent as { leaseId: string }).leaseId;
-
   const resumedA = await client.callTool({ name: "project_resume", arguments: { alias: "Project-A", requestedTtlSeconds: 120 } });
   const resumedB = await client.callTool({ name: "project_resume", arguments: { alias: "Project-B", requestedTtlSeconds: 120 } });
   expect(resumedA.isError).not.toBe(true); expect(resumedB.isError).not.toBe(true);
@@ -145,7 +141,8 @@ async function fixture() {
   expect(checked.isError).not.toBe(true);
   expect((checked.structuredContent as { overallStatus: string }).overallStatus).toBe("PASS");
 
-  return { client, runtime, backend, projectA, projectB, adminLeaseId, projectALeaseId, projectBLeaseId };
+  // Tekli proje kipi: dış lease yok, açık kapsam kullanılır.
+  return { client, runtime, backend, projectA, projectB, projectALeaseId, projectBLeaseId };
 }
 
 async function nativeFixture() {
@@ -195,44 +192,44 @@ async function nativeFixture() {
   } });
   expect(registered.isError).not.toBe(true);
 
-  const admin = await client.callTool({ name: "session_authority_start", arguments: { profile: "admin", requestedTtlSeconds: 120 } });
-  expect(admin.isError).not.toBe(true);
-  const adminLeaseId = (admin.structuredContent as { leaseId: string }).leaseId;
-
   const resumed = await client.callTool({ name: "project_resume", arguments: { alias: "Native-Project", requestedTtlSeconds: 120 } });
   expect(resumed.isError).not.toBe(true);
   const projectLeaseId = (resumed.structuredContent as { authorityLease: { leaseId: string } }).authorityLease.leaseId;
 
-  return { client, host, backend, projectRoot, adminLeaseId, projectLeaseId };
+  // Tekli proje kipi: yerel doğrulama için proje lease yeterlidir.
+  return { client, host, backend, projectRoot, projectLeaseId };
 }
 
-describe("git_push dual authority", () => {
-  it("rejects a generic Project lease even with valid Admin authority", async () => {
+describe("git_push single project authority", () => {
+  it("rejects a generic Project lease without resume context", async () => {
     const test = await fixture();
     const generic = await test.client.callTool({ name: "session_authority_start", arguments: {
-      profile: "project", projectRoots: [test.projectA], requestedTtlSeconds: 120,
+      projectRoots: [test.projectA], requestedTtlSeconds: 120,
     } });
     const genericLeaseId = (generic.structuredContent as { leaseId: string }).leaseId;
     const result = await test.client.callTool({ name: "git_push", arguments: {
-      authorityLeaseId: test.adminLeaseId, projectAuthorityLeaseId: genericLeaseId, cwd: test.projectA,
+      projectAuthorityLeaseId: genericLeaseId, cwd: test.projectA,
     } });
     expect(result.isError).toBe(true);
     expect(textContent(result)).toContain("PROJECT_RESUME_REQUIRED");
   }, 15_000);
 
-  it("requires the Admin lease in the Admin field", async () => {
+  it("accepts a Project lease in the optional outer field without an Admin gate", async () => {
     const test = await fixture();
     const result = await test.client.callTool({ name: "git_push", arguments: {
       authorityLeaseId: test.projectALeaseId, projectAuthorityLeaseId: test.projectALeaseId, cwd: test.projectA,
     } });
     expect(result.isError).toBe(true);
-    expect(textContent(result)).toContain("AUTHORITY_DENIED");
+    // Dış lease yalnızca git kapsamı verir; son sınır uzak politika kontrolüdür.
+    expect(textContent(result)).toContain("credential-free GitHub origin URL");
+    expect(textContent(result)).not.toContain("PROJECT_RESUME_REQUIRED");
+    expect(textContent(result)).not.toContain("LOCAL_VERIFICATION");
   }, 15_000);
 
   it("does not let a resumed Project-A lease publish Project-B", async () => {
     const test = await fixture();
     const result = await test.client.callTool({ name: "git_push", arguments: {
-      authorityLeaseId: test.adminLeaseId, projectAuthorityLeaseId: test.projectALeaseId, cwd: test.projectB,
+      projectAuthorityLeaseId: test.projectALeaseId, cwd: test.projectB,
     } });
     expect(result.isError).toBe(true);
     expect(textContent(result)).toMatch(/POLICY_DENIED|PROJECT_RESUME_REQUIRED/);
@@ -243,7 +240,7 @@ describe("git_push dual authority", () => {
     const ended = await test.client.callTool({ name: "session_authority_end", arguments: { authorityLeaseId: test.projectALeaseId } });
     expect(ended.isError).not.toBe(true);
     const result = await test.client.callTool({ name: "git_push", arguments: {
-      authorityLeaseId: test.adminLeaseId, projectAuthorityLeaseId: test.projectALeaseId, cwd: test.projectA,
+      projectAuthorityLeaseId: test.projectALeaseId, cwd: test.projectA,
     } });
     expect(result.isError).toBe(true);
     expect(textContent(result)).toContain("AUTHORITY_REQUIRED");
@@ -253,7 +250,7 @@ describe("git_push dual authority", () => {
     const test = await nativeFixture();
     const checked = await test.client.callTool({ name: "project_check", arguments: {
       authorityLeaseId: test.projectLeaseId,
-      adminAuthorityLeaseId: test.adminLeaseId,
+      adminAuthorityLeaseId: test.projectLeaseId,
       operation: "run",
       cwd: test.projectRoot,
     } });
@@ -266,7 +263,6 @@ describe("git_push dual authority", () => {
     ]);
 
     const result = await test.client.callTool({ name: "git_push", arguments: {
-      authorityLeaseId: test.adminLeaseId,
       projectAuthorityLeaseId: test.projectLeaseId,
       cwd: test.projectRoot,
     } });
@@ -277,10 +273,10 @@ describe("git_push dual authority", () => {
     expect(textContent(result)).not.toContain("LOCAL_VERIFICATION_STALE");
   }, 15_000);
 
-  it("valid dual authority with fresh PASS reaches the final remote policy boundary", async () => {
+  it("valid single resumed lease with fresh PASS reaches the final remote policy boundary", async () => {
     const test = await fixture();
     const result = await test.client.callTool({ name: "git_push", arguments: {
-      authorityLeaseId: test.adminLeaseId, projectAuthorityLeaseId: test.projectALeaseId, cwd: test.projectA,
+      projectAuthorityLeaseId: test.projectALeaseId, cwd: test.projectA,
     } });
     expect(result.isError).toBe(true);
     expect(textContent(result)).toContain("credential-free GitHub origin URL");

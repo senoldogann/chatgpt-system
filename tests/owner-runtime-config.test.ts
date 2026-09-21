@@ -34,7 +34,6 @@ describe("Owner Runtime configuration", () => {
     expect(result).toEqual({
       roots: ["/tmp/project"],
       ownerWorkstationEnabled: true,
-      personalAdminEnabled: true,
       ownerRuntimeEnabled: true,
       terminalEnabled: true,
       projectExecEnabled: true,
@@ -44,9 +43,9 @@ describe("Owner Runtime configuration", () => {
     });
   });
 
-  it("is disabled by default even when Personal Admin is enabled", async () => {
+  it("is disabled by default", async () => {
     const root = await tempRoot();
-    const config = await loadConfig({ roots: [root], personalAdminEnabled: true });
+    const config = await loadConfig({ roots: [root] });
 
     expect(config.ownerRuntime.enabled).toBe(false);
     expect(config.ownerRuntime.maxScriptBytes).toBe(OWNER_SHELL_MAX_SCRIPT_BYTES);
@@ -55,7 +54,6 @@ describe("Owner Runtime configuration", () => {
   it("expands Owner Workstation to the approved local capabilities while defaults stay off", async () => {
     const root = await tempRoot();
     const defaults = await loadConfig({ roots: [root] });
-    expect(defaults.personalAdmin.enabled).toBe(false);
     expect(defaults.ownerRuntime.enabled).toBe(false);
     expect(defaults.terminal.enabled).toBe(false);
     expect(defaults.projectExec.enabled).toBe(false);
@@ -63,7 +61,6 @@ describe("Owner Runtime configuration", () => {
     expect(defaults.computerUse.fullHostJsEnabled).toBe(false);
 
     const configured = await loadConfig({ roots: [root], ownerWorkstationEnabled: true });
-    expect(configured.personalAdmin.enabled).toBe(true);
     expect(configured.ownerRuntime.enabled).toBe(true);
     expect(configured.terminal.enabled).toBe(true);
     expect(configured.projectExec.enabled).toBe(true);
@@ -74,11 +71,10 @@ describe("Owner Runtime configuration", () => {
     expect(configured.limits.commandTimeoutMs).toBe(OWNER_WORKSTATION_COMMAND_TIMEOUT_MS);
   });
 
-  it("enables only with Personal Admin and resolves a trusted absolute shell path", async () => {
+  it("enables explicitly and resolves a trusted absolute shell path", async () => {
     const root = await tempRoot();
     const config = await loadConfig({
       roots: [root],
-      personalAdminEnabled: true,
       ownerRuntimeEnabled: true,
       ownerShellPath: "/bin/sh",
     });
@@ -100,7 +96,6 @@ describe("Owner Runtime configuration", () => {
     try {
       const config = await loadConfig({
         roots: [root],
-        personalAdminEnabled: true,
         ownerRuntimeEnabled: true,
         ownerShellPath: "/bin/sh",
       });
@@ -110,14 +105,16 @@ describe("Owner Runtime configuration", () => {
     }
   });
 
-  it("rejects Owner Runtime without Personal Admin", async () => {
+  it("enables Owner Runtime without any Personal Admin coupling", async () => {
     const root = await tempRoot();
 
-    await expect(loadConfig({
+    // Serbest mod: Owner Runtime yalnızca startup bayrağına bağlıdır.
+    const config = await loadConfig({
       roots: [root],
       ownerRuntimeEnabled: true,
       ownerShellPath: "/bin/sh",
-    })).rejects.toThrow(/personal admin/i);
+    });
+    expect(config.ownerRuntime.enabled).toBe(true);
   });
 
   it("rejects a relative trusted shell path", async () => {
@@ -125,7 +122,6 @@ describe("Owner Runtime configuration", () => {
 
     await expect(loadConfig({
       roots: [root],
-      personalAdminEnabled: true,
       ownerRuntimeEnabled: true,
       ownerShellPath: "bin/sh",
     })).rejects.toThrow(/absolute/i);

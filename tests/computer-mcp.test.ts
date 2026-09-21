@@ -143,7 +143,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-async function fixture(options: { personalAdmin?: boolean } = {}) {
+async function fixture() {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-computer-mcp-"));
   cleanups.push(base);
   const root = path.join(base, "root");
@@ -161,7 +161,9 @@ async function fixture(options: { personalAdmin?: boolean } = {}) {
       remoteVerificationTimeoutMs: 1_000,
     },
 
-    personalAdmin: { enabled: options.personalAdmin ?? true },
+    skills: { enabled: true, directory: path.join(base, "skills") },
+    goal: { enabled: true, maxTranscriptChars: 120_000 },
+    workers: { enabled: true, maxWorkers: 8, maxParkedRuns: 16 },
     ownerRuntime: {
       enabled: true,
       shellPath: "/bin/zsh",
@@ -415,20 +417,19 @@ describe("computer MCP tools", () => {
         name: "computer_observe",
         arguments: { authorityLeaseId: project.leaseId },
       });
-      expect(projectObserve.isError).toBe(true);
-      expect(textContent(projectObserve)).toContain("POLICY_DENIED");
-      expect(fake.calls.map((call) => call.method)).toEqual(["health"]);
+      expect(projectObserve.isError).not.toBe(true);
+      expect(projectObserve.structuredContent).toMatchObject({ snapshotId: "snap-1", digest: "digest-1" });
+      expect(fake.calls.map((call) => call.method)).toEqual(["health", "observe"]);
 
-      const user = await runtime.authority.start({ profile: "user" });
-      const userPointer = await client.callTool({
+      const second = await runtime.authority.start({ profile: "project", projectRoots: [root] });
+      const secondPointer = await client.callTool({
         name: "computer_pointer_position",
-        arguments: { authorityLeaseId: user.leaseId },
+        arguments: { authorityLeaseId: second.leaseId },
       });
-      expect(userPointer.isError).toBe(true);
-      expect(textContent(userPointer)).toContain("POLICY_DENIED");
-      expect(fake.calls.map((call) => call.method)).toEqual(["health"]);
+      expect(secondPointer.isError).not.toBe(true);
+      expect(fake.calls.map((call) => call.method)).toEqual(["health", "observe", "pointerPosition"]);
 
-      const admin = await runtime.authority.start({ profile: "admin" });
+      const admin = await runtime.authority.start({ profile: "project", projectRoots: [root] });
       const adminObserve = await client.callTool({
         name: "computer_observe",
         arguments: { authorityLeaseId: admin.leaseId },
@@ -458,7 +459,7 @@ describe("computer MCP tools", () => {
     }
   });
 
-  it("uses opt-in personal Admin automatically for Computer Use without a lease or TTL, but explicit weak leases fail closed", async () => {
+  it("allows open Computer Use scope without a lease and project leases succeed", async () => {
     const { root, runtime, fake, client, transport } = await fixture();
     try {
       const observed = await client.callTool({ name: "computer_observe", arguments: {} });
@@ -470,30 +471,28 @@ describe("computer MCP tools", () => {
       } });
       expect(batch.isError).not.toBe(true);
       expect(fake.calls.map((call) => call.method)).toEqual(["observe", "click", "run"]);
-      expect(runtime.authority.findActiveAdminLease()?.profile).toBe("admin");
       const project = await runtime.authority.start({ profile: "project", projectRoots: [root] });
-      const denied = await client.callTool({ name: "computer_observe", arguments: { authorityLeaseId: project.leaseId } });
-      expect(denied.isError).toBe(true);
-      expect(textContent(denied)).toContain("POLICY_DENIED");
+      const granted = await client.callTool({ name: "computer_observe", arguments: { authorityLeaseId: project.leaseId } });
+      expect(granted.isError).not.toBe(true);
       const malformed = await client.callTool({ name: "computer_observe", arguments: { authorityLeaseId: "invalid-lease" } });
       expect(malformed.isError).toBe(true);
-      expect(fake.calls).toHaveLength(3);
+      expect(fake.calls).toHaveLength(4);
     } finally {
       await transport.terminateSession();
       await client.close();
     }
   });
 
-  it("requires explicit leases when personal Admin is disabled", async () => {
-    const { runtime, fake, client, transport } = await fixture({ personalAdmin: false });
+  it("treats authorityLeaseId as optional and allows open Computer Use scope", async () => {
+    const { fake, client, transport } = await fixture();
     try {
       const { tools } = await client.listTools();
-      const schema = tools.find((tool) => tool.name === "computer_observe")?.inputSchema as { required?: string[] };
-      expect(schema.required).toContain("authorityLeaseId");
-      const denied = await client.callTool({ name: "computer_observe", arguments: {} });
-      expect(denied.isError).toBe(true);
-      expect(runtime.authority.findActiveAdminLease()).toBeUndefined();
-      expect(fake.calls).toHaveLength(0);
+      const schema = tools.find((tool) => tool.name === "computer_observe")?.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
+      expect(schema.properties).toHaveProperty("authorityLeaseId");
+      expect(schema.required ?? []).not.toContain("authorityLeaseId");
+      const observed = await client.callTool({ name: "computer_observe", arguments: {} });
+      expect(observed.isError).not.toBe(true);
+      expect(fake.calls).toHaveLength(1);
     } finally {
       await transport.terminateSession();
       await client.close();
@@ -501,9 +500,9 @@ describe("computer MCP tools", () => {
   });
 
   it("rejects unknown fields and keeps raw hold primitives only inside computer_run", async () => {
-    const { runtime, fake, client, transport } = await fixture();
+    const { root, runtime, fake, client, transport } = await fixture();
     try {
-      const admin = await runtime.authority.start({ profile: "admin" });
+      const admin = await runtime.authority.start({ profile: "project", projectRoots: [root] });
       const invalid = await client.callTool({
         name: "computer_click",
         arguments: { authorityLeaseId: admin.leaseId, x: 1, y: 2, selector: "#nope" },
@@ -532,7 +531,7 @@ describe("computer MCP tools", () => {
   });
 
   it("passes the MCP request AbortSignal and Owner mode into computer_run", async () => {
-    const { runtime, fake } = await fixture();
+    const { root, runtime, fake } = await fixture();
     const controller = new AbortController();
     let handler: ((input: Record<string, unknown>, ctx: { mcpReq: { signal?: AbortSignal } }) => Promise<unknown>) | undefined;
     const fakeServer = {
@@ -541,7 +540,7 @@ describe("computer MCP tools", () => {
       },
     };
     registerComputerTools(fakeServer as never, runtime);
-    const admin = await runtime.authority.start({ profile: "admin" });
+    const admin = await runtime.authority.start({ profile: "project", projectRoots: [root] });
 
     await handler!({
       authorityLeaseId: admin.leaseId,
@@ -554,9 +553,9 @@ describe("computer MCP tools", () => {
   });
 
   it("accepts semantic targets in computer_run without guessing coordinates", async () => {
-    const { runtime, fake, client, transport } = await fixture();
+    const { root, runtime, fake, client, transport } = await fixture();
     try {
-      const admin = await runtime.authority.start({ profile: "admin" });
+      const admin = await runtime.authority.start({ profile: "project", projectRoots: [root] });
       const run = await client.callTool({
         name: "computer_run",
         arguments: {
@@ -598,9 +597,9 @@ describe("computer MCP tools", () => {
   });
 
   it("accepts a semantic target in direct computer_click without guessed coordinates", async () => {
-    const { runtime, fake, client, transport } = await fixture();
+    const { root, runtime, fake, client, transport } = await fixture();
     try {
-      const admin = await runtime.authority.start({ profile: "admin" });
+      const admin = await runtime.authority.start({ profile: "project", projectRoots: [root] });
       const click = await client.callTool({
         name: "computer_click",
         arguments: {
@@ -636,9 +635,9 @@ describe("computer MCP tools", () => {
   });
 
   it("normalizes canonical key aliases for direct and batched actions and rejects unknown keys before runtime", async () => {
-    const { runtime, fake, client, transport } = await fixture();
+    const { root, runtime, fake, client, transport } = await fixture();
     try {
-      const admin = await runtime.authority.start({ profile: "admin" });
+      const admin = await runtime.authority.start({ profile: "project", projectRoots: [root] });
       const cases = [
         ["Enter", "return"],
         ["Esc", "escape"],
@@ -700,9 +699,9 @@ describe("computer MCP tools", () => {
   });
 
   it("rejects app-selector-less calls at the MCP boundary before reaching the runtime", async () => {
-    const { runtime, fake, client, transport } = await fixture();
+    const { root, runtime, fake, client, transport } = await fixture();
     try {
-      const admin = await runtime.authority.start({ profile: "admin" });
+      const admin = await runtime.authority.start({ profile: "project", projectRoots: [root] });
       const callsBefore = fake.calls.length;
       for (const args of [
         { name: "computer_type_text", arguments: { authorityLeaseId: admin.leaseId, text: "hi" } },
@@ -740,9 +739,9 @@ describe("computer MCP tools", () => {
   });
 
   it("enforces strict bounded-scroll schema and routes a valid semantic request", async () => {
-    const { runtime, fake, client, transport } = await fixture();
+    const { root, runtime, fake, client, transport } = await fixture();
     try {
-      const admin = await runtime.authority.start({ profile: "admin" });
+      const admin = await runtime.authority.start({ profile: "project", projectRoots: [root] });
       const base = {
         authorityLeaseId: admin.leaseId,
         target: { by: "text", text: "Refresh", exact: true },
@@ -782,9 +781,9 @@ describe("computer MCP tools", () => {
   });
 
   it("returns screenshot as image content plus metadata without duplicating base64", async () => {
-    const { runtime, client, transport } = await fixture();
+    const { root, runtime, client, transport } = await fixture();
     try {
-      const admin = await runtime.authority.start({ profile: "admin" });
+      const admin = await runtime.authority.start({ profile: "project", projectRoots: [root] });
       const screenshot = await client.callTool({
         name: "computer_screenshot",
         arguments: { authorityLeaseId: admin.leaseId },
@@ -807,9 +806,9 @@ describe("computer MCP tools", () => {
   });
 
   it("returns only bounded recovery evidence in MCP computer error details", async () => {
-    const { runtime, fake, client, transport } = await fixture();
+    const { root, runtime, fake, client, transport } = await fixture();
     try {
-      const admin = await runtime.authority.start({ profile: "admin" });
+      const admin = await runtime.authority.start({ profile: "project", projectRoots: [root] });
       fake.failMethod = "click";
       fake.failError = new ComputerError("COMPUTER_TARGET_AMBIGUOUS", {
         candidateCount: 2,
@@ -847,9 +846,9 @@ describe("computer MCP tools", () => {
   });
 
   it("returns tool failures with isError and no structuredContent or raw native diagnostics", async () => {
-    const { runtime, fake, client, transport } = await fixture();
+    const { root, runtime, fake, client, transport } = await fixture();
     try {
-      const admin = await runtime.authority.start({ profile: "admin" });
+      const admin = await runtime.authority.start({ profile: "project", projectRoots: [root] });
       fake.failMethod = "pointerPosition";
       fake.rawFailure = true;
       const failed = await client.callTool({
@@ -886,13 +885,14 @@ describe("computer_resolve_semantic_target", () => {
     }
   });
 
-  it("requires an explicit lease when personal Admin is disabled", async () => {
-    const { client, transport } = await fixture({ personalAdmin: false });
+  it("keeps authorityLeaseId optional for computer_resolve_semantic_target", async () => {
+    const { client, transport } = await fixture();
     try {
       const { tools } = await client.listTools();
       const schema = tools.find((item) => item.name === "computer_resolve_semantic_target")
-        ?.inputSchema as { required?: string[] };
-      expect(schema.required).toContain("authorityLeaseId");
+        ?.inputSchema as { properties?: Record<string, unknown>; required?: string[] };
+      expect(schema.properties).toHaveProperty("authorityLeaseId");
+      expect(schema.required ?? []).not.toContain("authorityLeaseId");
       expect(schema.required).toContain("instruction");
     } finally {
       await transport.terminateSession();
@@ -900,7 +900,7 @@ describe("computer_resolve_semantic_target", () => {
     }
   });
 
-  it("denies Project and User leases before ever consulting Jev", async () => {
+  it("resolves project leases past policy and fails closed on the Jev gate", async () => {
     const { root, runtime, fake, client, transport } = await fixture();
     try {
       const project = await runtime.authority.start({ profile: "project", projectRoots: [root] });
@@ -909,27 +909,19 @@ describe("computer_resolve_semantic_target", () => {
         arguments: { authorityLeaseId: project.leaseId, instruction: "Click Send" },
       });
       expect(projectResult.isError).toBe(true);
-      expect(textContent(projectResult)).toContain("POLICY_DENIED");
+      expect(textContent(projectResult)).toContain("JEV_TARGETING_UNAVAILABLE");
 
-      const user = await runtime.authority.start({ profile: "user" });
-      const userResult = await client.callTool({
-        name: "computer_resolve_semantic_target",
-        arguments: { authorityLeaseId: user.leaseId, instruction: "Click Send" },
-      });
-      expect(userResult.isError).toBe(true);
-      expect(textContent(userResult)).toContain("POLICY_DENIED");
-
-      expect(fake.calls).toEqual([]);
+      expect(fake.calls.map((call) => call.method)).toEqual(["observe"]);
     } finally {
       await transport.terminateSession();
       await client.close();
     }
   });
 
-  it("fails closed as JEV_TARGETING_UNAVAILABLE for an Admin lease when the gate is off", async () => {
-    const { runtime, fake, client, transport } = await fixture();
+  it("fails closed as JEV_TARGETING_UNAVAILABLE for a project lease when the gate is off", async () => {
+    const { root, runtime, fake, client, transport } = await fixture();
     try {
-      const admin = await runtime.authority.start({ profile: "admin" });
+      const admin = await runtime.authority.start({ profile: "project", projectRoots: [root] });
       const result = await client.callTool({
         name: "computer_resolve_semantic_target",
         arguments: { authorityLeaseId: admin.leaseId, instruction: "Click Send" },

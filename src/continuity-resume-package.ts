@@ -133,6 +133,32 @@ function optionalSections(record: ContinuitySemanticRecord): string[] {
     sections.push(["[TASK DETAIL]", `detail: ${record.task.detail}`].join("\n"));
   }
 
+  if (record.task.brief !== undefined && record.task.brief.trim() !== "") {
+    sections.push(["[BRIEF]", `brief: ${record.task.brief}`].join("\n"));
+  }
+
+  if (record.task.planSteps !== undefined && record.task.planSteps.length > 0) {
+    const steps = record.task.planSteps.map((step, index) => [
+      `planIndex: ${index + 1}`,
+      `planStatus: ${step.status}`,
+      `planStep: ${step.step}`,
+      ...(step.details !== undefined ? [`planDetails: ${step.details}`] : []),
+    ].join("\n"));
+    sections.push([
+      "[PLAN]",
+      "Saved task plan at handoff (reported progress, not verification evidence).",
+      "Continue the unfinished work using this plan and the brief.",
+      ...steps,
+    ].join("\n"));
+  }
+
+  if (record.task.activity !== undefined && record.task.activity.length > 0) {
+    sections.push([
+      "[ACTIVITY]",
+      ...record.task.activity.map((line) => `activity: ${line}`),
+    ].join("\n"));
+  }
+
   if (record.decisions.length > 0) {
     const decisions = record.decisions.map((decision, index) => [
       `decisionIndex: ${index + 1}`,

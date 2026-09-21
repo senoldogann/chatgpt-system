@@ -113,7 +113,9 @@ describe("browser audit redaction", () => {
         remoteVerificationTimeoutMs: 1_000,
       },
 
-      personalAdmin: { enabled: false },
+      skills: { enabled: true, directory: path.join(base, "skills") },
+      goal: { enabled: true, maxTranscriptChars: 120_000 },
+      workers: { enabled: true, maxWorkers: 8, maxParkedRuns: 16 },
       computerUse: {
         enabled: false,
         hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",
@@ -144,7 +146,7 @@ describe("browser audit redaction", () => {
       browserInstalled: async () => true,
     } as never);
     try {
-      const admin = await runtime.authority.start({ profile: "admin", requestedTtlSeconds: 120 });
+      const admin = await runtime.authority.start({ profile: "project", projectRoots: [root], requestedTtlSeconds: 120 });
       const scoped = createScopedRuntime(runtime as never, admin) as ReturnType<typeof createScopedRuntime> & {
         browser: {
           tabs(): Promise<unknown>;

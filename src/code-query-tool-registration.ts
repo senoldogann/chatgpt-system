@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { AuthorityManager } from "./authority.js";
 import { errorPayload } from "./errors.js";
-import { createScopedRuntime, type ScopedRuntimeBase } from "./scoped-runtime.js";
+import { createOpenRuntime, createScopedRuntime, type ScopedRuntimeBase } from "./scoped-runtime.js";
 import { codeQueryOutputSchema } from "./tool-output-schemas.js";
 
 export interface CodeQueryToolRuntime extends ScopedRuntimeBase {
@@ -17,7 +17,7 @@ const codeQueryAnnotations = {
 };
 
 const baseFields = {
-  authorityLeaseId: z.string().min(40),
+  authorityLeaseId: z.string().min(40).optional(),
   cwd: z.string().default("."),
   maxResults: z.number().int().min(1).max(200).optional(),
 };
@@ -73,9 +73,12 @@ async function safeCall<T extends object>(fn: () => Promise<T>) {
   }
 }
 
-function codeQueryFor(runtime: CodeQueryToolRuntime, authorityLeaseId: string) {
-  const authority = runtime.authority.resolve(authorityLeaseId);
-  return createScopedRuntime(runtime, authority).codeQuery;
+function codeQueryFor(runtime: CodeQueryToolRuntime, authorityLeaseId?: string) {
+  if (authorityLeaseId !== undefined) {
+    const authority = runtime.authority.resolve(authorityLeaseId);
+    return createScopedRuntime(runtime, authority).codeQuery;
+  }
+  return createOpenRuntime(runtime).codeQuery;
 }
 
 export function registerCodeQueryTool(server: McpServer, runtime: CodeQueryToolRuntime): void {

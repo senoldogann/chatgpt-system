@@ -36,6 +36,12 @@ export const continuityPublishedStateOutputSchema = z.object({
   main: continuityRemoteRefOutputSchema,
 }).strict();
 
+export const continuityPlanStepOutputSchema = z.object({
+  step: z.string(),
+  status: z.string(),
+  details: z.string().optional(),
+}).strict();
+
 export const continuityTaskOutputSchema = z.object({
   goal: z.string(),
   constraints: z.array(z.string()),
@@ -43,6 +49,9 @@ export const continuityTaskOutputSchema = z.object({
   status: z.enum(["active", "blocked", "completed"]),
   nextStep: z.string(),
   detail: z.string().optional(),
+  brief: z.string().optional(),
+  planSteps: z.array(continuityPlanStepOutputSchema).optional(),
+  activity: z.array(z.string()).optional(),
 }).strict();
 
 export const continuityDecisionOutputSchema = z.object({
@@ -80,7 +89,7 @@ export const projectResumeOutputSchema = z.object({
     leaseId: z.string().min(40),
     profile: z.literal("project"),
     roots: z.array(z.string()),
-    terminalEnabled: z.literal(false),
+    terminalEnabled: z.boolean(),
     commands: z.array(z.string()),
     createdAt: z.string(),
     expiresAt: z.string(),

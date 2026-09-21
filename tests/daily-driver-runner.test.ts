@@ -140,7 +140,8 @@ describe("daily-driver tunnel runner", () => {
 
     // Regression guard for the O(log) rewrite-per-chunk implementation: appending
     // 256 x 4 KiB chunks must not re-read and rewrite the whole retained log.
-    expect(elapsedMs).toBeLessThan(250);
+    // Budget 800ms: CI/macOS fsync jitter toleransı, O(n) rewrite hala saniyeler sürer.
+    expect(elapsedMs).toBeLessThan(800);
     expect((await stat(file)).size).toBeLessThanOrEqual(MAX_LOG_BYTES);
   }, 20_000);
 

@@ -4,17 +4,7 @@ import { COMPUTER_MAX_JS_OUTPUT_BYTES, COMPUTER_MAX_RUN_STEP_RESULTS } from "./c
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 const pathTypeSchema = z.enum(["directory", "file", "symlink", "other"]);
 const nonNegativeInt = z.number().int().nonnegative();
-const authorityProfileSchema = z.enum(["project", "user", "admin"]);
-const authorityApprovalProfileSchema = z.enum(["user", "admin"]);
-const authorityRequestStateSchema = z.enum([
-  "pending",
-  "approved",
-  "denied",
-  "cancelled",
-  "failed",
-  "expired",
-  "consumed",
-]);
+const authorityProfileSchema = z.literal("project");
 
 const projectAuthoritySemanticsOutputSchema = z.object({
   bootstrapRootsAreDefaultsOnly: z.literal(true),
@@ -35,16 +25,18 @@ export const systemCapabilitiesOutputSchema = z.object({
     enabled: z.boolean(),
     commands: z.array(z.string()),
   }),
-  personalAdmin: z.object({
-    enabled: z.boolean(),
-    adminLeaseMaxTtlSeconds: z.literal(3600),
-  }),
-  persistentOwnerMode: z.object({
-    enabled: z.boolean(),
-    expiresAt: z.literal("never"),
-  }),
   ownerRuntime: z.object({
     enabled: z.boolean(),
+  }),
+  skills: z.object({
+    enabled: z.boolean(),
+  }),
+  goal: z.object({
+    enabled: z.boolean(),
+  }),
+  workers: z.object({
+    enabled: z.boolean(),
+    maxWorkers: z.number().int().positive(),
   }),
   computerUse: z.object({
     enabled: z.boolean(),
@@ -89,31 +81,8 @@ export const authorityLeaseOutputSchema = z.object({
   expiresAt: z.string(),
 });
 
-const authorityRequestBaseOutputSchema = z.object({
-  requestId: z.string(),
-  profile: authorityApprovalProfileSchema,
-  state: authorityRequestStateSchema,
-  requestedTtlSeconds: z.number().int().positive().optional(),
-  createdAt: z.string(),
-  expiresAt: z.string(),
-});
-
-export const authorityRequestOutputSchema = authorityRequestBaseOutputSchema;
-
-export const authorityRequestStatusOutputSchema = authorityRequestBaseOutputSchema.extend({
-  lease: authorityLeaseOutputSchema.optional(),
-});
-
 export const authorityEndOutputSchema = z.object({
   ended: z.literal(true),
-});
-
-export const persistentOwnerModeOutputSchema = z.object({
-  enabled: z.boolean(),
-  leaseId: z.string().optional(),
-  profile: z.literal("admin"),
-  createdAt: z.string().optional(),
-  expiresAt: z.literal("never"),
 });
 
 export const executableResolutionOutputSchema = z.object({
@@ -775,3 +744,50 @@ export const computerRunOutputSchema = z.object({
     computerObservationOutputSchema,
   ]).optional(),
 });
+
+export const skillSummaryOutputSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  path: z.string(),
+}).strict();
+
+export const skillListOutputSchema = z.object({
+  skills: z.array(skillSummaryOutputSchema),
+}).strict();
+
+export const skillReadOutputSchema = z.object({
+  summary: skillSummaryOutputSchema,
+  text: z.string(),
+}).strict();
+
+export const goalAdviseOutputSchema = z.object({
+  action: z.enum(["stop", "continue"]),
+  reply: z.string(),
+  reason: z.string(),
+}).strict();
+
+export const workerInfoOutputSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  task: z.string(),
+  state: z.enum(["active", "sleeping", "finished", "failed"]),
+  alias: z.string().nullable(),
+  worktreePath: z.string().nullable(),
+  createdAt: z.string(),
+  lastSeenAt: z.string(),
+  result: z.string().nullable(),
+}).strict();
+
+export const workerRunOutputSchema = z.object({
+  runId: z.string(),
+  primeAlias: z.string(),
+  workers: z.array(workerInfoOutputSchema),
+  parked: z.boolean(),
+}).strict();
+
+export const handoffPrepareOutputSchema = z.object({
+  brief: z.string(),
+  bootstrap: z.string(),
+  truncated: z.boolean(),
+}).strict();

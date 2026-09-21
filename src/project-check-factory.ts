@@ -1,7 +1,6 @@
 import type { AuthorityManager } from "./authority.js";
 import type { AuditLogger } from "./audit.js";
 import type { AppConfig } from "./config.js";
-import { AuthorityDeniedError } from "./errors.js";
 import { PathPolicy } from "./policy.js";
 import {
   createAdminHostProjectCheckExecutor,
@@ -46,14 +45,35 @@ export function createProjectCheckService(
   );
 }
 
+export function createProjectCheckServiceForRoots(
+  runtime: ProjectCheckRuntimeDependencies,
+  roots: string[],
+): ProjectCheckService {
+  const policy = new PathPolicy([...roots]);
+  const projectExec = new ProjectExecService(
+    policy,
+    runtime.audit,
+    runtime.projectExecBackend,
+    runtime.config.projectExec.enabled,
+    "project",
+    [...runtime.config.terminal.commands],
+    runtime.config.limits,
+  );
+  return new ProjectCheckService(
+    policy,
+    runtime.audit,
+    runtime.taskStateRoot,
+    "project",
+    runtime.config.limits,
+    projectExec,
+  );
+}
+
 export function createProjectCheckHostExecutorFactory(
   runtime: ProjectCheckRuntimeDependencies,
-  adminAuthorityLeaseId: string,
+  authorityLeaseId: string,
 ): ProjectCheckExecutorFactory {
-  const authority = runtime.authority.resolve(adminAuthorityLeaseId);
-  if (authority.profile !== "admin") {
-    throw new AuthorityDeniedError("Native project verification requires an active Admin authority lease.");
-  }
+  const authority = runtime.authority.resolve(authorityLeaseId);
   return (repositoryRoot) => runtime.projectCheckHostExecutorFactory?.(authority, repositoryRoot)
     ?? createAdminHostProjectCheckExecutor(authority, repositoryRoot, runtime.audit, runtime.config);
 }

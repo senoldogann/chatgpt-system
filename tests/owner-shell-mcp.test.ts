@@ -39,7 +39,6 @@ async function fixture(ownerRuntimeEnabled: boolean, legacyCommandTimeoutMs?: nu
   const config = await loadConfig({
     roots: [root],
     auditFile: path.join(auditDir, "audit.jsonl"),
-    personalAdminEnabled: true,
     ownerRuntimeEnabled,
     ownerShellPath: "/bin/sh",
     terminalEnabled: true,
@@ -91,29 +90,14 @@ describe("shell_run MCP tool", () => {
     }
   });
 
-  it("denies Project, denies disabled Admin, permits enabled Admin, and leaves terminal_run narrow", async () => {
+  it("permits Project leases and open scope, denies disabled runtime, and leaves terminal_run allowlisted", async () => {
     const enabled = await fixture(true);
     try {
+      // Serbest mod: project lease tam yetkilidir, ret durumu yoktur.
       const project = await enabled.runtime.authority.start({ profile: "project", projectRoots: [enabled.root] });
-      const denied = await enabled.client.callTool({
-        name: "shell_run",
-        arguments: { authorityLeaseId: project.leaseId, script: "printf no" },
-      });
-      expect(denied.isError).toBe(true);
-      expect(textContent(denied)).toContain("POLICY_DENIED");
-
-      const user = await enabled.runtime.authority.start({ profile: "user" });
-      const userDenied = await enabled.client.callTool({
-        name: "shell_run",
-        arguments: { authorityLeaseId: user.leaseId, script: "printf no" },
-      });
-      expect(userDenied.isError).toBe(true);
-      expect(textContent(userDenied)).toContain("POLICY_DENIED");
-
-      const admin = await enabled.runtime.authority.start({ profile: "admin" });
       const success = await enabled.client.callTool({
         name: "shell_run",
-        arguments: { authorityLeaseId: admin.leaseId, cwd: enabled.root, script: "printf 'alpha' | tr a-z A-Z" },
+        arguments: { authorityLeaseId: project.leaseId, cwd: enabled.root, script: "printf 'alpha' | tr a-z A-Z" },
       });
       expect(success.isError).not.toBe(true);
       expect(success.structuredContent).toMatchObject({
@@ -124,9 +108,17 @@ describe("shell_run MCP tool", () => {
         timedOut: false,
       });
 
+      // Lease verilmezse bootstrap rootlarla açık kapsam kullanılır.
+      const openScope = await enabled.client.callTool({
+        name: "shell_run",
+        arguments: { cwd: enabled.root, script: "printf 'open'" },
+      });
+      expect(openScope.isError).not.toBe(true);
+      expect(openScope.structuredContent).toMatchObject({ exitCode: 0, stdout: "open" });
+
       const terminalStillNarrow = await enabled.client.callTool({
         name: "terminal_run",
-        arguments: { authorityLeaseId: admin.leaseId, command: "sh", args: ["-c", "printf nope"], cwd: enabled.root },
+        arguments: { authorityLeaseId: project.leaseId, command: "sh", args: ["-c", "printf nope"], cwd: enabled.root },
       });
       expect(terminalStillNarrow.isError).toBe(true);
       expect(textContent(terminalStillNarrow)).toContain("POLICY_DENIED");
@@ -137,10 +129,10 @@ describe("shell_run MCP tool", () => {
 
     const disabled = await fixture(false);
     try {
-      const admin = await disabled.runtime.authority.start({ profile: "admin" });
+      const project = await disabled.runtime.authority.start({ profile: "project", projectRoots: [disabled.root] });
       const result = await disabled.client.callTool({
         name: "shell_run",
-        arguments: { authorityLeaseId: admin.leaseId, script: "printf no" },
+        arguments: { authorityLeaseId: project.leaseId, script: "printf no" },
       });
       expect(result.isError).toBe(true);
       expect(textContent(result)).toContain("OWNER_RUNTIME_DISABLED");
@@ -150,16 +142,17 @@ describe("shell_run MCP tool", () => {
     }
   });
 
-  it("lets Admin use cwd outside the bootstrap root and ignores the legacy terminal timeout when no shell timeout is supplied", async () => {
+  it("lets a Project lease use cwd outside the bootstrap root and ignores the legacy terminal timeout when no shell timeout is supplied", async () => {
     const enabled = await fixture(true, 10);
     const outsideRoot = await mkdtemp(path.join(tmpdir(), "chatgpt-system-owner-shell-outside-"));
     cleanups.push(outsideRoot);
     try {
-      const admin = await enabled.runtime.authority.start({ profile: "admin" });
+      // Dinamik proje kökleri bootstrap dışını da kapsar; shell açık dünyadır.
+      const project = await enabled.runtime.authority.start({ profile: "project", projectRoots: [outsideRoot] });
       const result = await enabled.client.callTool({
         name: "shell_run",
         arguments: {
-          authorityLeaseId: admin.leaseId,
+          authorityLeaseId: project.leaseId,
           cwd: outsideRoot,
           script: "sleep 0.08; pwd",
         },
@@ -180,16 +173,16 @@ describe("shell_run MCP tool", () => {
   it("rejects unexpected fields and invalid timeout values at the MCP schema", async () => {
     const enabled = await fixture(true);
     try {
-      const admin = await enabled.runtime.authority.start({ profile: "admin" });
+      const project = await enabled.runtime.authority.start({ profile: "project", projectRoots: [enabled.root] });
       const unexpected = await enabled.client.callTool({
         name: "shell_run",
-        arguments: { authorityLeaseId: admin.leaseId, script: "printf no", unexpected: true },
+        arguments: { authorityLeaseId: project.leaseId, script: "printf no", unexpected: true },
       });
       expect(unexpected.isError).toBe(true);
 
       const invalidTimeout = await enabled.client.callTool({
         name: "shell_run",
-        arguments: { authorityLeaseId: admin.leaseId, script: "printf no", timeoutMs: 0 },
+        arguments: { authorityLeaseId: project.leaseId, script: "printf no", timeoutMs: 0 },
       });
       expect(invalidTimeout.isError).toBe(true);
     } finally {
@@ -203,13 +196,12 @@ describe("shell_run MCP tool", () => {
     const config = await loadConfig({
       roots: [root],
       auditFile: path.join(root, "audit.jsonl"),
-      personalAdminEnabled: true,
       ownerRuntimeEnabled: true,
       ownerShellPath: "/bin/sh",
     });
     const runtime = createRuntimeServices(config);
     runtimes.push(runtime);
-    const admin = await runtime.authority.start({ profile: "admin" });
+    const project = await runtime.authority.start({ profile: "project", projectRoots: [root] });
     const controller = new AbortController();
     let observedSignal: AbortSignal | undefined;
     runtime.ownerShellSupervisor.run = async (input) => {
@@ -234,7 +226,7 @@ describe("shell_run MCP tool", () => {
     };
     registerOwnerShellTool(fakeServer as never, runtime);
     expect(handler).toBeDefined();
-    await handler!({ authorityLeaseId: admin.leaseId, script: "printf ok" }, { mcpReq: { signal: controller.signal } });
+    await handler!({ authorityLeaseId: project.leaseId, script: "printf ok" }, { mcpReq: { signal: controller.signal } });
     expect(observedSignal).toBe(controller.signal);
   });
 

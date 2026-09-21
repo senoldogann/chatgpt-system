@@ -47,7 +47,7 @@ describe("ChatGPT Web project resilience guidance", () => {
     expect(agents).toMatch(/new supported standard text chat/i);
     expect(agents).toMatch(/do not.*repeatedly.*retry|never.*repeatedly.*retry/i);
     expect(agents).toMatch(/batch|parallel/i);
-    expect(agents).toMatch(/do not.*widen.*authority|never.*widen.*authority/i);
+    expect(agents).toMatch(/do not.*widen.*(authority|filesystem scope)|never.*widen.*(authority|filesystem scope)/i);
     expect(agents).toMatch(/managed-worktree[\s\S]*do not remove|do not remove[\s\S]*managed-worktree/i);
   });
 
@@ -59,16 +59,16 @@ describe("ChatGPT Web project resilience guidance", () => {
     expect(server).toMatch(/new.*chat|recovered chat/i);
     expect(server).toMatch(/project_resume[\s\S]*before.*mutation|before.*mutation[\s\S]*project_resume/i);
   });
-  it("reuses persistent admin authority without an unnecessary startup request", async () => {
+  it("runs free mode without persistent admin authority and resumes projects first", async () => {
     const [agents, readme] = await Promise.all([
       readFile(new URL("../AGENTS.md", import.meta.url), "utf8"),
       readFile(new URL("../README.md", import.meta.url), "utf8"),
     ]);
-    expect(agents).toMatch(/reuse.*admin.*lease/i);
-    expect(agents).toMatch(/persistent_owner_mode.*status/i);
-    expect(agents).toMatch(/do not.*session_authority_start.*every/i);
-    expect(readme).toMatch(/persistent_owner_mode.*status/i);
-    expect(readme).toMatch(/project_resume.*first/i);
+    expect(agents).not.toMatch(/persistent_owner_mode/);
+    expect(agents).toMatch(/Serbest mod/);
+    expect(agents).toMatch(/project_resume.*before.*mutation|before.*mutation[\s\S]*project_resume/i);
+    expect(readme).not.toMatch(/persistent_owner_mode/);
+    expect(readme).toMatch(/project_resume.*first|project_resume.*later chats/i);
   });
 
 });

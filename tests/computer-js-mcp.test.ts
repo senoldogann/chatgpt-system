@@ -57,7 +57,9 @@ async function fixture(fullHostJsEnabled = true, ownerRuntimeEnabled = false) {
       remoteVerificationTimeoutMs: 1_000,
     },
 
-    personalAdmin: { enabled: true },
+    skills: { enabled: true, directory: path.join(base, "skills") },
+    goal: { enabled: true, maxTranscriptChars: 120_000 },
+    workers: { enabled: true, maxWorkers: 8, maxParkedRuns: 16 },
     ownerRuntime: {
       enabled: ownerRuntimeEnabled,
       shellPath: "/bin/zsh",
@@ -132,41 +134,31 @@ describe("computer_run_js MCP tool", () => {
     }
   });
 
-  it("rejects Project and User before runtime work, rejects disabled Admin, and returns structured enabled Admin output", async () => {
+  it("allows project and open scopes, rejects the disabled gate, and returns structured output", async () => {
     const enabled = await fixture(true);
     try {
       const project = await enabled.runtime.authority.start({ profile: "project", projectRoots: [enabled.root] });
-      const projectResult = await enabled.client.callTool({
-        name: "computer_run_js",
-        arguments: { authorityLeaseId: project.leaseId, source: "return 1;" },
-      });
-      expect(projectResult.isError).toBe(true);
-      expect(textContent(projectResult)).toContain("POLICY_DENIED");
-
-      const user = await enabled.runtime.authority.start({ profile: "user" });
-      const userResult = await enabled.client.callTool({
-        name: "computer_run_js",
-        arguments: { authorityLeaseId: user.leaseId, source: "return 1;" },
-      });
-      expect(userResult.isError).toBe(true);
-      expect(textContent(userResult)).toContain("POLICY_DENIED");
-      expect(enabled.fake.calls).toHaveLength(0);
-
-      const admin = await enabled.runtime.authority.start({ profile: "admin" });
-      const invalid = await enabled.client.callTool({
-        name: "computer_run_js",
-        arguments: { authorityLeaseId: admin.leaseId, source: "return 1;", unexpected: true },
-      });
-      expect(invalid.isError).toBe(true);
-      expect(enabled.fake.calls).toHaveLength(0);
-
       const success = await enabled.client.callTool({
         name: "computer_run_js",
-        arguments: { authorityLeaseId: admin.leaseId, source: "return { ok: true };" },
+        arguments: { authorityLeaseId: project.leaseId, source: "return { ok: true };" },
       });
       expect(success.isError).not.toBe(true);
       expect(success.structuredContent).toEqual({ stdout: "out", stderr: "err", result: { ok: true } });
       expect(enabled.fake.calls).toHaveLength(1);
+
+      const invalid = await enabled.client.callTool({
+        name: "computer_run_js",
+        arguments: { authorityLeaseId: project.leaseId, source: "return 1;", unexpected: true },
+      });
+      expect(invalid.isError).toBe(true);
+      expect(enabled.fake.calls).toHaveLength(1);
+
+      const open = await enabled.client.callTool({
+        name: "computer_run_js",
+        arguments: { source: "return 1;" },
+      });
+      expect(open.isError).not.toBe(true);
+      expect(enabled.fake.calls).toHaveLength(2);
     } finally {
       await enabled.transport.terminateSession();
       await enabled.client.close();
@@ -174,7 +166,7 @@ describe("computer_run_js MCP tool", () => {
 
     const disabled = await fixture(false);
     try {
-      const admin = await disabled.runtime.authority.start({ profile: "admin" });
+      const admin = await disabled.runtime.authority.start({ profile: "project", projectRoots: [disabled.root] });
       const result = await disabled.client.callTool({
         name: "computer_run_js",
         arguments: { authorityLeaseId: admin.leaseId, source: "return 1;" },
@@ -191,7 +183,7 @@ describe("computer_run_js MCP tool", () => {
   it("accepts explicit timeout above the legacy 30s cap only when Owner Runtime is enabled", async () => {
     const owner = await fixture(true, true);
     try {
-      const admin = await owner.runtime.authority.start({ profile: "admin" });
+      const admin = await owner.runtime.authority.start({ profile: "project", projectRoots: [owner.root] });
       const result = await owner.client.callTool({
         name: "computer_run_js",
         arguments: { authorityLeaseId: admin.leaseId, source: "return 1;", timeoutMs: 60_000 },
@@ -205,7 +197,7 @@ describe("computer_run_js MCP tool", () => {
 
     const legacy = await fixture(true, false);
     try {
-      const admin = await legacy.runtime.authority.start({ profile: "admin" });
+      const admin = await legacy.runtime.authority.start({ profile: "project", projectRoots: [legacy.root] });
       const result = await legacy.client.callTool({
         name: "computer_run_js",
         arguments: { authorityLeaseId: admin.leaseId, source: "return 1;", timeoutMs: 60_000 },
@@ -221,7 +213,7 @@ describe("computer_run_js MCP tool", () => {
   it("bounds source at the MCP schema and stdout/stderr at the public output schema even in Owner mode", async () => {
     const enabled = await fixture(true, true);
     try {
-      const admin = await enabled.runtime.authority.start({ profile: "admin" });
+      const admin = await enabled.runtime.authority.start({ profile: "project", projectRoots: [enabled.root] });
       const oversizedSource = "x".repeat(COMPUTER_MAX_JS_SOURCE_BYTES + 1);
       const rejected = await enabled.client.callTool({
         name: "computer_run_js",
@@ -258,7 +250,7 @@ describe("computer_run_js MCP tool", () => {
         computerUse: { fullHostJsEnabled: true, maxJsSourceBytes: 262_144, maxJsRuntimeMs: 30_000 },
       },
       audit: { record: async () => undefined },
-      authority: { resolve: () => ({ profile: "admin" }) },
+      authority: { resolve: () => ({ profile: "project" }) },
       computerJs: { run: async (input: ComputerJsRunInput) => { observed.push(input); return { stdout: "", stderr: "" }; } },
     };
 

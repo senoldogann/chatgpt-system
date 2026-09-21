@@ -17,7 +17,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-async function fixture(personalAdmin = false) {
+async function fixture() {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-authority-catalog-"));
   cleanups.push(base);
   const root = path.join(base, "root");
@@ -34,7 +34,19 @@ async function fixture(personalAdmin = false) {
       maxTrackedPaths: 100,
       remoteVerificationTimeoutMs: 1_000,
     },
-
+    // Serbest model: kişisel yönetici alanı yoktur.
+    skills: { enabled: true, directory: path.join(base, "skills") },
+    goal: { enabled: true, maxTranscriptChars: 120_000 },
+    workers: { enabled: true, maxWorkers: 8, maxParkedRuns: 16 },
+    ownerRuntime: {
+      enabled: false,
+      shellPath: "/bin/sh",
+      maxScriptBytes: 262_144,
+      maxTimeoutMs: 120_000,
+      maxTerminalSessions: 32,
+      maxTerminalOutputBytes: 262_144,
+      maxTerminalInputBytes: 65_536,
+    },
     computerUse: {
       enabled: false,
       hostBundlePath: "/tmp/ChatGPTSystemComputerRuntime.app",
@@ -45,7 +57,6 @@ async function fixture(personalAdmin = false) {
       maxActionProgramActions: 100,
       maxActionProgramRuntimeMs: 30_000,
     },
-    personalAdmin: { enabled: personalAdmin },
     control: { enabled: false, socketPath: path.join(base, "control.sock") },
     http: { host: "127.0.0.1", port: 0, allowNonLoopback: false, token },
     limits: {
@@ -54,6 +65,9 @@ async function fixture(personalAdmin = false) {
       maxDirectoryEntries: 100,
       maxCommandOutputBytes: 1024 * 1024,
       commandTimeoutMs: 2_000,
+      maxManagedProcesses: 8,
+      maxProcessLogBytesPerStream: 4096,
+      processStopGraceMs: 100,
     },
   };
   const server = startHttp(createRuntimeServices(config));
@@ -70,7 +84,7 @@ async function fixture(personalAdmin = false) {
 
 describe("default authority MCP catalog", () => {
   it("advertises project creation only and hides local user/admin approval tools", async () => {
-    const { client, transport } = await fixture();
+    const { root, client, transport } = await fixture();
     try {
       const { tools } = await client.listTools();
       const names = tools.map((tool) => tool.name);
@@ -78,37 +92,68 @@ describe("default authority MCP catalog", () => {
       expect(names).toContain("shell_run");
       expect(names).not.toContain("session_authority_request");
       expect(names).not.toContain("session_authority_request_status");
+      // Kalıcı sahip aracı serbest modelde yoktur.
+      expect(names).not.toContain("persistent_owner_mode");
 
       const start = tools.find((tool) => tool.name === "session_authority_start");
       expect(start?.description).toMatch(/outside.*bootstrap roots/i);
       expect(start?.description).toMatch(/project_register.*project_resume/i);
+      expect(JSON.stringify(start?.inputSchema)).not.toContain('"admin"');
       expect(start?.inputSchema).toMatchObject({
         type: "object",
         properties: {
           profile: { const: "project" },
         },
-        required: expect.arrayContaining(["profile", "projectRoots"]),
+        required: ["projectRoots"],
       });
+
+      const capabilities = await client.callTool({ name: "system_capabilities", arguments: {} });
+      expect(capabilities.isError).not.toBe(true);
+      expect(capabilities.structuredContent).not.toHaveProperty("personalAdmin");
+      expect(capabilities.structuredContent).not.toHaveProperty("persistentOwnerMode");
+      expect(capabilities.structuredContent).toMatchObject({
+        skills: { enabled: true },
+        goal: { enabled: true },
+        workers: { enabled: true },
+      });
+
+      const lease = await client.callTool({
+        name: "session_authority_start",
+        arguments: { profile: "project", projectRoots: [root], requestedTtlSeconds: 60 },
+      });
+      expect(lease.isError).not.toBe(true);
+      expect(lease.structuredContent).toMatchObject({ profile: "project", terminalEnabled: false, commands: [] });
     } finally {
       await transport.terminateSession();
       await client.close();
     }
   });
-  it("advertises and accepts direct Admin creation only in personal-admin mode", async () => {
-    const { client, transport } = await fixture(true);
+  it("rejects admin creation and requires explicit project roots", async () => {
+    const { root, client, transport } = await fixture();
     try {
       const { tools } = await client.listTools();
       const start = tools.find((tool) => tool.name === "session_authority_start");
-      expect(JSON.stringify(start?.inputSchema)).toContain('"admin"');
+      expect(JSON.stringify(start?.inputSchema)).not.toContain('"admin"');
 
+      // Yönetici profili artık geçersizdir.
       const admin = await client.callTool({
         name: "session_authority_start",
         arguments: { profile: "admin", requestedTtlSeconds: 60 },
       });
-      expect(admin.isError).not.toBe(true);
-      expect(admin.structuredContent).toMatchObject({
-        profile: "admin", roots: ["/"], terminalEnabled: false, commands: [],
+      expect(admin.isError).toBe(true);
+
+      const missingRoots = await client.callTool({
+        name: "session_authority_start",
+        arguments: { profile: "project" },
       });
+      expect(missingRoots.isError).toBe(true);
+
+      const project = await client.callTool({
+        name: "session_authority_start",
+        arguments: { projectRoots: [root], requestedTtlSeconds: 60 },
+      });
+      expect(project.isError).not.toBe(true);
+      expect(project.structuredContent).toMatchObject({ profile: "project" });
     } finally {
       await transport.terminateSession();
       await client.close();

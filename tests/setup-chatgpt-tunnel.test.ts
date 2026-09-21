@@ -46,7 +46,7 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(() => buildTunnelSetup(["--root", ROOT, "--tunnel-id", "abc"], {}, context)).toThrow(/tunnel id/i);
   });
 
-  it("keeps bootstrap terminal and browser disabled while enabling the private local control socket", () => {
+  it("keeps bootstrap terminal and browser disabled with no control socket or admin flags", () => {
     const setup = buildTunnelSetup(["--root", ROOT, "--tunnel-id", VALID_TUNNEL], {}, context);
     expect(setup.profile).toBe("chatgpt-system");
     expect(setup.mcpCommand).not.toContain("--enable-terminal");
@@ -62,8 +62,8 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.mcpCommand).not.toContain("--enable-full-host-js");
     expect(setup.mcpCommand).toContain("stdio");
     expect(setup.mcpCommand).toContain(ROOT);
-    expect(setup.mcpCommand).toContain("--enable-control");
-    expect(setup.controlSocketPath).toBe("/home/tester/.chatgpt-system/control.sock");
+    expect(setup.mcpCommand).not.toContain("--enable-control");
+    expect(setup.mcpCommand).not.toContain("--control-socket");
   });
 
   it("adds Owner Workstation as one preset flag without enabling browser", () => {
@@ -162,24 +162,16 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.displayInitArgs.join(" ")).not.toContain("~/Library/Application Support/Google/Chrome");
   });
 
-  it("requires Personal Admin for Owner Runtime and propagates an explicit trusted shell path", () => {
+  it("enables Owner Runtime without any admin coupling and propagates an explicit trusted shell path", () => {
     expect(() => buildTunnelSetup([
       "--root", ROOT,
       "--tunnel-id", VALID_TUNNEL,
-      "--enable-owner-runtime",
-    ], {}, context)).toThrow(/personal-admin/i);
-
-    expect(() => buildTunnelSetup([
-      "--root", ROOT,
-      "--tunnel-id", VALID_TUNNEL,
-      "--personal-admin",
       "--owner-shell-path", "/bin/sh",
     ], {}, context)).toThrow(/enable-owner-runtime/i);
 
     expect(() => buildTunnelSetup([
       "--root", ROOT,
       "--tunnel-id", VALID_TUNNEL,
-      "--personal-admin",
       "--enable-owner-runtime",
       "--owner-shell-path", "bin/sh",
     ], {}, context)).toThrow(/absolute/i);
@@ -187,21 +179,20 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     const setup = buildTunnelSetup([
       "--root", ROOT,
       "--tunnel-id", VALID_TUNNEL,
-      "--personal-admin",
       "--enable-owner-runtime",
       "--owner-shell-path", "/bin/sh",
     ], {}, context);
 
     expect(setup.ownerRuntimeEnabled).toBe(true);
-    expect(setup.mcpCommand).toContain("--personal-admin");
     expect(setup.mcpCommand).toContain("--enable-owner-runtime");
     expect(setup.mcpCommand).toContain("--owner-shell-path /bin/sh");
+    expect(setup.mcpCommand).not.toContain("--personal-admin");
   });
 
   it("documents and reports the explicit Owner Runtime setup gate", async () => {
     const script = await readFile(new URL("../scripts/setup-chatgpt-tunnel.mjs", import.meta.url), "utf8");
     const usageStart = script.indexOf("Options:");
-    const usageEnd = script.indexOf("The generated ChatGPT tunnel target");
+    const usageEnd = script.indexOf("Credentials are not accepted as command-line arguments.");
     expect(usageStart).toBeGreaterThanOrEqual(0);
     expect(usageEnd).toBeGreaterThan(usageStart);
     expect(script.slice(usageStart, usageEnd)).toContain("--enable-owner-runtime");
@@ -241,7 +232,7 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
   it("documents and reports the explicit full-host JavaScript setup gate", async () => {
     const script = await readFile(new URL("../scripts/setup-chatgpt-tunnel.mjs", import.meta.url), "utf8");
     const usageStart = script.indexOf("Options:");
-    const usageEnd = script.indexOf("The generated ChatGPT tunnel target");
+    const usageEnd = script.indexOf("Credentials are not accepted as command-line arguments.");
     expect(usageStart).toBeGreaterThanOrEqual(0);
     expect(usageEnd).toBeGreaterThan(usageStart);
     expect(script.slice(usageStart, usageEnd)).toContain("--enable-full-host-js");
@@ -331,14 +322,14 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(runbook).toContain("npm run setup:computer:macos");
     expect(runbookSetup).toContain("--enable-terminal");
     expect(runbookSetup).toContain("--enable-project-exec");
-    expect(runbookSetup).toContain("--personal-admin");
+    expect(runbookSetup).not.toContain("--personal-admin");
     expect(runbookSetup).toContain("--enable-owner-runtime");
     expect(runbookSetup).toContain("--enable-browser");
     expect(runbookSetup).toContain("--enable-computer-use");
     expect(runbookSetup).toContain("--force");
 
     const readmeSetupStart = readme.indexOf("## Personal ChatGPT Plugin");
-    const readmeSetupEnd = readme.indexOf("## Authority privilege ladder");
+    const readmeSetupEnd = readme.indexOf("## No privilege ladder");
     expect(readmeSetupStart).toBeGreaterThanOrEqual(0);
     expect(readmeSetupEnd).toBeGreaterThan(readmeSetupStart);
     const readmeSetup = readme.slice(readmeSetupStart, readmeSetupEnd);
@@ -347,7 +338,7 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(readme).toContain("npm run setup:computer:macos");
     expect(readmeSetup).toContain("--enable-terminal");
     expect(readmeSetup).toContain("--enable-project-exec");
-    expect(readmeSetup).toContain("--personal-admin");
+    expect(readmeSetup).not.toContain("--personal-admin");
     expect(readmeSetup).toContain("--enable-owner-runtime");
     expect(readmeSetup).toContain("--enable-browser");
     expect(readmeSetup).toContain("--enable-computer-use");
@@ -385,16 +376,13 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(packageData.scripts?.test).toContain("--testTimeout=30000");
   });
 
-  it("adds personal admin only when explicitly requested", () => {
-    const setup = buildTunnelSetup([
+  it("rejects the removed personal-admin flag as an unknown option", () => {
+    expect(() => buildTunnelSetup([
       "--root", ROOT,
       "--tunnel-id", VALID_TUNNEL,
       "--enable-terminal",
       "--personal-admin",
-    ], {}, context);
-
-    expect(setup.mcpCommand).toContain("--enable-terminal");
-    expect(setup.mcpCommand).toContain("--personal-admin");
+    ], {}, context)).toThrow(/unknown option/i);
   });
 
   it("requires bootstrap terminal opt-in before command allowlisting", () => {
@@ -426,7 +414,7 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(setup.mcpCommand).toContain("--enable-terminal");
     expect(setup.mcpCommand).toContain("--allow-command git");
     expect(setup.mcpCommand).toContain("--allow-command node");
-    expect(setup.mcpCommand).toContain("--enable-control");
+    expect(setup.mcpCommand).not.toContain("--enable-control");
   });
 
   it("does not copy control-plane credentials or authority leases into generated values", () => {

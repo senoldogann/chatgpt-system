@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AuthorityManager } from "./authority.js";
 import { BROWSER_KEYS, BROWSER_ROLES } from "./browser-types.js";
 import { errorPayload } from "./errors.js";
-import { createScopedRuntime, type ScopedRuntimeBase } from "./scoped-runtime.js";
+import { createOpenRuntime, createScopedRuntime, type ScopedRuntimeBase } from "./scoped-runtime.js";
 import {
   browserActionOutputSchema,
   browserCloseOutputSchema,
@@ -22,7 +22,7 @@ export interface BrowserToolRuntime extends ScopedRuntimeBase {
   authority: AuthorityManager;
 }
 
-const authorityLeaseField = { authorityLeaseId: z.string().min(40) };
+const authorityLeaseField = { authorityLeaseId: z.string().min(40).optional() };
 const pageIdField = { pageId: z.string().min(40).max(128) };
 const browserTargetSchema = z.discriminatedUnion("by", [
   z.object({
@@ -85,9 +85,12 @@ async function safeCall<T extends object>(fn: () => Promise<T>) {
   }
 }
 
-function browserFor(runtime: BrowserToolRuntime, authorityLeaseId: string) {
-  const authority = runtime.authority.resolve(authorityLeaseId);
-  return createScopedRuntime(runtime, authority).browser;
+function browserFor(runtime: BrowserToolRuntime, authorityLeaseId?: string) {
+  if (authorityLeaseId !== undefined) {
+    const authority = runtime.authority.resolve(authorityLeaseId);
+    return createScopedRuntime(runtime, authority).browser;
+  }
+  return createOpenRuntime(runtime).browser;
 }
 
 const BROWSER_ROUTING_GUIDANCE = "Semantic Playwright Browser Runtime only. Do not use browser_* tools when the user explicitly asks for Computer Use, physical mouse/keyboard interaction, or real Google Chrome/macOS app control; use computer_* instead.";
@@ -111,7 +114,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_tabs",
     {
-      description: browserDescription("List browser tabs using opaque page IDs. Requires an active Admin authority lease."),
+      description: browserDescription("List browser tabs using opaque page IDs. No lease required."),
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: browserTabsOutputSchema,
       annotations: browserReadAnnotations,
@@ -122,7 +125,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_new_tab",
     {
-      description: browserDescription("Create a browser tab and optionally navigate it to an HTTP(S) URL. Requires Admin authority."),
+      description: browserDescription("Create a browser tab and optionally navigate it to an HTTP(S) URL. No lease required."),
       inputSchema: z.object({
         ...authorityLeaseField,
         url: z.string().min(1).max(8_192).optional(),
@@ -136,7 +139,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_select_tab",
     {
-      description: browserDescription("Bring one opaque browser page to the front. Requires Admin authority."),
+      description: browserDescription("Bring one opaque browser page to the front. No lease required."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserTabOutputSchema,
       annotations: browserMutationAnnotations,
@@ -147,7 +150,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_close_tab",
     {
-      description: browserDescription("Close one opaque browser page. Requires Admin authority."),
+      description: browserDescription("Close one opaque browser page. No lease required."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserCloseTabOutputSchema,
       annotations: browserIdempotentMutationAnnotations,
@@ -173,7 +176,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_snapshot",
     {
-      description: browserDescription("Return a bounded AI-oriented ARIA snapshot with current editable values removed. Requires Admin authority."),
+      description: browserDescription("Return a bounded AI-oriented ARIA snapshot with current editable values removed. No lease required."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserSnapshotOutputSchema,
       annotations: browserReadAnnotations,
@@ -215,7 +218,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_select_option",
     {
-      description: browserDescription("Select an option on exactly one semantic target. Requires Admin authority."),
+      description: browserDescription("Select an option on exactly one semantic target. No lease required."),
       inputSchema: z.object({
         ...authorityLeaseField,
         ...pageIdField,
@@ -231,7 +234,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_press_key",
     {
-      description: browserDescription("Press one key from the fixed browser key vocabulary after focused credential checks. Requires Admin authority."),
+      description: browserDescription("Press one key from the fixed browser key vocabulary after focused credential checks. No lease required."),
       inputSchema: z.object({
         ...authorityLeaseField,
         ...pageIdField,
@@ -310,7 +313,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
   server.registerTool(
     "browser_close",
     {
-      description: browserDescription("Idempotently close the owned browser context and clear in-memory browser state. A later Admin action may lazily restart it."),
+      description: browserDescription("Idempotently close the owned browser context and clear in-memory browser state. A later action may lazily restart it."),
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: browserCloseOutputSchema,
       annotations: browserIdempotentMutationAnnotations,

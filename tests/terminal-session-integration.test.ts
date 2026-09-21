@@ -31,7 +31,6 @@ async function createFixture(): Promise<Fixture> {
   const config = await loadConfig({
     roots: [root],
     auditFile: auditPath,
-    personalAdminEnabled: true,
     ownerRuntimeEnabled: true,
     ownerShellPath: "/bin/sh",
     host: "127.0.0.1",
@@ -77,10 +76,11 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-async function startAdmin(client: Client): Promise<string> {
+async function startProject(client: Client, projectRoot: string): Promise<string> {
+  // Serbest mod: tek profil project'tir; kökler açıkça verilir.
   const result = await client.callTool({
     name: "session_authority_start",
-    arguments: { profile: "admin", requestedTtlSeconds: 300 },
+    arguments: { profile: "project", projectRoots: [projectRoot], requestedTtlSeconds: 300 },
   });
   expect(result.isError).not.toBe(true);
   return (result.structuredContent as { leaseId: string }).leaseId;
@@ -144,7 +144,7 @@ async function readUntil(
 describe("Owner Runtime PTY integration", () => {
   it("supports real TTY interaction, cursoring, resize, lease handoff, and content-free audit", async () => {
     const fixture = await createFixture();
-    const adminA = await startAdmin(fixture.client);
+    const adminA = await startProject(fixture.client, fixture.root);
     const sessionId = await openSession(fixture.client, adminA, fixture.root, 80, 24);
     const firstMarker = "PTY_FIRST_MARKER_4f71";
     const secondMarker = "PTY_SECOND_MARKER_7c32";
@@ -180,7 +180,7 @@ describe("Owner Runtime PTY integration", () => {
     expect(second.data).toContain(secondOutput);
 
     await endAuthority(fixture.client, adminA);
-    const adminB = await startAdmin(fixture.client);
+    const adminB = await startProject(fixture.client, fixture.root);
     const listed = await fixture.client.callTool({
       name: "terminal_session_list",
       arguments: { authorityLeaseId: adminB },
@@ -214,7 +214,7 @@ describe("Owner Runtime PTY integration", () => {
 
   it("closeRuntimeResources terminates an active PTY session without leaving it running", async () => {
     const fixture = await createFixture();
-    const admin = await startAdmin(fixture.client);
+    const admin = await startProject(fixture.client, fixture.root);
     const sessionId = await openSession(fixture.client, admin, fixture.root);
     await writeSession(fixture.client, admin, sessionId, "while :; do sleep 1; done\r");
     await new Promise((resolve) => setTimeout(resolve, 40));

@@ -44,6 +44,8 @@ export interface ScopedRuntimeBase {
   computer: ComputerRuntime;
 }
 
+// Serbest mod: tüm kabiliyetler açıktır. Tek kapı startup flagleridir
+// (terminal, projectExec, browser, computerUse). Lease profili yoktur.
 export function createScopedRuntime(base: ScopedRuntimeBase, authority: AuthorityContext): ScopedRuntime {
   const policy = new PathPolicy([...authority.roots]);
   const config: AppConfig = {
@@ -58,7 +60,7 @@ export function createScopedRuntime(base: ScopedRuntimeBase, authority: Authorit
   return {
     policy,
     fs: new FileSystemService(policy, base.audit, config.limits),
-    git: new GitService(policy, base.audit, config, { remoteWriteEnabled: authority.profile === "admin" }),
+    git: new GitService(policy, base.audit, config, { remoteWriteEnabled: true }),
     process: new ProcessService(policy, base.audit, config),
     processes: new ManagedProcessService(policy, config.terminal, base.processSupervisor),
     shell: new OwnerShellService(
@@ -66,14 +68,14 @@ export function createScopedRuntime(base: ScopedRuntimeBase, authority: Authorit
       base.audit,
       base.ownerShellSupervisor,
       base.config.ownerRuntime,
-      authority.profile === "admin",
+      true,
     ),
     terminals: new TerminalSessionService(
       policy,
       base.audit,
       base.terminalSessionSupervisor,
       base.config.ownerRuntime,
-      authority.profile === "admin",
+      true,
     ),
     codeQuery: new CodeQueryService(policy, base.audit, config.limits),
     projectExec: new ProjectExecService(
@@ -81,15 +83,66 @@ export function createScopedRuntime(base: ScopedRuntimeBase, authority: Authorit
       base.audit,
       base.projectExecBackend,
       base.config.projectExec.enabled,
-      authority.profile,
+      "project",
       [...base.config.terminal.commands],
       base.config.limits,
     ),
-    browser: new ScopedBrowserService(base.browser, base.audit, authority.profile === "admin"),
+    browser: new ScopedBrowserService(base.browser, base.audit, true),
     computer: new ScopedComputerService(
       base.computer,
       base.audit,
-      authority.profile === "admin",
+      true,
+      base.config.ownerRuntime?.enabled === true,
+    ),
+  };
+}
+
+// Lease verilmediğinde bootstrap rootlarla açık kapsam kurulur.
+export function createOpenRuntime(base: ScopedRuntimeBase): ScopedRuntime {
+  const policy = new PathPolicy([...base.config.roots]);
+  const config: AppConfig = {
+    ...base.config,
+    terminal: {
+      enabled: base.config.terminal.enabled,
+      commands: [...base.config.terminal.commands],
+    },
+  };
+
+  return {
+    policy,
+    fs: new FileSystemService(policy, base.audit, config.limits),
+    git: new GitService(policy, base.audit, config, { remoteWriteEnabled: true }),
+    process: new ProcessService(policy, base.audit, config),
+    processes: new ManagedProcessService(policy, config.terminal, base.processSupervisor),
+    shell: new OwnerShellService(
+      policy,
+      base.audit,
+      base.ownerShellSupervisor,
+      base.config.ownerRuntime,
+      true,
+    ),
+    terminals: new TerminalSessionService(
+      policy,
+      base.audit,
+      base.terminalSessionSupervisor,
+      base.config.ownerRuntime,
+      true,
+    ),
+    codeQuery: new CodeQueryService(policy, base.audit, config.limits),
+    projectExec: new ProjectExecService(
+      policy,
+      base.audit,
+      base.projectExecBackend,
+      base.config.projectExec.enabled,
+      "project",
+      [...base.config.terminal.commands],
+      base.config.limits,
+    ),
+    browser: new ScopedBrowserService(base.browser, base.audit, true),
+    computer: new ScopedComputerService(
+      base.computer,
+      base.audit,
+      true,
       base.config.ownerRuntime?.enabled === true,
     ),
   };

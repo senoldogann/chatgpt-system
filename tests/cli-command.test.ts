@@ -3,23 +3,20 @@ import { describe, expect, it } from "vitest";
 import { parseCliCommand } from "../src/cli-command.js";
 
 describe("CLI command routing", () => {
-  it("routes authorize without creating server-mode overrides", () => {
-    expect(parseCliCommand(["authorize", "user"])).toEqual({
-      kind: "authorize",
-      args: { profile: "user", printLease: false },
-    });
-    expect(parseCliCommand(["authorize", "admin", "--ttl", "1800", "--print-lease"])).toEqual({
-      kind: "authorize",
-      args: { profile: "admin", requestedTtlSeconds: 1800, printLease: true },
-    });
+  it("rejects authorize and review-action commands as unknown arguments", () => {
+    // Yeni model: yalnızca server modu vardır, yetki CLI komutları kaldırıldı.
+    expect(() => parseCliCommand(["authorize", "user"])).toThrow(/Unknown argument/);
+    expect(() => parseCliCommand(["authorize", "admin", "--ttl", "1800", "--print-lease"])).toThrow(/Unknown argument/);
+    expect(() => parseCliCommand(["review-action"])).toThrow(/Unknown argument/);
   });
 
-  it("parses personal admin only as an explicit server flag", () => {
+  it("ignores the removed personal-admin flag for old tunnel profiles", () => {
+    // Eski profiller bu bayrakla üretilmiş olabilir; yükseltmede çökmez.
     expect(parseCliCommand(["stdio", "--personal-admin"])).toEqual({
       kind: "server",
       mode: "stdio",
       help: false,
-      overrides: { personalAdminEnabled: true },
+      overrides: {},
     });
   });
 
@@ -30,7 +27,6 @@ describe("CLI command routing", () => {
       help: false,
       overrides: {
         ownerWorkstationEnabled: true,
-        personalAdminEnabled: true,
         ownerRuntimeEnabled: true,
         terminalEnabled: true,
         projectExecEnabled: true,
@@ -41,10 +37,9 @@ describe("CLI command routing", () => {
     });
   });
 
-  it("parses Owner Runtime only as an explicit Personal Admin server capability", () => {
+  it("parses Owner Runtime as explicit server flags without Personal Admin coupling", () => {
     expect(parseCliCommand([
       "stdio",
-      "--personal-admin",
       "--enable-owner-runtime",
       "--owner-shell-path", "/bin/sh",
     ])).toEqual({
@@ -52,7 +47,6 @@ describe("CLI command routing", () => {
       mode: "stdio",
       help: false,
       overrides: {
-        personalAdminEnabled: true,
         ownerRuntimeEnabled: true,
         ownerShellPath: "/bin/sh",
       },
@@ -62,7 +56,6 @@ describe("CLI command routing", () => {
   it("rejects an Owner shell path unless Owner Runtime is enabled", () => {
     expect(() => parseCliCommand([
       "stdio",
-      "--personal-admin",
       "--owner-shell-path", "/bin/sh",
     ])).toThrow(/enable-owner-runtime/i);
   });
@@ -129,7 +122,8 @@ describe("CLI command routing", () => {
     expect(source).toContain("--enable-full-host-js");
   });
 
-  it("parses server control flags independently", () => {
+  it("ignores the removed server control flags for old tunnel profiles", () => {
+    // Control düzlemi kaldırıldı: eski profillerdeki bu bayraklar yoksayılır.
     expect(parseCliCommand([
       "stdio",
       "--root", "/tmp/project",
@@ -139,20 +133,21 @@ describe("CLI command routing", () => {
       kind: "server",
       mode: "stdio",
       help: false,
-      overrides: {
-        roots: ["/tmp/project"],
-        controlEnabled: true,
-        controlSocketPath: "/tmp/chatgpt-system.sock",
-      },
+      overrides: { roots: ["/tmp/project"] },
     });
   });
 
-  it("rejects a server socket override unless control is enabled", () => {
-    expect(() => parseCliCommand([
+  it("ignores a server socket override left by old profiles", () => {
+    expect(parseCliCommand([
       "stdio",
       "--root", "/tmp/project",
       "--control-socket", "/tmp/chatgpt-system.sock",
-    ])).toThrow(/enable-control/i);
+    ])).toEqual({
+      kind: "server",
+      mode: "stdio",
+      help: false,
+      overrides: { roots: ["/tmp/project"] },
+    });
   });
 
 
@@ -177,15 +172,7 @@ describe("CLI command routing", () => {
     expect(source).toContain("--allow-non-loopback-http");
   });
 
-  it("rejects server-only flags in authorize mode", () => {
-    expect(() => parseCliCommand(["authorize", "user", "--root", "/tmp/project"])).toThrow();
-    expect(() => parseCliCommand(["authorize", "admin", "--enable-control"])).toThrow();
-    expect(() => parseCliCommand(["authorize", "admin", "--personal-admin"])).toThrow();
-    expect(() => parseCliCommand(["authorize", "admin", "--enable-computer-use"])).toThrow();
-    expect(() => parseCliCommand(["authorize", "admin", "--enable-project-exec"])).toThrow();
-    expect(() => parseCliCommand(["authorize", "admin", "--enable-full-host-js"])).toThrow();
-    expect(() => parseCliCommand(["authorize", "admin", "--enable-owner-runtime"])).toThrow();
-    expect(() => parseCliCommand(["authorize", "admin", "--browser-existing-chrome"])).toThrow();
-    expect(() => parseCliCommand(["authorize", "admin", "--allow-non-loopback-http"])).toThrow();
+  it("rejects unknown flags with an unknown-argument error", () => {
+    expect(() => parseCliCommand(["stdio", "--not-a-flag"])).toThrow(/Unknown argument/);
   });
 });

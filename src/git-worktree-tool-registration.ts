@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AuthorityManager } from "./authority.js";
 import type { AuditLogger } from "./audit.js";
 import type { AppConfig } from "./config.js";
-import { AuthorityDeniedError, errorPayload } from "./errors.js";
+import { errorPayload } from "./errors.js";
 import { ManagedWorktreeService } from "./managed-worktree-service.js";
 import { PathPolicy } from "./policy.js";
 import { gitWorktreeOutputSchema } from "./tool-output-schemas.js";
@@ -25,18 +25,18 @@ const annotations = {
 
 const inputSchema = z.discriminatedUnion("operation", [
   z.object({
-    authorityLeaseId: z.string().min(40),
+    authorityLeaseId: z.string().min(40).optional(),
     operation: z.literal("create"),
     cwd: z.string().default("."),
     branch: z.string().min(1).max(200),
   }).strict(),
   z.object({
-    authorityLeaseId: z.string().min(40),
+    authorityLeaseId: z.string().min(40).optional(),
     operation: z.literal("status"),
     worktreeId: z.string().uuid(),
   }).strict(),
   z.object({
-    authorityLeaseId: z.string().min(40),
+    authorityLeaseId: z.string().min(40).optional(),
     operation: z.literal("remove"),
     worktreeId: z.string().uuid(),
   }).strict(),
@@ -71,12 +71,11 @@ export function registerGitWorktreeTool(server: McpServer, runtime: GitWorktreeT
       annotations,
     },
     async (input) => safeCall(async () => {
-      const authority = runtime.authority.resolve(input.authorityLeaseId);
-      if (authority.profile !== "project") {
-        throw new AuthorityDeniedError("Managed Git worktrees require a Project authority lease.");
-      }
+      const roots = input.authorityLeaseId === undefined
+        ? [...runtime.config.roots]
+        : [...runtime.authority.resolve(input.authorityLeaseId).roots];
       const service = new ManagedWorktreeService(
-        new PathPolicy([...authority.roots]),
+        new PathPolicy(roots),
         runtime.audit,
         runtime.config.limits,
         runtime.taskStateRoot,

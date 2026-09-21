@@ -28,19 +28,19 @@ describe("Owner shell audit redaction", () => {
     const config = await loadConfig({
       roots: [root],
       auditFile,
-      personalAdminEnabled: true,
       ownerRuntimeEnabled: true,
       ownerShellPath: "/bin/sh",
     });
     const runtime = createRuntimeServices(config);
     runtimes.push(runtime);
-    const admin = await runtime.authority.start({ profile: "admin" });
+    // Serbest mod: project lease tam yetkilidir, ayrı Admin kapısı yoktur.
+    const project = await runtime.authority.start({ profile: "project", projectRoots: [root] });
     await runtime.authority.flushAudit();
 
     const secretScriptMarker = "OWNER_SCRIPT_SECRET_934712";
     const stdoutMarker = "OWNER_STDOUT_SECRET_442901";
     const stderrMarker = "OWNER_STDERR_SECRET_558122";
-    const scoped = createScopedRuntime(runtime, admin);
+    const scoped = createScopedRuntime(runtime, project);
     const result = await scoped.shell.run({
       cwd: root,
       script: `secret='${secretScriptMarker}'; printf '${stdoutMarker}'; printf '${stderrMarker}' >&2`,
@@ -55,6 +55,6 @@ describe("Owner shell audit redaction", () => {
     expect(auditText).not.toContain(secretScriptMarker);
     expect(auditText).not.toContain(stdoutMarker);
     expect(auditText).not.toContain(stderrMarker);
-    expect(auditText).not.toContain(admin.leaseId);
+    expect(auditText).not.toContain(project.leaseId);
   });
 });

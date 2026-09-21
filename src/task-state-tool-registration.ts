@@ -27,7 +27,7 @@ const taskStateAnnotations = {
 };
 
 const baseFields = {
-  authorityLeaseId: z.string().min(40),
+  authorityLeaseId: z.string().min(40).optional(),
   cwd: z.string().default("."),
 };
 
@@ -90,17 +90,18 @@ async function safeCall<T extends object>(fn: () => Promise<T>) {
   }
 }
 
-function taskContextFor(runtime: TaskStateToolRuntime, authorityLeaseId: string) {
-  const authority = runtime.authority.resolve(authorityLeaseId);
-  const policy = new PathPolicy([...authority.roots]);
+function taskContextFor(runtime: TaskStateToolRuntime, authorityLeaseId?: string) {
+  const roots = authorityLeaseId === undefined
+    ? [...runtime.config.roots]
+    : [...runtime.authority.resolve(authorityLeaseId).roots];
+  const policy = new PathPolicy(roots);
   return {
-    authority,
     policy,
     taskState: new TaskStateService(
       policy,
       runtime.audit,
       runtime.taskStateRoot,
-      authority.profile,
+      "project",
       runtime.config.limits,
     ),
   };
@@ -116,7 +117,7 @@ export function registerTaskStateTool(server: McpServer, runtime: TaskStateToolR
       annotations: taskStateAnnotations,
     },
     async (input) => safeCall(async () => {
-      const { authority, policy, taskState } = taskContextFor(runtime, input.authorityLeaseId);
+      const { policy, taskState } = taskContextFor(runtime, input.authorityLeaseId);
       if (input.operation === "start") {
         return taskState.start(input.goal, input.cwd, input.nextStep);
       }
@@ -140,7 +141,7 @@ export function registerTaskStateTool(server: McpServer, runtime: TaskStateToolR
           runtime.audit,
           runtime.projectExecBackend,
           runtime.config.projectExec.enabled,
-          authority.profile,
+          "project",
           [...runtime.config.terminal.commands],
           runtime.config.limits,
         );
@@ -148,7 +149,7 @@ export function registerTaskStateTool(server: McpServer, runtime: TaskStateToolR
           policy,
           runtime.audit,
           runtime.taskStateRoot,
-          authority.profile,
+          "project",
           runtime.config.limits,
           projectExec,
         ).report(input.cwd);

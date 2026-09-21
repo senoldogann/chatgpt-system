@@ -81,6 +81,22 @@ export interface ComputerUseConfig {
   maxJsOutputBytes: number;
 }
 
+export interface SkillsConfig {
+  enabled: boolean;
+  directory: string;
+}
+
+export interface GoalConfig {
+  enabled: boolean;
+  maxTranscriptChars: number;
+}
+
+export interface WorkersConfig {
+  enabled: boolean;
+  maxWorkers: number;
+  maxParkedRuns: number;
+}
+
 export interface AppConfig {
   roots: string[];
   auditFile: string;
@@ -91,9 +107,9 @@ export interface AppConfig {
   projectExec: {
     enabled: boolean;
   };
-  personalAdmin: {
-    enabled: boolean;
-  };
+  skills: SkillsConfig;
+  goal: GoalConfig;
+  workers: WorkersConfig;
   ownerRuntime: OwnerRuntimeConfig;
   computerUse: ComputerUseConfig;
   jevTargeting: JevTargetingConfig;
@@ -102,6 +118,8 @@ export interface AppConfig {
     enabled: boolean;
   };
   browser: BrowserConfig;
+  // Kaldırılan local-approval control socket için ayrıştırılan ama artık
+  // kullanılmayan alan. Eski flag/config veren kurulumlar çökmesin diye durur.
   control: {
     enabled: boolean;
     socketPath: string;
@@ -122,7 +140,6 @@ export interface ConfigOverrides {
   ownerWorkstationEnabled?: boolean;
   commandTimeoutMs?: number;
   projectExecEnabled?: boolean;
-  personalAdminEnabled?: boolean;
   ownerRuntimeEnabled?: boolean;
   ownerShellPath?: string;
   computerUseEnabled?: boolean;
@@ -151,7 +168,6 @@ export function applyOwnerWorkstationPreset(overrides: ConfigOverrides): ConfigO
   return {
     ...overrides,
     ownerWorkstationEnabled: true,
-    personalAdminEnabled: true,
     ownerRuntimeEnabled: true,
     terminalEnabled: true,
     projectExecEnabled: true,
@@ -166,7 +182,6 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_AUDIT_FILE: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_TERMINAL: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC: z.enum(["true", "false", "1", "0"]).optional(),
-  CHATGPT_SYSTEM_PERSONAL_ADMIN: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ENABLE_OWNER_RUNTIME: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_OWNER_SHELL_PATH: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_COMPUTER_USE: z.enum(["true", "false", "1", "0"]).optional(),
@@ -336,7 +351,6 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     effectiveOverrides.continuityDatabasePath ?? env.CHATGPT_SYSTEM_CONTINUITY_DATABASE,
     homeDir,
   );
-  const personalAdminEnabled = effectiveOverrides.personalAdminEnabled ?? enabled(env.CHATGPT_SYSTEM_PERSONAL_ADMIN);
   const ownerRuntimeEnabled = effectiveOverrides.ownerRuntimeEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_OWNER_RUNTIME);
   const ownerShellPathInput = effectiveOverrides.ownerShellPath
     ?? env.CHATGPT_SYSTEM_OWNER_SHELL_PATH
@@ -363,8 +377,18 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
     projectExec: {
       enabled: effectiveOverrides.projectExecEnabled ?? enabled(env.CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC),
     },
-    personalAdmin: {
-      enabled: personalAdminEnabled,
+    skills: {
+      enabled: true,
+      directory: path.join(homeDir, ".chatgpt-system", "skills"),
+    },
+    goal: {
+      enabled: true,
+      maxTranscriptChars: 120_000,
+    },
+    workers: {
+      enabled: true,
+      maxWorkers: 8,
+      maxParkedRuns: 16,
     },
     ownerRuntime: {
       enabled: ownerRuntimeEnabled,
@@ -427,10 +451,6 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
       processStopGraceMs: env.CHATGPT_SYSTEM_PROCESS_STOP_GRACE_MS ?? 3_000,
     },
   };
-
-  if (config.ownerRuntime.enabled && !config.personalAdmin.enabled) {
-    throw new Error("Owner Runtime requires Personal Admin to be explicitly enabled.");
-  }
 
   if (config.computerUse.fullHostJsEnabled && !config.computerUse.enabled) {
     throw new Error("Full-host JavaScript requires Computer Runtime to be explicitly enabled.");

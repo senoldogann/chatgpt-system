@@ -130,7 +130,7 @@ function resultText(result: Awaited<ReturnType<Client["callTool"]>>): string {
 async function projectLease(client: Client, root: string): Promise<string> {
   const result = await client.callTool({
     name: "session_authority_start",
-    arguments: { profile: "project", projectRoots: [root], requestedTtlSeconds: 120 },
+    arguments: { projectRoots: [root], requestedTtlSeconds: 120 },
   });
   expect(result.isError).not.toBe(true);
   return (result.structuredContent as { leaseId: string }).leaseId;
@@ -148,13 +148,9 @@ function resumedContext(canonicalWorktree: string): ContinuityResumeContext {
   };
 }
 
-async function adminLease(client: Client): Promise<string> {
-  const result = await client.callTool({
-    name: "session_authority_start",
-    arguments: { profile: "admin", requestedTtlSeconds: 120 },
-  });
-  expect(result.isError).not.toBe(true);
-  return (result.structuredContent as { leaseId: string }).leaseId;
+// Tekli proje kipi: yerel şerit için ayrı Admin lease gerekmez.
+async function nativeLaneLease(client: Client, root: string): Promise<string> {
+  return projectLease(client, root);
 }
 
 afterEach(async () => {
@@ -202,6 +198,9 @@ async function fixture(projectExecEnabled = true, kind: FixtureKind = "node") {
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled: true, commands: ["node", "npm", "git", "swift"] },
     projectExec: { enabled: projectExecEnabled },
+    skills: { enabled: true, directory: path.join(base, "skills") },
+    goal: { enabled: true, maxTranscriptChars: 120_000 },
+    workers: { enabled: true, maxWorkers: 8, maxParkedRuns: 16 },
     continuity: {
       databasePath: path.join(path.dirname(path.join(base, "audit.jsonl")), "continuity.db"),
       maxResumeChars: 12_000,
@@ -344,11 +343,12 @@ describe("project_check MCP tool", () => {
       });
       expect(denied.isError).toBe(true);
       expect(resultText(denied)).toContain("AUTHORITY_DENIED");
-      const adminId = await adminLease(connected.client);
+      // Tekli proje kipi: yerel şerit aynı proje lease ile yetkilendirilir.
+      const nativeLaneId = await nativeLaneLease(connected.client, connected.root);
       const nativeRun = await connected.client.callTool({
         name: "project_check",
         arguments: {
-          authorityLeaseId: leaseId, adminAuthorityLeaseId: adminId,
+          authorityLeaseId: leaseId, adminAuthorityLeaseId: nativeLaneId,
           operation: "run", cwd: connected.root,
           checkIds: ["package-script:test:macos"],
         },
@@ -486,7 +486,7 @@ describe("project_check MCP tool", () => {
     }
   });
 
-  it("rejects a non-Admin lease before native verification can execute", async () => {
+  it("runs native verification with a Project lease in the native lane", async () => {
     const connected = await fixture(true, "swiftpm");
     try {
       const leaseId = await projectLease(connected.client, connected.root);
@@ -499,9 +499,10 @@ describe("project_check MCP tool", () => {
           cwd: connected.root,
         },
       });
-      expect(run.isError).toBe(true);
-      expect(resultText(run)).toContain("AUTHORITY_DENIED");
-      expect(connected.host.requests).toHaveLength(0);
+      // Tekli proje kipi: proje lease yerel şeridi çalıştırabilir.
+      expect(run.isError).not.toBe(true);
+      expect((run.structuredContent as unknown as ProjectCheckView).overallStatus).toBe("PASS");
+      expect(connected.host.requests).toHaveLength(2);
       expect(connected.backend.requests).toHaveLength(0);
     } finally {
       await connected.transport.terminateSession();
@@ -509,16 +510,16 @@ describe("project_check MCP tool", () => {
     }
   });
 
-  it("runs fixed SwiftPM checks through an Admin-authorized executor bound to the Project root", async () => {
+  it("runs fixed SwiftPM checks through a Project-authorized executor bound to the Project root", async () => {
     const connected = await fixture(true, "swiftpm");
     try {
       const projectLeaseId = await projectLease(connected.client, connected.root);
-      const adminLeaseId = await adminLease(connected.client);
+      const nativeLeaseId = await nativeLaneLease(connected.client, connected.root);
       const run = await connected.client.callTool({
         name: "project_check",
         arguments: {
           authorityLeaseId: projectLeaseId,
-          adminAuthorityLeaseId: adminLeaseId,
+          adminAuthorityLeaseId: nativeLeaseId,
           operation: "run",
           cwd: connected.root,
           timeoutMs: 1500,
@@ -556,12 +557,12 @@ describe("project_check MCP tool", () => {
     try {
       connected.host.mode = mode;
       const projectLeaseId = await projectLease(connected.client, connected.root);
-      const adminLeaseId = await adminLease(connected.client);
+      const nativeLeaseId = await nativeLaneLease(connected.client, connected.root);
       const run = await connected.client.callTool({
         name: "project_check",
         arguments: {
           authorityLeaseId: projectLeaseId,
-          adminAuthorityLeaseId: adminLeaseId,
+          adminAuthorityLeaseId: nativeLeaseId,
           operation: "run",
           cwd: connected.root,
         },
@@ -580,12 +581,12 @@ describe("project_check MCP tool", () => {
     try {
       connected.host.mode = "mutate";
       const projectLeaseId = await projectLease(connected.client, connected.root);
-      const adminLeaseId = await adminLease(connected.client);
+      const nativeLeaseId = await nativeLaneLease(connected.client, connected.root);
       const run = await connected.client.callTool({
         name: "project_check",
         arguments: {
           authorityLeaseId: projectLeaseId,
-          adminAuthorityLeaseId: adminLeaseId,
+          adminAuthorityLeaseId: nativeLeaseId,
           operation: "run",
           cwd: connected.root,
         },
@@ -601,17 +602,17 @@ describe("project_check MCP tool", () => {
     }
   });
 
-  it("does not fall back from an unavailable Node sandbox to Admin host execution", async () => {
+  it("does not fall back from an unavailable Node sandbox to native host execution", async () => {
     const connected = await fixture(true, "node");
     try {
       connected.backend.mode = "unavailable";
       const projectLeaseId = await projectLease(connected.client, connected.root);
-      const adminLeaseId = await adminLease(connected.client);
+      const nativeLeaseId = await nativeLaneLease(connected.client, connected.root);
       const run = await connected.client.callTool({
         name: "project_check",
         arguments: {
           authorityLeaseId: projectLeaseId,
-          adminAuthorityLeaseId: adminLeaseId,
+          adminAuthorityLeaseId: nativeLeaseId,
           operation: "run",
           cwd: connected.root,
         },

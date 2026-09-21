@@ -26,6 +26,10 @@ async function fixture(enabled: boolean) {
     auditFile: path.join(base, "audit.jsonl"),
     terminal: { enabled, commands: ["node"] },
     projectExec: { enabled: false },
+    // Yeni zorunlu bloklar: bu testin kapsamı dışında, kapalı tutulur.
+    skills: { enabled: false, directory: path.join(base, "skills") },
+    goal: { enabled: false, maxTranscriptChars: 120_000 },
+    workers: { enabled: false, maxWorkers: 8, maxParkedRuns: 16 },
     http: { host: "127.0.0.1", port: 4312, allowNonLoopback: false },
     limits: {
       maxReadBytes: 1024,
@@ -64,10 +68,11 @@ describe("ProcessService", () => {
     await expect(scoped.process.run("node", ["--version"], root)).rejects.toBeInstanceOf(PolicyError);
   });
 
-  it("enables allowlisted terminal only through an admin lease when the runtime gate is enabled", async () => {
+  it("enables allowlisted terminal through a project lease when the runtime gate is enabled", async () => {
     const { base, root, config } = await fixture(true);
     const authority = new AuthorityManager({ homeDir: base, commands: ["node"], terminalEnabled: true });
-    const lease = await authority.start({ profile: "admin" });
+    // Serbest mod: tek profil project'tir; kabiliyet startup kapısına bağlıdır.
+    const lease = await authority.start({ profile: "project", projectRoots: [root] });
     const scoped = createScopedRuntime({ config, audit: new AuditLogger(config.auditFile) }, authority.resolve(lease.leaseId));
 
     await expect(scoped.process.run("sh", ["-c", "echo nope"], root)).rejects.toBeInstanceOf(PolicyError);
@@ -101,5 +106,5 @@ describe("ProcessService", () => {
     await expect(access(startedMarker)).resolves.toBeUndefined();
     await new Promise((resolve) => setTimeout(resolve, 7_000));
     await expect(access(survivedMarker)).rejects.toThrow();
-  });
+  }, 15_000);
 });

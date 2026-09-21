@@ -51,18 +51,20 @@ export function registerPatchSetTool(server: McpServer, runtime: PatchSetToolRun
   server.registerTool(
     "fs_apply_patch_set",
     {
-      description: "Validate and apply 1-100 SHA-256 guarded unified patches as one recoverable multi-file transaction inside the active authority scope. Normal validation failures leave every destination unchanged.",
+      description: "Validate and apply 1-100 SHA-256 guarded unified patches as one recoverable multi-file transaction inside the active scope. Normal validation failures leave every destination unchanged.",
       inputSchema: z.object({
-        authorityLeaseId: z.string().min(40),
+        authorityLeaseId: z.string().min(40).optional(),
         patches: z.array(patchInputSchema).min(1).max(100),
       }).strict(),
       outputSchema: fsPatchSetOutputSchema,
       annotations,
     },
     async ({ authorityLeaseId, patches }) => safeCall(async () => {
-      const authority = runtime.authority.resolve(authorityLeaseId);
+      const roots = authorityLeaseId === undefined
+        ? [...runtime.config.roots]
+        : [...runtime.authority.resolve(authorityLeaseId).roots];
       const service = new PatchSetService(
-        new PathPolicy([...authority.roots]),
+        new PathPolicy(roots),
         runtime.audit,
         runtime.taskStateRoot,
         runtime.config.limits,

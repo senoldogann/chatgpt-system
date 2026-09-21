@@ -20,16 +20,15 @@ Options:
   --root <path>           Explicit bootstrap filesystem root. Required.
   --tunnel-id <id>        OpenAI Secure MCP Tunnel ID. Required.
   --profile <name>        tunnel-client profile name (default: chatgpt-system).
-  --owner-workstation     Enable the trusted private-Mac preset: Personal Admin, Owner Runtime, terminal/PTY, Project Exec, Computer Use, and full-host JS. Browser remains independent.
+  --owner-workstation     Enable the trusted private-Mac preset: Owner Runtime, terminal/PTY, Project Exec, Computer Use, and full-host JS. Browser remains independent.
   --enable-terminal       Opt in to bootstrap terminal configuration. Disabled by default.
   --enable-project-exec   Opt in to Docker-sandboxed Project execution. Disabled by default.
-  --personal-admin        Allow ChatGPT to mint short-lived Admin leases directly. Disabled by default.
-  --enable-owner-runtime  Opt in to Admin-only unrestricted Owner Runtime shell execution; requires --personal-admin.
+  --enable-owner-runtime  Opt in to unrestricted Owner Runtime shell execution.
   --owner-shell-path <path>
                           Override the trusted login shell executable; requires --enable-owner-runtime.
   --allow-command <name>  Allowlisted executable basename. Repeatable.
-  --enable-browser        Opt in to the Admin-only Playwright browser capability. Disabled by default.
-  --enable-computer-use   Opt in to the Admin-only native Computer Runtime. Disabled by default.
+  --enable-browser        Opt in to the Playwright browser capability. Disabled by default.
+  --enable-computer-use   Opt in to the native Computer Runtime. Disabled by default.
   --enable-full-host-js   Opt in to full-host Node.js for Computer Runtime; requires --enable-computer-use. Disabled by default.
   --browser-headless      Run the opted-in browser headlessly; requires --enable-browser.
   --browser-existing-chrome
@@ -41,29 +40,17 @@ Options:
   --run                   Create the profile, run doctor, then run the tunnel.
   --help                  Show this help.
 
-The generated ChatGPT tunnel target always enables the private local authority
-control socket at ~/.chatgpt-system/control.sock. By default User/Admin leases are created
-outside ChatGPT with:
-  chatgpt-system authorize user
-  chatgpt-system authorize admin
+Serbest mod: yetki profili, lease onayı ve Admin kapısı yoktur. Tüm araçlar
+doğrudan çalışır; project_* süreklilik araçları proje kimliği için
+project_register/project_resume alias akışını kullanır.
 
-With --personal-admin, ChatGPT may mint short-lived Admin leases directly.
-User authority remains locally approved.
-
-Browser automation is disabled unless --enable-browser is supplied. Browser tools
-remain Admin-only even when the runtime browser gate is enabled. Install the pinned
+Browser automation is disabled unless --enable-browser is supplied. Install the pinned
 Playwright Chromium binary separately with:
   npm run setup:browser
 
-User/Admin session authority on macOS requires the protected native broker.
-Build and install it separately:
-  npm run build:broker:macos
-  sudo npm run install:broker:macos
-
-Project authority remains available when the protected broker is absent and has
-no host terminal capability. Sandboxed Project execution is a separate explicit
-opt-in. User authority requires local approval and has no terminal capability.
-Admin authority requires local approval and is the only host terminal-capable profile.
+Project leases are optional scoping: every tool also works without a lease
+against the bootstrap roots. Filesystem root and the entire home directory
+remain refused for Project authority.
 
 Credentials are not accepted as command-line arguments. tunnel-client reads
 CONTROL_PLANE_API_KEY (or its currently supported credential mechanism) from
@@ -78,7 +65,6 @@ function parseArgs(argv) {
     ownerWorkstation: false,
     terminal: false,
     projectExec: false,
-    personalAdmin: false,
     ownerRuntime: false,
     ownerShellPath: undefined,
     browser: false,
@@ -106,7 +92,6 @@ function parseArgs(argv) {
         ownerWorkstation: true,
         terminal: true,
         projectExec: true,
-        personalAdmin: true,
         ownerRuntime: true,
         computerUse: true,
         fullHostJs: true,
@@ -119,10 +104,6 @@ function parseArgs(argv) {
     }
     if (arg === "--enable-project-exec") {
       options.projectExec = true;
-      continue;
-    }
-    if (arg === "--personal-admin") {
-      options.personalAdmin = true;
       continue;
     }
     if (arg === "--enable-owner-runtime") {
@@ -245,9 +226,6 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   if (options.commands.length > 0 && !options.terminal) {
     throw new Error("--allow-command requires --enable-terminal.");
   }
-  if (options.ownerRuntime && !options.personalAdmin) {
-    throw new Error("--enable-owner-runtime requires --personal-admin.");
-  }
   if (options.ownerShellPath !== undefined && !options.ownerRuntime) {
     throw new Error("--owner-shell-path requires --enable-owner-runtime.");
   }
@@ -293,15 +271,12 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     serverPath,
     "stdio",
     "--root", root,
-    "--enable-control",
-    "--control-socket", controlSocketPath,
   ];
   if (options.ownerWorkstation) {
     commandParts.push("--owner-workstation");
   } else {
     if (options.terminal) commandParts.push("--enable-terminal");
     if (options.projectExec) commandParts.push("--enable-project-exec");
-    if (options.personalAdmin) commandParts.push("--personal-admin");
     if (options.ownerRuntime) commandParts.push("--enable-owner-runtime");
     if (options.computerUse) commandParts.push("--enable-computer-use");
     if (options.fullHostJs) commandParts.push("--enable-full-host-js");
@@ -376,18 +351,6 @@ function assertSuccessful(result, label) {
   }
 }
 
-async function inspectProtectedBroker() {
-  if (process.platform !== "darwin") return { available: false, reason: "not-macos" };
-  try {
-    const module = await import("../dist/native-helper-trust.js");
-    const validator = new module.MacOSNativeHelperTrustValidator();
-    await validator.validate();
-    return { available: true };
-  } catch {
-    return { available: false, reason: "missing-or-untrusted" };
-  }
-}
-
 export async function validateComputerUseReadiness(
   setup,
   inspector = inspectInstalledComputerRuntime,
@@ -409,12 +372,6 @@ export async function validateComputerUseReadiness(
 async function validateRuntime(setup) {
   await access(setup.serverPath);
   await validateRootBoundary(setup.root, homedir());
-  const broker = await inspectProtectedBroker();
-  if (process.platform === "darwin" && !broker.available) {
-    console.warn(
-      "[chatgpt-system] Protected macOS authority broker is missing or untrusted. Project authority remains available; User/Admin local authorization will fail closed until you run 'npm run build:broker:macos' and 'sudo npm run install:broker:macos'.",
-    );
-  }
 
   const computer = await validateComputerUseReadiness(setup);
   if (computer.required && !computer.tccIdentityStable) {
@@ -443,7 +400,7 @@ async function main() {
   console.log(`  Root: ${setup.root}`);
   console.log(`  Profile: ${setup.profile}`);
   console.log(`  MCP command: ${setup.displayMcpCommand}`);
-  console.log(`  Local authority control socket: ${setup.controlSocketPath}`);
+  console.log("  Authority: open, no local approval needed");
   console.log(`  Native broker build: ${setup.brokerBuildPath}`);
   console.log(`  Protected native broker: ${setup.brokerHelperPath}`);
   console.log(`  Protected broker metadata: ${setup.brokerMetadataPath}`);
@@ -457,13 +414,12 @@ async function main() {
   }
   console.log("  Bootstrap terminal: " + ((setup.ownerWorkstationEnabled || setup.mcpCommand.includes("--enable-terminal")) ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Project execution: " + (setup.projectExecEnabled ? "EXPLICITLY ENABLED (Docker sandbox)" : "disabled"));
-  console.log("  Personal Admin: " + ((setup.ownerWorkstationEnabled || setup.mcpCommand.includes("--personal-admin")) ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Owner Runtime: " + (setup.ownerRuntimeEnabled ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Browser: " + (setup.mcpCommand.includes("--enable-browser") ? (setup.mcpCommand.includes("--browser-headless") ? "EXPLICITLY ENABLED (headless)" : "EXPLICITLY ENABLED (headed)") : "disabled"));
   console.log("  Computer Runtime: " + (setup.computerUseEnabled ? "EXPLICITLY ENABLED" : "disabled"));
   console.log("  Full-host JavaScript: " + (setup.fullHostJsEnabled ? "EXPLICITLY ENABLED" : "disabled"));
   if (setup.computerUseEnabled) console.log(`  Computer Runtime bundle: ${setup.computerRuntimeBundlePath}`);
-  console.log("  Local User/Admin authorization: enabled through private Unix socket");
+  console.log("  Skills/goal/workers/handoff: available with no lease");
 
   if (!setup.executeDoctor && !setup.executeRun) {
     console.log("\nDry setup only. Re-run with --doctor to validate local components and create the profile, or --run to also start it.");

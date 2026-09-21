@@ -4,7 +4,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { AuthorityManager } from "./authority.js";
-import { AuthorityRequestManager } from "./authority-request-manager.js";
 import { AuditLogger } from "./audit.js";
 import { createBrowserService, type BrowserFactoryOptions } from "./browser-factory.js";
 import { DockerProjectExecBackend, PROJECT_EXEC_IMAGE } from "./docker-project-exec-backend.js";
@@ -21,10 +20,6 @@ import type { AppConfig } from "./config.js";
 import { FileSystemService } from "./fs-service.js";
 import { GitService } from "./git-service.js";
 import { registerGitWorktreeTool } from "./git-worktree-tool-registration.js";
-import {
-  MacOSLocalAuthorityBroker,
-  type LocalAuthorityBroker,
-} from "./local-authority-broker.js";
 import { registerPatchSetTool } from "./patch-set-tool-registration.js";
 import { PathPolicy } from "./policy.js";
 import { ProcessService } from "./process-service.js";
@@ -42,15 +37,19 @@ import { ProjectPublishGate } from "./project-publish-gate.js";
 import { createProjectContinuityRuntime, type ProjectContinuityRuntime } from "./project-continuity-runtime.js";
 import { registerProjectContinuityTools } from "./project-continuity-tool-registration.js";
 import { registerTaskStateTool } from "./task-state-tool-registration.js";
+import { registerSkillsTools } from "./skills-tool-registration.js";
+import { registerGoalTool } from "./goal-tool-registration.js";
+import { registerWorkerTools } from "./worker-tool-registration.js";
+import { registerHandoffTool } from "./handoff-tool-registration.js";
+import { trackToolSurface } from "./tool-surface-publication.js";
 import { SessionEventStore } from "./session-event-store.js";
 import type { ProjectExecBackend } from "./project-exec-types.js";
-import { createScopedRuntime } from "./scoped-runtime.js";
+import { createOpenRuntime, createScopedRuntime } from "./scoped-runtime.js";
 import { describeSystemEnvironment } from "./system-environment.js";
-import { AuthorityDeniedError, errorPayload, PolicyError } from "./errors.js";
+import { errorPayload, PolicyError } from "./errors.js";
 import {
   authorityEndOutputSchema,
   authorityLeaseOutputSchema,
-  persistentOwnerModeOutputSchema,
   fsListOutputSchema,
   fsMkdirOutputSchema,
   fsMoveOutputSchema,
@@ -75,8 +74,6 @@ export interface RuntimeServices extends ProjectContinuityRuntime {
   policy: PathPolicy;
   audit: AuditLogger;
   authority: AuthorityManager;
-  authorityRequests: AuthorityRequestManager;
-  approvalBroker: LocalAuthorityBroker;
   fs: FileSystemService;
   git: GitService;
   process: ProcessService;
@@ -94,8 +91,6 @@ export interface RuntimeServices extends ProjectContinuityRuntime {
 }
 
 export interface RuntimeOptions extends BrowserFactoryOptions {
-  approvalBroker?: LocalAuthorityBroker;
-  authorityRequests?: AuthorityRequestManager;
   computerNative?: ComputerNativeRequesting;
   computerRuntime?: ComputerRuntime;
   computerJsRuntime?: ComputerJsRuntime;
@@ -104,7 +99,6 @@ export interface RuntimeOptions extends BrowserFactoryOptions {
   taskStateRoot?: string;
   sessionEventStore?: SessionEventStore;
   worktreeRoot?: string;
-  persistentOwnerModePath?: string;
   processPersistencePath?: string;
 }
 
@@ -118,7 +112,6 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     homeDir: homedir(),
     commands: config.terminal.commands,
     terminalEnabled: config.terminal.enabled,
-    persistentOwnerModePath: options.persistentOwnerModePath ?? path.join(homedir(), ".chatgpt-system", "persistent-owner-mode.json"),
     audit: async (event) => {
       if (event.event === "authority.denied") {
         // Recorded as an error so lease-resolution refusals show up in ordinary audit error-code analysis.
@@ -143,23 +136,6 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
           profile: event.profile,
           rootCount: event.rootCount,
           scopeDigest: event.scopeDigest,
-          ...(event.expiresAt ? { expiresAt: event.expiresAt } : {}),
-        },
-      });
-    },
-  });
-  const authorityRequests = options.authorityRequests ?? new AuthorityRequestManager({
-    audit: async (event) => {
-      await audit.record({
-        action: event.event,
-        outcome: "ok",
-        durationMs: 0,
-        metadata: {
-          profile: event.profile,
-          state: event.state,
-          ...(event.requestedTtlSeconds !== undefined
-            ? { requestedTtlSeconds: event.requestedTtlSeconds }
-            : {}),
           ...(event.expiresAt ? { expiresAt: event.expiresAt } : {}),
         },
       });
@@ -207,7 +183,6 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     }),
   );
   const continuityRuntime = createProjectContinuityRuntime(config, authority, { homeDir: homedir() });
-  const approvalBroker = options.approvalBroker ?? new MacOSLocalAuthorityBroker();
   const fs = new FileSystemService(policy, audit, config.limits);
   const git = new GitService(policy, audit, config);
   const process = new ProcessService(policy, audit, config);
@@ -227,8 +202,6 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     policy,
     audit,
     authority,
-    authorityRequests,
-    approvalBroker,
     fs,
     git,
     process,
@@ -267,25 +240,27 @@ async function safeCall<T extends object>(fn: () => Promise<T>) {
   }
 }
 
-function withAuthority(runtime: RuntimeServices, authorityLeaseId: string) {
-  const authority = runtime.authority.resolve(authorityLeaseId);
-  return createScopedRuntime(runtime, authority);
+function withScope(runtime: RuntimeServices, authorityLeaseId?: string) {
+  if (authorityLeaseId !== undefined) {
+    const authority = runtime.authority.resolve(authorityLeaseId);
+    return createScopedRuntime(runtime, authority);
+  }
+  return createOpenRuntime(runtime);
 }
 
-const authorityLeaseField = { authorityLeaseId: z.string().min(40) };
+function withAuthority(runtime: RuntimeServices, authorityLeaseId?: string) {
+  return withScope(runtime, authorityLeaseId);
+}
+
+// Serbest mod: lease opsiyoneldir. Verilmezse bootstrap rootlarla açık kapsam kullanılır.
+const authorityLeaseField = { authorityLeaseId: z.string().min(40).optional() };
 const processIdField = { processId: z.string().min(40) };
 const projectAuthorityStartInputSchema = z.object({
-  profile: z.literal("project"),
+  profile: z.literal("project").optional(),
   projectRoots: z.array(z.string()).min(1),
   requestedTtlSeconds: z.coerce.number().int().positive().optional(),
 });
-const adminAuthorityStartInputSchema = z.object({
-  profile: z.literal("admin"),
-  requestedTtlSeconds: z.coerce.number().int().positive().optional(),
-}).strict();
-type AuthorityStartInput =
-  | z.infer<typeof projectAuthorityStartInputSchema>
-  | z.infer<typeof adminAuthorityStartInputSchema>;
+type AuthorityStartInput = z.infer<typeof projectAuthorityStartInputSchema>;
 const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const nonDestructiveWriteAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const sessionStartAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
@@ -295,20 +270,12 @@ const gitLocalMutationAnnotations = { readOnlyHint: false, destructiveHint: fals
 const gitRemoteMutationAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 
 export function createMcpServer(runtime: RuntimeServices): McpServer {
-  const personalAdminEnabled = runtime.config.personalAdmin?.enabled === true;
-  const authorityStartInputSchema = personalAdminEnabled
-    ? z.preprocess((val: any) => {
-        if (val !== null && typeof val === "object" && !Array.isArray(val)
-            && !Object.prototype.hasOwnProperty.call(val, "profile")) {
-          return { ...val, profile: "admin" };
-        }
-        return val === undefined ? { profile: "admin" } : val;
-      }, z.discriminatedUnion("profile", [projectAuthorityStartInputSchema, adminAuthorityStartInputSchema]))
-    : projectAuthorityStartInputSchema;
+  const authorityStartInputSchema = projectAuthorityStartInputSchema;
   const server = new McpServer(
     { name: "chatgpt-system", version: "0.1.0" },
     { capabilities: { tools: {} } },
   );
+  trackToolSurface(server);
 
   server.registerTool(
     "system_capabilities",
@@ -328,16 +295,18 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       },
       auditFile: runtime.config.auditFile,
       terminal: runtime.config.terminal,
-      personalAdmin: {
-        enabled: personalAdminEnabled,
-        adminLeaseMaxTtlSeconds: 3600 as const,
-      },
-      persistentOwnerMode: {
-        enabled: runtime.authority.persistentOwnerMode().enabled,
-        expiresAt: "never" as const,
-      },
       ownerRuntime: {
         enabled: runtime.config.ownerRuntime?.enabled === true,
+      },
+      skills: {
+        enabled: runtime.config.skills.enabled,
+      },
+      goal: {
+        enabled: runtime.config.goal.enabled,
+      },
+      workers: {
+        enabled: runtime.config.workers.enabled,
+        maxWorkers: runtime.config.workers.maxWorkers,
       },
       computerUse: {
         enabled: runtime.config.computerUse?.enabled === true,
@@ -376,52 +345,14 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   );
 
   server.registerTool(
-    "persistent_owner_mode",
-    {
-      description: "Explicitly enable, inspect, or disable the local Persistent Owner Mode. Enabling is a local owner decision; it never changes macOS TCC, ChatGPT platform policy, or browser safety boundaries. The persisted preference survives daemon restarts until explicitly disabled.",
-      inputSchema: z.object({ operation: z.enum(["enable", "status", "disable"]) }).strict(),
-      outputSchema: persistentOwnerModeOutputSchema,
-      annotations: guardedMutationAnnotations,
-    },
-    async ({ operation }) => safeCall(async () => {
-      if (operation === "enable") {
-        if (!personalAdminEnabled) throw new PolicyError("Persistent Owner Mode requires Personal Admin to be enabled.");
-        const result = runtime.authority.enablePersistentOwnerMode();
-        await runtime.authority.flushAudit();
-        return result;
-      }
-      if (operation === "disable") {
-        const result = runtime.authority.disablePersistentOwnerMode();
-        await runtime.authority.flushAudit();
-        return result;
-      }
-      return runtime.authority.persistentOwnerMode();
-    }),
-  );
-
-  server.registerTool(
     "session_authority_start",
     {
-      description: personalAdminEnabled
-        ? "Start a Project lease for explicit project roots, including project directories outside bootstrap roots, or in Personal Admin mode a short-lived Admin lease. For a new project: start the exact Project lease, project_register once for continuity, then use project_resume in later chats. Filesystem root and the entire home directory are refused for Project authority."
-        : "Start a direct Project authority lease for explicit project roots, including project directories outside bootstrap roots. For a new project: start the exact Project lease, project_register once for continuity, then use project_resume in later chats. Filesystem root and the entire home directory are refused; User/Admin leases remain locally approved.",
+      description: "Start a Project lease for explicit project roots, including project directories outside bootstrap roots. The lease is optional scoping: every tool also works without authorityLeaseId against the bootstrap roots. For a new project: start the exact Project lease, project_register once for continuity, then use project_resume in later chats. Filesystem root and the entire home directory are refused for Project authority.",
       inputSchema: authorityStartInputSchema,
       outputSchema: authorityLeaseOutputSchema,
       annotations: sessionStartAnnotations,
     },
     async (input: AuthorityStartInput) => safeCall(async () => {
-      if (input.profile === "admin") {
-        if (!personalAdminEnabled) throw new PolicyError("Personal Admin authority is disabled.");
-        const lease = await runtime.authority.start({
-          profile: "admin",
-          ...(input.requestedTtlSeconds !== undefined
-            ? { requestedTtlSeconds: input.requestedTtlSeconds }
-            : {}),
-        });
-        await runtime.authority.flushAudit();
-        return lease;
-      }
-
       const lease = await runtime.authority.start({
         profile: "project",
         projectRoots: input.projectRoots,
@@ -438,7 +369,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     "session_authority_status",
     {
       description: "Inspect an active authority lease without changing it.",
-      inputSchema: z.object(authorityLeaseField),
+      inputSchema: z.object({ authorityLeaseId: z.string().min(40) }),
       outputSchema: authorityLeaseOutputSchema,
       annotations: readAnnotations,
     },
@@ -449,7 +380,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     "session_authority_end",
     {
       description: "Revoke an active authority lease immediately. The same leaseId cannot be used again.",
-      inputSchema: z.object(authorityLeaseField),
+      inputSchema: z.object({ authorityLeaseId: z.string().min(40) }),
       outputSchema: authorityEndOutputSchema,
       annotations: guardedMutationAnnotations,
     },
@@ -703,7 +634,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "git_push",
     {
-      description: "Push only a clean, fresh locally verified non-main branch from the exact active project_resume worktree to the existing credential-free GitHub origin. Requires active Admin and resumed Project authority leases; force, remote, refspec, branch, head, and verification overrides are not exposed.",
+      description: "Push only a clean, fresh locally verified non-main branch from the exact active project_resume worktree to the existing credential-free GitHub origin. Requires the resumed Project authority lease; force, remote, refspec, branch, head, and verification overrides are not exposed.",
       inputSchema: z.object({
         ...authorityLeaseField,
         projectAuthorityLeaseId: z.string().min(40),
@@ -713,21 +644,16 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
       annotations: gitRemoteMutationAnnotations,
     },
     async ({ authorityLeaseId, projectAuthorityLeaseId, cwd }) => safeCall(async () => {
-      const adminAuthority = runtime.authority.resolve(authorityLeaseId);
-      if (adminAuthority.profile !== "admin") {
-        throw new AuthorityDeniedError("Git push requires an active Admin authority lease.");
-      }
       const projectAuthority = runtime.authority.resolve(projectAuthorityLeaseId);
-      if (projectAuthority.profile !== "project") {
-        throw new AuthorityDeniedError("Git push requires an active Project authority lease created by project_resume.");
-      }
       const resumeContext = await runtime.continuity.revalidateResumeContext(projectAuthorityLeaseId);
-      const adminScoped = createScopedRuntime(runtime, adminAuthority);
+      const leaseScoped = authorityLeaseId !== undefined
+        ? createScopedRuntime(runtime, runtime.authority.resolve(authorityLeaseId))
+        : createOpenRuntime(runtime);
       const projectScoped = createScopedRuntime(runtime, projectAuthority);
       const projectCheck = createProjectCheckService(runtime, projectAuthorityLeaseId);
       const gate = new ProjectPublishGate({
         projectGit: projectScoped.git,
-        adminGit: adminScoped.git,
+        adminGit: leaseScoped.git,
         projectCheck,
       });
       return gate.push({ cwd, resumeContext });
@@ -740,7 +666,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "terminal_run",
     {
-      description: "Run an allowlisted executable with shell=false inside an active Admin authority lease scope. Project/User leases do not have terminal capability; it is NOT an OS sandbox.",
+      description: "Run an allowlisted executable with shell=false inside the active scope. It is NOT an OS sandbox.",
       inputSchema: z.object({
         ...authorityLeaseField,
         command: z.string(),
@@ -756,7 +682,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "process_start",
     {
-      description: "Start an allowlisted long-running child process with shell=false inside an active Admin authority scope. Returns an opaque managed-process ID, never an OS PID.",
+      description: "Start an allowlisted long-running child process with shell=false inside the active scope. Returns an opaque managed-process ID, never an OS PID.",
       inputSchema: z.object({
         ...authorityLeaseField,
         command: z.string(),
@@ -773,7 +699,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "process_list",
     {
-      description: "List managed processes visible to the active terminal-capable authority scope. Hidden or out-of-scope records are omitted.",
+      description: "List managed processes visible to the active scope. Hidden or out-of-scope records are omitted.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: processListOutputSchema,
       annotations: readAnnotations,
@@ -824,5 +750,9 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   registerBrowserTools(server, runtime);
   registerComputerTools(server, runtime);
   registerComputerJsTools(server, runtime);
+  registerSkillsTools(server, runtime);
+  registerGoalTool(server, runtime);
+  registerWorkerTools(server, runtime);
+  registerHandoffTool(server);
   return server;
 }
