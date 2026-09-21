@@ -11,6 +11,7 @@ import { toNodeHandler, type NodeIncomingMessageLike, type NodeServerResponseLik
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { AuthorityManager } from "../src/authority.js";
+import { AuditLogger } from "../src/audit.js";
 import { ContinuityGitInspector } from "../src/continuity-git-inspector.js";
 import { ContinuityStore } from "../src/continuity-store.js";
 import { ContinuityNotFoundError } from "../src/continuity-errors.js";
@@ -299,7 +300,12 @@ describe("project continuity real MCP protocol", () => {
         homeDir: base,
         maxResumeChars: 12_000,
       });
-      const { client, transport } = await fixture({ continuity: service } as never);
+      const { client, transport } = await fixture({
+        continuity: service,
+        taskStateRoot: path.join(base, "state"),
+        audit: new AuditLogger(path.join(base, "audit.jsonl")),
+        config: { workers: { maxWorkers: 8, maxParkedRuns: 16 } },
+      } as never);
       try {
         const registered = await client.callTool({
           name: "project_register",

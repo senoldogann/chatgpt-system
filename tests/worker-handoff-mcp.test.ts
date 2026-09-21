@@ -86,7 +86,7 @@ async function fixture() {
       processStopGraceMs: 100,
     },
   };
-  const server = startHttp(createRuntimeServices(config));
+  const server = startHttp(createRuntimeServices(config, { taskStateRoot: path.join(base, "state") }));
   servers.push(server);
   await once(server, "listening");
   const address = server.address() as AddressInfo;
@@ -131,7 +131,17 @@ describe("worker MCP tools", () => {
       name: "worker_message",
       arguments: { runId, workerId: first.id, message: "Focus on checkout first." },
     }));
-    expect(workersOf(messaged)[0]).toMatchObject({ id: first.id });
+    const messagedFirst = workersOf(messaged)[0]!;
+    expect(messagedFirst).toMatchObject({ id: first.id });
+    expect(messagedFirst.unreadCount).toBe(1);
+    expect(messagedFirst.inboxTotal).toBe(1);
+    expect((messagedFirst.inbox as Record<string, unknown>[])[0]).toMatchObject({ from: "prime", text: "Focus on checkout first." });
+
+    const reported = structured(await client.callTool({
+      name: "worker_message",
+      arguments: { runId, workerId: first.id, message: "Cart reproduced.", from: "worker" },
+    }));
+    expect(workersOf(reported)[0]!.unreadCount).toBe(2);
 
     const slept = structured(await client.callTool({
       name: "worker_sleep",
@@ -158,6 +168,10 @@ describe("worker MCP tools", () => {
 
     const status = structured(await client.callTool({ name: "worker_status", arguments: { runId } }));
     expect(status.parked).toBe(true);
+    const statusFirst = workersOf(status).find((worker) => worker.id === first.id)!;
+    expect(statusFirst.unreadCount).toBe(0);
+    expect(statusFirst.inboxTotal).toBe(2);
+    expect((statusFirst.inbox as Record<string, unknown>[]).every((message) => message.readAt !== null)).toBe(true);
 
     const terminalMessage = await client.callTool({
       name: "worker_message",

@@ -36,6 +36,16 @@ export class ConflictError extends AppError {
   }
 }
 
+export class WorkerRetiredError extends AppError {
+  constructor(alias: string) {
+    super(
+      `Alias "${alias}" bitmiş bir worker'a ait; bu sohbet normal prime akışına dönmeli, yazım kapalı.`,
+      "WORKER_RETIRED",
+      { alias },
+    );
+  }
+}
+
 export class LimitError extends AppError {
   constructor(message: string, details?: Record<string, unknown>) {
     super(message, "LIMIT_EXCEEDED", details);

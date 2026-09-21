@@ -40,6 +40,7 @@ import { registerTaskStateTool } from "./task-state-tool-registration.js";
 import { registerSkillsTools } from "./skills-tool-registration.js";
 import { registerGoalTool } from "./goal-tool-registration.js";
 import { registerWorkerTools } from "./worker-tool-registration.js";
+import { assertWorkerAliasLive } from "./worker-store.js";
 import { registerHandoffTool } from "./handoff-tool-registration.js";
 import { trackToolSurface } from "./tool-surface-publication.js";
 import { SessionEventStore } from "./session-event-store.js";
@@ -646,6 +647,15 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
     async ({ authorityLeaseId, projectAuthorityLeaseId, cwd }) => safeCall(async () => {
       const projectAuthority = runtime.authority.resolve(projectAuthorityLeaseId);
       const resumeContext = await runtime.continuity.revalidateResumeContext(projectAuthorityLeaseId);
+      await assertWorkerAliasLive(
+        {
+          taskStateRoot: runtime.taskStateRoot,
+          audit: runtime.audit,
+          maxWorkers: runtime.config.workers.maxWorkers,
+          maxParkedRuns: runtime.config.workers.maxParkedRuns,
+        },
+        resumeContext.alias,
+      );
       const leaseScoped = authorityLeaseId !== undefined
         ? createScopedRuntime(runtime, runtime.authority.resolve(authorityLeaseId))
         : createOpenRuntime(runtime);

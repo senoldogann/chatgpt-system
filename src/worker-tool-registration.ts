@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AuditLogger } from "./audit.js";
 import type { AppConfig } from "./config.js";
 import { errorPayload } from "./errors.js";
-import { WorkerStore, type WorkerRun } from "./worker-store.js";
+import { WorkerStore, assertWorkerAliasLive, type AgentMessage, type WorkerRecord, type WorkerRun } from "./worker-store.js";
 import { workerRunOutputSchema } from "./tool-output-schemas.js";
 
 export interface WorkerToolRuntime {
@@ -54,23 +54,54 @@ async function storeFor(runtime: WorkerToolRuntime): Promise<WorkerStore> {
   );
 }
 
+const INBOX_VIEW = 20;
+
+function publicMessage(message: AgentMessage) {
+  return {
+    id: message.id,
+    from: message.from,
+    text: message.text,
+    sentAt: message.sentAt,
+    readAt: message.readAt,
+  };
+}
+
+function publicWorker(worker: WorkerRecord) {
+  return {
+    id: worker.id,
+    label: worker.label,
+    task: worker.task,
+    state: worker.state,
+    alias: worker.alias,
+    worktreePath: worker.worktreePath,
+    inbox: worker.inbox.slice(-INBOX_VIEW).map(publicMessage),
+    inboxTotal: worker.inbox.length,
+    unreadCount: worker.inbox.filter((message) => message.readAt === null).length,
+    createdAt: worker.createdAt,
+    lastSeenAt: worker.lastSeenAt,
+    result: worker.result,
+  };
+}
+
 function publicRun(run: WorkerRun) {
   return {
     runId: run.runId,
     primeAlias: run.primeAlias,
     parked: run.parked,
-    workers: run.workers.map((worker) => ({
-      id: worker.id,
-      label: worker.label,
-      task: worker.task,
-      state: worker.state,
-      alias: worker.alias,
-      worktreePath: worker.worktreePath,
-      createdAt: worker.createdAt,
-      lastSeenAt: worker.lastSeenAt,
-      result: worker.result,
-    })),
+    workers: run.workers.map(publicWorker),
   };
+}
+
+export async function assertAliasLive(runtime: WorkerToolRuntime, alias: string): Promise<void> {
+  await assertWorkerAliasLive(
+    {
+      taskStateRoot: runtime.taskStateRoot,
+      audit: runtime.audit,
+      maxWorkers: runtime.config.workers.maxWorkers,
+      maxParkedRuns: runtime.config.workers.maxParkedRuns,
+    },
+    alias,
+  );
 }
 
 const spawnSpecSchema = z.object({
@@ -106,7 +137,7 @@ export function registerWorkerTools(server: McpServer, runtime: WorkerToolRuntim
   server.registerTool(
     "worker_status",
     {
-      description: "Read one worker run with inbox notes, states and finish reports. No lease required.",
+      description: "Read one worker run with the bounded inbox view, states and finish reports. Reading consumes: unread inbox messages are marked read by this call. No lease required.",
       inputSchema: z.object({ runId: z.string().min(1).max(128) }).strict(),
       outputSchema: workerRunOutputSchema,
       annotations: readAnnotations,
@@ -117,24 +148,25 @@ export function registerWorkerTools(server: McpServer, runtime: WorkerToolRuntim
   server.registerTool(
     "worker_message",
     {
-      description: "Append a bounded note to one worker's inbox. A sleeping worker wakes to active. Terminal workers refuse. No lease required.",
+      description: "Queue one bounded message to a worker inbox with a sender direction (prime default, worker for reports). 200-message cap: oldest read drops first, full-unread refuses. A sleeping worker wakes to active. Terminal workers refuse. No lease required.",
       inputSchema: z.object({
         runId: z.string().min(1).max(128),
         workerId: z.string().min(1).max(64),
         message: z.string().min(1).max(4_000),
+        from: z.enum(["prime", "worker"]).default("prime"),
       }).strict(),
       outputSchema: workerRunOutputSchema,
       annotations,
     },
-    async ({ runId, workerId, message }) => safeCall(async () => publicRun(
-      await (await storeFor(runtime)).message(runId, workerId, message),
+    async ({ runId, workerId, message, from }) => safeCall(async () => publicRun(
+      await (await storeFor(runtime)).message(runId, workerId, message, from),
     )),
   );
 
   server.registerTool(
     "worker_sleep",
     {
-      description: "Park one worker as sleeping without losing its task, notes or alias binding. No lease required.",
+      description: "Park one worker as sleeping without losing its task, inbox or alias binding. No lease required.",
       inputSchema: z.object({
         runId: z.string().min(1).max(128),
         workerId: z.string().min(1).max(64),
@@ -150,7 +182,7 @@ export function registerWorkerTools(server: McpServer, runtime: WorkerToolRuntim
   server.registerTool(
     "worker_finish",
     {
-      description: "Close one worker with its final report. When every worker of the run is terminal, the run parks as retained history. No lease required.",
+      description: "Close one worker with its final report and retire its alias: later checkpoint/push writes from that alias fail closed with WORKER_RETIRED. When every worker of the run is terminal, the run parks as retained history. No lease required.",
       inputSchema: z.object({
         runId: z.string().min(1).max(128),
         workerId: z.string().min(1).max(64),
