@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ContinuityNotFoundError } from "../src/continuity-errors.js";
-import { projectContinuityResultOutputSchema, projectResumeOutputSchema } from "../src/continuity-output-schemas.js";
+import { projectContinuityResultOutputSchema, projectListOutputSchema, projectResumeOutputSchema } from "../src/continuity-output-schemas.js";
 import {
   registerProjectContinuityTools,
   projectCheckpointInputSchema,
@@ -80,7 +80,14 @@ function fakeRuntime() {
     continuity: {
       register: async (input: unknown) => { calls.push({ method: "register", input }); return result; },
       checkpoint: async (input: unknown) => { calls.push({ method: "checkpoint", input }); return result; },
-      contextRead: async (input: unknown) => { calls.push({ method: "contextRead", input }); return result; },
+      contextRead: async (input: unknown) => {
+        calls.push({ method: "contextRead", input });
+        return result;
+      },
+      listProjects: async () => {
+        calls.push({ method: "listProjects", input: {} });
+        return { projects: [] };
+      },
       resume: async (input: unknown) => {
         calls.push({ method: "resume", input });
         return {
@@ -128,7 +135,7 @@ function validTask() {
 }
 
 describe("project continuity MCP registration", () => {
-  it("registers exactly four strict continuity tools with the intended annotations and model guidance", () => {
+  it("registers exactly five strict continuity tools with the intended annotations and model guidance", () => {
     const { tools } = registerFixture();
 
     expect([...tools.keys()]).toEqual([
@@ -136,6 +143,7 @@ describe("project continuity MCP registration", () => {
       "project_resume",
       "project_checkpoint",
       "project_context_read",
+      "project_list",
     ]);
     expect(tools.get("project_register")?.definition.annotations).toEqual({
       readOnlyHint: false,
@@ -161,12 +169,20 @@ describe("project continuity MCP registration", () => {
       idempotentHint: true,
       openWorldHint: false,
     });
+    expect(tools.get("project_list")?.definition.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
 
     expect(tools.get("project_resume")?.definition.description).toMatch(/continue.*registered project.*alias/i);
     expect(tools.get("project_resume")?.definition.description).toMatch(/never fuzzy/i);
     expect(tools.get("project_checkpoint")?.definition.description).toMatch(/direction changes|important decisions/i);
     expect(tools.get("project_checkpoint")?.definition.description).toMatch(/not automatically logged/i);
     expect(tools.get("project_context_read")?.definition.description).toMatch(/truncated|full current semantic record/i);
+    expect(tools.get("project_list")?.definition.description).toMatch(/list all registered project aliases/i);
+    expect(tools.get("project_list")?.definition.description).toMatch(/never fuzzy/i);
 
     expect(projectRegisterInputSchema.safeParse({
       alias: "Project-X",
@@ -189,6 +205,8 @@ describe("project continuity MCP registration", () => {
       alias: "Project-X",
       recordVersion: 1,
     }).success).toBe(false);
+    expect(projectListOutputSchema.safeParse({ projects: [] }).success).toBe(true);
+    expect(projectListOutputSchema.safeParse({ projects: [{ alias: "x" }] }).success).toBe(false);
   });
 
   it("enforces bounded semantic input sizes at the public schema", () => {
@@ -289,11 +307,13 @@ describe("project continuity MCP registration", () => {
       authorityLeaseId: "A".repeat(43),
       alias: "Project-X",
     } as never) as { structuredContent?: unknown };
+    const listed = await tools.get("project_list")!.handler({} as never) as { structuredContent?: unknown };
 
     expect(projectResumeOutputSchema.safeParse(resume.structuredContent).success).toBe(true);
     expect(projectContinuityResultOutputSchema.safeParse(checkpoint.structuredContent).success).toBe(true);
     expect(projectContinuityResultOutputSchema.safeParse(context.structuredContent).success).toBe(true);
-    expect(runtime.calls.slice(-3)).toEqual([
+    expect(projectListOutputSchema.safeParse(listed.structuredContent).success).toBe(true);
+    expect(runtime.calls.slice(-4)).toEqual([
       { method: "resume", input: { alias: "Project-X", requestedTtlSeconds: 120 } },
       {
         method: "checkpoint",
@@ -308,6 +328,7 @@ describe("project continuity MCP registration", () => {
         },
       },
       { method: "contextRead", input: { authorityLeaseId: "A".repeat(43), alias: "Project-X" } },
+      { method: "listProjects", input: {} },
     ]);
   });
 

@@ -37,6 +37,16 @@ interface SemanticRecordRow {
   created_at: string;
 }
 
+export interface ProjectListEntry {
+  alias: string;
+  roots: string[];
+  recordVersion: number;
+  worktreePath: string;
+  updatedAt: string;
+}
+
+const MAX_LIST_PROJECTS = 100;
+
 interface ProjectRow {
   id: string;
   alias: string;
@@ -414,6 +424,30 @@ export class ContinuityStore {
       projectId,
     );
     if (result.changes !== 1) throw new ContinuityNotFoundError();
+  }
+
+  listProjects(): ProjectListEntry[] {
+    interface ListRow {
+      alias: string;
+      roots_json: string;
+      current_record_version: number;
+      canonical_path: string;
+      updated_at: string;
+    }
+    const rows = this.db.prepare(`
+      SELECT p.alias, p.roots_json, p.current_record_version, w.canonical_path, p.updated_at
+      FROM projects p
+      JOIN worktrees w ON w.project_id = p.id
+      ORDER BY p.updated_at DESC
+      LIMIT ?
+    `).all(MAX_LIST_PROJECTS) as ListRow[];
+    return parseStoredValue(() => rows.map((row) => ({
+      alias: row.alias,
+      roots: continuityProjectRootsSchema.parse(JSON.parse(row.roots_json)),
+      recordVersion: row.current_record_version,
+      worktreePath: row.canonical_path,
+      updatedAt: row.updated_at,
+    })));
   }
 
   close(): void {
