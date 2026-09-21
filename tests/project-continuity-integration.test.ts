@@ -304,7 +304,7 @@ describe("Project Continuity v1 integration hardening", () => {
     store.close();
   });
 
-  it("preserves last-good remote evidence and reports unverified when origin becomes unreachable after restart", async () => {
+  it("preserves last-good remote evidence without querying origin on restart", async () => {
     const fixture = await createFixture(true);
     const firstStore = new ContinuityStore({ databasePath: fixture.databasePath });
     const firstAuthority = createAuthority(fixture);
@@ -319,15 +319,12 @@ describe("Project Continuity v1 integration hardening", () => {
     const mainLastGoodAt = initial.publishedState.main.lastVerifiedAt;
     firstStore.close();
 
+    let remoteQueries = 0;
     const offlineInspector = createInspector({
       runGit: async (cwd, args, timeoutMs) => {
-        if (args.includes("ls-remote")) {
-          return {
-            exitCode: 1,
-            stdout: Buffer.alloc(0),
-            stderr: Buffer.from("network unavailable"),
-            timedOut: true,
-          };
+        if (args.includes("ls-remote") || args.includes("remote")) {
+          remoteQueries += 1;
+          throw new Error("Unexpected remote Git query during local continuation.");
         }
         return testGitRunner(cwd, args, timeoutMs);
       },
@@ -340,19 +337,20 @@ describe("Project Continuity v1 integration hardening", () => {
 
     expect(refreshed.publishedState.branch).toMatchObject({
       status: "unverified",
-      reason: "remote_error",
+      reason: "not_checked",
       lastVerifiedSha: branchLastGood,
       lastVerifiedAt: branchLastGoodAt,
     });
     expect(refreshed.publishedState.main).toMatchObject({
       status: "unverified",
-      reason: "remote_error",
+      reason: "not_checked",
       lastVerifiedSha: mainLastGood,
       lastVerifiedAt: mainLastGoodAt,
     });
     expect(resumed.resumePackage).toContain("branchPublished: unverified");
     expect(resumed.resumePackage).toContain("mainPublished: unverified");
     expect(resumed.resumePackage).not.toContain("branchPublished: not_found");
+    expect(remoteQueries).toBe(0);
 
     restartedAuthority.end(resumed.authorityLease.leaseId);
     restartedStore.close();

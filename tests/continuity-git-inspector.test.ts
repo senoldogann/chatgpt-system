@@ -104,6 +104,25 @@ afterEach(async () => {
 });
 
 describe("ContinuityGitInspector", () => {
+  it("skips remote lookups without presenting cached refs as current", async () => {
+    const fixture = await createRepoFixture(true);
+    const first = await inspector({}).inspect(fixture.worktree);
+    const calls: string[] = [];
+    const local = inspector({
+      runGit: (cwd, args, timeout) => {
+        calls.push(args.join(" "));
+        if (args.includes("remote") || args.includes("ls-remote")) throw new Error("Remote query attempted");
+        return testGitRunner(cwd, args, timeout);
+      },
+    });
+    await writeFile(path.join(fixture.worktree, "tracked.txt"), "dirty\n");
+    const result = await local.inspect(fixture.worktree, first.published, { remote: "skip" });
+    expect(result.local.unstagedPaths).toEqual(["tracked.txt"]);
+    expect(result.published.branch).toMatchObject({ status: "unverified", reason: "not_checked", lastVerifiedSha: first.published.branch.currentSha });
+    expect(result.published.branch.currentSha).toBeUndefined();
+    expect(result.published.main.status).toBe("unverified");
+    expect(calls.some((call) => call.includes("ls-remote") || call.includes(" remote "))).toBe(false);
+  });
   it("inspects exact linked-worktree identity and current dirty state", async () => {
     const fixture = await createRepoFixture(false);
     await writeFile(path.join(fixture.worktree, "tracked.txt"), "unstaged\n");

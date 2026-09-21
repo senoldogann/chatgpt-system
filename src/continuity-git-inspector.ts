@@ -268,23 +268,29 @@ export class ContinuityGitInspector {
   async inspect(
     worktreePath: string,
     previousPublished?: ContinuityPublishedState,
+    options: { remote?: "verify" | "skip" } = {},
   ): Promise<ContinuityInspection> {
     const checkedAt = new Date(this.now()).toISOString();
     const canonicalInput = await this.canonicalWorktreePath(worktreePath);
 
-    const inside = text(await this.runRequired(canonicalInput, ["rev-parse", "--is-inside-work-tree"]));
-    const bare = text(await this.runRequired(canonicalInput, ["rev-parse", "--is-bare-repository"]));
+    const [insideResult, bareResult] = await Promise.all([
+      this.runRequired(canonicalInput, ["rev-parse", "--is-inside-work-tree"]),
+      this.runRequired(canonicalInput, ["rev-parse", "--is-bare-repository"]),
+    ]);
+    const inside = text(insideResult);
+    const bare = text(bareResult);
     if (inside !== "true" || bare !== "false") {
       throw new ContinuityWorktreeInvalidError("The requested path is not a non-bare Git worktree.");
     }
 
-    const topLevelRaw = text(await this.runRequired(canonicalInput, ["rev-parse", "--show-toplevel"]));
-    const commonGitDirRaw = text(await this.runRequired(canonicalInput, [
-      "rev-parse", "--path-format=absolute", "--git-common-dir",
-    ]));
-    const gitDirRaw = text(await this.runRequired(canonicalInput, [
-      "rev-parse", "--path-format=absolute", "--git-dir",
-    ]));
+    const [topLevelResult, commonGitDirResult, gitDirResult] = await Promise.all([
+      this.runRequired(canonicalInput, ["rev-parse", "--show-toplevel"]),
+      this.runRequired(canonicalInput, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+      this.runRequired(canonicalInput, ["rev-parse", "--path-format=absolute", "--git-dir"]),
+    ]);
+    const topLevelRaw = text(topLevelResult);
+    const commonGitDirRaw = text(commonGitDirResult);
+    const gitDirRaw = text(gitDirResult);
     const canonicalPath = await this.realpathOrInvalid(topLevelRaw);
     const commonGitDir = await this.realpathOrInvalid(commonGitDirRaw);
     const gitDir = await this.realpathOrInvalid(gitDirRaw);
@@ -301,13 +307,17 @@ export class ContinuityGitInspector {
     const repositoryRoot = path.basename(commonGitDir) === ".git"
       ? path.dirname(commonGitDir)
       : canonicalPath;
-    const branchText = text(await this.runRequired(canonicalInput, ["branch", "--show-current"]));
+    const [branchResult, headResult, status] = await Promise.all([
+      this.runRequired(canonicalInput, ["branch", "--show-current"]),
+      this.runRequired(canonicalInput, ["rev-parse", "HEAD"]),
+      this.runRequired(canonicalInput, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+    ]);
+    const branchText = text(branchResult);
     const branch = branchText === "" ? null : branchText;
-    const headSha = text(await this.runRequired(canonicalInput, ["rev-parse", "HEAD"]));
+    const headSha = text(headResult);
     if (!/^[a-f0-9]{40,64}$/.test(headSha)) {
       throw new ContinuityWorktreeInvalidError("Git returned an invalid HEAD object ID.");
     }
-    const status = await this.runRequired(canonicalInput, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
     const paths = parsePorcelainStatus(status.stdout, this.maxTrackedPaths);
 
     const identityValue: StoredWorktreeIdentity = {
@@ -324,7 +334,9 @@ export class ContinuityGitInspector {
       headSha,
       ...paths,
     };
-    const published = await this.inspectPublished(canonicalInput, branch, checkedAt, previousPublished);
+    const published = options.remote === "skip"
+      ? this.remoteUnavailable(previousPublished?.remoteName ?? null, branch === null ? null : `refs/heads/${branch}`, "refs/heads/main", checkedAt, previousPublished, "not_checked")
+      : await this.inspectPublished(canonicalInput, branch, checkedAt, previousPublished);
     return { identity: identityValue, local, published };
   }
 
@@ -333,8 +345,9 @@ export class ContinuityGitInspector {
     expected: StoredWorktreeIdentity,
     previousPublished?: ContinuityPublishedState,
     registeredAt?: string,
+    options: { remote?: "verify" | "skip" } = {},
   ): Promise<ContinuityInspection> {
-    const current = await this.inspect(worktreePath, previousPublished);
+    const current = await this.inspect(worktreePath, previousPublished, options);
     if (
       current.identity.canonicalPath !== expected.canonicalPath
       || current.identity.repositoryIdentity !== expected.repositoryIdentity
@@ -472,7 +485,7 @@ export class ContinuityGitInspector {
     mainRef: string,
     checkedAt: string,
     previous: ContinuityPublishedState | undefined,
-    reason: "remote_missing" | "remote_error",
+    reason: "remote_missing" | "remote_error" | "not_checked",
   ): ContinuityPublishedState {
     const branchState = branchRef === null
       ? remoteRefState("not_found", null, undefined, checkedAt, previous?.branch, "detached_head")

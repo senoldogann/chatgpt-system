@@ -172,6 +172,7 @@ export class ProjectContinuityService {
       stored.worktree,
       stored.publishedState,
       stored.createdAt,
+      { remote: "skip" },
     );
 
     this.store.checkpoint({
@@ -208,6 +209,7 @@ export class ProjectContinuityService {
       project.worktree,
       project.publishedState,
       project.createdAt,
+      { remote: "skip" },
     );
     const authorityLease = await this.authority.start({
       profile: "project",
@@ -280,6 +282,7 @@ export class ProjectContinuityService {
       stored.worktree,
       stored.publishedState,
       stored.createdAt,
+      { remote: "skip" },
     );
     return { ...context };
   }

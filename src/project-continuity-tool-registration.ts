@@ -168,7 +168,7 @@ export function registerProjectContinuityTools(
   server.registerTool(
     "project_checkpoint",
     {
-      description: "Update the current project continuity record after user direction changes, important decisions, milestones or failures, before a long or tool-heavy or remote-sensitive sequence where developer MCP capability could disappear between messages, and before a project handoff or final response. Delivery 1 is not automatically logged, so checkpoints must be written deliberately.",
+      description: "Update Project Continuity only for important decisions, changed blockers, verified delivery, ownership transfer or final handoff. A risk checkpoint is appropriate before an exceptional irreversible transition where developer MCP capability could disappear between messages. Do not checkpoint automatically for long commands, tool counts, repeated checks or every final response; consolidate unchanged milestones. Delivery 1 is not automatically logged.",
       inputSchema: projectCheckpointInputSchema,
       outputSchema: projectContinuityResultOutputSchema,
       annotations: mutationAnnotations,

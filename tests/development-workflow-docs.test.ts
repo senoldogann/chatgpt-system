@@ -9,6 +9,15 @@ async function readAgents() {
 }
 
 describe("risk-tiered development protocol", () => {
+  it("does not require a checkpoint for call counts or repeat identical verification", async () => {
+    const agents = await readAgents();
+    expect(agents).not.toMatch(/8 or more sequential MCP calls/i);
+    expect(agents).not.toMatch(/before.*every.*long.*test/i);
+    expect(agents).toMatch(/checkpoint.*only.*meaningful.*handoff|checkpoint.*only.*meaningful.*change/i);
+    expect(agents).toMatch(/avoid.*duplicate.*checkpoint/i);
+    expect(agents).toMatch(/remote.*verification.*explicit|explicit.*remote.*verification/i);
+    expect(agents.length).toBeLessThan(7_000);
+  });
   it("defines three risk tiers with proportionate verification", async () => {
     const agents = await readAgents();
     const procedure = agents.split("## Risk-tiered development and verification")[1]?.split("\n## ")[0] ?? "";
@@ -55,7 +64,7 @@ describe("risk-tiered development protocol", () => {
   it("keeps ordinary development on main while preserving publication boundaries", async () => {
     const agents = await readAgents();
 
-    expect(agents).toMatch(/authoritative checkout on `main` by default/i);
+    expect(agents).toMatch(/Develop directly on `main` by default.*authoritative checkout/i);
     expect(agents).toMatch(/non-`main` clean worktree/i);
     expect(agents).toMatch(/fresh `project_check` PASS/i);
     expect(agents).toMatch(/exact `HEAD`.*workingTreeDigest/i);
