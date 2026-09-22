@@ -12,6 +12,14 @@ export type ProjectCheckHostExecutorFactory = (
   repositoryRoot: string,
 ) => ProjectCheckExecutor;
 
+// Real macOS Xcode tests can outlast the ordinary 60-second terminal limit.
+// Extend only the fixed xcodebuild verification lane, never arbitrary commands.
+export function nativeVerificationTimeoutMs(command: string, requested: number, configured: number): number {
+  return command === "xcodebuild"
+    ? Math.min(requested, 600_000)
+    : Math.min(requested, configured);
+}
+
 export function createAdminHostProjectCheckExecutor(
   authority: AuthorityContext,
   repositoryRoot: string,
@@ -35,7 +43,7 @@ export function createAdminHostProjectCheckExecutor(
         terminal,
         limits: {
           ...baseConfig.limits,
-          commandTimeoutMs: Math.min(timeoutMs, baseConfig.limits.commandTimeoutMs),
+          commandTimeoutMs: nativeVerificationTimeoutMs(command, timeoutMs, baseConfig.limits.commandTimeoutMs),
         },
       };
       return new ProcessService(policy, audit, scopedConfig).run(command, args, cwd);

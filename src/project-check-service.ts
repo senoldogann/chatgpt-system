@@ -28,6 +28,7 @@ import type {
 } from "./project-check-types.js";
 import { TaskStateService } from "./task-state-service.js";
 import { discoverNativeSwiftTestChecks } from "./project-native-checks.js";
+import { discoverXcodeProjectChecks } from "./project-xcode-checks.js";
 import type { RepositoryStateObservation } from "./task-state-types.js";
 
 const STORE_VERSION = 1;
@@ -255,7 +256,9 @@ export class ProjectCheckService {
   private async detectChecks(observation: RepositoryStateObservation): Promise<DetectedProjectCheck[]> {
     const nodeChecks = await this.detectNodeChecks(observation.repositoryRoot);
     if (nodeChecks.length > 0) return nodeChecks.slice(0, MAX_CHECKS);
-    return (await this.detectSwiftPMChecks(observation.repositoryRoot)).slice(0, MAX_CHECKS);
+    const swiftChecks = await this.detectSwiftPMChecks(observation.repositoryRoot);
+    if (swiftChecks.length > 0) return swiftChecks.slice(0, MAX_CHECKS);
+    return (await discoverXcodeProjectChecks(observation.repositoryRoot)).slice(0, MAX_CHECKS);
   }
 
   private async loadStore(observation: RepositoryStateObservation): Promise<StoredProjectVerification> {
@@ -449,7 +452,7 @@ export class ProjectCheckService {
               detectedCheck.command,
               detectedCheck.args,
               before.repositoryRoot,
-              timeoutMs ?? this.limits.commandTimeoutMs,
+              timeoutMs ?? (detectedCheck.command === "xcodebuild" ? 600_000 : this.limits.commandTimeoutMs),
             );
             baseStatus = result.exitCode === 0
               ? "PASS"

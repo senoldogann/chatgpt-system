@@ -159,7 +159,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-type FixtureKind = "node" | "swiftpm" | "mixed";
+type FixtureKind = "node" | "swiftpm" | "mixed" | "xcode";
 
 async function fixture(projectExecEnabled = true, kind: FixtureKind = "node") {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-project-check-"));
@@ -187,6 +187,13 @@ async function fixture(projectExecEnabled = true, kind: FixtureKind = "node") {
       "utf8",
     );
   }
+  if (kind === "xcode") {
+    const project = path.join(root, "Fixture.xcodeproj");
+    await mkdir(path.join(project, "xcshareddata", "xcschemes"), { recursive: true });
+    await writeFile(path.join(project, "project.pbxproj"), "// !$*UTF8*$!\n{ objects = {}; }\n", "utf8");
+    await writeFile(path.join(project, "xcshareddata", "xcschemes", "Fixture.xcscheme"),
+      '<Scheme><BuildAction/><TestAction/></Scheme>\n', "utf8");
+  }
   git(root, ["init", "-q"]);
   git(root, ["config", "user.email", "project-check@example.invalid"]);
   git(root, ["config", "user.name", "Project Check Test"]);
@@ -196,7 +203,7 @@ async function fixture(projectExecEnabled = true, kind: FixtureKind = "node") {
   const config: AppConfig = {
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
-    terminal: { enabled: true, commands: ["node", "npm", "git", "swift"] },
+    terminal: { enabled: true, commands: ["node", "npm", "git", "swift", "xcodebuild"] },
     projectExec: { enabled: projectExecEnabled },
     skills: { enabled: true, directory: path.join(base, "skills") },
     goal: { enabled: true, maxTranscriptChars: 120_000 },
@@ -269,6 +276,64 @@ async function verificationStorePath(taskStateRoot: string): Promise<string> {
 }
 
 describe("project_check MCP tool", () => {
+  it("detects fixed Debug test and Release build checks for a single shared Xcode scheme", async () => {
+    const connected = await fixture(true, "xcode");
+    try {
+      const leaseId = await projectLease(connected.client, connected.root);
+      const detected = await connected.client.callTool({ name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "detect", cwd: connected.root },
+      });
+      expect(detected.isError).not.toBe(true);
+      const view = detected.structuredContent as unknown as ProjectCheckView;
+      expect(view.overallStatus).toBe("NOT_RUN");
+      expect(view.checks.map((item) => [item.checkId, item.command, item.execution])).toEqual([
+        ["xcode:test", "xcodebuild", "admin-host"],
+        ["xcode:release-build", "xcodebuild", "admin-host"],
+      ]);
+      const denied = await connected.client.callTool({ name: "project_check",
+        arguments: { authorityLeaseId: leaseId, operation: "run", cwd: connected.root },
+      });
+      expect(denied.isError).toBe(true);
+      expect(resultText(denied)).toContain("AUTHORITY_DENIED");
+      expect(connected.host.requests).toHaveLength(0);
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
+  it("executes both Xcode checks on host with a bounded native timeout and freshness-bound private evidence", async () => {
+    const connected = await fixture(false, "xcode");
+    try {
+      const projectLeaseId = await projectLease(connected.client, connected.root);
+      const hostLeaseId = await nativeLaneLease(connected.client, connected.root);
+      const run = await connected.client.callTool({ name: "project_check", arguments: {
+        operation: "run", authorityLeaseId: projectLeaseId,
+        adminAuthorityLeaseId: hostLeaseId, cwd: connected.root,
+      } });
+      expect(run.isError).not.toBe(true);
+      expect((run.structuredContent as unknown as ProjectCheckView).overallStatus).toBe("PASS");
+      expect(connected.backend.requests).toHaveLength(0);
+      expect(connected.host.requests).toHaveLength(2);
+      expect(connected.host.requests.map(({ command, timeoutMs }) => [command, timeoutMs])).toEqual([
+        ["xcodebuild", 600_000], ["xcodebuild", 600_000],
+      ]);
+      const report = await connected.client.callTool({ name: "project_check", arguments: {
+        operation: "report", authorityLeaseId: projectLeaseId, cwd: connected.root,
+      } });
+      const view = report.structuredContent as unknown as ProjectCheckView;
+      expect(view.overallStatus).toBe("PASS");
+      expect(view.checks.every((item) => item.evidence?.execution === "admin-host"
+        && item.evidence.stdoutBytes > 0)).toBe(true);
+      const stored = await readFile(await verificationStorePath(connected.taskStateRoot), "utf8");
+      expect(stored).not.toContain("native-secret");
+      expect(stored).not.toContain("native output");
+    } finally {
+      await connected.transport.terminateSession();
+      await connected.client.close();
+    }
+  });
+
   it("detects fixed native checks for a pure SwiftPM repository", async () => {
     const connected = await fixture(true, "swiftpm");
     try {
