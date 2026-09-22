@@ -10,6 +10,7 @@ import {
   type ProjectCheckRuntimeDependencies,
 } from "../src/project-check-factory.js";
 import type { ProjectExecBackend } from "../src/project-exec-types.js";
+import { nativeVerificationTimeoutMs } from "../src/project-check-host-executor.js";
 
 const cleanups: string[] = [];
 
@@ -117,6 +118,12 @@ function errorCode(error: unknown): unknown {
 }
 
 describe("native project verification host executor", () => {
+  it("allows bounded long Xcode checks without extending ordinary host command timeouts", () => {
+    expect(nativeVerificationTimeoutMs("xcodebuild", 600_000, 60_000)).toBe(600_000);
+    expect(nativeVerificationTimeoutMs("xcodebuild", 900_000, 60_000)).toBe(600_000);
+    expect(nativeVerificationTimeoutMs("xcodebuild", 20_000, 60_000)).toBe(20_000);
+    expect(nativeVerificationTimeoutMs("swift", 600_000, 60_000)).toBe(60_000);
+  });
   it("uses the Project command allowlist before launching a native check", async () => {
     const connected = await fixture(["git"]);
     const factory = createProjectCheckHostExecutorFactory(connected.runtime, connected.leaseId);
