@@ -28,6 +28,13 @@ const mutationAnnotations = {
   openWorldHint: false,
 };
 
+const removeAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: false,
+};
+
 function textResult(value: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
 }
@@ -96,7 +103,7 @@ export function registerSkillsTools(server: McpServer, runtime: SkillsToolRuntim
       description: "Remove one installed skill and all its package resources. No lease required.",
       inputSchema: z.object({ id: z.string().min(1).max(64) }).strict(),
       outputSchema: z.object({ removed: z.literal(true) }).strict(),
-      annotations: mutationAnnotations,
+      annotations: removeAnnotations,
     },
     async ({ id }) => safeCall(async () => {
       await (await storeFor(runtime)).remove(id);

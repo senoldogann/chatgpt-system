@@ -19,6 +19,9 @@ project_register/project_resume alias akışını kullanır.
 Server options:
   --root <path>                    Allow a filesystem root (repeatable). Defaults to cwd.
   --audit-file <path>              JSONL audit log path.
+  --tool-profile <full|dev>        Published tool catalog. full (default) lists every enabled capability;
+                                   dev also hides browser_*, computer_*, shell_run and terminal_session_*.
+                                   Tools of disabled capabilities are never listed.
   --enable-terminal                Enable terminal_run. Disabled by default.
   --enable-project-exec            Enable Docker-sandboxed Project execution. Disabled by default.
   --enable-owner-runtime           Enable unrestricted Owner Runtime shell capabilities. Disabled by default.
@@ -98,7 +101,7 @@ async function main(): Promise<void> {
         reportError: reportShutdownError,
       }));
       console.error(
-        `[chatgpt-system] stdio ready; roots=${config.roots.join(",")}; terminal=${config.terminal.enabled ? "enabled" : "disabled"}; owner-runtime=${config.ownerRuntime.enabled ? "enabled" : "disabled"}; project-exec=${config.projectExec.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; jev-targeting=${config.jevTargeting.enabled ? "enabled" : "disabled"}`,
+        `[chatgpt-system] stdio ready; roots=${config.roots.join(",")}; tool-profile=${config.toolProfile ?? "full"}; terminal=${config.terminal.enabled ? "enabled" : "disabled"}; owner-runtime=${config.ownerRuntime.enabled ? "enabled" : "disabled"}; project-exec=${config.projectExec.enabled ? "enabled" : "disabled"}; browser=${config.browser.enabled ? (config.browser.headless ? "headless" : "headed") : "disabled"}; computer=${config.computerUse.enabled ? "enabled" : "disabled"}; jev-targeting=${config.jevTargeting.enabled ? "enabled" : "disabled"}`,
       );
       return;
     }

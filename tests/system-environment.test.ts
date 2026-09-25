@@ -331,9 +331,11 @@ describe("system_environment MCP tool", () => {
       expect(tool?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
       expect(tool?.description).toMatch(/bootstrap roots.*defaults only/i);
       expect(tool?.description).toMatch(/outside.*bootstrap roots/i);
-      expect(tool?.description).toMatch(/developer MCP/i);
-      expect(tool?.description).toMatch(/do not.*daemon/i);
-      expect(tool?.description).toMatch(/project_resume/i);
+      // Oturum rehberi araç açıklamasında değil, sunucu talimatlarındadır.
+      const instructions = client.getInstructions() ?? "";
+      expect(instructions).toMatch(/developer MCP/i);
+      expect(instructions).toMatch(/not a local daemon failure/i);
+      expect(instructions).toMatch(/project_resume/i);
       expect(tool?.outputSchema).toMatchObject({ type: "object" });
 
       const result = await client.callTool({ name: "system_environment", arguments: {} });

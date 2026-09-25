@@ -20,6 +20,13 @@ describe("CLI command routing", () => {
     });
   });
 
+  it("parses --tool-profile and rejects unknown profiles", () => {
+    expect(parseCliCommand(["stdio", "--tool-profile", "dev"]).overrides.toolProfile).toBe("dev");
+    expect(parseCliCommand(["stdio", "--tool-profile", "full"]).overrides.toolProfile).toBe("full");
+    expect(() => parseCliCommand(["stdio", "--tool-profile", "admin"])).toThrow(/--tool-profile must be one of/);
+    expect(() => parseCliCommand(["stdio", "--tool-profile"])).toThrow(/requires a value/);
+  });
+
   it("expands owner-workstation without enabling browser", () => {
     expect(parseCliCommand(["stdio", "--owner-workstation"])).toEqual({
       kind: "server",

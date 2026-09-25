@@ -214,7 +214,7 @@ describe("browser MCP tools", () => {
       for (const name of expectedTools) {
         const description = byName.get(name)?.description ?? "";
         expect(description, `${name} must identify semantic Playwright routing`).toMatch(/semantic Playwright/i);
-        expect(description, `${name} must defer explicit Computer Use`).toMatch(/do not use.*Computer Use/i);
+        expect(description, `${name} must distinguish the user's real Chrome`).toMatch(/separate from the user's real Google Chrome/i);
         expect(description, `${name} must point to Computer Runtime`).toContain("computer_*");
       }
 

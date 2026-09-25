@@ -22,11 +22,12 @@ export interface GoalToolRuntime {
   opencodeAuthPath?: string;
 }
 
+// OpenCode Go anahtarı varsa girdi dış API'ye gider; bu yüzden open-world.
 const annotations = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
-  openWorldHint: false,
+  openWorldHint: true,
 };
 
 function textResult(value: unknown) {
@@ -135,7 +136,7 @@ export function registerGoalTool(server: McpServer, runtime: GoalToolRuntime): v
     "goal_advise",
     {
       description:
-        "Decide whether the whole requested job is clearly complete and, while it is not, draft the exact next instruction covering the largest coherent remaining work. OpenCode Go key present: LLM-backed decision; otherwise rule-based fallback (reason names the path). Manual only: it never sends anything and Loop mode does not exist. No lease required.",
+        "Decide whether the whole requested job is clearly complete and, while it is not, draft the exact next instruction covering the largest coherent remaining work. OpenCode Go key present: the supplied goal and transcript are sent to the OpenCode Go API for an LLM-backed decision; otherwise rule-based fallback (reason names the path). Manual only: it never posts chat messages and Loop mode does not exist. No lease required.",
       inputSchema: goalAdviseInputSchema,
       outputSchema: goalAdviseOutputSchema,
       annotations,

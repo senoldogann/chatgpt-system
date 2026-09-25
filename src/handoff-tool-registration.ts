@@ -23,11 +23,12 @@ export interface HandoffToolRuntime {
   opencodeAuthPath?: string;
 }
 
+// OpenCode Go anahtarı varsa girdi dış API'ye gider; bu yüzden open-world.
 const annotations = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
-  openWorldHint: false,
+  openWorldHint: true,
 };
 
 function textResult(value: unknown) {

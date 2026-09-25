@@ -49,6 +49,7 @@ import { registerWorkerTools } from "./worker-tool-registration.js";
 import { assertWorkerAliasLive } from "./worker-store.js";
 import { registerHandoffTool } from "./handoff-tool-registration.js";
 import { trackToolSurface } from "./tool-surface-publication.js";
+import { applyToolExposure } from "./tool-exposure.js";
 import { SessionEventStore } from "./session-event-store.js";
 import type { ProjectExecBackend } from "./project-exec-types.js";
 import { createOpenRuntime, createScopedRuntime } from "./scoped-runtime.js";
@@ -283,18 +284,23 @@ const destructiveAnnotations = { readOnlyHint: false, destructiveHint: true, ide
 const gitLocalMutationAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
 const gitRemoteMutationAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 
+// Oturum düzeyi iş akışı rehberi araç açıklamalarında değil burada durur;
+// açıklamalar yalnızca aracın ne yaptığını anlatır.
+export const SERVER_INSTRUCTIONS = "chatgpt-system gives access to the user's local project workspace. To continue a registered project, call project_resume with its exact alias (project_list when the alias is unknown) and reconcile Git state before any project mutation. If the host reports 'This conversation does not support developer MCPs', that is developer MCP product-surface/tool-routing unavailability, not a local daemon failure: do not repeatedly retry the unavailable namespace, do not substitute container access, and do not claim local changes; continue in a new or recovered chat and call project_resume before mutation.";
+
 export function createMcpServer(runtime: RuntimeServices): McpServer {
   const authorityStartInputSchema = projectAuthorityStartInputSchema;
   const server = new McpServer(
     { name: "chatgpt-system", version: "0.1.0" },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
   );
   trackToolSurface(server);
+  applyToolExposure(server, runtime.config);
 
   server.registerTool(
     "system_capabilities",
     {
-      description: "Show bootstrap filesystem roots, safety limits, audit path, and startup terminal configuration. Bootstrap roots are defaults only: Project leases may target other explicit project directories outside bootstrap roots, while filesystem root and the entire home directory remain forbidden for Project authority. If ChatGPT reports 'This conversation does not support developer MCPs', treat that as developer MCP product-surface/tool-routing unavailability; do not treat it as daemon failure. Do not repeatedly retry an unavailable developer-MCP namespace, do not substitute container/local-host access, and do not claim local changes. Move to a new supported or recovered chat when needed; once developer MCP capability returns, project_resume the exact registered project before mutation.",
+      description: "Show bootstrap filesystem roots, safety limits, audit path, and startup terminal configuration. Bootstrap roots are defaults only: Project leases may target other explicit project directories outside bootstrap roots, while filesystem root and the entire home directory remain forbidden for Project authority.",
       inputSchema: z.object({}),
       outputSchema: systemCapabilitiesOutputSchema,
       annotations: readAnnotations,
@@ -350,7 +356,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "system_environment",
     {
-      description: "Describe the local runtime environment without running terminal commands. Bootstrap roots are defaults only: Project leases may target other explicit project directories outside bootstrap roots. If ChatGPT reports 'This conversation does not support developer MCPs', treat that as developer MCP product-surface/tool-routing unavailability; do not treat it as daemon failure. Do not repeatedly retry an unavailable developer-MCP namespace, do not substitute container/local-host access, and do not claim local changes. Move to a new supported or recovered chat when needed; once developer MCP capability returns, project_resume the exact registered project before mutation. Read-only; exposes no secret values.",
+      description: "Describe the local runtime environment without running terminal commands. Bootstrap roots are defaults only: Project leases may target other explicit project directories outside bootstrap roots. Read-only; exposes no secret values.",
       inputSchema: z.object({}),
       outputSchema: systemEnvironmentOutputSchema,
       annotations: readAnnotations,
@@ -714,7 +720,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
         idempotencyKey: z.string().min(1).max(256).optional(),
       }).strict(),
       outputSchema: processSummaryOutputSchema,
-      annotations: sessionStartAnnotations,
+      annotations: destructiveAnnotations,
     },
     async ({ authorityLeaseId, command, args, cwd, idempotencyKey }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.start(command, args, cwd, idempotencyKey)),
   );
