@@ -1,5 +1,5 @@
-import type { ComputerErrorCode } from "../../src/computer-errors.js";
-import type { ComputerScrollUntilVisibleResult } from "../../src/computer-types.js";
+import type { ComputerErrorCode } from "../../src/computer/computer-errors.js";
+import type { ComputerScrollUntilVisibleResult } from "../../src/computer/computer-types.js";
 import {
   COMPUTER_FLOW_OPERATIONS,
   type ComputerFlowFailureCategory,

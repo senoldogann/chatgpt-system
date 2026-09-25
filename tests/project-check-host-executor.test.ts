@@ -2,15 +2,15 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuthorityManager } from "../src/authority.js";
-import { AuditLogger } from "../src/audit.js";
-import type { AppConfig } from "../src/config.js";
+import { AuthorityManager } from "../src/core/authority.js";
+import { AuditLogger } from "../src/core/audit.js";
+import type { AppConfig } from "../src/core/config.js";
 import {
   createProjectCheckHostExecutorFactory,
   type ProjectCheckRuntimeDependencies,
-} from "../src/project-check-factory.js";
-import type { ProjectExecBackend } from "../src/project-exec-types.js";
-import { nativeVerificationTimeoutMs } from "../src/project-check-host-executor.js";
+} from "../src/project/project-check-factory.js";
+import type { ProjectExecBackend } from "../src/project/project-exec-types.js";
+import { nativeVerificationTimeoutMs } from "../src/project/project-check-host-executor.js";
 
 const cleanups: string[] = [];
 

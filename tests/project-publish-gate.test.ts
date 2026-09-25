@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ContinuityResumeContext } from "../src/continuity-resume-registry.js";
-import type { GitResult } from "../src/git-service.js";
-import type { ProjectCheckStatus, ProjectCheckView } from "../src/project-check-types.js";
-import { ProjectPublishGate } from "../src/project-publish-gate.js";
+import type { ContinuityResumeContext } from "../src/continuity/continuity-resume-registry.js";
+import type { GitResult } from "../src/git/git-service.js";
+import type { ProjectCheckStatus, ProjectCheckView } from "../src/project/project-check-types.js";
+import { ProjectPublishGate } from "../src/project/project-publish-gate.js";
 
 const VERIFIED_HEAD = "a".repeat(40);
 const DIGEST = "b".repeat(64);

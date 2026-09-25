@@ -3,19 +3,19 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { ComputerError } from "../src/computer-errors.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { ComputerError } from "../src/computer/computer-errors.js";
 import {
   ComputerNativeSupervisor,
   type ComputerSpawn,
-} from "../src/computer-native-supervisor.js";
-import { ComputerRuntime } from "../src/computer-runtime.js";
-import type { ComputerAction, ComputerRunResult } from "../src/computer-types.js";
-import { loadConfig } from "../src/config.js";
+} from "../src/computer/computer-native-supervisor.js";
+import { ComputerRuntime } from "../src/computer/computer-runtime.js";
+import type { ComputerAction, ComputerRunResult } from "../src/computer/computer-types.js";
+import { loadConfig } from "../src/core/config.js";
 import { createRuntimeServices } from "../src/server.js";
-import { createScopedRuntime } from "../src/scoped-runtime.js";
-import { ScopedComputerService, type ScopedComputerBackend } from "../src/scoped-computer-service.js";
-import { ScopedComputerJsService } from "../src/scoped-computer-js-service.js";
+import { createScopedRuntime } from "../src/core/scoped-runtime.js";
+import { ScopedComputerService, type ScopedComputerBackend } from "../src/computer/scoped-computer-service.js";
+import { ScopedComputerJsService } from "../src/computer/scoped-computer-js-service.js";
 
 const cleanups: string[] = [];
 

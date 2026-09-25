@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { ConflictError, LimitError, ProcessIdentityUnverifiedError } from "../src/errors.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { ConflictError, LimitError, ProcessIdentityUnverifiedError } from "../src/core/errors.js";
 import {
   ProcessSupervisor,
   type ManagedProcessState,
-} from "../src/process-supervisor.js";
+} from "../src/process/process-supervisor.js";
 
 const cleanups: string[] = [];
 const supervisors: ProcessSupervisor[] = [];
@@ -365,7 +365,7 @@ describe("ProcessSupervisor core", () => {
     const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-daemon-restart-"));
     cleanups.push(base);
     const persistencePath = path.join(base, "processes");
-    const supervisorModule = path.resolve("dist/process-supervisor.js");
+    const supervisorModule = path.resolve("dist/process/process-supervisor.js");
     const limits = "{ maxManagedProcesses: 4, maxProcessLogBytesPerStream: 128, processStopGraceMs: 100 }";
     const runDaemon = (script: string) => new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
       const child = spawn(process.execPath, ["--input-type=module", "-e", script], { cwd: base, stdio: ["ignore", "pipe", "pipe"] });
@@ -390,7 +390,7 @@ describe("ProcessSupervisor core", () => {
     const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-daemon-reconnect-"));
     cleanups.push(base);
     const persistencePath = path.join(base, "processes");
-    const supervisorModule = path.resolve("dist/process-supervisor.js");
+    const supervisorModule = path.resolve("dist/process/process-supervisor.js");
     const limits = "{ maxManagedProcesses: 4, maxProcessLogBytesPerStream: 128, processStopGraceMs: 100 }";
     const runDaemon = (script: string) => new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
       const child = spawn(process.execPath, ["--input-type=module", "-e", script], { cwd: base, stdio: ["ignore", "pipe", "pipe"] });

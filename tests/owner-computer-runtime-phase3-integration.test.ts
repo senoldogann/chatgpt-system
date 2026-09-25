@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ComputerUseConfig } from "../src/config.js";
-import { ComputerJsRuntime } from "../src/computer-js-runtime.js";
-import { ComputerJsRunnerSupervisor } from "../src/computer-js-runner-supervisor.js";
-import { ComputerRuntime, type ComputerNativeRequesting } from "../src/computer-runtime.js";
-import type { ComputerNativeMethod } from "../src/computer-types.js";
+import type { ComputerUseConfig } from "../src/core/config.js";
+import { ComputerJsRuntime } from "../src/computer/computer-js-runtime.js";
+import { ComputerJsRunnerSupervisor } from "../src/computer/computer-js-runner-supervisor.js";
+import { ComputerRuntime, type ComputerNativeRequesting } from "../src/computer/computer-runtime.js";
+import type { ComputerNativeMethod } from "../src/computer/computer-types.js";
 
-const runnerEntrypoint = fileURLToPath(new URL("../dist/computer-js-runner.js", import.meta.url));
+const runnerEntrypoint = fileURLToPath(new URL("../dist/computer/computer-js-runner.js", import.meta.url));
 const cleanups: string[] = [];
 
 const computerConfig: ComputerUseConfig = {

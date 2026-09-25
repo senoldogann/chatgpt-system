@@ -2,8 +2,8 @@ import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { ProcessSupervisor } from "../src/process-supervisor.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { ProcessSupervisor } from "../src/process/process-supervisor.js";
 
 const cleanups: string[] = [];
 const supervisors: ProcessSupervisor[] = [];

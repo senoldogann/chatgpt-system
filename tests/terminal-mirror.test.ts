@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { TerminalMirror } from "../src/terminal-mirror.js";
+import { TerminalMirror } from "../src/terminal/terminal-mirror.js";
 
 const cleanups: string[] = [];
 

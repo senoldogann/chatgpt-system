@@ -2,8 +2,8 @@ import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { AppError } from "../src/errors.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { AppError } from "../src/core/errors.js";
 
 const cleanups: string[] = [];
 

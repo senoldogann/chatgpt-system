@@ -7,9 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   ComputerJsRunnerSupervisor,
   type ComputerJsSpawnOptions,
-} from "../src/computer-js-runner-supervisor.js";
+} from "../src/computer/computer-js-runner-supervisor.js";
 
-const runnerEntrypoint = fileURLToPath(new URL("../dist/computer-js-runner.js", import.meta.url));
+const runnerEntrypoint = fileURLToPath(new URL("../dist/computer/computer-js-runner.js", import.meta.url));
 const cleanups: string[] = [];
 const supervisors: ComputerJsRunnerSupervisor[] = [];
 
@@ -247,7 +247,7 @@ describe("ComputerJsRunnerSupervisor", () => {
 
   it("makes user takeover fatal even when source tries to catch the computer RPC failure", async () => {
     const supervisor = createSupervisor();
-    const takeover = new (await import("../src/computer-errors.js")).ComputerError("COMPUTER_USER_TAKEOVER");
+    const takeover = new (await import("../src/computer/computer-errors.js")).ComputerError("COMPUTER_USER_TAKEOVER");
 
     await expect(supervisor.run({
       source: `

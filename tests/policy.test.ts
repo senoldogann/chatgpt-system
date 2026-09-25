@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { PathPolicy } from "../src/policy.js";
-import { PolicyError } from "../src/errors.js";
+import { PathPolicy } from "../src/core/policy.js";
+import { PolicyError } from "../src/core/errors.js";
 
 const cleanups: string[] = [];
 

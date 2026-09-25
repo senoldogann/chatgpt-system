@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { BrowserBackend, BrowserTargetMetadata } from "../src/browser-backend.js";
+import type { BrowserBackend, BrowserTargetMetadata } from "../src/browser/browser-backend.js";
 import type {
   BrowserConsoleResult,
   BrowserHealth,
@@ -11,9 +11,9 @@ import type {
   BrowserScreenshot,
   BrowserTabView,
   BrowserTarget,
-} from "../src/browser-types.js";
-import type { AppConfig } from "../src/config.js";
-import { createScopedRuntime } from "../src/scoped-runtime.js";
+} from "../src/browser/browser-types.js";
+import type { AppConfig } from "../src/core/config.js";
+import { createScopedRuntime } from "../src/core/scoped-runtime.js";
 import { createRuntimeServices } from "../src/server.js";
 
 const PAGE_ID = "page_AUDIT_SENTINEL_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";

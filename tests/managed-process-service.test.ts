@@ -2,10 +2,10 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { ManagedProcessService } from "../src/managed-process-service.js";
-import { PathPolicy } from "../src/policy.js";
-import { ProcessSupervisor } from "../src/process-supervisor.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { ManagedProcessService } from "../src/process/managed-process-service.js";
+import { PathPolicy } from "../src/core/policy.js";
+import { ProcessSupervisor } from "../src/process/process-supervisor.js";
 
 const cleanups: string[] = [];
 const supervisors: ProcessSupervisor[] = [];

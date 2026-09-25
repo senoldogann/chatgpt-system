@@ -2,12 +2,12 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import type { OwnerRuntimeConfig } from "../src/config.js";
-import { PathPolicy } from "../src/policy.js";
-import type { TerminalPtyBackend, TerminalPtyExit, TerminalPtyHandle, TerminalPtySpawnInput } from "../src/terminal-pty-backend.js";
-import { TerminalSessionService } from "../src/terminal-session-service.js";
-import { TerminalSessionSupervisor } from "../src/terminal-session-supervisor.js";
+import { AuditLogger } from "../src/core/audit.js";
+import type { OwnerRuntimeConfig } from "../src/core/config.js";
+import { PathPolicy } from "../src/core/policy.js";
+import type { TerminalPtyBackend, TerminalPtyExit, TerminalPtyHandle, TerminalPtySpawnInput } from "../src/terminal/terminal-pty-backend.js";
+import { TerminalSessionService } from "../src/terminal/terminal-session-service.js";
+import { TerminalSessionSupervisor } from "../src/terminal/terminal-session-supervisor.js";
 
 class FakePty implements TerminalPtyHandle {
   cols: number;

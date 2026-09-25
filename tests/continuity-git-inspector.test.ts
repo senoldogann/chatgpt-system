@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   ContinuityGitInspector,
   type ContinuityGitCommandResult,
-} from "../src/continuity-git-inspector.js";
+} from "../src/continuity/continuity-git-inspector.js";
 
 const execFileAsync = promisify(execFile);
 const cleanups: string[] = [];

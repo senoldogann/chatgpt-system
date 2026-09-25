@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NodePtyBackend } from "../src/terminal-pty-backend.js";
+import { NodePtyBackend } from "../src/terminal/terminal-pty-backend.js";
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {

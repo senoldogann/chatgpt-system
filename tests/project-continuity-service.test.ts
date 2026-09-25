@@ -4,11 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AuthorityManager } from "../src/authority.js";
-import { ContinuityGitInspector } from "../src/continuity-git-inspector.js";
-import { ContinuityStore } from "../src/continuity-store.js";
-import { ContinuityResumeRegistry } from "../src/continuity-resume-registry.js";
-import { ProjectContinuityService } from "../src/project-continuity-service.js";
+import { AuthorityManager } from "../src/core/authority.js";
+import { ContinuityGitInspector } from "../src/continuity/continuity-git-inspector.js";
+import { ContinuityStore } from "../src/continuity/continuity-store.js";
+import { ContinuityResumeRegistry } from "../src/continuity/continuity-resume-registry.js";
+import { ProjectContinuityService } from "../src/continuity/project-continuity-service.js";
 
 const execFileAsync = promisify(execFile);
 const cleanups: string[] = [];

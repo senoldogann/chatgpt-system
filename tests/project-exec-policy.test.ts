@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   PROJECT_EXEC_IMAGE,
   buildDockerProjectExecInvocation,
-} from "../src/docker-project-exec-backend.js";
+} from "../src/project/docker-project-exec-backend.js";
 
 
 describe("Docker project execution policy", () => {

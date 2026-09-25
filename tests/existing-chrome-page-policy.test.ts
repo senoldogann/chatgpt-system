@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isExistingChromePageEligible } from "../src/existing-chrome-page-policy.js";
+import { isExistingChromePageEligible } from "../src/browser/existing-chrome-page-policy.js";
 
 describe("existing Chrome page eligibility", () => {
   it("allows only HTTP(S) pages and exact about:blank", () => {

@@ -5,16 +5,16 @@ import path from "node:path";
 import {
   AuthorityManager,
   type AuthorityContext,
-} from "../src/authority.js";
-import { AuditLogger } from "../src/audit.js";
-import type { AppConfig } from "../src/config.js";
+} from "../src/core/authority.js";
+import { AuditLogger } from "../src/core/audit.js";
+import type { AppConfig } from "../src/core/config.js";
 import {
   AuthorityDeniedError,
   AuthorityExpiredError,
   AuthorityRequiredError,
   PolicyError,
-} from "../src/errors.js";
-import { createScopedRuntime } from "../src/scoped-runtime.js";
+} from "../src/core/errors.js";
+import { createScopedRuntime } from "../src/core/scoped-runtime.js";
 
 describe("AuthorityManager", () => {
   let fixtureRoot: string;

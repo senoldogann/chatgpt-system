@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BrowserContext, Page } from "playwright";
-import { createBrowserService, type BrowserFactoryOptions } from "../src/browser-factory.js";
-import { loadConfig } from "../src/config.js";
-import type { ExistingChromePlaywrightFacade } from "../src/existing-chrome-connector.js";
+import { createBrowserService, type BrowserFactoryOptions } from "../src/browser/browser-factory.js";
+import { loadConfig } from "../src/core/config.js";
+import type { ExistingChromePlaywrightFacade } from "../src/browser/existing-chrome-connector.js";
 
 const cleanups: string[] = [];
 

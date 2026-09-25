@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { JevSystemOneRequest, JevSystemOneResponse } from "../src/jev-client.js";
-import { resolveSemanticTarget, type ComputerObservationView } from "../src/jev-target-resolver.js";
+import type { JevSystemOneRequest, JevSystemOneResponse } from "../src/computer/jev-client.js";
+import { resolveSemanticTarget, type ComputerObservationView } from "../src/computer/jev-target-resolver.js";
 
 function buildObservation(
   elements: ComputerObservationView["elements"],

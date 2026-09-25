@@ -2,17 +2,17 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { ContinuityNotFoundError } from "../src/continuity-errors.js";
-import { WorkerStore } from "../src/worker-store.js";
-import { projectContinuityResultOutputSchema, projectListOutputSchema, projectResumeOutputSchema } from "../src/continuity-output-schemas.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { ContinuityNotFoundError } from "../src/continuity/continuity-errors.js";
+import { WorkerStore } from "../src/agent/worker-store.js";
+import { projectContinuityResultOutputSchema, projectListOutputSchema, projectResumeOutputSchema } from "../src/continuity/continuity-output-schemas.js";
 import {
   registerProjectContinuityTools,
   projectCheckpointInputSchema,
   projectContextReadInputSchema,
   projectRegisterInputSchema,
   projectResumeInputSchema,
-} from "../src/project-continuity-tool-registration.js";
+} from "../src/continuity/project-continuity-tool-registration.js";
 
 interface RegisteredTool {
   definition: {

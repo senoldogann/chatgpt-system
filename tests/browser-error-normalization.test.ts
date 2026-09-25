@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BrowserBackend, BrowserTargetMetadata } from "../src/browser-backend.js";
+import type { BrowserBackend, BrowserTargetMetadata } from "../src/browser/browser-backend.js";
 import type {
   BrowserConsoleResult,
   BrowserHealth,
@@ -8,9 +8,9 @@ import type {
   BrowserScreenshot,
   BrowserTabView,
   BrowserTarget,
-} from "../src/browser-types.js";
-import { BrowserService } from "../src/browser-service.js";
-import { BrowserError } from "../src/errors.js";
+} from "../src/browser/browser-types.js";
+import { BrowserService } from "../src/browser/browser-service.js";
+import { BrowserError } from "../src/core/errors.js";
 
 function backendWithTabsError(error: Error): BrowserBackend {
   const unavailable = async (): Promise<never> => { throw error; };

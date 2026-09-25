@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { completeUtf8Span } from "../src/utf8-boundary.js";
+import { completeUtf8Span } from "../src/core/utf8-boundary.js";
 
 function span(bytes: number[]) {
   return completeUtf8Span(Uint8Array.from(bytes));

@@ -5,16 +5,16 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { AuthorityManager } from "../src/authority.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { AuthorityManager } from "../src/core/authority.js";
 import {
   ContinuityGitInspector,
   type ContinuityGitCommandResult,
-} from "../src/continuity-git-inspector.js";
-import { ContinuityStore } from "../src/continuity-store.js";
-import { FileSystemService } from "../src/fs-service.js";
-import { PathPolicy } from "../src/policy.js";
-import { ProjectContinuityService } from "../src/project-continuity-service.js";
+} from "../src/continuity/continuity-git-inspector.js";
+import { ContinuityStore } from "../src/continuity/continuity-store.js";
+import { FileSystemService } from "../src/fs/fs-service.js";
+import { PathPolicy } from "../src/core/policy.js";
+import { ProjectContinuityService } from "../src/continuity/project-continuity-service.js";
 
 const execFileAsync = promisify(execFile);
 const cleanups: string[] = [];

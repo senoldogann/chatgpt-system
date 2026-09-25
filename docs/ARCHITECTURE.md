@@ -53,6 +53,22 @@ AuditLogger (redacted JSONL metadata)
 
 One `RuntimeServices` instance owns one `AuthorityManager`, one `ProcessSupervisor`, one `OwnerShellSupervisor`, and one optional browser service/runtime. HTTP, stdio, and every open-scope MCP call reuse that same runtime. There is no control socket, no approval broker, no shadow lease store, per-request process registry, or second browser agent.
 
+## Source layout
+
+`src/` is grouped by domain; each domain keeps its services and its `*-tool-registration.ts` MCP surface together.
+
+| Folder | Contents |
+| --- | --- |
+| `src/` (root) | `cli.ts`, `cli-command.ts`, `index.ts`, `server.ts` (runtime composition, server instructions), `transport.ts`. `dist/cli.js` stays the stable entrypoint for tunnel profiles and LaunchAgents. |
+| `core/` | configuration, errors, audit, authority, path policy and locks, scoped runtime, shared helpers (glob, UTF-8 boundaries) |
+| `mcp/` | tool annotations presets, exposure/profile filter, result helpers, output schemas, surface tracking, system tools |
+| `fs/`, `git/`, `code/` | filesystem and patch sets; Git and managed worktrees; `code_query` and the TypeScript language service |
+| `process/`, `terminal/` | allowlisted processes and the detached wrapper; Owner shell, PTY sessions and the terminal mirror |
+| `project/` | `project_check`, `project_exec` (Docker), native/Xcode checks, publish gate, task state |
+| `continuity/`, `bridge/` | Project Continuity and session events; the extension bridge and chat bindings |
+| `browser/`, `computer/` | Playwright/Existing-Chrome runtime; native Computer Runtime, full-host JS runner, Jev targeting |
+| `agent/` | skills, goal advice, handoff briefs, worker coordination, OpenCode auth |
+
 ## Filesystem path decision
 
 For each requested path:

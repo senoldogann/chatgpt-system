@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { CHAT_BINDINGS_FILE_NAME, ChatProjectBindings, MAX_CHAT_BINDINGS, normalizeChatId } from "../src/chat-bindings.js";
+import { CHAT_BINDINGS_FILE_NAME, ChatProjectBindings, MAX_CHAT_BINDINGS, normalizeChatId } from "../src/bridge/chat-bindings.js";
 
 const cleanups: string[] = [];
 

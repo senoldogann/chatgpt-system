@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BrowserError } from "../src/errors.js";
+import { BrowserError } from "../src/core/errors.js";
 import type {
   BrowserConsoleResult,
   BrowserHealth,
@@ -8,12 +8,12 @@ import type {
   BrowserScreenshot,
   BrowserTabView,
   BrowserTarget,
-} from "../src/browser-types.js";
+} from "../src/browser/browser-types.js";
 import type {
   BrowserBackend,
   BrowserTargetMetadata,
-} from "../src/browser-backend.js";
-import { BrowserService } from "../src/browser-service.js";
+} from "../src/browser/browser-backend.js";
+import { BrowserService } from "../src/browser/browser-service.js";
 
 const PAGE_ID = "page_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const TARGET: BrowserTarget = { by: "role", role: "textbox", name: "Email", exact: true };

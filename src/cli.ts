@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { parseCliCommand } from "./cli-command.js";
-import { loadConfig } from "./config.js";
-import { closeRuntimeResources, type RuntimeShutdownPhase } from "./runtime-shutdown.js";
+import { loadConfig } from "./core/config.js";
+import { closeRuntimeResources, type RuntimeShutdownPhase } from "./core/runtime-shutdown.js";
 import { createRuntimeServices } from "./server.js";
 import { startHttp, startStdio } from "./transport.js";
 

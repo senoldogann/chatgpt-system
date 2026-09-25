@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ContinuityStore } from "../src/continuity-store.js";
-import { ConflictError } from "../src/errors.js";
+import { ContinuityStore } from "../src/continuity/continuity-store.js";
+import { ConflictError } from "../src/core/errors.js";
 
 const cleanups: string[] = [];
 

@@ -4,10 +4,10 @@ import { chmod, mkdtemp, mkdir, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { loadConfig } from "../src/config.js";
-import { GitService } from "../src/git-service.js";
-import { PathPolicy } from "../src/policy.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { loadConfig } from "../src/core/config.js";
+import { GitService } from "../src/git/git-service.js";
+import { PathPolicy } from "../src/core/policy.js";
 
 const cleanups: string[] = [];
 

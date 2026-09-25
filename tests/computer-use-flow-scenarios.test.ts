@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { COMPUTER_ERROR_MESSAGES, type ComputerErrorCode } from "../src/computer-errors.js";
-import type { ComputerScrollUntilVisibleResult } from "../src/computer-types.js";
+import { COMPUTER_ERROR_MESSAGES, type ComputerErrorCode } from "../src/computer/computer-errors.js";
+import type { ComputerScrollUntilVisibleResult } from "../src/computer/computer-types.js";
 import {
   COMPUTER_FLOW_ERROR_MAP,
   COMPUTER_FLOW_SCROLL_STATE_MAP,

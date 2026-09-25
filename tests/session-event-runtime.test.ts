@@ -5,10 +5,10 @@ import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadConfig } from "../src/config.js";
-import { closeRuntimeResources } from "../src/runtime-shutdown.js";
+import { loadConfig } from "../src/core/config.js";
+import { closeRuntimeResources } from "../src/core/runtime-shutdown.js";
 import { createRuntimeServices } from "../src/server.js";
-import { SessionEventStore } from "../src/session-event-store.js";
+import { SessionEventStore } from "../src/continuity/session-event-store.js";
 import { startHttp } from "../src/transport.js";
 
 const cleanups: string[] = [];

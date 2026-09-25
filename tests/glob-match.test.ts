@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileGlob } from "../src/glob-match.js";
+import { compileGlob } from "../src/core/glob-match.js";
 
 function matches(glob: string, paths: string[]): string[] {
   const test = compileGlob(glob);

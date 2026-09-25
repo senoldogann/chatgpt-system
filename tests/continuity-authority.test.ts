@@ -5,8 +5,8 @@ import path from "node:path";
 import {
   AuthorityManager,
   canonicalizeProjectRoots,
-} from "../src/authority.js";
-import { AuthorityDeniedError } from "../src/errors.js";
+} from "../src/core/authority.js";
+import { AuthorityDeniedError } from "../src/core/errors.js";
 
 const cleanups: string[] = [];
 

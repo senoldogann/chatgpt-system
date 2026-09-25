@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
-const runnerPath = fileURLToPath(new URL("../dist/computer-js-runner.js", import.meta.url));
+const runnerPath = fileURLToPath(new URL("../dist/computer/computer-js-runner.js", import.meta.url));
 const cleanups: string[] = [];
 
 interface RunnerExecution {

@@ -5,8 +5,8 @@ import {
   HandoffLlmResponseError,
   type HandoffFetchImpl,
   type HandoffLlmRequest,
-} from "../src/handoff-llm.js";
-import type { GoalLlmConfig } from "../src/config.js";
+} from "../src/agent/handoff-llm.js";
+import type { GoalLlmConfig } from "../src/core/config.js";
 
 const config: GoalLlmConfig = {
   baseUrl: "https://opencode.ai/zen/go/v1/chat/completions",

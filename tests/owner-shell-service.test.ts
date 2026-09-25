@@ -1,10 +1,10 @@
 import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { OwnerShellService } from "../src/owner-shell-service.js";
-import { OwnerShellSupervisor } from "../src/owner-shell-supervisor.js";
-import { PathPolicy } from "../src/policy.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { OwnerShellService } from "../src/terminal/owner-shell-service.js";
+import { OwnerShellSupervisor } from "../src/terminal/owner-shell-supervisor.js";
+import { PathPolicy } from "../src/core/policy.js";
 import { executableTestTemp } from "./test-temp.js";
 import { quietLoginShellPath } from "./support/quiet-login-shell.js";
 

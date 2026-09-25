@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { registerProjectContinuityTools } from "../src/project-continuity-tool-registration.js";
+import { registerProjectContinuityTools } from "../src/continuity/project-continuity-tool-registration.js";
 
 interface RegisteredTool {
   definition: { description?: string };

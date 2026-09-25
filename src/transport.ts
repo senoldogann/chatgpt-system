@@ -16,11 +16,11 @@ import {
   readBridgeContext,
   readBridgeStatusForAlias,
   resolveBridgeAlias,
-} from "./bridge.js";
-import { normalizeChatId } from "./chat-bindings.js";
-import { ContinuityNotFoundError } from "./continuity-errors.js";
-import { PolicyError } from "./errors.js";
-import { isLoopbackHost } from "./config.js";
+} from "./bridge/bridge.js";
+import { normalizeChatId } from "./bridge/chat-bindings.js";
+import { ContinuityNotFoundError } from "./continuity/continuity-errors.js";
+import { PolicyError } from "./core/errors.js";
+import { isLoopbackHost } from "./core/config.js";
 import type { RuntimeServices } from "./server.js";
 import { createMcpServer } from "./server.js";
 

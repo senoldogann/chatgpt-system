@@ -67,7 +67,7 @@ export async function collectOwnerWorkstationStatus(options = {}) {
       if (options.createSupervisor) {
         supervisor = await options.createSupervisor({ bundlePath });
       } else {
-        const { ComputerNativeSupervisor } = await import("../dist/computer-native-supervisor.js");
+        const { ComputerNativeSupervisor } = await import("../dist/computer/computer-native-supervisor.js");
         supervisor = new ComputerNativeSupervisor({
           enabled: true,
           hostBundlePath: bundlePath,

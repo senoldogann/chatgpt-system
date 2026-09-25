@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { JevApiError, JevClient, JevResponseError, JEV_BASE_URL } from "../src/jev-client.js";
-import type { JevSystemOneRequest } from "../src/jev-client.js";
+import { JevApiError, JevClient, JevResponseError, JEV_BASE_URL } from "../src/computer/jev-client.js";
+import type { JevSystemOneRequest } from "../src/computer/jev-client.js";
 
 const request: JevSystemOneRequest = {
   state: "Window: Fixture",

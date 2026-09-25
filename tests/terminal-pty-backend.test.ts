@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { NodePtyBackend } from "../src/terminal-pty-backend.js";
+import { NodePtyBackend } from "../src/terminal/terminal-pty-backend.js";
 
 describe("NodePtyBackend", () => {
   it("loads node-pty lazily and maps the native handle without exposing backend-specific APIs", async () => {

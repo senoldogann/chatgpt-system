@@ -4,11 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
-import { ComputerError } from "../../src/computer-errors.js";
-import { ComputerNativeSupervisor } from "../../src/computer-native-supervisor.js";
-import { ComputerRuntime, type ComputerNativeRequesting } from "../../src/computer-runtime.js";
-import type { ComputerNativeMethod } from "../../src/computer-types.js";
-import { loadConfig } from "../../src/config.js";
+import { ComputerError } from "../../src/computer/computer-errors.js";
+import { ComputerNativeSupervisor } from "../../src/computer/computer-native-supervisor.js";
+import { ComputerRuntime, type ComputerNativeRequesting } from "../../src/computer/computer-runtime.js";
+import type { ComputerNativeMethod } from "../../src/computer/computer-types.js";
+import { loadConfig } from "../../src/core/config.js";
 import {
   createComputerFlowNativeFixtureOracleReader,
   type ComputerFlowNativeFixtureOracleReader,

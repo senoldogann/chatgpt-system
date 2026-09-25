@@ -5,17 +5,17 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import type { AppConfig } from "../src/config.js";
+import { AuditLogger } from "../src/core/audit.js";
+import type { AppConfig } from "../src/core/config.js";
 import {
   resolutionSearchDirs,
   resolveAllowedCommands,
   resolveExecutablePath,
-} from "../src/executable-resolution.js";
-import { PathPolicy } from "../src/policy.js";
-import { ProcessService } from "../src/process-service.js";
+} from "../src/core/executable-resolution.js";
+import { PathPolicy } from "../src/core/policy.js";
+import { ProcessService } from "../src/process/process-service.js";
 import { createRuntimeServices } from "../src/server.js";
-import { describeSystemEnvironment, prettyOperatingSystemName } from "../src/system-environment.js";
+import { describeSystemEnvironment, prettyOperatingSystemName } from "../src/core/system-environment.js";
 import { startHttp } from "../src/transport.js";
 import { executableTestTemp } from "./test-temp.js";
 

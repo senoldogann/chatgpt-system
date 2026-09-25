@@ -2,21 +2,21 @@ import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ComputerUseConfig } from "../src/config.js";
-import { ComputerError } from "../src/computer-errors.js";
-import { ComputerJsRuntime } from "../src/computer-js-runtime.js";
+import type { ComputerUseConfig } from "../src/core/config.js";
+import { ComputerError } from "../src/computer/computer-errors.js";
+import { ComputerJsRuntime } from "../src/computer/computer-js-runtime.js";
 import type {
   ComputerJsRunnerRequest,
   ComputerJsRunnerResult,
-} from "../src/computer-js-runner-supervisor.js";
-import { dispatchComputerJsRpc } from "../src/computer-js-rpc.js";
+} from "../src/computer/computer-js-runner-supervisor.js";
+import { dispatchComputerJsRpc } from "../src/computer/computer-js-rpc.js";
 import {
   ComputerRuntime,
   type ComputerNativeRequesting,
   type ComputerProgramSession,
-} from "../src/computer-runtime.js";
-import type { ComputerNativeMethod, ComputerResolvedTargetView } from "../src/computer-types.js";
-import { closeRuntimeResources } from "../src/runtime-shutdown.js";
+} from "../src/computer/computer-runtime.js";
+import type { ComputerNativeMethod, ComputerResolvedTargetView } from "../src/computer/computer-types.js";
+import { closeRuntimeResources } from "../src/core/runtime-shutdown.js";
 
 const cleanups: string[] = [];
 

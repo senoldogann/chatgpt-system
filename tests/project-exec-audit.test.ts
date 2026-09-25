@@ -2,10 +2,10 @@ import { mkdtemp, mkdir, readFile, realpath, rm, symlink } from "node:fs/promise
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { PathPolicy } from "../src/policy.js";
-import { ProjectExecService } from "../src/project-exec-service.js";
-import type { ProjectExecBackend } from "../src/project-exec-types.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { PathPolicy } from "../src/core/policy.js";
+import { ProjectExecService } from "../src/project/project-exec-service.js";
+import type { ProjectExecBackend } from "../src/project/project-exec-types.js";
 
 const cleanups: string[] = [];
 

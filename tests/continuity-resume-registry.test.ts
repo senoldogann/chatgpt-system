@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ContinuityResumeRegistry, type ContinuityResumeContext } from "../src/continuity-resume-registry.js";
+import { ContinuityResumeRegistry, type ContinuityResumeContext } from "../src/continuity/continuity-resume-registry.js";
 
 function context(index = 0): ContinuityResumeContext {
   return {

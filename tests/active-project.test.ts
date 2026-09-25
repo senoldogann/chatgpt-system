@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ACTIVE_PROJECT_FILE_NAME, ActiveProjectTracker } from "../src/active-project.js";
+import { ACTIVE_PROJECT_FILE_NAME, ActiveProjectTracker } from "../src/continuity/active-project.js";
 
 const cleanups: string[] = [];
 

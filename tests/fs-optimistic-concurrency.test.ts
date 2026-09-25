@@ -3,12 +3,12 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import type { LimitsConfig } from "../src/config.js";
-import { ConflictError } from "../src/errors.js";
-import { FileSystemService } from "../src/fs-service.js";
-import { PatchSetService } from "../src/patch-set-service.js";
-import { PathPolicy } from "../src/policy.js";
+import { AuditLogger } from "../src/core/audit.js";
+import type { LimitsConfig } from "../src/core/config.js";
+import { ConflictError } from "../src/core/errors.js";
+import { FileSystemService } from "../src/fs/fs-service.js";
+import { PatchSetService } from "../src/fs/patch-set-service.js";
+import { PathPolicy } from "../src/core/policy.js";
 
 const cleanups: string[] = [];
 const ROUNDS = 20;

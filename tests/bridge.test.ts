@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { bridgeHello, clipBridgeText, BRIDGE_APP, BRIDGE_PROTOCOL } from "../src/bridge.js";
-import type { AppConfig } from "../src/config.js";
+import { bridgeHello, clipBridgeText, BRIDGE_APP, BRIDGE_PROTOCOL } from "../src/bridge/bridge.js";
+import type { AppConfig } from "../src/core/config.js";
 import { createRuntimeServices, type RuntimeServices } from "../src/server.js";
-import { TERMINAL_MIRROR_DIRECTORY_NAME } from "../src/terminal-mirror.js";
+import { TERMINAL_MIRROR_DIRECTORY_NAME } from "../src/terminal/terminal-mirror.js";
 import { startHttp } from "../src/transport.js";
-import { WorkerStore } from "../src/worker-store.js";
+import { WorkerStore } from "../src/agent/worker-store.js";
 
 const cleanups: string[] = [];
 const servers: ReturnType<typeof startHttp>[] = [];

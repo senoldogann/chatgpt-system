@@ -2,57 +2,57 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AuthorityManager } from "./authority.js";
-import { AuditLogger } from "./audit.js";
-import { createBrowserService, type BrowserFactoryOptions } from "./browser-factory.js";
-import { DockerProjectExecBackend } from "./docker-project-exec-backend.js";
-import type { BrowserService } from "./browser-service.js";
-import { ComputerJsRuntime } from "./computer-js-runtime.js";
-import { ComputerJsRunnerSupervisor } from "./computer-js-runner-supervisor.js";
-import { ComputerNativeSupervisor } from "./computer-native-supervisor.js";
-import { ComputerRuntime, type ComputerNativeRequesting } from "./computer-runtime.js";
-import { registerBrowserTools } from "./browser-tool-registration.js";
-import { registerCodeQueryTool } from "./code-query-tool-registration.js";
-import { registerComputerTools } from "./computer-tool-registration.js";
-import { registerComputerJsTools } from "./computer-js-tool-registration.js";
-import type { AppConfig } from "./config.js";
-import { FileSystemService } from "./fs-service.js";
-import { GitService } from "./git-service.js";
-import { registerGitWorktreeTool } from "./git-worktree-tool-registration.js";
-import { registerPatchSetTool } from "./patch-set-tool-registration.js";
-import { PathPolicy } from "./policy.js";
-import { ProcessService } from "./process-service.js";
-import { ProcessSupervisor } from "./process-supervisor.js";
-import { OwnerShellSupervisor } from "./owner-shell-supervisor.js";
-import { NodePtyBackend } from "./terminal-pty-backend.js";
-import { TerminalSessionSupervisor } from "./terminal-session-supervisor.js";
+import { AuthorityManager } from "./core/authority.js";
+import { AuditLogger } from "./core/audit.js";
+import { createBrowserService, type BrowserFactoryOptions } from "./browser/browser-factory.js";
+import { DockerProjectExecBackend } from "./project/docker-project-exec-backend.js";
+import type { BrowserService } from "./browser/browser-service.js";
+import { ComputerJsRuntime } from "./computer/computer-js-runtime.js";
+import { ComputerJsRunnerSupervisor } from "./computer/computer-js-runner-supervisor.js";
+import { ComputerNativeSupervisor } from "./computer/computer-native-supervisor.js";
+import { ComputerRuntime, type ComputerNativeRequesting } from "./computer/computer-runtime.js";
+import { registerBrowserTools } from "./browser/browser-tool-registration.js";
+import { registerCodeQueryTool } from "./code/code-query-tool-registration.js";
+import { registerComputerTools } from "./computer/computer-tool-registration.js";
+import { registerComputerJsTools } from "./computer/computer-js-tool-registration.js";
+import type { AppConfig } from "./core/config.js";
+import { FileSystemService } from "./fs/fs-service.js";
+import { GitService } from "./git/git-service.js";
+import { registerGitWorktreeTool } from "./git/git-worktree-tool-registration.js";
+import { registerPatchSetTool } from "./fs/patch-set-tool-registration.js";
+import { PathPolicy } from "./core/policy.js";
+import { ProcessService } from "./process/process-service.js";
+import { ProcessSupervisor } from "./process/process-supervisor.js";
+import { OwnerShellSupervisor } from "./terminal/owner-shell-supervisor.js";
+import { NodePtyBackend } from "./terminal/terminal-pty-backend.js";
+import { TerminalSessionSupervisor } from "./terminal/terminal-session-supervisor.js";
 import {
   DEFAULT_MAX_MIRROR_FILE_BYTES,
   DEFAULT_MAX_MIRROR_SESSIONS,
   TERMINAL_MIRROR_DIRECTORY_NAME,
   TerminalMirror,
-} from "./terminal-mirror.js";
-import { registerTerminalSessionTools } from "./terminal-session-tool-registration.js";
-import { registerOwnerShellTool } from "./owner-shell-tool-registration.js";
-import type { ProjectCheckHostExecutorFactory } from "./project-check-host-executor.js";
-import { registerProjectCheckTool } from "./project-check-tool-registration.js";
-import { registerProjectExecTool } from "./project-exec-tool-registration.js";
-import { createProjectContinuityRuntime, type ProjectContinuityRuntime } from "./project-continuity-runtime.js";
-import { registerProjectContinuityTools } from "./project-continuity-tool-registration.js";
-import { registerTaskStateTool } from "./task-state-tool-registration.js";
-import { registerSkillsTools } from "./skills-tool-registration.js";
-import { registerGoalTool } from "./goal-tool-registration.js";
-import { registerWorkerTools } from "./worker-tool-registration.js";
-import { registerHandoffTool } from "./handoff-tool-registration.js";
-import { trackToolSurface } from "./tool-surface-publication.js";
-import { applyToolExposure } from "./tool-exposure.js";
-import { SessionEventStore } from "./session-event-store.js";
-import type { ProjectExecBackend } from "./project-exec-types.js";
-import { PolicyError } from "./errors.js";
-import { registerFileSystemTools } from "./fs-tool-registration.js";
-import { registerGitTools } from "./git-tool-registration.js";
-import { registerProcessTools } from "./process-tool-registration.js";
-import { registerSystemTools } from "./system-tool-registration.js";
+} from "./terminal/terminal-mirror.js";
+import { registerTerminalSessionTools } from "./terminal/terminal-session-tool-registration.js";
+import { registerOwnerShellTool } from "./terminal/owner-shell-tool-registration.js";
+import type { ProjectCheckHostExecutorFactory } from "./project/project-check-host-executor.js";
+import { registerProjectCheckTool } from "./project/project-check-tool-registration.js";
+import { registerProjectExecTool } from "./project/project-exec-tool-registration.js";
+import { createProjectContinuityRuntime, type ProjectContinuityRuntime } from "./continuity/project-continuity-runtime.js";
+import { registerProjectContinuityTools } from "./continuity/project-continuity-tool-registration.js";
+import { registerTaskStateTool } from "./project/task-state-tool-registration.js";
+import { registerSkillsTools } from "./agent/skills-tool-registration.js";
+import { registerGoalTool } from "./agent/goal-tool-registration.js";
+import { registerWorkerTools } from "./agent/worker-tool-registration.js";
+import { registerHandoffTool } from "./agent/handoff-tool-registration.js";
+import { trackToolSurface } from "./mcp/tool-surface-publication.js";
+import { applyToolExposure } from "./mcp/tool-exposure.js";
+import { SessionEventStore } from "./continuity/session-event-store.js";
+import type { ProjectExecBackend } from "./project/project-exec-types.js";
+import { PolicyError } from "./core/errors.js";
+import { registerFileSystemTools } from "./fs/fs-tool-registration.js";
+import { registerGitTools } from "./git/git-tool-registration.js";
+import { registerProcessTools } from "./process/process-tool-registration.js";
+import { registerSystemTools } from "./mcp/system-tool-registration.js";
 
 export interface RuntimeServices extends ProjectContinuityRuntime {
   config: AppConfig;
@@ -167,7 +167,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     computer,
     config,
     new ComputerJsRunnerSupervisor({
-      runnerEntrypoint: fileURLToPath(new URL("./computer-js-runner.js", import.meta.url)),
+      runnerEntrypoint: fileURLToPath(new URL("./computer/computer-js-runner.js", import.meta.url)),
       maxSourceBytes: config.computerUse.maxJsSourceBytes,
       maxOutputBytes: config.computerUse.maxJsOutputBytes,
       processStopGraceMs: config.limits.processStopGraceMs,

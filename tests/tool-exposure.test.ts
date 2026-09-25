@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { applyToolExposure, isToolExposed, type ToolExposureConfig } from "../src/tool-exposure.js";
-import { getTrackedToolSurface, trackToolSurface } from "../src/tool-surface-publication.js";
+import { applyToolExposure, isToolExposed, type ToolExposureConfig } from "../src/mcp/tool-exposure.js";
+import { getTrackedToolSurface, trackToolSurface } from "../src/mcp/tool-surface-publication.js";
 
 function config(overrides: Partial<{
   toolProfile: "full" | "dev";

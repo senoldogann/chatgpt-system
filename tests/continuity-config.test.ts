@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.js";
+import { loadConfig } from "../src/core/config.js";
 
 const originalDatabasePath = process.env.CHATGPT_SYSTEM_CONTINUITY_DATABASE;
 

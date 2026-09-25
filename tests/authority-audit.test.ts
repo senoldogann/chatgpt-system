@@ -7,9 +7,9 @@ import {
   type AuthorityAuditEvent,
   type AuthorityDenialAuditEvent,
   type AuthorityLifecycleAuditEvent,
-} from "../src/authority.js";
-import type { AppConfig } from "../src/config.js";
-import { AuthorityExpiredError, AuthorityRequiredError } from "../src/errors.js";
+} from "../src/core/authority.js";
+import type { AppConfig } from "../src/core/config.js";
+import { AuthorityExpiredError, AuthorityRequiredError } from "../src/core/errors.js";
 import { createRuntimeServices } from "../src/server.js";
 
 const cleanups: string[] = [];

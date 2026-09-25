@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { COMPUTER_MAX_RUN_STEP_RESULTS, type ComputerUseConfig } from "../src/config.js";
-import { ComputerError } from "../src/computer-errors.js";
-import { ComputerRuntime, type ComputerNativeRequesting } from "../src/computer-runtime.js";
-import type { ComputerNativeMethod } from "../src/computer-types.js";
-import { computerRunOutputSchema } from "../src/tool-output-schemas.js";
+import { COMPUTER_MAX_RUN_STEP_RESULTS, type ComputerUseConfig } from "../src/core/config.js";
+import { ComputerError } from "../src/computer/computer-errors.js";
+import { ComputerRuntime, type ComputerNativeRequesting } from "../src/computer/computer-runtime.js";
+import type { ComputerNativeMethod } from "../src/computer/computer-types.js";
+import { computerRunOutputSchema } from "../src/mcp/tool-output-schemas.js";
 
 type Call = { method: ComputerNativeMethod; params: Record<string, unknown>; timeoutMs?: number };
 

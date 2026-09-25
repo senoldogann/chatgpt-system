@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { decideGoal } from "../src/goal-service.js";
-import { boundBrief, formatActivityLine, handoffPlanNotice, resumeBootstrapText } from "../src/handoff.js";
+import { decideGoal } from "../src/agent/goal-service.js";
+import { boundBrief, formatActivityLine, handoffPlanNotice, resumeBootstrapText } from "../src/agent/handoff.js";
 
 describe("goal_advise decision logic", () => {
   it("stops when plan steps and success criteria are complete", async () => {

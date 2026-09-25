@@ -5,10 +5,10 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { ComputerError } from "../src/computer-errors.js";
-import type { ComputerAction } from "../src/computer-types.js";
-import type { AppConfig } from "../src/config.js";
-import { registerComputerTools } from "../src/computer-tool-registration.js";
+import { ComputerError } from "../src/computer/computer-errors.js";
+import type { ComputerAction } from "../src/computer/computer-types.js";
+import type { AppConfig } from "../src/core/config.js";
+import { registerComputerTools } from "../src/computer/computer-tool-registration.js";
 import { createRuntimeServices, type RuntimeServices } from "../src/server.js";
 import { startHttp } from "../src/transport.js";
 

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.js";
+import { loadConfig } from "../src/core/config.js";
 import { createMcpServer, createRuntimeServices, type RuntimeServices } from "../src/server.js";
 
 // Tüm yetenek kapıları açıkken yayınlanan kataloğun sözleşmesi: annotation

@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { AuditLogger } from "../src/audit.js";
-import { ConflictError } from "../src/errors.js";
-import { FileSystemService } from "../src/fs-service.js";
-import { PathPolicy } from "../src/policy.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { ConflictError } from "../src/core/errors.js";
+import { FileSystemService } from "../src/fs/fs-service.js";
+import { PathPolicy } from "../src/core/policy.js";
 
 const cleanups: string[] = [];
 
