@@ -143,11 +143,12 @@ function validTask() {
 }
 
 describe("project continuity MCP registration", () => {
-  it("registers exactly five strict continuity tools with the intended annotations and model guidance", () => {
+  it("registers exactly six strict continuity tools with the intended annotations and model guidance", () => {
     const { tools } = registerFixture();
 
     expect([...tools.keys()]).toEqual([
       "project_register",
+      "project_rebind",
       "project_resume",
       "project_checkpoint",
       "project_context_read",
@@ -159,6 +160,13 @@ describe("project continuity MCP registration", () => {
       idempotentHint: false,
       openWorldHint: true,
     });
+    expect(tools.get("project_rebind")?.definition.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
+    });
+    expect(tools.get("project_rebind")?.definition.description).toMatch(/moved or re-cloned/i);
     expect(tools.get("project_resume")?.definition.annotations).toEqual({
       readOnlyHint: false,
       destructiveHint: false,

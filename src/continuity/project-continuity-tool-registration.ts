@@ -29,7 +29,7 @@ import type {
   ProjectResumeResult,
 } from "./project-continuity-service.js";
 import { createSafeCall } from "../mcp/tool-result.js";
-import { READ_ONLY, WRITE_OPEN_WORLD } from "../mcp/tool-annotations.js";
+import { DESTRUCTIVE, READ_ONLY, WRITE_OPEN_WORLD } from "../mcp/tool-annotations.js";
 
 const authorityLeaseSchema = z.string().min(40).max(256);
 
@@ -65,13 +65,20 @@ export const projectCheckpointInputSchema = z.object({
   verificationSummary: verificationSummarySchema,
 }).strict();
 
+export const projectRebindInputSchema = z.object({
+  alias: continuityAliasSchema,
+  worktreePath: continuityPathSchema,
+  expectedRecordVersion: z.number().int().positive(),
+  projectRoots: z.array(continuityPathSchema).min(1).max(CONTINUITY_MAX_PROJECT_ROOTS).optional(),
+}).strict();
+
 export const projectContextReadInputSchema = z.object({
   authorityLeaseId: authorityLeaseSchema,
   alias: continuityAliasSchema,
 }).strict();
 
 export interface ProjectContinuityToolRuntime {
-  continuity: Pick<ProjectContinuityService, "register" | "resume" | "checkpoint" | "contextRead" | "listProjects">;
+  continuity: Pick<ProjectContinuityService, "register" | "rebind" | "resume" | "checkpoint" | "contextRead" | "listProjects">;
   audit: AuditLogger;
   config: AppConfig;
   taskStateRoot: string;
@@ -140,6 +147,25 @@ export function registerProjectContinuityTools(
     async (input) => safeCall(async () => publicContinuityResult(
       await runtime.continuity.register(input as ProjectRegisterInput),
     )),
+  );
+
+  server.registerTool(
+    "project_rebind",
+    {
+      description: "Re-attach an existing project alias to its current Git worktree after the project was moved or re-cloned (project_resume reports CONTINUITY_WORKTREE_MISMATCH or a missing worktree). Keeps the alias, record version and history; pass projectRoots when the parent folder changed. Does not create an authority lease; call project_resume afterwards.",
+      inputSchema: projectRebindInputSchema,
+      outputSchema: projectContinuityResultOutputSchema,
+      annotations: DESTRUCTIVE,
+    },
+    async (input) => safeCall(async () => {
+      await assertAliasLive(runtime, input.alias);
+      return publicContinuityResult(await runtime.continuity.rebind({
+        alias: input.alias,
+        worktreePath: input.worktreePath,
+        expectedRecordVersion: input.expectedRecordVersion,
+        ...(input.projectRoots !== undefined ? { projectRoots: input.projectRoots } : {}),
+      }));
+    }),
   );
 
   server.registerTool(

@@ -249,6 +249,17 @@ function parseRemoteRefs(raw: Buffer): Map<string, string> | null {
   return refs;
 }
 
+// Taşınan ya da yeniden clone'lanan proje kalıcı olarak kilitlenmesin diye hata
+// kurtarma yolunu söyler; süreklilik hata yükü yalnızca mesajı iletir.
+const REBIND_GUIDANCE = "If the project was moved or re-cloned, call project_rebind with the alias, the current worktreePath (and projectRoots if the parent folder changed), then project_resume.";
+
+function mismatch(registeredPath: string, reason: string): ContinuityWorktreeMismatchError {
+  return new ContinuityWorktreeMismatchError(
+    `The registered worktree ${registeredPath} ${reason}. ${REBIND_GUIDANCE}`,
+    { registeredPath },
+  );
+}
+
 export class ContinuityGitInspector {
   private readonly maxTrackedPaths: number;
   private readonly remoteVerificationTimeoutMs: number;
@@ -347,13 +358,23 @@ export class ContinuityGitInspector {
     registeredAt?: string,
     options: { remote?: "verify" | "skip" } = {},
   ): Promise<ContinuityInspection> {
+    try {
+      await realpath(path.resolve(worktreePath));
+    } catch {
+      throw new ContinuityWorktreeInvalidError(
+        `The registered worktree ${expected.canonicalPath} no longer exists. ${REBIND_GUIDANCE}`,
+        { registeredPath: expected.canonicalPath },
+      );
+    }
     const current = await this.inspect(worktreePath, previousPublished, options);
+    if (current.identity.canonicalPath !== expected.canonicalPath) {
+      throw mismatch(expected.canonicalPath, "now resolves to a different path");
+    }
     if (
-      current.identity.canonicalPath !== expected.canonicalPath
-      || current.identity.repositoryIdentity !== expected.repositoryIdentity
+      current.identity.repositoryIdentity !== expected.repositoryIdentity
       || current.identity.worktreeIdentity !== expected.worktreeIdentity
     ) {
-      throw new ContinuityWorktreeMismatchError();
+      throw mismatch(expected.canonicalPath, "has different Git metadata than when it was registered (re-cloned or re-initialized)");
     }
     if (registeredAt !== undefined) {
       const registeredMs = Date.parse(registeredAt);
@@ -363,15 +384,15 @@ export class ContinuityGitInspector {
       let birthtimeNs: bigint;
       try {
         const metadata = await stat(current.identity.gitDir, { bigint: true });
-        if (!metadata.isDirectory()) throw new ContinuityWorktreeMismatchError();
+        if (!metadata.isDirectory()) throw mismatch(expected.canonicalPath, "has no Git directory");
         birthtimeNs = metadata.birthtimeNs;
       } catch {
-        throw new ContinuityWorktreeMismatchError();
+        throw mismatch(expected.canonicalPath, "has no readable Git directory");
       }
       // A removed/recreated Git directory can recycle its pathname and inode.
       // Keep persisted legacy identities compatible while rejecting later creation.
       if (birthtimeNs > 0n && birthtimeNs >= BigInt(registeredMs + 1) * 1_000_000n) {
-        throw new ContinuityWorktreeMismatchError();
+        throw mismatch(expected.canonicalPath, "has a Git directory created after registration (re-cloned or re-initialized)");
       }
     }
     return current;

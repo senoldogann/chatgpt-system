@@ -62,7 +62,8 @@ The shared runtime currently includes:
 - MCP TypeScript SDK v2 / 2026-07-28 protocol support;
 - stdio and authenticated Streamable HTTP transports;
 - personal ChatGPT Plugin path through OpenAI Secure MCP Tunnel;
-- optional Project leases for narrower scoping (every tool also works without a lease);
+- optional Project leases for narrower scoping (every tool also works without a lease; lease-less calls also reach the roots of active Project leases, so a forgotten `authorityLeaseId` no longer fails);
+- `project_rebind` to re-attach a registered alias after its project was moved or re-cloned, keeping the continuity history;
 - open host-terminal/process/shell/PTY capability behind explicit startup gates;
 - optional `project_exec` behind the separate `--enable-project-exec` gate, scoped to the active roots and a local Unix-socket Docker context with `network=none`, read-only container root, bounded resources, and no host-execution fallback;
 - no local approval ceremony: no control socket, no broker, no biometric gate;

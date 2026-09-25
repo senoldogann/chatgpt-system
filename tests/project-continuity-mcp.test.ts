@@ -168,7 +168,7 @@ function textContent(result: Awaited<ReturnType<Client["callTool"]>>): string {
 }
 
 describe("project continuity real MCP protocol", () => {
-  it("lists exactly four continuity tools and returns structured Project resume output", async () => {
+  it("lists exactly the continuity tools and returns structured Project resume output", async () => {
     const { client, transport, runtime: fakeRuntime } = await fixture();
     try {
       const { tools } = await client.listTools();
@@ -177,6 +177,7 @@ describe("project continuity real MCP protocol", () => {
         "project_checkpoint",
         "project_context_read",
         "project_list",
+        "project_rebind",
         "project_register",
         "project_resume",
       ]);

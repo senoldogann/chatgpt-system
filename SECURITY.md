@@ -4,7 +4,7 @@
 
 ## Security invariants
 
-1. **Open scope, no leases required**: filesystem, Git, process, browser, and computer tools work directly against the bootstrap roots. An optional Project lease narrows the scope to explicit roots. Leases expire, can be revoked immediately, and are stored internally only by hash.
+1. **Open scope, no leases required**: filesystem, Git, process, browser, and computer tools work directly against the bootstrap roots, plus the roots of any unexpired Project lease in the same runtime. A call that passes `authorityLeaseId` is confined to exactly that lease's roots. In open mode any caller can already start a lease for any allowed root, so adding active lease roots to the open scope grants nothing new; it only keeps calls working when a model forgets to pass the lease ID. Leases expire, can be revoked immediately (which also removes their roots from the open scope), and are stored internally only by hash.
 2. **No privilege ladder**: every scope runs as the current OS user with the same capabilities. Host terminal, Owner shell/PTY, browser, and computer tools are available as soon as their independent startup gates are enabled. Sandboxed Project execution is a separate explicit Docker capability.
 3. **No local approval ceremony**: there is no control socket, no broker, and no biometric gate. Project roots are explicit per lease and may target project directories outside the daemon bootstrap/default roots; `/` and the entire home directory are still refused.
 4. **Single authoritative runtime**: the CLI never creates a shadow scope. All MCP tools resolve against the same running process and its configured roots.

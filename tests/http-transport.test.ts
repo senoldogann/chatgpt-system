@@ -62,6 +62,7 @@ const expectedAnnotations = {
   project_check: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   project_register: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   project_resume: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  project_rebind: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   project_checkpoint: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   project_context_read: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   project_list: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -140,6 +141,7 @@ const continuityV1ToolNames = [
   "project_checkpoint",
   "project_context_read",
   "project_list",
+  "project_rebind",
   "project_register",
   "project_resume",
 ] as const;

@@ -45,6 +45,13 @@ export interface ProjectCheckpointInput {
   verificationSummary?: string[];
 }
 
+export interface ProjectRebindInput {
+  alias: string;
+  worktreePath: string;
+  expectedRecordVersion: number;
+  projectRoots?: string[];
+}
+
 export interface ProjectResumeInput {
   alias: string;
   requestedTtlSeconds?: number;
@@ -189,6 +196,41 @@ export class ProjectContinuityService {
     });
     await this.recordActiveAlias(stored.alias);
     return continuityResult(stored);
+  }
+
+  // Kayıtlı alias'ı mevcut worktree'ye yeniden bağlar (taşınmış ya da yeniden
+  // clone'lanmış proje). Kayıt geçmişi korunur; lease açılmaz, ardından
+  // project_resume çağrılır.
+  async rebind(input: ProjectRebindInput): Promise<ProjectRegistrationResult> {
+    const stored = this.store.getByAlias(input.alias);
+    const roots = await canonicalizeProjectRoots(this.homeDir, input.projectRoots ?? stored.roots);
+    let canonicalWorktree: string;
+    try {
+      canonicalWorktree = await realpath(path.resolve(input.worktreePath));
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      throw new ContinuityWorktreeInvalidError(
+        "The project worktree path could not be resolved.",
+        typeof code === "string" ? { path: input.worktreePath, causeCode: code } : { path: input.worktreePath },
+      );
+    }
+    if (!roots.some((root) => pathIsInside(root, canonicalWorktree))) {
+      throw new AuthorityDeniedError(
+        "The project worktree must be inside one of the Project roots; pass projectRoots for its new parent folder.",
+        { worktreePath: canonicalWorktree },
+      );
+    }
+    const inspection = await this.inspector.inspect(canonicalWorktree, stored.publishedState, { remote: "skip" });
+    this.store.rebind({
+      projectId: stored.id,
+      expectedRecordVersion: input.expectedRecordVersion,
+      roots,
+      worktree: inspection.identity,
+      localState: inspection.local,
+      publishedState: inspection.published,
+    });
+    await this.recordActiveAlias(stored.alias);
+    return continuityResult(this.store.getByAlias(stored.alias));
   }
 
   async checkpoint(input: ProjectCheckpointInput): Promise<ProjectCheckpointResult> {
