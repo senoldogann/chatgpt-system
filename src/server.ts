@@ -46,6 +46,7 @@ import { registerWorkerTools } from "./agent/worker-tool-registration.js";
 import { registerHandoffTool } from "./agent/handoff-tool-registration.js";
 import { trackToolSurface } from "./mcp/tool-surface-publication.js";
 import { applyToolExposure } from "./mcp/tool-exposure.js";
+import { applyToolMetrics, createToolMetricsLogger } from "./mcp/tool-metrics.js";
 import { SessionEventStore } from "./continuity/session-event-store.js";
 import type { ProjectExecBackend } from "./project/project-exec-types.js";
 import { PolicyError } from "./core/errors.js";
@@ -58,6 +59,7 @@ export interface RuntimeServices extends ProjectContinuityRuntime {
   config: AppConfig;
   policy: PathPolicy;
   audit: AuditLogger;
+  toolMetrics?: AuditLogger;
   authority: AuthorityManager;
   fs: FileSystemService;
   git: GitService;
@@ -192,6 +194,7 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     config,
     policy,
     audit,
+    toolMetrics: createToolMetricsLogger(config.auditFile),
     authority,
     fs,
     git,
@@ -232,6 +235,7 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   );
   trackToolSurface(server);
   applyToolExposure(server, runtime.config);
+  if (runtime.toolMetrics) applyToolMetrics(server, runtime.toolMetrics);
 
   registerSystemTools(server, runtime);
   registerFileSystemTools(server, runtime);

@@ -226,6 +226,10 @@ The remaining GUI layer must preserve the same authority model rather than tunne
 - browser work should prefer the existing semantic Browser Runtime before falling back to pixel-driven computer use;
 - true root operations remain typed ServiceManagement/XPC operations, not a reusable root shell.
 
+## Tool metrics
+
+`~/.chatgpt-system/tool-metrics.jsonl` records one line per MCP tool call: tool name, outcome, duration and response size. It never stores arguments, paths, file contents or error messages. The file is bounded to 4 MiB with one rotated copy. `npm run stats` summarizes it locally.
+
 ## Audit limitation
 
 The audit log is for operator visibility and debugging. It is not tamper-proof against an actor that already has write access as the same OS user. Use a separately protected sink for evidentiary/compliance-grade audit requirements.

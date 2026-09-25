@@ -711,6 +711,22 @@ Validate Web first, then Desktop with the same installed plugin/backend. Do not 
 
 Browser Runtime exists so normal web tasks can prefer deterministic semantic automation. Computer Runtime v2 Slice 5 is the separate startup-gated native desktop-control surface. ChatGPT can use direct semantic/coordinate computer tools, typed `computer_run`, and separately gated owner-trust `computer_run_js`; the native helper owns AX-first resolution, bounded recovery, focused-window Vision enrichment, and fail-closed stale/ambiguous target handling.
 
+### Recommended ChatGPT Project instructions
+
+ChatGPT Project instructions apply to every chat in the Project and complement the MCP server instructions. Paste this into the Project's instructions:
+
+```text
+Bu Project, chatgpt-system ile kendi Mac'imdeki kendi projelerim üzerinde yazılım geliştirmek içindir.
+- Bir projeye devam ederken önce project_resume ile alias'ı aç (bilinmiyorsa project_list), sonra git durumunu kontrol et.
+- Kodu code_query (files, search) ile bul; fs_read_many veya fs_read offset/limit ile yalnızca gerekeni oku; mevcut dosyaları fs_edit ile düzenle.
+- Uzun test ve derlemeleri process_start ile başlat; beklerken process_logs'u cursor ve waitMs: 30000 ile çağır, kısa aralıklarla tekrar sorgulama.
+- Değişiklikten sonra ilgili testleri çalıştır ve git_diff ile gözden geçir; doğrulanmamış işi bitti olarak bildirme.
+- Yanıt kesildikten sonra "devam et" dediğimde önce git status ve process_list ile mevcut durumu oku; yapılmış değişiklikleri tekrarlama.
+- Büyük işleri aşamalara böl ve her aşamanın sonunda kısa bir özet ver; önemli kararlarda project_checkpoint kullan.
+```
+
+Check the effect with `npm run stats` after a working session. The polling and batching hints should disappear.
+
 ## 20. Troubleshooting order
 
 1. `npm run check`

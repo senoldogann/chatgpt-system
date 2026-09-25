@@ -5,6 +5,7 @@ import {
   classifyConnectionEvidence,
   classifyRuntimeSource,
   detectRuntimeDependencyFailure,
+  isVersionPinnedNodeCommand,
   parseDiagnosticArgs,
   parseLaunchAgentStatus,
   summarizeTunnelLog,
@@ -326,5 +327,27 @@ describe("ChatGPT connection diagnostics", () => {
     const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
     expect(packageJson.scripts?.["diagnose:chatgpt"])
       .toBe("node scripts/diagnose-chatgpt-connection.mjs");
+  });
+});
+
+describe("version-pinned Node path detection", () => {
+  it("flags Homebrew Cellar node executables and accepts stable paths", () => {
+    expect(isVersionPinnedNodeCommand("/opt/homebrew/Cellar/node/26.7.0/bin/node /repo/dist/cli.js stdio --root /repo")).toBe(true);
+    expect(isVersionPinnedNodeCommand("/usr/local/Cellar/node@22/22.9.0/bin/node runner.mjs")).toBe(true);
+    expect(isVersionPinnedNodeCommand("/opt/homebrew/opt/node/bin/node /repo/dist/cli.js stdio")).toBe(false);
+    expect(isVersionPinnedNodeCommand("/usr/bin/node x.js")).toBe(false);
+  });
+
+  it("adds re-setup guidance only when the active runtime is version-pinned", () => {
+    const evidence = {
+      dailyDriver: { loaded: true, running: true, neverExited: false },
+      tunnel: { forwardedCommandCount: 4, warningCount: 0, recoveredPollBackoffCount: 0, errorCount: 0, stdioFailureCount: 0, responseDeadlineCount: 0, recentActivity: true, failureEvents: [] },
+      runtime: { source: "other" as const, distCliPresent: true, nodeModulesPresent: true, zodPresent: true, nodePathVersionPinned: true },
+      stderr: { recent: false, dependencyFailureSignature: false },
+    };
+    const pinned = buildDiagnosticReport(evidence, 30, { nowMs: NOW });
+    expect(pinned.guidance.join(" ")).toMatch(/version-pinned Homebrew Node path/);
+    const stable = buildDiagnosticReport({ ...evidence, runtime: { ...evidence.runtime, nodePathVersionPinned: false } }, 30, { nowMs: NOW });
+    expect(stable.guidance.join(" ")).not.toMatch(/version-pinned/);
   });
 });

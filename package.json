@@ -26,6 +26,7 @@
     "setup:codex": "npm run build && node scripts/setup-codex.mjs",
     "setup:chatgpt": "npm run build && node scripts/setup-chatgpt-tunnel.mjs",
     "diagnose:chatgpt": "node scripts/diagnose-chatgpt-connection.mjs",
+    "stats": "node scripts/tool-stats.mjs",
     "doctor:chatgpt": "node scripts/setup-chatgpt-tunnel.mjs --doctor",
     "setup:daily-driver": "npm run build && node scripts/setup-daily-driver.mjs install",
     "daily-driver:status": "node scripts/setup-daily-driver.mjs status",

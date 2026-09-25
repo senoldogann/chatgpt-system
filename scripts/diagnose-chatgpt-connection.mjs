@@ -184,8 +184,11 @@ export function classifyConnectionEvidence(evidence) {
   return "INSUFFICIENT_EVIDENCE";
 }
 
-function guidanceFor(diagnosis, runtimeSource, historical = false) {
+function guidanceFor(diagnosis, runtimeSource, historical = false, nodePathVersionPinned = false) {
   const guidance = [];
+  if (nodePathVersionPinned) {
+    guidance.push("The daily-driver or MCP child runs a version-pinned Homebrew Node path that `brew upgrade` will delete. Rerun `npm run setup:daily-driver` and `npm run setup:chatgpt -- ... --force --doctor` so the stable opt/<formula> path is written.");
+  }
   if (historical) guidance.push("Historical classification uses retained tunnel logs only; daily-driver and runtime fields reflect the current machine, not the incident. The bounded 1 MiB log tail may omit older events.");
   if (runtimeSource === "managed-worktree") {
     guidance.push("The active MCP runtime is sourced from a managed worktree. Do not remove that worktree until the tunnel/profile is repointed and a fresh diagnostic no longer reports it as active.");
@@ -224,7 +227,7 @@ export function buildDiagnosticReport(evidence, windowMinutes, { atMs, nowMs = D
     tunnel: { ...evidence.tunnel },
     runtime: { ...evidence.runtime },
     stderr: { ...evidence.stderr },
-    guidance: guidanceFor(diagnosis, evidence.runtime.source, historical),
+    guidance: guidanceFor(diagnosis, evidence.runtime.source, historical, evidence.runtime.nodePathVersionPinned === true),
   };
 }
 
@@ -280,6 +283,31 @@ function extractScriptPath(command, homeDir) {
   return command.split(/\s+/).find((part) => part.endsWith(distSuffix));
 }
 
+// Sürüme bağlı Homebrew Cellar yolu `brew upgrade` sonrası silinir ve tunnel
+// çocuğu başlayamaz; setup betikleri artık kararlı `opt/<formula>` yolunu yazar.
+export function isVersionPinnedNodeCommand(command) {
+  const executable = command.trim().split(/\s+/)[0] ?? "";
+  return /\/Cellar\/[^/]+\/[^/]+\/bin\/node$/.test(executable);
+}
+
+function findActiveMcpCommand(processText) {
+  const processes = parseProcessTable(processText);
+  const byPid = new Map(processes.map((process) => [process.pid, process]));
+  const wrappers = processes.filter((process) => (
+    process.command.includes("daily-driver-runner.mjs")
+    && process.command.includes("--profile chatgpt-system")
+  ));
+  for (const wrapper of wrappers) {
+    const candidate = processes.find((process) => (
+      isDescendant(process, wrapper.pid, byPid)
+      && process.command.includes("dist/cli.js")
+      && process.command.includes(" stdio ")
+    ));
+    if (candidate) return { wrapper: wrapper.command, mcp: candidate.command };
+  }
+  return undefined;
+}
+
 function findActiveMcpScriptPath(processText, homeDir) {
   const processes = parseProcessTable(processText);
   const byPid = new Map(processes.map((process) => [process.pid, process]));
@@ -321,6 +349,7 @@ function collectEvidence({ nowMs = Date.now(), atMs, windowMinutes, homeDir = ho
     stdio: ["ignore", "pipe", "pipe"],
   });
   const scriptPath = ps.status === 0 ? findActiveMcpScriptPath(ps.stdout, homeDir) : undefined;
+  const activeCommands = ps.status === 0 ? findActiveMcpCommand(ps.stdout) : undefined;
   const source = classifyRuntimeSource(scriptPath, homeDir);
   const runtimeRoot = scriptPath ? path.dirname(path.dirname(scriptPath)) : undefined;
   const runtime = {
@@ -328,6 +357,9 @@ function collectEvidence({ nowMs = Date.now(), atMs, windowMinutes, homeDir = ho
     distCliPresent: scriptPath ? existsSync(scriptPath) : null,
     nodeModulesPresent: runtimeRoot ? existsSync(path.join(runtimeRoot, "node_modules")) : null,
     zodPresent: runtimeRoot ? existsSync(path.join(runtimeRoot, "node_modules", "zod", "package.json")) : null,
+    nodePathVersionPinned: activeCommands
+      ? isVersionPinnedNodeCommand(activeCommands.mcp) || isVersionPinnedNodeCommand(activeCommands.wrapper)
+      : null,
   };
 
   const stderrStat = safeStat(stderrPath);

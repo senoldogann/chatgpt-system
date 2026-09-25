@@ -23,6 +23,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appendBoundedLog } from "./daily-driver-runner.mjs";
+import { stableNodePath } from "./stable-node-path.mjs";
 
 export const AUTO_UPDATE_LABEL = "com.senoldogann.chatgpt-system.auto-update";
 export const EXPECTED_ORIGIN_PATTERNS = [
@@ -631,7 +632,7 @@ async function main() {
     await mkdir(stateDir, { recursive: true, mode: 0o700 });
     const plistPath = path.join(homedir(), "Library", "LaunchAgents", `${AUTO_UPDATE_LABEL}.plist`);
     const plist = buildAutoUpdateAgent({
-      nodePath: process.execPath,
+      nodePath: stableNodePath(),
       scriptPath: path.join(path.resolve(repoDir), "scripts", "auto-update-runtime.mjs"),
       runtimeDir: path.resolve(runtimeDir),
       logDir: stateDir,

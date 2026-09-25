@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspectInstalledComputerRuntime } from "./setup-macos-computer-runtime.mjs";
+import { stableNodePath } from "./stable-node-path.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const defaultRepoDir = path.resolve(path.dirname(scriptPath), "..");
@@ -273,7 +274,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     "ChatGPTSystemComputerRuntime.app",
   );
   const commandParts = [
-    process.execPath,
+    context.nodePath ?? stableNodePath(),
     serverPath,
     "stdio",
     "--root", root,
