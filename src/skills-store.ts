@@ -55,7 +55,7 @@ function oneLine(value: string, limit: number): string {
 function simpleScalar(value: string): string | null {
   const trimmed = value.trim();
   if (trimmed === "") return null;
-  if (/^(?:[\[\]{}|>&*!%@`]|[-?:]\s)|:\s/.test(trimmed)) return null;
+  if (/^(?:[[\]{}|>&*!%@`]|[-?:]\s)|:\s/.test(trimmed)) return null;
   if (trimmed.startsWith('"') || trimmed.endsWith('"')) {
     if (!(trimmed.startsWith('"') && trimmed.endsWith('"'))) return null;
     try {
@@ -160,6 +160,8 @@ async function readBoundedText(filename: string): Promise<{ bytes: Buffer; text:
       throw new PolicyError("Skill geçerli bir UTF-8 metin dosyası olmalı.");
     }
     if (text.length > MAX_SKILL_CHARS) throw new PolicyError("Skill 96.000 karakter sınırını aşıyor.");
+    // Kontrol karakteri reddi bilinçlidir: skill düz metin olmalı.
+    // eslint-disable-next-line no-control-regex
     if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text)) {
       throw new PolicyError("Skill düz metin olmalı.");
     }

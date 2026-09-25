@@ -144,7 +144,7 @@ async function sendOnce(
     clearTimeout(timer);
   }
   if (!response.ok) {
-    let body = "";
+    let body: string;
     try {
       body = await response.text();
     } catch {

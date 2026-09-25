@@ -333,20 +333,20 @@ export class ProcessSupervisor {
     const stderr = new TailBuffer(this.options.limits.maxProcessLogBytesPerStream);
     const persistent = this.persistencePath !== undefined;
     const processId = this.newProcessId();
-    const stdoutPath = persistent ? path.join(this.persistencePath!, `${processId}.stdout.log`) : undefined;
-    const stderrPath = persistent ? path.join(this.persistencePath!, `${processId}.stderr.log`) : undefined;
-    const resultPath = persistent ? path.join(this.persistencePath!, `${processId}.result.json`) : undefined;
-    const manifestPath = persistent ? path.join(this.persistencePath!, `${processId}.manifest.json`) : undefined;
+    const stdoutPath = persistent ? path.join(this.persistencePath, `${processId}.stdout.log`) : undefined;
+    const stderrPath = persistent ? path.join(this.persistencePath, `${processId}.stderr.log`) : undefined;
+    const resultPath = persistent ? path.join(this.persistencePath, `${processId}.result.json`) : undefined;
+    const manifestPath = persistent ? path.join(this.persistencePath, `${processId}.manifest.json`) : undefined;
     const controlPath = persistent ? path.join(tmpdir(), `chatgpt-system-${createHash("sha256").update(processId).digest("hex").slice(0, 24)}.sock`) : undefined;
     const controlToken = persistent ? randomBytes(32).toString("base64url") : undefined;
-    const cursorPath = persistent ? path.join(this.persistencePath!, `${processId}.cursor.json`) : undefined;
+    const cursorPath = persistent ? path.join(this.persistencePath, `${processId}.cursor.json`) : undefined;
     let child: ChildProcess;
 
     // Kayıt ve eşleşme basename ile kalır; yalnızca spawn çözümlenmiş yolu kullanır.
     try {
       // Every fallible preparation between reserveCapacity() and spawn lives inside
       // this try block so a failure releases the reserved capacity slot again.
-      if (persistent) mkdirSync(this.persistencePath!, { recursive: true, mode: 0o700 });
+      if (persistent) mkdirSync(this.persistencePath, { recursive: true, mode: 0o700 });
       const executablePath = (await resolveExecutablePath(input.command, {
         pathValue: process.env.PATH,
         homeDir: homedir(),
@@ -512,8 +512,8 @@ export class ProcessSupervisor {
       ...(record.idempotencyKey !== undefined ? { idempotencyKey: record.idempotencyKey } : {}),
       stdoutPath: record.stdoutPath,
       stderrPath: record.stderrPath,
-      resultPath: record.resultPath!,
-      manifestPath: record.manifestPath!,
+      resultPath: record.resultPath,
+      manifestPath: record.manifestPath,
       controlPath: record.controlPath!,
       controlToken: record.controlToken!,
       cursorPath: record.cursorPath!,
@@ -571,25 +571,25 @@ export class ProcessSupervisor {
           || typeof record.cursorPath !== "string"
           || !["running", "stopping", "exited", "stopped", "unknown"].includes(record.state ?? "")) continue;
         const persistedState = record.state as ManagedProcessState;
-        const resultPath = record.resultPath!;
-        const manifestPath = record.manifestPath!;
-        const controlPath = record.controlPath!;
-        const controlToken = record.controlToken!;
-        const cursorPath = record.cursorPath!;
+        const resultPath = record.resultPath;
+        const manifestPath = record.manifestPath;
+        const controlPath = record.controlPath;
+        const controlToken = record.controlToken;
+        const cursorPath = record.cursorPath;
         const resultExists = existsFile(resultPath);
-        const alive = persistedState === "running" && processAlive(record.pid!) && record.fingerprint !== undefined
-          && sameProcessFingerprint(record.pid!, record.fingerprint);
+        const alive = persistedState === "running" && processAlive(record.pid) && record.fingerprint !== undefined
+          && sameProcessFingerprint(record.pid, record.fingerprint);
         const state: ManagedProcessState = resultExists ? "unknown" : (alive ? "running" : (persistedState === "running" ? "unknown" : persistedState));
         const closed = Promise.resolve();
         const restored: ManagedRecord = {
           processId: record.processId,
           command: record.command,
-          argCount: record.argCount!,
+          argCount: record.argCount,
           cwd: record.cwd,
           state,
           startedAt: record.startedAt,
           startedAtMs: record.startedAtMs,
-          pid: record.pid!,
+          pid: record.pid,
           ...(record.exitedAt !== undefined ? { exitedAt: record.exitedAt } : {}),
           ...(record.exitCode !== undefined ? { exitCode: record.exitCode } : {}),
           ...(record.signal !== undefined ? { signal: record.signal } : {}),

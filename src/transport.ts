@@ -6,7 +6,6 @@ import {
   localhostOriginValidation,
   toNodeHandler,
   type NodeIncomingMessageLike,
-  type NodeServerResponseLike,
 } from "@modelcontextprotocol/node";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
@@ -263,7 +262,7 @@ export function startHttp(runtime: RuntimeServices): HttpServer {
     // transport boundary rather than weakening strictness for the whole project.
     void nodeHandler(
       req as unknown as NodeIncomingMessageLike,
-      res as unknown as NodeServerResponseLike,
+      res,
     );
   });
 

@@ -128,7 +128,7 @@ async function runGit(cwd: string, args: string[], timeoutMs: number, maxBytes =
 
 function redacted(value: string): string {
   return value
-    .replace(/(Bearer\s+)[A-Za-z0-9._~+\/-]{6,}/gi, "$1[REDACTED]")
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]{6,}/gi, "$1[REDACTED]")
     .replace(/((?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|passwd|secret|authorization|cookie)\s*[:=]\s*)[^\s,;]+/gi, "$1[REDACTED]")
     .replace(/\bsk-[A-Za-z0-9_-]{12,}\b/g, "[REDACTED]")
     .replace(/\bgh[pousr]_[A-Za-z0-9]{12,}\b/g, "[REDACTED]")
@@ -141,11 +141,6 @@ function boundedText(label: string, value: string, maxBytes: number): string {
   if (value.includes("\u0000")) throw new PolicyError(`${label} must not contain NUL characters.`);
   if (Buffer.byteLength(value, "utf8") > maxBytes) throw new LimitError(`${label} exceeds its bounded size.`);
   return redacted(value);
-}
-
-function optionalText(label: string, value: string | undefined, maxBytes: number): string | undefined {
-  if (value === undefined) return undefined;
-  return boundedText(label, value, maxBytes);
 }
 
 function boundedList(label: string, values: string[] | undefined, maxItems: number, maxBytes: number): string[] {

@@ -7,12 +7,10 @@ import {
   readFile,
   readdir,
   rename,
-  stat,
   unlink,
-  writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-import { applyPatch as applyUnifiedPatch, parsePatch } from "diff";
+import { applyPatch as applyUnifiedPatch } from "diff";
 import type { AuditLogger } from "./audit.js";
 import type { LimitsConfig } from "./config.js";
 import { ConflictError, LimitError, PolicyError, RecoveryRequiredError } from "./errors.js";

@@ -87,7 +87,7 @@ function isToolSurfaceRecord(value: unknown): value is ToolSurfaceRecord {
   const record = value as Record<string, unknown>;
   return record["version"] === 1
     && typeof record["schemaId"] === "string"
-    && /^[0-9a-f]{64}$/.test(record["schemaId"] as string)
+    && /^[0-9a-f]{64}$/.test(record["schemaId"])
     && typeof record["toolCount"] === "number"
     && Number.isInteger(record["toolCount"])
     && Array.isArray(record["toolNames"])
@@ -183,7 +183,7 @@ export function trackToolSurface(server: ToolSurfaceTrackableServer): void {
     if (typeof toolName === "string") {
       entries.push({ name: toolName, inputKeys: extractInputKeys(toolConfig?.inputSchema) });
     }
-    return (original as (...callArgs: Array<never>) => unknown)(...args);
+    return original(...args);
   };
 }
 

@@ -217,7 +217,7 @@ export class TerminalMirror {
       const sessionId = normalizeSessionId(name.slice(0, -".json".length));
       if (sessionId === "") continue;
       const meta = await this.readMeta(sessionId);
-      let updatedAtMs = 0;
+      let updatedAtMs: number;
       try {
         const info = await stat(this.logPath(sessionId));
         updatedAtMs = info.mtimeMs;

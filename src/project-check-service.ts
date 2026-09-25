@@ -209,7 +209,7 @@ export class ProjectCheckService {
     try {
       const parsed: unknown = JSON.parse(packageText);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid");
-      packageJson = parsed as PackageJsonShape;
+      packageJson = parsed;
     } catch {
       throw new PolicyError("Project verification package.json is invalid JSON.");
     }

@@ -329,10 +329,10 @@ export class ContinuityStore {
       publishedState: parseJson(row.published_state_json, continuityPublishedStateSchema),
       currentRecord: continuitySemanticRecordSchema.parse({
         recordVersion: row.record_version,
-        task: JSON.parse(row.task_json),
-        decisions: JSON.parse(row.decisions_json),
-        uncertainties: JSON.parse(row.uncertainties_json),
-        verificationSummary: JSON.parse(row.verification_summary_json),
+        task: JSON.parse(row.task_json) as unknown,
+        decisions: JSON.parse(row.decisions_json) as unknown,
+        uncertainties: JSON.parse(row.uncertainties_json) as unknown,
+        verificationSummary: JSON.parse(row.verification_summary_json) as unknown,
         createdAt: row.record_created_at,
       }),
       createdAt: row.created_at,
@@ -412,7 +412,6 @@ export class ContinuityStore {
     projectId: string,
     localState: ContinuityLocalState,
     publishedState: ContinuityPublishedState,
-    checkedAt: string,
   ): void {
     const parsedLocalState = continuityLocalStateSchema.parse(localState);
     const parsedPublishedState = continuityPublishedStateSchema.parse(publishedState);
@@ -462,10 +461,10 @@ export class ContinuityStore {
   private parseSemanticRecord(row: SemanticRecordRow): ContinuitySemanticRecord {
     return parseStoredValue(() => continuitySemanticRecordSchema.parse({
       recordVersion: row.version,
-      task: JSON.parse(row.task_json),
-      decisions: JSON.parse(row.decisions_json),
-      uncertainties: JSON.parse(row.uncertainties_json),
-      verificationSummary: JSON.parse(row.verification_summary_json),
+      task: JSON.parse(row.task_json) as unknown,
+      decisions: JSON.parse(row.decisions_json) as unknown,
+      uncertainties: JSON.parse(row.uncertainties_json) as unknown,
+      verificationSummary: JSON.parse(row.verification_summary_json) as unknown,
       createdAt: row.created_at,
     }));
   }

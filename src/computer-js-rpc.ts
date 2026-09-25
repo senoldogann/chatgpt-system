@@ -215,7 +215,7 @@ export async function dispatchComputerJsRpc(
     case "press_key":
       return session.execute({ type: "press_key", ...parse(pressKeySchema, params) } as ComputerAction);
     case "wait":
-      return session.execute({ type: "wait", ...parse(waitSchema, params) } as ComputerAction);
+      return session.execute({ type: "wait", ...parse(waitSchema, params) });
     case "wait_for_frontmost":
       return session.execute({ type: "wait_for_frontmost", ...parse(waitForFrontmostSchema, params) } as ComputerAction);
     case "wait_for_text":

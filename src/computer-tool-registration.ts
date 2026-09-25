@@ -254,11 +254,12 @@ const pressKeyActionSchema = z.object({
   ...selectorFields,
   verify: verificationSchema.optional(),
 }).strict().refine(appSelectorRequired, appSelectorRequirement);
-const waitActionSchema = z.preprocess((val: any) => {
+const waitActionSchema = z.preprocess((val: unknown) => {
   if (val && typeof val === "object") {
-    const ms = val.durationMs ?? val.milliseconds ?? val.ms ?? val.duration;
+    const record = val as Record<string, unknown>;
+    const ms = record.durationMs ?? record.milliseconds ?? record.ms ?? record.duration;
     if (ms !== undefined) {
-      return { ...val, durationMs: Number(ms) };
+      return { ...record, durationMs: Number(ms) };
     }
   }
   return val;

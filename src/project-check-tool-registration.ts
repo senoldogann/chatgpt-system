@@ -9,7 +9,7 @@ import {
 import { projectCheckOutputSchema } from "./tool-output-schemas.js";
 import { safeCall } from "./tool-result.js";
 
-export interface ProjectCheckToolRuntime extends ProjectCheckRuntimeDependencies {}
+export type ProjectCheckToolRuntime = ProjectCheckRuntimeDependencies;
 
 const annotations = {
   readOnlyHint: false,

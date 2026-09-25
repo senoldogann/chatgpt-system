@@ -58,6 +58,6 @@ export function applyToolExposure(server: ToolRegisteringServer, config: ToolExp
   server.registerTool = (...args: Array<never>): unknown => {
     const toolName = args[0] as unknown;
     if (typeof toolName === "string" && !isToolExposed(toolName, config)) return undefined;
-    return (original as (...callArgs: Array<never>) => unknown)(...args);
+    return original(...args);
   };
 }

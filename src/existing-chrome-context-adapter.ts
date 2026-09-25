@@ -19,14 +19,16 @@ export function createExistingChromeContextAdapter(
         if (property === "isClosed") {
           return () => target.isClosed() || !isExistingChromePageEligible(target.url());
         }
-        const value = Reflect.get(target, property, target);
-        return typeof value === "function" ? value.bind(target) : value;
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
       },
     });
     wrappedPages.set(page, wrapped);
     return wrapped;
   };
 
+  // Sayfa sarmalayıcıları vekilden önce tanımlanır ve ona başvurur.
+  // eslint-disable-next-line prefer-const
   proxy = new Proxy(context, {
     get(target, property) {
       if (property === "pages") {
@@ -69,14 +71,14 @@ export function createExistingChromeContextAdapter(
             });
             return proxy;
           }
-          const on = target.on as unknown as (event: string, listener: (...args: unknown[]) => void) => BrowserContext;
-          on.call(target, event, listener);
+          const on = target.on.bind(target) as unknown as (event: string, listener: (...args: unknown[]) => void) => BrowserContext;
+          on(event, listener);
           return proxy;
         };
       }
 
-      const value = Reflect.get(target, property, target);
-      return typeof value === "function" ? value.bind(target) : value;
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
     },
   });
 

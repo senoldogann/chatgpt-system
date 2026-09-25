@@ -256,7 +256,6 @@ export class ProjectContinuityService {
         project.id,
         inspection.local,
         inspection.published,
-        inspection.local.checkedAt,
       );
       this.resumeRegistry.register(authorityLease.leaseId, {
         projectId: project.id,
@@ -289,6 +288,7 @@ export class ProjectContinuityService {
         throw new AggregateError(
           [error, rollbackError],
           "Project resume failed and fresh authority rollback also failed.",
+          { cause: error },
         );
       }
       throw error;

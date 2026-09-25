@@ -186,6 +186,8 @@ export class ComputerNativeSupervisor {
       resolveClosed = resolve;
     });
 
+    // Kayıt, istemci geri çağrılarından sonra atanır; closure'lar ona erken başvurur.
+    // eslint-disable-next-line prefer-const
     let record!: HostRecord;
     const client = new ComputerNativeClient({
       stdin: child.stdin,

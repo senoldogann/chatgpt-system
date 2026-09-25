@@ -79,7 +79,7 @@ function severity(ts: typeof tsType, category: tsType.DiagnosticCategory): CodeD
 async function loadTypeScript(): Promise<typeof tsType> {
   try {
     const module = await import("typescript");
-    return (module.default ?? module) as unknown as typeof tsType;
+    return module.default ?? module;
   } catch {
     throw new LspUnavailableError("typescript_module_unavailable");
   }
@@ -123,8 +123,9 @@ export class TypeScriptLanguageServiceAdapter implements CodeLanguageServiceAdap
       const configPath = path.join(rootPath, "tsconfig.json");
       const parsed = ts.parseConfigFileTextToJson(configPath, tsconfigText);
       if (parsed.error || parsed.config === undefined) throw new LspUnavailableError("typescript_config_invalid");
-      if (parsed.config.extends !== undefined) throw new LspUnavailableError("typescript_config_extends_unsupported");
-      const converted = ts.convertCompilerOptionsFromJson(parsed.config.compilerOptions ?? {}, rootPath, configPath);
+      const config = parsed.config as { extends?: unknown; compilerOptions?: unknown };
+      if (config.extends !== undefined) throw new LspUnavailableError("typescript_config_extends_unsupported");
+      const converted = ts.convertCompilerOptionsFromJson(config.compilerOptions ?? {}, rootPath, configPath);
       if (converted.errors.length > 0) throw new LspUnavailableError("typescript_config_invalid");
       compilerOptions = { ...converted.options, noEmit: true, noLib: true, types: [] };
     }

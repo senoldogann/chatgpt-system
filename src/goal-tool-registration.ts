@@ -78,7 +78,7 @@ export async function adviseGoal(runtime: GoalToolRuntime, input: GoalAdviseInpu
   let apiKey: string;
   try {
     apiKey = await readOpencodeGoApiKey(runtime.opencodeAuthPath ?? defaultOpencodeAuthPath());
-  } catch (error) {
+  } catch {
     const rule = ruleAdvice();
     return {
       ...rule,

@@ -8,7 +8,7 @@ import {
 } from "./computer-js-protocol.js";
 
 const chunks: Buffer[] = [];
-for await (const chunk of process.stdin) {
+for await (const chunk of process.stdin as AsyncIterable<Buffer | string>) {
   chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
 }
 const source = Buffer.concat(chunks).toString("utf8");
@@ -98,6 +98,7 @@ function sendToParent(message: RunnerMessage): boolean {
 
 function disconnectFromParent(): boolean {
   if (!process.connected) return true;
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- aşağıda process ile çağrılır
   const disconnect: (() => void) | undefined = process.disconnect;
   if (typeof disconnect !== "function") return false;
   disconnect.call(process);

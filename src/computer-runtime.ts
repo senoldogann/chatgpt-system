@@ -343,7 +343,7 @@ function locationParams(
 
 function endpointParams(value: unknown): { value: Record<string, unknown>; semantic: boolean } {
   if (!isRecord(value)) invalid();
-  if (typeof value.by === "string") return { value: canonicalTarget(value) as unknown as Record<string, unknown>, semantic: true };
+  if (typeof value.by === "string") return { value: canonicalTarget(value), semantic: true };
   if (!hasOnlyKeys(value, ["x", "y"]) || typeof value.x !== "number" || typeof value.y !== "number") invalid();
   return { value: { x: finite(value.x), y: finite(value.y) }, semantic: false };
 }
@@ -364,7 +364,7 @@ function validateResolvedTargetView(value: unknown): ComputerResolvedTargetView 
     source: value.source,
     bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
     actionPoint: { x: point.x, y: point.y },
-    ...(value.observationId !== undefined ? { observationId: value.observationId as string | null } : {}),
+    ...(value.observationId !== undefined ? { observationId: value.observationId } : {}),
     confidence: value.confidence,
   };
 }
@@ -585,7 +585,7 @@ function waitForProgramDelay(
   return new Promise<void>((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => finish(undefined), milliseconds);
-    const finish = (error: unknown | undefined): void => {
+    const finish = (error: Error | undefined): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -1178,7 +1178,7 @@ export class ComputerRuntime {
     if (signal.aborted) throw new ComputerError("COMPUTER_ACTION_FAILED");
     await new Promise<void>((resolve, reject) => {
       let settled = false;
-      const finish = (error?: unknown): void => {
+      const finish = (error?: Error): void => {
         if (settled) return;
         settled = true;
         signal.removeEventListener("abort", abort);
@@ -1187,7 +1187,10 @@ export class ComputerRuntime {
       };
       const abort = (): void => finish(new ComputerError("COMPUTER_ACTION_FAILED"));
       signal.addEventListener("abort", abort, { once: true });
-      void this.sleep(milliseconds).then(() => finish(), (error) => finish(error));
+      void this.sleep(milliseconds).then(
+        () => finish(),
+        (error: unknown) => finish(error instanceof Error ? error : new ComputerError("COMPUTER_ACTION_FAILED")),
+      );
     });
   }
 

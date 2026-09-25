@@ -29,7 +29,7 @@ export class ContinuityResumeRegistry {
     const key = leaseDigest(leaseId);
     if (this.records.has(key)) this.records.delete(key);
     while (this.records.size >= MAX_RESUME_CONTEXTS) {
-      const oldest = this.records.keys().next().value as string | undefined;
+      const oldest = this.records.keys().next().value;
       if (oldest === undefined) break;
       this.records.delete(oldest);
     }
