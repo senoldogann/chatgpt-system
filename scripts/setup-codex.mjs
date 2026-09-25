@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { access, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { stableNodePath } from "./stable-node-path.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverPath = path.join(repoRoot, "dist", "cli.js");
@@ -93,7 +94,7 @@ async function main() {
   if (options.terminal) serverArgs.push("--enable-terminal");
   for (const command of options.commands) serverArgs.push("--allow-command", command);
 
-  const added = run("codex", ["mcp", "add", options.name, "--", process.execPath, ...serverArgs]);
+  const added = run("codex", ["mcp", "add", options.name, "--", stableNodePath(), ...serverArgs]);
   if (added.status !== 0) throw new Error(`codex mcp add failed with exit code ${added.status}.`);
 
   const verify = run("codex", ["mcp", "get", options.name, "--json"], { capture: true });

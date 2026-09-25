@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { stableNodePath } from "./stable-node-path.mjs";
 
 export const EXTENSION_BRIDGE_LABEL = "com.senoldogann.chatgpt-system.extension-bridge";
 export const DEFAULT_BRIDGE_PORT = 4312;
@@ -226,7 +227,7 @@ async function install(root, port, context) {
   const { plistPath, tokenPath, logDir } = bridgePaths(context.homeDir);
   const { token } = await ensureToken(tokenPath);
   const plist = buildExtensionBridgePlist({
-    nodePath: process.execPath,
+    nodePath: stableNodePath(),
     cliPath,
     root: path.resolve(root),
     port,

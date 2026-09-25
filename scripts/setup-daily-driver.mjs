@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE, KEYCHAIN_SERVICE_TYPESAFE } from "./daily-driver-runner.mjs";
+import { stableNodePath } from "./stable-node-path.mjs";
 
 export const LAUNCH_AGENT_LABEL = "com.senoldogann.chatgpt-system.daily-driver";
 export const RESTART_HELPER_LABEL = `${LAUNCH_AGENT_LABEL}.restart-helper`;
@@ -348,7 +349,7 @@ async function install(profile, context) {
   const credentialAction = planControlPlaneCredential(key, { helperPath: keychainHelperPath });
   const typesafeCredentialAction = planTypesafeCredential(typesafeKey, { helperPath: keychainHelperPath });
   const plist = buildLaunchAgent({
-    nodePath: process.execPath,
+    nodePath: stableNodePath(),
     runnerPath,
     tunnelClientPath,
     profile,

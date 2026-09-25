@@ -99,6 +99,15 @@ describe("ChatGPT Secure MCP Tunnel setup", () => {
     expect(script).toContain("Root escalation: not granted");
   });
 
+  it("writes the supplied stable Node path into the tunnel MCP command", () => {
+    const setup = buildTunnelSetup(["--root", ROOT, "--tunnel-id", VALID_TUNNEL], {}, {
+      ...context,
+      nodePath: "/opt/homebrew/opt/node/bin/node",
+    });
+    expect(setup.mcpCommand.startsWith("/opt/homebrew/opt/node/bin/node ")).toBe(true);
+    expect(setup.mcpCommand).not.toContain("/Cellar/");
+  });
+
   it("passes the dev tool profile through and keeps full as the unflagged default", () => {
     const base = ["--root", ROOT, "--tunnel-id", VALID_TUNNEL];
     expect(buildTunnelSetup(base, {}, context).mcpCommand).not.toContain("--tool-profile");
