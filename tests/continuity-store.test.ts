@@ -91,6 +91,20 @@ describe("ContinuityStore", () => {
     reopened.close();
   });
 
+  it("opens in WAL mode so the bridge daemon can read while the tunnel writes", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "chatgpt-system-continuity-store-"));
+    cleanups.push(root);
+    const databasePath = path.join(root, "continuity.db");
+    const store = new ContinuityStore({ databasePath });
+    const probe = new Database(databasePath, { readonly: true });
+    try {
+      expect(probe.pragma("journal_mode", { simple: true })).toBe("wal");
+    } finally {
+      probe.close();
+      store.close();
+    }
+  });
+
   it("returns a stable continuity error for an unknown alias", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "chatgpt-system-continuity-store-"));
     cleanups.push(root);

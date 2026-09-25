@@ -8,6 +8,7 @@ import {
   terminalSessionReadOutputSchema,
   terminalSessionSummaryOutputSchema,
 } from "./tool-output-schemas.js";
+import { createSafeCall } from "./tool-result.js";
 
 const readAnnotations = {
   readOnlyHint: true,
@@ -39,29 +40,12 @@ const closeAnnotations = {
   openWorldHint: true,
 };
 
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
 function safeErrorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof AppError) return { error: error.code, message: error.message };
   return { error: "TERMINAL_SESSION_FAILED", message: "Terminal session operation failed." };
 }
 
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(safeErrorPayload(error)), isError: true };
-  }
-}
+const safeCall = createSafeCall(safeErrorPayload);
 
 const lease = { authorityLeaseId: z.string().min(40).optional() };
 

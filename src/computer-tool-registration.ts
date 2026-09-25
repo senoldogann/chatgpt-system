@@ -28,6 +28,7 @@ import {
   computerSemanticTargetResolutionOutputSchema,
   computerWaitResultOutputSchema,
 } from "./tool-output-schemas.js";
+import { createSafeCall, textResult } from "./tool-result.js";
 
 export interface ComputerToolRuntime extends ScopedRuntimeBase {
   authority: AuthorityManager;
@@ -323,10 +324,6 @@ const computerIdempotentMutationAnnotations = {
   openWorldHint: true,
 };
 
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
 function safeErrorDetails(error: ComputerError): Record<string, unknown> | undefined {
   const details = error.details;
   if (!details) return undefined;
@@ -378,20 +375,7 @@ function computerErrorPayload(error: unknown): Record<string, unknown> {
   return { error: "INTERNAL_ERROR", message: "Computer operation failed." };
 }
 
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(computerErrorPayload(error)), isError: true };
-  }
-}
+const safeCall = createSafeCall(computerErrorPayload);
 
 async function computerFor(runtime: ComputerToolRuntime, authorityLeaseId?: string) {
   if (authorityLeaseId !== undefined) {

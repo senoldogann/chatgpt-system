@@ -3,10 +3,10 @@ import { z } from "zod";
 import type { AuthorityManager } from "./authority.js";
 import type { AuditLogger } from "./audit.js";
 import type { AppConfig } from "./config.js";
-import { errorPayload } from "./errors.js";
 import { PatchSetService } from "./patch-set-service.js";
 import { PathPolicy } from "./policy.js";
 import { fsPatchSetOutputSchema } from "./tool-output-schemas.js";
+import { safeCall } from "./tool-result.js";
 
 export interface PatchSetToolRuntime {
   authority: AuthorityManager;
@@ -27,25 +27,6 @@ const patchInputSchema = z.object({
   patch: z.string().min(1).max(4 * 1024 * 1024),
   expectedSha256: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
-
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(errorPayload(error)), isError: true };
-  }
-}
 
 export function registerPatchSetTool(server: McpServer, runtime: PatchSetToolRuntime): void {
   server.registerTool(

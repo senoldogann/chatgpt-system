@@ -1,6 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { errorPayload } from "./errors.js";
 import {
   createProjectCheckHostExecutorFactory,
   createProjectCheckService,
@@ -8,6 +7,7 @@ import {
   type ProjectCheckRuntimeDependencies,
 } from "./project-check-factory.js";
 import { projectCheckOutputSchema } from "./tool-output-schemas.js";
+import { safeCall } from "./tool-result.js";
 
 export interface ProjectCheckToolRuntime extends ProjectCheckRuntimeDependencies {}
 
@@ -40,25 +40,6 @@ const inputSchema = z.discriminatedUnion("operation", [
     operation: z.literal("report"),
   }).strict(),
 ]);
-
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(errorPayload(error)), isError: true };
-  }
-}
 
 export function registerProjectCheckTool(server: McpServer, runtime: ProjectCheckToolRuntime): void {
   server.registerTool(

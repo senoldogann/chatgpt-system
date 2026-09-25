@@ -77,7 +77,7 @@ export class TerminalMirror {
     // oturum sırası çağrı sırasına göre deterministik kalır.
     const sequence = this.nextSequence();
     this.enqueue(normalized, async () => {
-      await mkdir(this.directory, { recursive: true });
+      await mkdir(this.directory, { recursive: true, mode: 0o700 });
       const now = new Date().toISOString();
       const meta: TerminalMirrorMeta = {
         version: 1,
@@ -99,7 +99,7 @@ export class TerminalMirror {
     const normalized = normalizeSessionId(sessionId);
     if (normalized === "" || data === "") return;
     this.enqueue(normalized, async () => {
-      await mkdir(this.directory, { recursive: true });
+      await mkdir(this.directory, { recursive: true, mode: 0o700 });
       const logPath = this.logPath(normalized);
       await appendFile(logPath, data, { encoding: "utf8", mode: 0o600 });
       const info = await stat(logPath);
@@ -260,7 +260,7 @@ export class TerminalMirror {
   }
 
   private async writeMeta(sessionId: string, meta: TerminalMirrorMeta): Promise<void> {
-    await mkdir(this.directory, { recursive: true });
+    await mkdir(this.directory, { recursive: true, mode: 0o700 });
     const target = this.metaPath(sessionId);
     const temporary = `${target}.${process.pid}.tmp`;
     await writeFile(temporary, JSON.stringify(meta, null, 2), { encoding: "utf8", mode: 0o600 });

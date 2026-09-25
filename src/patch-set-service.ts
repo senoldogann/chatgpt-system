@@ -15,7 +15,7 @@ import path from "node:path";
 import { applyPatch as applyUnifiedPatch, parsePatch } from "diff";
 import type { AuditLogger } from "./audit.js";
 import type { LimitsConfig } from "./config.js";
-import { ConflictError, LimitError, PatchInvalidError, PolicyError, RecoveryRequiredError } from "./errors.js";
+import { ConflictError, LimitError, PolicyError, RecoveryRequiredError } from "./errors.js";
 import { normalizeUnifiedPatchHunkHeaders, patchInvalidError, validateUnifiedPatch } from "./unified-patch.js";
 import { withPathLocks } from "./path-lock.js";
 import { PathPolicy } from "./policy.js";

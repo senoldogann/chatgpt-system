@@ -2,9 +2,9 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { AuditLogger } from "./audit.js";
 import type { AppConfig } from "./config.js";
-import { errorPayload } from "./errors.js";
 import { WorkerStore, assertWorkerAliasLive, type AgentMessage, type WorkerRecord, type WorkerRun } from "./worker-store.js";
 import { workerRunOutputSchema } from "./tool-output-schemas.js";
+import { safeCall } from "./tool-result.js";
 
 export interface WorkerToolRuntime {
   audit: AuditLogger;
@@ -25,25 +25,6 @@ const readAnnotations = {
   idempotentHint: true,
   openWorldHint: false,
 };
-
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(errorPayload(error)), isError: true };
-  }
-}
 
 async function storeFor(runtime: WorkerToolRuntime): Promise<WorkerStore> {
   return WorkerStore.open(

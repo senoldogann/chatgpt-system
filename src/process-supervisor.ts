@@ -11,6 +11,7 @@ import type { LimitsConfig } from "./config.js";
 import { ConflictError, LimitError, ProcessControlUnavailableError, ProcessIdentityUnverifiedError, ProcessTerminationTimeoutError } from "./errors.js";
 import { resolveExecutablePath } from "./executable-resolution.js";
 import { sanitizedChildEnvironment } from "./process-policy.js";
+import { completeUtf8Span } from "./utf8-boundary.js";
 
 export type ManagedProcessState = "running" | "stopping" | "exited" | "stopped" | "unknown";
 export type ManagedJobStatus = "running" | "stopping" | "completed" | "failed" | "cancelled" | "unknown";
@@ -94,21 +95,25 @@ class TailBuffer {
 
   snapshot(cursor?: number): { content: string; bytes: number; truncated: boolean; nextCursor?: number } {
     if (cursor === undefined) {
+      const span = completeUtf8Span(this.value);
+      const content = this.value.subarray(span.start, span.end);
       return {
-        content: this.value.toString("utf8"),
-        bytes: this.value.byteLength,
+        content: content.toString("utf8"),
+        bytes: content.byteLength,
         truncated: this.wasTruncated,
       };
     }
     const firstAvailable = Math.max(0, this.totalBytes - this.value.byteLength);
     const start = Math.max(cursor, firstAvailable);
     const offset = Math.max(0, start - firstAvailable);
-    const content = this.value.subarray(offset);
+    const available = this.value.subarray(offset);
+    const span = completeUtf8Span(available);
+    const content = available.subarray(span.start, span.end);
     return {
       content: content.toString("utf8"),
       bytes: content.byteLength,
       truncated: cursor < firstAvailable || this.wasTruncated,
-      nextCursor: this.totalBytes,
+      nextCursor: this.totalBytes - (available.byteLength - span.end),
     };
   }
 }
@@ -275,6 +280,9 @@ export class ProcessSupervisor {
   private readonly persistencePath: string | undefined;
   private readonly idempotencyInFlight = new Map<string, { promise: Promise<ManagedProcessSummary>; command: string; cwd: string; argsDigest: string }>();
   private pendingStarts = 0;
+  // Kapandıktan sonra gelen geç çocuk olayları diske yazmaz; sonraki daemon
+  // bağımsız sonuç dosyasından kurtarır.
+  private closed = false;
 
   constructor(private readonly options: ProcessSupervisorOptions) {
     this.platform = options.platform ?? process.platform;
@@ -485,6 +493,7 @@ export class ProcessSupervisor {
   }
 
   private persistRecord(record: ManagedRecord): void {
+    if (this.closed) return;
     if (!record.persistent || !this.persistencePath || record.pid === undefined || !record.stdoutPath || !record.stderrPath || !record.resultPath || !record.manifestPath) return;
     const persisted: PersistedProcessRecord = {
       version: 2,
@@ -700,15 +709,17 @@ export class ProcessSupervisor {
       const requested = cursor ?? firstAvailable;
       const logicalStart = Math.min(Math.max(requested, firstAvailable), logicalBytes);
       const physicalStart = logicalStart - firstAvailable;
-      const content = Buffer.alloc(physicalBytes - physicalStart);
+      const raw = Buffer.alloc(physicalBytes - physicalStart);
       const fd = openSync(file, "r");
-      try { readSync(fd, content, 0, content.byteLength, physicalStart); } finally { closeSync(fd); }
+      try { readSync(fd, raw, 0, raw.byteLength, physicalStart); } finally { closeSync(fd); }
+      const span = completeUtf8Span(raw);
+      const content = raw.subarray(span.start, span.end);
       const truncated = requested < firstAvailable || (cursor === undefined && firstAvailable > 0);
       return {
         content: content.toString("utf8"),
         bytes: content.byteLength,
         truncated,
-        ...(cursor !== undefined ? { nextCursor: logicalBytes } : {}),
+        ...(cursor !== undefined ? { nextCursor: logicalBytes - (raw.byteLength - span.end) } : {}),
       };
     };
     return {
@@ -750,6 +761,7 @@ export class ProcessSupervisor {
         if (record.child) await this.waitForClose(record, 1_000);
       }
     }));
+    this.closed = true;
   }
 
   private async requestIndependentStop(record: ManagedRecord): Promise<void> {

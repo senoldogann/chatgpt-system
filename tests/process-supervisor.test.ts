@@ -632,3 +632,41 @@ describe("ProcessSupervisor core", () => {
     }
   });
 });
+
+describe("ProcessSupervisor UTF-8 log cursors", () => {
+  for (const persistent of [false, true]) {
+    it(`never splits a multi-byte character across cursor reads (${persistent ? "persistent" : "in-memory"})`, async () => {
+      const { base } = await fixture();
+      const target = new ProcessSupervisor({
+        limits: { maxManagedProcesses: 4, maxProcessLogBytesPerStream: 1024, processStopGraceMs: 50 },
+        audit: new AuditLogger(path.join(base, "audit-utf8.jsonl")),
+        ...(persistent ? { persistencePath: path.join(base, "processes") } : {}),
+      });
+      supervisors.push(target);
+      const releasePath = path.join(base, "release-second-byte");
+      // "é" = C3 A9: ilk bayt hemen, ikinci bayt tetik dosyası oluşunca yazılır.
+      const script = [
+        "process.stdout.write('ready\\n'); process.stdout.write(Buffer.from([0xc3]));",
+        `const release = ${JSON.stringify(releasePath)};`,
+        "const timer = setInterval(() => { if (require('fs').existsSync(release)) {",
+        "  clearInterval(timer); process.stdout.write(Buffer.from([0xa9, 0x0a])); } }, 10);",
+      ].join("\n");
+      const started = await target.start({ command: "node", args: ["-e", script], cwd: base });
+      await waitForLogText(target, started.processId, "ready");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const partial = target.logs(started.processId, 0);
+      expect(partial?.stdout.content).toBe("ready\n");
+      expect(partial?.stdout.nextCursor).toBe(Buffer.byteLength("ready\n"));
+
+      await writeFile(releasePath, "");
+      const deadline = Date.now() + 3_000;
+      let completed = target.logs(started.processId, partial?.stdout.nextCursor);
+      while (Date.now() < deadline && !completed?.stdout.content.includes("\n")) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        completed = target.logs(started.processId, partial?.stdout.nextCursor);
+      }
+      expect(completed?.stdout.content).toBe("é\n");
+    });
+  }
+});

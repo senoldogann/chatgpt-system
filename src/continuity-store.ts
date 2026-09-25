@@ -179,6 +179,9 @@ function openDatabase(databasePath: string): Database.Database {
 
   try {
     chmodSync(databasePath, 0o600);
+    // Tünel ve köprü daemon'ı aynı dosyayı paylaşır: WAL'da okuyucular
+    // yazarı beklemez, senkron busy_timeout olay döngüsünü nadiren tutar.
+    db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
     db.pragma("busy_timeout = 5000");
     initializeSchema(db);

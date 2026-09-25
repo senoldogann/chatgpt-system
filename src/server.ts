@@ -54,7 +54,7 @@ import { SessionEventStore } from "./session-event-store.js";
 import type { ProjectExecBackend } from "./project-exec-types.js";
 import { createOpenRuntime, createScopedRuntime } from "./scoped-runtime.js";
 import { describeSystemEnvironment } from "./system-environment.js";
-import { errorPayload, PolicyError } from "./errors.js";
+import { PolicyError } from "./errors.js";
 import {
   authorityEndOutputSchema,
   authorityLeaseOutputSchema,
@@ -76,6 +76,7 @@ import {
   systemEnvironmentOutputSchema,
   terminalResultOutputSchema,
 } from "./tool-output-schemas.js";
+import { safeCall } from "./tool-result.js";
 
 export interface RuntimeServices extends ProjectContinuityRuntime {
   config: AppConfig;
@@ -234,25 +235,6 @@ export function createRuntimeServices(config: AppConfig, options: RuntimeOptions
     computerJs,
     ...(sessionEventStore ? { sessionEventStore } : {}),
   };
-}
-
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(errorPayload(error)), isError: true };
-  }
 }
 
 function withScope(runtime: RuntimeServices, authorityLeaseId?: string) {

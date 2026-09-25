@@ -3,10 +3,10 @@ import { z } from "zod";
 import type { AuthorityManager } from "./authority.js";
 import type { AuditLogger } from "./audit.js";
 import type { AppConfig } from "./config.js";
-import { errorPayload } from "./errors.js";
 import { ManagedWorktreeService } from "./managed-worktree-service.js";
 import { PathPolicy } from "./policy.js";
 import { gitWorktreeOutputSchema } from "./tool-output-schemas.js";
+import { safeCall } from "./tool-result.js";
 
 export interface GitWorktreeToolRuntime {
   authority: AuthorityManager;
@@ -41,25 +41,6 @@ const inputSchema = z.discriminatedUnion("operation", [
     worktreeId: z.string().uuid(),
   }).strict(),
 ]);
-
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(errorPayload(error)), isError: true };
-  }
-}
 
 export function registerGitWorktreeTool(server: McpServer, runtime: GitWorktreeToolRuntime): void {
   server.registerTool(

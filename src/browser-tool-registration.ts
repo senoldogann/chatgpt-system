@@ -17,6 +17,7 @@ import {
   browserTabsOutputSchema,
   browserWaitOutputSchema,
 } from "./tool-output-schemas.js";
+import { safeCall, textResult } from "./tool-result.js";
 
 export interface BrowserToolRuntime extends ScopedRuntimeBase {
   authority: AuthorityManager;
@@ -65,25 +66,6 @@ const browserIdempotentMutationAnnotations = {
   idempotentHint: true,
   openWorldHint: true,
 };
-
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(errorPayload(error)), isError: true };
-  }
-}
 
 function browserFor(runtime: BrowserToolRuntime, authorityLeaseId?: string) {
   if (authorityLeaseId !== undefined) {

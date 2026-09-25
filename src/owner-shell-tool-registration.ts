@@ -5,6 +5,7 @@ import { AppError } from "./errors.js";
 import { createOpenRuntime, createScopedRuntime } from "./scoped-runtime.js";
 import type { RuntimeServices } from "./server.js";
 import { shellRunOutputSchema } from "./tool-output-schemas.js";
+import { createSafeCall } from "./tool-result.js";
 
 const mutationAnnotations = {
   readOnlyHint: false,
@@ -13,29 +14,12 @@ const mutationAnnotations = {
   openWorldHint: true,
 };
 
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
 function safeErrorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof AppError) return { error: error.code, message: error.message };
   return { error: "SHELL_FAILED", message: "Owner shell execution failed." };
 }
 
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(safeErrorPayload(error)), isError: true };
-  }
-}
+const safeCall = createSafeCall(safeErrorPayload);
 
 export function registerOwnerShellTool(server: McpServer, runtime: RuntimeServices): void {
   server.registerTool(

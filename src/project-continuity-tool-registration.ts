@@ -28,6 +28,7 @@ import type {
   ProjectResumeInput,
   ProjectResumeResult,
 } from "./project-continuity-service.js";
+import { createSafeCall } from "./tool-result.js";
 
 const authorityLeaseSchema = z.string().min(40).max(256);
 
@@ -101,29 +102,12 @@ const readAnnotations = {
   openWorldHint: false,
 };
 
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
 function safeErrorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof AppError) return { error: error.code, message: error.message };
   return { error: "INTERNAL_ERROR", message: "Project continuity operation failed." };
 }
 
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(safeErrorPayload(error)), isError: true };
-  }
-}
+const safeCall = createSafeCall(safeErrorPayload);
 
 function publicContinuityResult(value: ProjectContinuityResult) {
   return {

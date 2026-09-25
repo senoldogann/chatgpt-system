@@ -3,13 +3,14 @@ import { z } from "zod";
 import type { AuthorityManager } from "./authority.js";
 import type { AuditLogger } from "./audit.js";
 import type { AppConfig } from "./config.js";
-import { errorPayload, VerificationRequiredError } from "./errors.js";
+import { VerificationRequiredError } from "./errors.js";
 import { PathPolicy } from "./policy.js";
 import { ProjectCheckService } from "./project-check-service.js";
 import { ProjectExecService } from "./project-exec-service.js";
 import type { ProjectExecBackend } from "./project-exec-types.js";
 import { TaskStateService } from "./task-state-service.js";
 import { taskStateOutputSchema } from "./tool-output-schemas.js";
+import { safeCall } from "./tool-result.js";
 
 export interface TaskStateToolRuntime {
   authority: AuthorityManager;
@@ -70,25 +71,6 @@ const taskStateInputSchema = z.discriminatedUnion("operation", [
     evidenceRefs: z.array(z.string().min(1).max(512)).max(50).optional(),
   }).strict(),
 ]);
-
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(errorPayload(error)), isError: true };
-  }
-}
 
 function taskContextFor(runtime: TaskStateToolRuntime, authorityLeaseId?: string) {
   const roots = authorityLeaseId === undefined

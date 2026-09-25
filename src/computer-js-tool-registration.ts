@@ -7,6 +7,7 @@ import type { ComputerJsRuntime } from "./computer-js-runtime.js";
 import { AppError } from "./errors.js";
 import { ScopedComputerJsService } from "./scoped-computer-js-service.js";
 import { computerJsRunOutputSchema } from "./tool-output-schemas.js";
+import { createSafeCall } from "./tool-result.js";
 
 export interface ComputerJsToolRuntime {
   config: {
@@ -30,29 +31,12 @@ const mutationAnnotations = {
   openWorldHint: true,
 };
 
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
 function safeErrorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof AppError) return { error: error.code, message: error.message };
   return { error: "INTERNAL_ERROR", message: "Full-host computer JavaScript failed." };
 }
 
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(safeErrorPayload(error)), isError: true };
-  }
-}
+const safeCall = createSafeCall(safeErrorPayload);
 
 function computerJsFor(runtime: ComputerJsToolRuntime, authorityLeaseId?: string): ScopedComputerJsService {
   // Verilen lease varsa doğrulanır, yoksa açık kapsam kullanılır.

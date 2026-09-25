@@ -1,8 +1,8 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ChatProjectBindings, MAX_CHAT_BINDINGS, normalizeChatId } from "../src/chat-bindings.js";
+import { CHAT_BINDINGS_FILE_NAME, ChatProjectBindings, MAX_CHAT_BINDINGS, normalizeChatId } from "../src/chat-bindings.js";
 
 const cleanups: string[] = [];
 
@@ -54,11 +54,17 @@ describe("chat project bindings", () => {
   it("okunamayan bag dosyasinda otomatige duser", async () => {
     const { directory, bindings } = await fixture();
     await bindings.bind("chat-1", "alpha");
-    await chmod(directory, 0o000);
+    // Okuma hatası izin yerine dosya yolunu dizinle değiştirerek üretilir;
+    // böylece root olarak çalışan ortamlarda da (izinleri aşan) geçerlidir.
+    const filePath = path.join(directory, CHAT_BINDINGS_FILE_NAME);
+    const saved = `${filePath}.saved`;
+    await rename(filePath, saved);
+    await mkdir(filePath);
     try {
       expect(await bindings.read("chat-1")).toBeNull();
     } finally {
-      await chmod(directory, 0o700);
+      await rmdir(filePath);
+      await rename(saved, filePath);
     }
     expect(await bindings.read("chat-1")).toBe("alpha");
   });

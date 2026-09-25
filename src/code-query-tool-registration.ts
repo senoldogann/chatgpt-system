@@ -1,9 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { AuthorityManager } from "./authority.js";
-import { errorPayload } from "./errors.js";
 import { createOpenRuntime, createScopedRuntime, type ScopedRuntimeBase } from "./scoped-runtime.js";
 import { codeQueryOutputSchema } from "./tool-output-schemas.js";
+import { safeCall } from "./tool-result.js";
 
 export interface CodeQueryToolRuntime extends ScopedRuntimeBase {
   authority: AuthorityManager;
@@ -53,25 +53,6 @@ const codeQueryInputSchema = z.discriminatedUnion("operation", [
     path: z.string().min(1).max(8_192),
   }).strict(),
 ]);
-
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(errorPayload(error)), isError: true };
-  }
-}
 
 function codeQueryFor(runtime: CodeQueryToolRuntime, authorityLeaseId?: string) {
   if (authorityLeaseId !== undefined) {

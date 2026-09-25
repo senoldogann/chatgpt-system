@@ -77,6 +77,7 @@ export class SessionEventStore {
     let opened: Database.Database | undefined;
     try {
       opened = new Database(options.databasePath, { fileMustExist: true });
+      opened.pragma("journal_mode = WAL");
       opened.pragma("foreign_keys = ON");
       opened.pragma("busy_timeout = 5000");
       if (created) {

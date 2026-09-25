@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { GoalLlmConfig } from "./config.js";
-import { errorPayload, PolicyError } from "./errors.js";
+import { PolicyError } from "./errors.js";
 import { boundBrief, handoffPlanNotice, resumeBootstrapText } from "./handoff.js";
 import { draftBriefWithLlm, type HandoffFetchImpl } from "./handoff-llm.js";
 import { defaultOpencodeAuthPath, readOpencodeGoApiKey } from "./opencode-auth.js";
 import { handoffPrepareOutputSchema } from "./tool-output-schemas.js";
+import { safeCall } from "./tool-result.js";
 
 export interface HandoffToolRuntime {
   config: {
@@ -30,25 +31,6 @@ const annotations = {
   idempotentHint: true,
   openWorldHint: true,
 };
-
-function textResult(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function successResult<T extends object>(value: T) {
-  return {
-    ...textResult(value),
-    structuredContent: value as Record<string, unknown>,
-  };
-}
-
-async function safeCall<T extends object>(fn: () => Promise<T>) {
-  try {
-    return successResult(await fn());
-  } catch (error) {
-    return { ...textResult(errorPayload(error)), isError: true };
-  }
-}
 
 const MAX_HANDOFF_SUMMARY_CHARS = 8_000;
 const MAX_BOOTSTRAP_CHARS = 12_000;
