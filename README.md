@@ -282,6 +282,10 @@ npm run setup:chatgpt -- \
 
 The `dev` profile keeps filesystem, Git, `code_query`, patch, Project Continuity, `task_state`, `project_check`, `project_exec`, `terminal_run`/`process_*`, skills, goal, worker and handoff tools, and hides `browser_*`, `computer_*`, `computer_run_js`, `shell_run` and `terminal_session_*` even when their gates are enabled. The runtime gates are unchanged; the profile only narrows what is published. `full` (the default) publishes every enabled capability. The server can also read `CHATGPT_SYSTEM_TOOL_PROFILE=dev`. After changing the profile, use the ChatGPT app's **Refresh** action where it is available so the hosted catalog is reloaded.
 
+### Usage statistics
+
+`npm run stats` summarizes the last 24 hours of tool calls from `~/.chatgpt-system/tool-metrics.jsonl`: calls, errors, p50/p95/max latency and average response size per tool. It also prints hints, for example when the model is polling processes instead of using `waitMs`, or reading files one by one instead of using `fs_read_many`. Use `--hours N` for another window and `--json` for machine-readable output. The metrics hold no arguments or content.
+
 ### IDE-style coding tools
 
 The server exposes the same primitives a desktop IDE agent relies on, and its MCP `instructions` describe the locate → read → edit → verify → review loop:
