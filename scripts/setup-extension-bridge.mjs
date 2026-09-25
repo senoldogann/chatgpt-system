@@ -254,6 +254,7 @@ async function install(root, port, context) {
   console.log("Uzanti popup Eşleşme bölümüne gir:");
   console.log(`  Port: ${port}`);
   console.log(`  Token: ${token}`);
+  console.log("  Uyari: bu token koprudeki /mcp ucu icin de gecerlidir (tam MCP erisimi); parola gibi sakla.");
   console.log("  Alias: project_list ile seçtiğin kayıt");
 }
 

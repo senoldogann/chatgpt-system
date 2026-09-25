@@ -1,8 +1,16 @@
 # chatgpt-system companion (Chrome uzantısı)
 
 ChatGPT sayfasında yerel çalışma durumunu gösterir: proje bağlamı,
-daraltma brifi ve terminal/iş akışı. Komut çalıştırmaz, dosyaya dokunmaz,
-yetki değiştirmez. Tek yönlü okuma + Daralt ile composer doldurma.
+daraltma brifi ve terminal/iş akışı. Uzantının kendisi komut çalıştırmaz,
+dosya yazmaz ve yetki değiştirmez: yalnızca köprüden okur ve Daralt ile
+composer'ı doldurur.
+
+> **Token kapsamı:** Eşleşme tokenı, köprü sunucusunun bearer tokenıdır ve
+> aynı sunucudaki `/mcp` uç noktası için de geçerlidir. Bu tokenı bilen biri
+> o sunucuda açık olan tüm MCP araçlarını (dosya yazma/silme, Git, proje
+> kiralaması) kullanabilir. Tokenı bir parola gibi sakla; sızdığını
+> düşünürsen `setup:extension-bridge -- uninstall`, token dosyasını sil ve
+> yeniden `install` ile yeni token üret.
 
 ## Kurulum (sırayla)
 
