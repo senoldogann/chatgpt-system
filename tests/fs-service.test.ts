@@ -161,3 +161,71 @@ describe("FileSystemService", () => {
     });
   });
 });
+
+describe("FileSystemService IDE editing", () => {
+  it("reads a 1-based line range while hashing the whole file", async () => {
+    const { service } = await fixture();
+    const written = await service.write("lines.txt", "one\ntwo\nthree\nfour\n");
+    const range = await service.read("lines.txt", "utf8", { offset: 2, limit: 2 });
+    expect(range).toMatchObject({
+      content: "two\nthree",
+      sha256: written.sha256,
+      range: { startLine: 2, endLine: 3, totalLines: 4 },
+    });
+    await expect(service.read("lines.txt", "utf8", { offset: 4 })).resolves.toMatchObject({
+      content: "four",
+      range: { startLine: 4, endLine: 4, totalLines: 4 },
+    });
+    await expect(service.read("lines.txt", "utf8", { offset: 9 })).resolves.toMatchObject({
+      content: "",
+      range: { startLine: 9, endLine: 8, totalLines: 4 },
+    });
+    await expect(service.read("lines.txt", "base64", { offset: 1 })).rejects.toMatchObject({ code: "POLICY_DENIED" });
+    const whole = await service.read("lines.txt");
+    expect(whole).not.toHaveProperty("range");
+  });
+
+  it("replaces one exact unique occurrence and returns the new hash", async () => {
+    const { root, service } = await fixture();
+    const written = await service.write("app.ts", "const a = 1;\nconst b = 2;\n");
+    const edited = await service.edit("app.ts", "const b = 2;", "const b = 3;", { expectedSha256: written.sha256 as string });
+    expect(edited).toMatchObject({ replacements: 1, previousSha256: written.sha256 });
+    expect(await readFile(path.join(root, "app.ts"), "utf8")).toBe("const a = 1;\nconst b = 3;\n");
+    expect(edited.sha256).not.toBe(written.sha256);
+  });
+
+  it("treats replacement text literally, including $ patterns", async () => {
+    const { root, service } = await fixture();
+    await service.write("price.txt", "price: X\n");
+    await service.edit("price.txt", "X", "$& and $1");
+    expect(await readFile(path.join(root, "price.txt"), "utf8")).toBe("price: $& and $1\n");
+  });
+
+  it("refuses ambiguous, missing and no-op edits without writing", async () => {
+    const { root, service } = await fixture();
+    await service.write("dup.txt", "x\nx\n");
+    await expect(service.edit("dup.txt", "x", "y")).rejects.toMatchObject({ code: "CONFLICT", details: expect.objectContaining({ matches: 2 }) });
+    await expect(service.edit("dup.txt", "zzz", "y")).rejects.toBeInstanceOf(ConflictError);
+    await expect(service.edit("dup.txt", "x", "x")).rejects.toMatchObject({ code: "POLICY_DENIED" });
+    await expect(service.edit("missing.txt", "x", "y")).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await readFile(path.join(root, "dup.txt"), "utf8")).toBe("x\nx\n");
+
+    const all = await service.edit("dup.txt", "x", "y", { replaceAll: true });
+    expect(all).toMatchObject({ replacements: 2 });
+    expect(await readFile(path.join(root, "dup.txt"), "utf8")).toBe("y\ny\n");
+  });
+
+  it("rejects a stale expectedSha256", async () => {
+    const { service } = await fixture();
+    await service.write("stale.txt", "before\n");
+    await expect(service.edit("stale.txt", "before", "after", { expectedSha256: "0".repeat(64) }))
+      .rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("matches LF oldString against CRLF files and keeps CRLF line endings", async () => {
+    const { root, service } = await fixture();
+    await service.write("crlf.txt", "first\r\nsecond\r\nthird\r\n");
+    await service.edit("crlf.txt", "first\nsecond", "first\nchanged");
+    expect(await readFile(path.join(root, "crlf.txt"), "utf8")).toBe("first\r\nchanged\r\nthird\r\n");
+  });
+});

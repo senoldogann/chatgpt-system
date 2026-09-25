@@ -7,6 +7,7 @@ import type { LimitsConfig } from "./config.js";
 import { LimitError, LspUnavailableError, PolicyError } from "./errors.js";
 import type {
   CodeQueryDiagnosticResult,
+  CodeQueryFileResult,
   CodeQueryLocationResult,
   CodeQueryReferenceResult,
   CodeQueryResponse,
@@ -16,8 +17,12 @@ import type {
 } from "./code-query-types.js";
 import { PathPolicy } from "./policy.js";
 import { TypeScriptLanguageServiceAdapter, type TypeScriptLanguageSource } from "./typescript-language-service.js";
+import { compileGlob } from "./glob-match.js";
 
 const DEFAULT_MAX_RESULTS = 50;
+const SEARCH_READ_CONCURRENCY = 16;
+const MAX_CONTEXT_LINES = 5;
+const MAX_PREVIEW_CHARS = 1_024;
 const MAX_RESULTS = 200;
 const MAX_QUERY_CHARS = 4_096;
 const MAX_SCAN_FILES = 5_000;
@@ -176,6 +181,44 @@ function validateMaxResults(value: number | undefined): number {
   return resolved;
 }
 
+export interface CodeSearchOptions {
+  regex?: boolean;
+  caseSensitive?: boolean;
+  glob?: string;
+  contextLines?: number;
+}
+
+function validateContextLines(value: number | undefined): number {
+  const resolved = value ?? 0;
+  if (!Number.isInteger(resolved) || resolved < 0 || resolved > MAX_CONTEXT_LINES) {
+    throw new PolicyError(`Code query contextLines must be between 0 and ${MAX_CONTEXT_LINES}.`);
+  }
+  return resolved;
+}
+
+// Eşleşmenin 0 tabanlı sütununu, eşleşme yoksa -1 döndürür.
+function lineMatcher(query: string, regex: boolean, caseSensitive: boolean): (line: string) => number {
+  if (regex) {
+    let compiled: RegExp;
+    try {
+      compiled = new RegExp(query, caseSensitive ? "" : "i");
+    } catch (error) {
+      throw new PolicyError(`Invalid regular expression: ${(error as Error).message}`);
+    }
+    return (line) => {
+      const match = compiled.exec(line);
+      return match === null ? -1 : match.index;
+    };
+  }
+  if (caseSensitive) return (line) => line.indexOf(query);
+  const normalized = query.toLowerCase();
+  return (line) => line.toLowerCase().indexOf(normalized);
+}
+
+function previewLine(line: string): string {
+  return line.length <= MAX_PREVIEW_CHARS ? line : `${line.slice(0, MAX_PREVIEW_CHARS - 3)}...`;
+}
+
 function validateQuery(query: string, optional = false): string {
   if (optional && query.length === 0) return "";
   if (!query || query.length > MAX_QUERY_CHARS || query.includes("\u0000")) {
@@ -215,9 +258,11 @@ async function readBoundedText(filePath: string, maxBytes: number): Promise<Read
     const info = await lstat(filePath);
     if (!info.isFile() || info.isSymbolicLink() || info.size > maxBytes) return null;
     handle = await open(filePath, "r");
-    const buffer = Buffer.allocUnsafe(maxBytes + 1);
+    // Tampon dosya boyutuna göre ayrılır; bir fazla bayt, lstat'tan sonra
+    // büyüyen dosyayı yakalar (o dosya bu taramada atlanır).
+    const buffer = Buffer.allocUnsafe(info.size + 1);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    if (bytesRead > maxBytes) return null;
+    if (bytesRead > info.size) return null;
     const bytes = buffer.subarray(0, bytesRead);
     if (bytes.includes(0)) return null;
     const text = bytes.toString("utf8");
@@ -424,10 +469,15 @@ export class CodeQueryService {
     queryInput: string,
     cwdInput = ".",
     maxResultsInput?: number,
+    options: CodeSearchOptions = {},
   ): Promise<CodeQueryResponse<CodeQuerySearchResult>> {
     const query = validateQuery(queryInput);
     const maxResults = validateMaxResults(maxResultsInput);
+    const contextLines = validateContextLines(options.contextLines);
+    const matcher = lineMatcher(query, options.regex === true, options.caseSensitive === true);
+    const includePath = options.glob !== undefined ? compileGlob(options.glob) : () => true;
     const repository = await this.repository(cwdInput);
+    const candidates = repository.files.filter((file) => includePath(file.relativePath));
 
     return this.audit.run(
       "code.query",
@@ -437,32 +487,42 @@ export class CodeQueryService {
         let scannedFiles = 0;
         let bytesScanned = 0;
         let truncated = repository.files.length >= MAX_SCAN_FILES;
-        const normalizedQuery = query.toLowerCase();
 
-        fileLoop: for (const file of repository.files) {
-          const read = await readBoundedText(file.absolutePath, this.limits.maxReadBytes);
-          if (!read) continue;
-          if (bytesScanned + read.bytes.byteLength > MAX_SCAN_BYTES) {
-            truncated = true;
-            break;
-          }
-          scannedFiles += 1;
-          bytesScanned += read.bytes.byteLength;
-          const lines = read.text.split(/\r?\n/);
-          for (const [lineIndex, lineText] of lines.entries()) {
-            const columnIndex = lineText.toLowerCase().indexOf(normalizedQuery);
-            if (columnIndex < 0) continue;
-            if (results.length >= maxResults) {
+        // Dosyalar sınırlı paralellikle okunur, sonuçlar yine depo sırasıyla
+        // üretilir; böylece çıktı ve kesme noktası deterministik kalır.
+        batchLoop: for (let offset = 0; offset < candidates.length; offset += SEARCH_READ_CONCURRENCY) {
+          const batch = candidates.slice(offset, offset + SEARCH_READ_CONCURRENCY);
+          const reads = await Promise.all(batch.map((file) => readBoundedText(file.absolutePath, this.limits.maxReadBytes)));
+          for (const [index, read] of reads.entries()) {
+            if (!read) continue;
+            if (bytesScanned + read.bytes.byteLength > MAX_SCAN_BYTES) {
               truncated = true;
-              break fileLoop;
+              break batchLoop;
             }
-            results.push({
-              path: file.relativePath,
-              line: lineIndex + 1,
-              column: columnIndex + 1,
-              preview: lineText.length <= 1_024 ? lineText : `${lineText.slice(0, 1_021)}...`,
-              sha256: read.sha256,
-            });
+            scannedFiles += 1;
+            bytesScanned += read.bytes.byteLength;
+            const lines = read.text.split(/\r?\n/);
+            for (const [lineIndex, lineText] of lines.entries()) {
+              const columnIndex = matcher(lineText);
+              if (columnIndex < 0) continue;
+              if (results.length >= maxResults) {
+                truncated = true;
+                break batchLoop;
+              }
+              results.push({
+                path: batch[index]!.relativePath,
+                line: lineIndex + 1,
+                column: columnIndex + 1,
+                preview: previewLine(lineText),
+                sha256: read.sha256,
+                ...(contextLines > 0
+                  ? {
+                    before: lines.slice(Math.max(0, lineIndex - contextLines), lineIndex).map(previewLine),
+                    after: lines.slice(lineIndex + 1, lineIndex + 1 + contextLines).map(previewLine),
+                  }
+                  : {}),
+              });
+            }
           }
         }
 
@@ -476,6 +536,48 @@ export class CodeQueryService {
         };
       },
       { operation: "search", maxResults },
+    );
+  }
+
+  async files(
+    globInput: string | undefined,
+    cwdInput = ".",
+    maxResultsInput?: number,
+  ): Promise<CodeQueryResponse<CodeQueryFileResult>> {
+    const maxResults = validateMaxResults(maxResultsInput);
+    const includePath = globInput !== undefined ? compileGlob(globInput) : () => true;
+    const repository = await this.repository(cwdInput);
+
+    return this.audit.run(
+      "code.query",
+      this.policy.display(repository.root),
+      async () => {
+        const results: CodeQueryFileResult[] = [];
+        let truncated = repository.files.length >= MAX_SCAN_FILES;
+        for (const file of repository.files) {
+          if (!includePath(file.relativePath)) continue;
+          if (results.length >= maxResults) {
+            truncated = true;
+            break;
+          }
+          try {
+            const info = await lstat(file.absolutePath);
+            if (!info.isFile()) continue;
+            results.push({ path: file.relativePath, bytes: info.size });
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          }
+        }
+        return {
+          operation: "files",
+          repositoryRoot: this.policy.display(repository.root),
+          results,
+          truncated,
+          scannedFiles: 0,
+          bytesScanned: 0,
+        };
+      },
+      { operation: "files", maxResults },
     );
   }
 

@@ -23,6 +23,7 @@ const expectedAnnotations = {
   fs_list: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   fs_stat: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   fs_read: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  fs_edit: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   fs_write: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   fs_apply_patch: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   fs_apply_patch_set: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -156,6 +157,7 @@ const workerV1ToolNames = [
   "worker_status",
 ] as const;
 const handoffV1ToolNames = ["handoff_prepare"] as const;
+const ideAgentToolNames = ["fs_edit"] as const;
 const baselineToolCatalogSha256 = "9cdc86efe227f7d92b2da227aa3ff508c11ceb165b2e5877a6727c9620620051";
 const baselineToolCount = 62;
 
@@ -347,6 +349,7 @@ describe("HTTP MCP transport", () => {
         ...goalV1ToolNames,
         ...workerV1ToolNames,
         ...handoffV1ToolNames,
+        ...ideAgentToolNames,
         "git_inventory",
         "git_file_review",
       ]);

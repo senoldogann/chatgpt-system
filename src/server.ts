@@ -62,6 +62,7 @@ import {
   fsMkdirOutputSchema,
   fsMoveOutputSchema,
   fsPatchOutputSchema,
+  fsEditOutputSchema,
   fsReadOutputSchema,
   fsRemoveOutputSchema,
   fsStatOutputSchema,
@@ -268,7 +269,11 @@ const gitRemoteMutationAnnotations = { readOnlyHint: false, destructiveHint: fal
 
 // Oturum düzeyi iş akışı rehberi araç açıklamalarında değil burada durur;
 // açıklamalar yalnızca aracın ne yaptığını anlatır.
-export const SERVER_INSTRUCTIONS = "chatgpt-system gives access to the user's local project workspace. To continue a registered project, call project_resume with its exact alias (project_list when the alias is unknown) and reconcile Git state before any project mutation. If the host reports 'This conversation does not support developer MCPs', that is developer MCP product-surface/tool-routing unavailability, not a local daemon failure: do not repeatedly retry the unavailable namespace, do not substitute container access, and do not claim local changes; continue in a new or recovered chat and call project_resume before mutation.";
+export const SERVER_INSTRUCTIONS = [
+  "chatgpt-system gives access to the user's local project workspace. To continue a registered project, call project_resume with its exact alias (project_list when the alias is unknown) and reconcile Git state before any project mutation.",
+  "Coding workflow, as in a desktop IDE agent: locate code with code_query (files for globs, search with regex/glob/contextLines, symbols, definition, references); read only the relevant lines with fs_read offset/limit; change existing files with fs_edit (exact unique oldString) or fs_apply_patch_set for coordinated multi-file edits, and fs_write for new files; check with code_query diagnostics and project_check; review with git_file_review or git_diff before git_commit. Keep each change minimal and verify it before reporting it as done.",
+  "If the host reports 'This conversation does not support developer MCPs', that is developer MCP product-surface/tool-routing unavailability, not a local daemon failure: do not repeatedly retry the unavailable namespace, do not substitute container access, and do not claim local changes; continue in a new or recovered chat and call project_resume before mutation.",
+].join("\n\n");
 
 export function createMcpServer(runtime: RuntimeServices): McpServer {
   const authorityStartInputSchema = projectAuthorityStartInputSchema;
@@ -418,12 +423,42 @@ export function createMcpServer(runtime: RuntimeServices): McpServer {
   server.registerTool(
     "fs_read",
     {
-      description: "Read a regular file inside the active authority lease scope and return its content plus SHA-256. Use that hash for later modifications.",
-      inputSchema: z.object({ ...authorityLeaseField, path: z.string(), encoding: z.enum(["utf8", "base64"]).default("utf8") }),
+      description: "Read a regular file inside the active authority lease scope and return its content plus the SHA-256 of the whole file. Optional offset (1-based line) and limit (line count) return only that line range with range.totalLines, for large files. The hash can guard later fs_edit/fs_write/fs_apply_patch calls.",
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        path: z.string(),
+        encoding: z.enum(["utf8", "base64"]).default("utf8"),
+        offset: z.number().int().positive().optional(),
+        limit: z.number().int().positive().optional(),
+      }),
       outputSchema: fsReadOutputSchema,
       annotations: readAnnotations,
     },
-    async ({ authorityLeaseId, path, encoding }) => safeCall(() => withAuthority(runtime, authorityLeaseId).fs.read(path, encoding)),
+    async ({ authorityLeaseId, path, encoding, offset, limit }) => safeCall(() => withAuthority(runtime, authorityLeaseId).fs.read(path, encoding, {
+      ...(offset !== undefined ? { offset } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+    })),
+  );
+
+  server.registerTool(
+    "fs_edit",
+    {
+      description: "Edit an existing UTF-8 file by exact string replacement: oldString must match the current text exactly once (including whitespace), or every occurrence when replaceAll is true. Fails without writing when there is no match or more than one match. Optional expectedSha256 guards against concurrent changes. Returns the new SHA-256.",
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        path: z.string(),
+        oldString: z.string().min(1),
+        newString: z.string(),
+        replaceAll: z.boolean().optional(),
+        expectedSha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+      }).strict(),
+      outputSchema: fsEditOutputSchema,
+      annotations: destructiveAnnotations,
+    },
+    async ({ authorityLeaseId, path, oldString, newString, replaceAll, expectedSha256 }) => safeCall(() => withAuthority(runtime, authorityLeaseId).fs.edit(path, oldString, newString, {
+      ...(replaceAll !== undefined ? { replaceAll } : {}),
+      ...(expectedSha256 !== undefined ? { expectedSha256 } : {}),
+    })),
   );
 
   server.registerTool(

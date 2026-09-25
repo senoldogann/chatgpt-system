@@ -1,4 +1,4 @@
-export type CodeQueryOperation = "search" | "symbols" | "definition" | "references" | "diagnostics";
+export type CodeQueryOperation = "search" | "files" | "symbols" | "definition" | "references" | "diagnostics";
 
 export interface CodeQuerySearchResult {
   path: string;
@@ -6,6 +6,13 @@ export interface CodeQuerySearchResult {
   column: number;
   preview: string;
   sha256: string;
+  before?: string[];
+  after?: string[];
+}
+
+export interface CodeQueryFileResult {
+  path: string;
+  bytes: number;
 }
 
 export type CodeSymbolKind = "variable" | "function" | "class" | "interface" | "type" | "enum";
@@ -40,6 +47,7 @@ export interface CodeQueryDiagnosticResult extends CodeQueryLocationResult {
 
 export type CodeQueryResult =
   | CodeQuerySearchResult
+  | CodeQueryFileResult
   | CodeQuerySymbolResult
   | CodeQueryLocationResult
   | CodeQueryReferenceResult

@@ -23,6 +23,12 @@ function sha256(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+function countOccurrences(source: string, search: string): number {
+  let count = 0;
+  for (let index = source.indexOf(search); index >= 0; index = source.indexOf(search, index + search.length)) count += 1;
+  return count;
+}
+
 async function exists(candidate: string): Promise<boolean> {
   try {
     await lstat(candidate);
@@ -83,7 +89,13 @@ export class FileSystemService {
     });
   }
 
-  async read(input: string, encoding: "utf8" | "base64" = "utf8"): Promise<Record<string, unknown>> {
+  async read(
+    input: string,
+    encoding: "utf8" | "base64" = "utf8",
+    lines: { offset?: number; limit?: number } = {},
+  ): Promise<Record<string, unknown>> {
+    const ranged = lines.offset !== undefined || lines.limit !== undefined;
+    if (ranged && encoding !== "utf8") throw new PolicyError("Line ranges require utf8 encoding.");
     const resolved = await this.policy.resolve(input);
     return this.audit.run("fs.read", this.policy.display(resolved), async () => {
       const info = await stat(resolved);
@@ -92,14 +104,92 @@ export class FileSystemService {
         throw new LimitError("File exceeds read limit.", { size: info.size, limit: this.limits.maxReadBytes });
       }
       const buffer = await readFile(resolved);
-      return {
+      const base = {
         path: this.policy.display(resolved),
         encoding,
-        content: buffer.toString(encoding),
         bytes: buffer.byteLength,
         sha256: sha256(buffer),
       };
+      if (!ranged) return { ...base, content: buffer.toString(encoding) };
+      // sha256 her zaman tüm dosyanındır; aralıklı okumadan sonra da güvenli
+      // yazma (fs_edit/fs_write/fs_apply_patch) için kullanılabilir.
+      const text = buffer.toString("utf8");
+      const allLines = text.split("\n");
+      if (text.endsWith("\n")) allLines.pop();
+      const startLine = lines.offset ?? 1;
+      const selected = allLines.slice(startLine - 1, lines.limit === undefined ? undefined : startLine - 1 + lines.limit);
+      return {
+        ...base,
+        content: selected.join("\n"),
+        range: { startLine, endLine: startLine + selected.length - 1, totalLines: allLines.length },
+      };
     });
+  }
+
+  async edit(
+    input: string,
+    oldString: string,
+    newString: string,
+    options: { replaceAll?: boolean; expectedSha256?: string } = {},
+  ): Promise<Record<string, unknown>> {
+    if (oldString.length === 0) throw new PolicyError("oldString must not be empty; use fs_write to create or replace a whole file.");
+    if (oldString === newString) throw new PolicyError("oldString and newString are identical; nothing to change.");
+    const resolved = await this.policy.resolve(input);
+    return this.audit.run("fs.edit", this.policy.display(resolved), async () => withPathLock(resolved, async () => {
+      if (!(await exists(resolved))) throw new NotFoundError("File does not exist; use fs_write to create it.");
+      const info = await lstat(resolved);
+      if (!info.isFile()) throw new PolicyError("Target must be a regular file.");
+      if (info.size > this.limits.maxReadBytes) {
+        throw new LimitError("File exceeds read limit.", { size: info.size, limit: this.limits.maxReadBytes });
+      }
+      const current = await readFile(resolved);
+      const currentSha256 = sha256(current);
+      if (options.expectedSha256 !== undefined && options.expectedSha256 !== currentSha256) {
+        throw new ConflictError("File changed since it was read.", { expectedSha256: options.expectedSha256, currentSha256 });
+      }
+      const source = current.toString("utf8");
+      let search = oldString;
+      let replacement = newString;
+      let matches = countOccurrences(source, search);
+      // CRLF dosyada LF ile yazılmış bir eşleşme de kabul edilir; yeni metin
+      // dosyanın satır sonu stiline çevrilir.
+      if (matches === 0 && source.includes("\r\n") && !oldString.includes("\r\n") && oldString.includes("\n")) {
+        search = oldString.replace(/\n/g, "\r\n");
+        replacement = newString.replace(/\r?\n/g, "\r\n");
+        matches = countOccurrences(source, search);
+      }
+      if (matches === 0) {
+        throw new ConflictError("oldString was not found in the file.", {
+          currentSha256,
+          recommendedOperations: ["fs_read", "code_query"],
+          guidance: "Re-read the current text and copy oldString exactly, including whitespace and indentation.",
+          retryable: true,
+        });
+      }
+      if (matches > 1 && options.replaceAll !== true) {
+        throw new ConflictError("oldString matches more than one location.", {
+          matches,
+          currentSha256,
+          guidance: "Include more surrounding lines so oldString is unique, or set replaceAll to change every occurrence.",
+          retryable: true,
+        });
+      }
+      const result = options.replaceAll === true
+        ? source.split(search).join(replacement)
+        : source.replace(search, () => replacement);
+      const buffer = Buffer.from(result, "utf8");
+      if (buffer.byteLength > this.limits.maxWriteBytes) {
+        throw new LimitError("Edited file exceeds configured byte limit.", { bytes: buffer.byteLength, limit: this.limits.maxWriteBytes });
+      }
+      await this.atomicWrite(resolved, buffer, info.mode & 0o777);
+      return {
+        path: this.policy.display(resolved),
+        bytes: buffer.byteLength,
+        sha256: sha256(buffer),
+        previousSha256: currentSha256,
+        replacements: options.replaceAll === true ? matches : 1,
+      };
+    }), { replaceAll: options.replaceAll === true });
   }
 
   private async verifyExpectedHash(resolved: string, expectedSha256?: string): Promise<{ exists: boolean; mode?: number }> {

@@ -320,3 +320,73 @@ describe("code_query MCP tool", () => {
     }
   });
 });
+
+describe("code_query IDE search options", () => {
+  it("supports regex, case sensitivity, path globs and context lines", async () => {
+    const { root, client, transport } = await fixture();
+    try {
+      const call = async (args: Record<string, unknown>) => {
+        const result = await client.callTool({ name: "code_query", arguments: { cwd: root, ...args } });
+        expect(result.isError, JSON.stringify(result.content)).not.toBe(true);
+        return result.structuredContent as unknown as QueryResponse<SearchResult & { before?: string[]; after?: string[] }>;
+      };
+
+      const regex = await call({ operation: "search", query: "export (function|class) \\w+One", regex: true });
+      expect(regex.results.map((item) => [item.path, item.line, item.column])).toEqual([["src/app.ts", 2, 1]]);
+
+      const insensitive = await call({ operation: "search", query: "live_needle" });
+      expect(insensitive.results.map((item) => item.path)).toEqual(["src/app.ts"]);
+      const sensitive = await call({ operation: "search", query: "live_needle", caseSensitive: true });
+      expect(sensitive.results).toEqual([]);
+
+      const globbed = await call({ operation: "search", query: "query-needle", glob: "src/untracked.*" });
+      expect(globbed.results.map((item) => item.path)).toEqual(["src/untracked.ts"]);
+
+      const context = await call({ operation: "search", query: "alphaOne", contextLines: 1 });
+      expect(context.results[0]).toMatchObject({
+        path: "src/app.ts",
+        line: 2,
+        before: ['export const LIVE_NEEDLE = "query-needle";'],
+        after: ["export class Widget {}"],
+      });
+
+      const invalid = await client.callTool({
+        name: "code_query",
+        arguments: { cwd: root, operation: "search", query: "(unclosed", regex: true },
+      });
+      expect(invalid.isError).toBe(true);
+      expect(JSON.stringify(invalid.content)).toMatch(/Invalid regular expression/);
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("lists repository files by glob while honoring ignore and safety filters", async () => {
+    const { root, client, transport } = await fixture();
+    try {
+      const result = await client.callTool({
+        name: "code_query",
+        arguments: { cwd: root, operation: "files", glob: "*.ts" },
+      });
+      expect(result.isError).not.toBe(true);
+      const body = result.structuredContent as unknown as { operation: string; results: Array<{ path: string; bytes: number }> };
+      expect(body.operation).toBe("files");
+      expect(body.results.map((item) => item.path).sort()).toEqual([
+        "src/app.ts",
+        "src/deleted.ts",
+        "src/secret-manager.ts",
+        "src/untracked.ts",
+      ]);
+      expect(body.results.every((item) => item.bytes > 0)).toBe(true);
+
+      const all = await client.callTool({ name: "code_query", arguments: { cwd: root, operation: "files" } });
+      const paths = (all.structuredContent as unknown as { results: Array<{ path: string }> }).results.map((item) => item.path);
+      expect(paths).toContain("README.md");
+      expect(paths.some((item) => item.startsWith("node_modules/") || item.startsWith("ignored/") || item === ".env")).toBe(false);
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+});

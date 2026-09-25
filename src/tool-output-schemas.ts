@@ -135,6 +135,19 @@ export const fsReadOutputSchema = z.object({
   content: z.string(),
   bytes: nonNegativeInt,
   sha256: sha256Schema,
+  range: z.object({
+    startLine: z.number().int().positive(),
+    endLine: z.number().int().nonnegative(),
+    totalLines: nonNegativeInt,
+  }).optional(),
+});
+
+export const fsEditOutputSchema = z.object({
+  path: z.string(),
+  bytes: nonNegativeInt,
+  sha256: sha256Schema,
+  previousSha256: sha256Schema,
+  replacements: z.number().int().positive(),
 });
 
 export const fsWriteOutputSchema = z.object({
@@ -332,6 +345,13 @@ const codeQuerySearchResultSchema = z.object({
   column: z.number().int().positive(),
   preview: z.string(),
   sha256: sha256Schema,
+  before: z.array(z.string()).optional(),
+  after: z.array(z.string()).optional(),
+}).strict();
+
+const codeQueryFileResultSchema = z.object({
+  path: z.string(),
+  bytes: nonNegativeInt,
 }).strict();
 
 const codeQuerySymbolResultSchema = z.object({
@@ -361,10 +381,11 @@ const codeQueryDiagnosticResultSchema = codeQueryLocationResultSchema.extend({
 }).strict();
 
 export const codeQueryOutputSchema = z.object({
-  operation: z.enum(["search", "symbols", "definition", "references", "diagnostics"]),
+  operation: z.enum(["search", "files", "symbols", "definition", "references", "diagnostics"]),
   repositoryRoot: z.string(),
   results: z.array(z.union([
     codeQuerySearchResultSchema,
+    codeQueryFileResultSchema,
     codeQuerySymbolResultSchema,
     codeQueryReferenceResultSchema,
     codeQueryDiagnosticResultSchema,
