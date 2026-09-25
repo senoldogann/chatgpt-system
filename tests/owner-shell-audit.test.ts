@@ -2,8 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.js";
-import { createScopedRuntime } from "../src/scoped-runtime.js";
+import { loadConfig } from "../src/core/config.js";
+import { createScopedRuntime } from "../src/core/scoped-runtime.js";
 import { createRuntimeServices, type RuntimeServices } from "../src/server.js";
 
 const cleanups: string[] = [];

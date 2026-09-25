@@ -11,7 +11,7 @@ import {
   WorktreeDirtyError,
   WorktreeNotFoundError,
   errorPayload,
-} from "../src/errors.js";
+} from "../src/core/errors.js";
 
 describe("coding harness stable error contract", () => {
   it.each([

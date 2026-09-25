@@ -2,9 +2,9 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { HandoffFetchImpl } from "../src/handoff-llm.js";
-import { prepareHandoff, type HandoffToolRuntime } from "../src/handoff-tool-registration.js";
-import { PolicyError } from "../src/errors.js";
+import type { HandoffFetchImpl } from "../src/agent/handoff-llm.js";
+import { prepareHandoff, type HandoffToolRuntime } from "../src/agent/handoff-tool-registration.js";
+import { PolicyError } from "../src/core/errors.js";
 
 const llm = {
   baseUrl: "https://opencode.ai/zen/go/v1/chat/completions",

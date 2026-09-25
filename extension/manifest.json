@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "chatgpt-system companion",
   "version": "0.4.0",
-  "description": "Yerel chatgpt-system durumunu ChatGPT sayfasında gösterir: proje bağlamı, daraltma brifi ve terminal akışı. Komut çalıştırmaz, dosyaya dokunmaz.",
+  "description": "ChatGPT'de yerel proje durumunu gösterir. Uzantı komut çalıştırmaz; eşleşme tokenı köprüde tam MCP erişimi verir.",
   "minimum_chrome_version": "125",
   "permissions": ["storage", "alarms"],
   "host_permissions": [

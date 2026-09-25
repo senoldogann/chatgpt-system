@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { PROJECT_EXEC_IMAGE as runtimeImage } from "../src/docker-project-exec-backend.js";
+import { PROJECT_EXEC_IMAGE as runtimeImage } from "../src/project/docker-project-exec-backend.js";
 import {
   PROJECT_EXEC_IMAGE as setupImage,
   buildProjectExecImageInvocation,

@@ -5,12 +5,12 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AppConfig } from "../src/config.js";
-import { ComputerError } from "../src/computer-errors.js";
-import { COMPUTER_MAX_JS_OUTPUT_BYTES, COMPUTER_MAX_JS_SOURCE_BYTES } from "../src/config.js";
-import { computerJsRunOutputSchema } from "../src/tool-output-schemas.js";
-import type { ComputerJsRunInput } from "../src/computer-js-runtime.js";
-import { registerComputerJsTools } from "../src/computer-js-tool-registration.js";
+import type { AppConfig } from "../src/core/config.js";
+import { ComputerError } from "../src/computer/computer-errors.js";
+import { COMPUTER_MAX_JS_OUTPUT_BYTES, COMPUTER_MAX_JS_SOURCE_BYTES } from "../src/core/config.js";
+import { computerJsRunOutputSchema } from "../src/mcp/tool-output-schemas.js";
+import type { ComputerJsRunInput } from "../src/computer/computer-js-runtime.js";
+import { registerComputerJsTools } from "../src/computer/computer-js-tool-registration.js";
 import { createRuntimeServices, type RuntimeServices } from "../src/server.js";
 import { startHttp } from "../src/transport.js";
 

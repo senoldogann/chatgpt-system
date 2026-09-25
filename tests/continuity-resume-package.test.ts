@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildResumePackage,
   type ResumePackageInput,
-} from "../src/continuity-resume-package.js";
+} from "../src/continuity/continuity-resume-package.js";
 
 function fixture(): ResumePackageInput {
   const checkedAt = "2026-09-11T02:30:00.000Z";

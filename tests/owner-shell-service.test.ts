@@ -1,11 +1,12 @@
 import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { OwnerShellService } from "../src/owner-shell-service.js";
-import { OwnerShellSupervisor } from "../src/owner-shell-supervisor.js";
-import { PathPolicy } from "../src/policy.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { OwnerShellService } from "../src/terminal/owner-shell-service.js";
+import { OwnerShellSupervisor } from "../src/terminal/owner-shell-supervisor.js";
+import { PathPolicy } from "../src/core/policy.js";
 import { executableTestTemp } from "./test-temp.js";
+import { quietLoginShellPath } from "./support/quiet-login-shell.js";
 
 const cleanups: string[] = [];
 
@@ -22,7 +23,7 @@ async function fixture(options: { admin: boolean; enabled: boolean; retainedByte
     supervisor,
     {
       enabled: options.enabled,
-      shellPath: "/bin/sh",
+      shellPath: quietLoginShellPath,
       maxScriptBytes: 262_144,
       maxTimeoutMs: options.maxTimeoutMs ?? 120_000,
     },
@@ -122,7 +123,7 @@ describe("OwnerShellService", () => {
       new PathPolicy([root]),
       new AuditLogger(path.join(root, "audit.jsonl")),
       supervisor,
-      { enabled: true, shellPath: "/bin/sh", maxScriptBytes: 4 },
+      { enabled: true, shellPath: quietLoginShellPath, maxScriptBytes: 4 },
       true,
     );
     try {

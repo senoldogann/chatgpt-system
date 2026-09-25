@@ -3,11 +3,11 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { BrowserContext } from "playwright";
-import { BrowserError } from "../src/errors.js";
+import { BrowserError } from "../src/core/errors.js";
 import {
   connectExistingChrome,
   type ExistingChromePlaywrightFacade,
-} from "../src/existing-chrome-connector.js";
+} from "../src/browser/existing-chrome-connector.js";
 
 const cleanups: string[] = [];
 

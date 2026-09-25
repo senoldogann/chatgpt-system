@@ -5,8 +5,8 @@ import {
   COMPUTER_MAX_REQUEST_LINE_BYTES,
   COMPUTER_MAX_RESPONSE_BYTES,
   type ComputerNativeMethod,
-} from "../src/computer-types.js";
-import { ComputerNativeClient } from "../src/computer-native-client.js";
+} from "../src/computer/computer-types.js";
+import { ComputerNativeClient } from "../src/computer/computer-native-client.js";
 
 function fixture(options: {
   requestIds?: string[];

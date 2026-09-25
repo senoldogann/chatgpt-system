@@ -7,9 +7,9 @@ import type {
   BrowserScreenshot,
   BrowserTabView,
   BrowserTarget,
-} from "../src/browser-types.js";
-import type { BrowserBackend, BrowserTargetMetadata } from "../src/browser-backend.js";
-import { BrowserRuntime } from "../src/browser-runtime.js";
+} from "../src/browser/browser-types.js";
+import type { BrowserBackend, BrowserTargetMetadata } from "../src/browser/browser-backend.js";
+import { BrowserRuntime } from "../src/browser/browser-runtime.js";
 
 const PAGE_ID = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
 

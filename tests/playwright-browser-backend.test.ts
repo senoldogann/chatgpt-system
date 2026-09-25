@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserContext, Page } from "playwright";
-import type { BrowserTarget } from "../src/browser-types.js";
-import { PlaywrightBrowserBackend } from "../src/playwright-browser-backend.js";
+import type { BrowserTarget } from "../src/browser/browser-types.js";
+import { PlaywrightBrowserBackend } from "../src/browser/playwright-browser-backend.js";
 
 class FakeLocator {
   countValue = 1;

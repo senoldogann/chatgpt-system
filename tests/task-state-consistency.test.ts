@@ -3,10 +3,10 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { ConflictError } from "../src/errors.js";
-import { PathPolicy } from "../src/policy.js";
-import { TaskStateService } from "../src/task-state-service.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { ConflictError } from "../src/core/errors.js";
+import { PathPolicy } from "../src/core/policy.js";
+import { TaskStateService } from "../src/project/task-state-service.js";
 
 const cleanups: string[] = [];
 

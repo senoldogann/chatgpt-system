@@ -1,7 +1,7 @@
 import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { DockerProjectExecBackend } from "../src/docker-project-exec-backend.js";
+import { DockerProjectExecBackend } from "../src/project/docker-project-exec-backend.js";
 import { executableTestTemp } from "./test-temp.js";
 
 const cleanups: string[] = [];

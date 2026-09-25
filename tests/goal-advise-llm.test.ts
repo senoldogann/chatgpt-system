@@ -2,8 +2,8 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { adviseGoal, type GoalToolRuntime } from "../src/goal-tool-registration.js";
-import type { FetchImpl } from "../src/goal-llm.js";
+import { adviseGoal, type GoalToolRuntime } from "../src/agent/goal-tool-registration.js";
+import type { FetchImpl } from "../src/agent/goal-llm.js";
 
 function ruleRuntime(): GoalToolRuntime {
   return { config: { goal: { enabled: true, maxTranscriptChars: 120_000 } } };

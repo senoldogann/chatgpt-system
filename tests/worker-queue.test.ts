@@ -2,8 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { WorkerStore, assertWorkerAliasLive, briefFor } from "../src/worker-store.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { WorkerStore, assertWorkerAliasLive, briefFor } from "../src/agent/worker-store.js";
 
 const cleanups: string[] = [];
 

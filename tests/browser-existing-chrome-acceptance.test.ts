@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createBrowserService } from "../src/browser-factory.js";
-import { loadConfig } from "../src/config.js";
-import { isExistingChromePageEligible } from "../src/existing-chrome-page-policy.js";
+import { createBrowserService } from "../src/browser/browser-factory.js";
+import { loadConfig } from "../src/core/config.js";
+import { isExistingChromePageEligible } from "../src/browser/existing-chrome-page-policy.js";
 
 const acceptanceEnabled = process.env.CHATGPT_SYSTEM_ACCEPT_EXISTING_CHROME === "1";
 let closeCurrent: (() => Promise<unknown>) | null = null;

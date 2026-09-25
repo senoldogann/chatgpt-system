@@ -1,5 +1,5 @@
-import { applyOwnerWorkstationPreset, type ConfigOverrides } from "./config.js";
-import { TOOL_PROFILES, type ToolProfile } from "./tool-exposure.js";
+import { applyOwnerWorkstationPreset, type ConfigOverrides } from "./core/config.js";
+import { TOOL_PROFILES, type ToolProfile } from "./mcp/tool-exposure.js";
 
 export interface ServerCliCommand {
   kind: "server";

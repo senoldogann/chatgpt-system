@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { BrowserError } from "../src/errors.js";
+import { BrowserError } from "../src/core/errors.js";
 import {
   defaultExistingChromeUserDataDir,
   discoverExistingChromeEndpoint,
-} from "../src/existing-chrome-discovery.js";
+} from "../src/browser/existing-chrome-discovery.js";
 
 const cleanups: string[] = [];
 

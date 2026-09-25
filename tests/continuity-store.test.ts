@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ContinuityStore } from "../src/continuity-store.js";
-import { ConflictError } from "../src/errors.js";
+import { ContinuityStore } from "../src/continuity/continuity-store.js";
+import { ConflictError } from "../src/core/errors.js";
 
 const cleanups: string[] = [];
 
@@ -89,6 +89,20 @@ describe("ContinuityStore", () => {
     expect(reopened.getByAlias("Project-X").id).toBe(first.id);
     expect(reopened.getByAlias(" project-x ").currentRecord.recordVersion).toBe(1);
     reopened.close();
+  });
+
+  it("opens in WAL mode so the bridge daemon can read while the tunnel writes", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "chatgpt-system-continuity-store-"));
+    cleanups.push(root);
+    const databasePath = path.join(root, "continuity.db");
+    const store = new ContinuityStore({ databasePath });
+    const probe = new Database(databasePath, { readonly: true });
+    try {
+      expect(probe.pragma("journal_mode", { simple: true })).toBe("wal");
+    } finally {
+      probe.close();
+      store.close();
+    }
   });
 
   it("returns a stable continuity error for an unknown alias", async () => {

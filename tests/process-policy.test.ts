@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { PolicyError } from "../src/errors.js";
+import { PolicyError } from "../src/core/errors.js";
 import {
   sanitizedChildEnvironment,
   validateProcessInvocation,
-} from "../src/process-policy.js";
+} from "../src/process/process-policy.js";
 
 describe("shared child process policy", () => {
   it("rejects disabled terminal, executable paths, non-allowlisted commands, and NUL args", () => {

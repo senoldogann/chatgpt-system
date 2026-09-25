@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   PROJECT_EXEC_IMAGE,
   buildDockerProjectExecInvocation,
-} from "../src/docker-project-exec-backend.js";
+} from "../src/project/docker-project-exec-backend.js";
 
 
 describe("Docker project execution policy", () => {
@@ -76,6 +76,13 @@ describe("Project Exec dependency portability", () => {
       new URL("../package.json", import.meta.url),
       "utf8",
     ));
-    expect(packageJson.devDependencies["@rolldown/binding-wasm32-wasi"]).toBe("1.2.8");
+    // WASI bağlaması, Vitest'in kullandığı rolldown sürümüyle birebir eşleşmelidir.
+    const lock = JSON.parse(await (await import("node:fs/promises")).readFile(
+      new URL("../package-lock.json", import.meta.url),
+      "utf8",
+    ));
+    const rolldownVersion = lock.packages["node_modules/rolldown"].version;
+    expect(packageJson.devDependencies["@rolldown/binding-wasm32-wasi"]).toBe(rolldownVersion);
+    expect(lock.packages["node_modules/@rolldown/binding-wasm32-wasi"].version).toBe(rolldownVersion);
   });
 });

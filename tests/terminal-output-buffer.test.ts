@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TerminalOutputBuffer } from "../src/terminal-output-buffer.js";
+import { TerminalOutputBuffer } from "../src/terminal/terminal-output-buffer.js";
 
 describe("TerminalOutputBuffer", () => {
   it("uses monotonic event sequences without duplicating already-read output", () => {

@@ -10,13 +10,13 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { toNodeHandler, type NodeIncomingMessageLike, type NodeServerResponseLike } from "@modelcontextprotocol/node";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuthorityManager } from "../src/authority.js";
-import { AuditLogger } from "../src/audit.js";
-import { ContinuityGitInspector } from "../src/continuity-git-inspector.js";
-import { ContinuityStore } from "../src/continuity-store.js";
-import { ContinuityNotFoundError } from "../src/continuity-errors.js";
-import { ProjectContinuityService } from "../src/project-continuity-service.js";
-import { registerProjectContinuityTools } from "../src/project-continuity-tool-registration.js";
+import { AuthorityManager } from "../src/core/authority.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { ContinuityGitInspector } from "../src/continuity/continuity-git-inspector.js";
+import { ContinuityStore } from "../src/continuity/continuity-store.js";
+import { ContinuityNotFoundError } from "../src/continuity/continuity-errors.js";
+import { ProjectContinuityService } from "../src/continuity/project-continuity-service.js";
+import { registerProjectContinuityTools } from "../src/continuity/project-continuity-tool-registration.js";
 
 const execFileAsync = promisify(execFile);
 const servers: Server[] = [];

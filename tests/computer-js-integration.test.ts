@@ -4,18 +4,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { AuditLogger } from "../src/audit.js";
-import { ComputerJsRuntime } from "../src/computer-js-runtime.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { ComputerJsRuntime } from "../src/computer/computer-js-runtime.js";
 import {
   ComputerJsRunnerSupervisor,
   type ComputerJsSpawnOptions,
-} from "../src/computer-js-runner-supervisor.js";
-import { ComputerRuntime, type ComputerNativeRequesting } from "../src/computer-runtime.js";
-import type { ComputerUseConfig } from "../src/config.js";
-import type { ComputerNativeMethod } from "../src/computer-types.js";
-import { ScopedComputerJsService } from "../src/scoped-computer-js-service.js";
+} from "../src/computer/computer-js-runner-supervisor.js";
+import { ComputerRuntime, type ComputerNativeRequesting } from "../src/computer/computer-runtime.js";
+import type { ComputerUseConfig } from "../src/core/config.js";
+import type { ComputerNativeMethod } from "../src/computer/computer-types.js";
+import { ScopedComputerJsService } from "../src/computer/scoped-computer-js-service.js";
 
-const runnerEntrypoint = fileURLToPath(new URL("../dist/computer-js-runner.js", import.meta.url));
+const runnerEntrypoint = fileURLToPath(new URL("../dist/computer/computer-js-runner.js", import.meta.url));
 const cleanups: string[] = [];
 const closeables: Array<{ close(): Promise<void> }> = [];
 

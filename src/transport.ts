@@ -6,7 +6,6 @@ import {
   localhostOriginValidation,
   toNodeHandler,
   type NodeIncomingMessageLike,
-  type NodeServerResponseLike,
 } from "@modelcontextprotocol/node";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
@@ -17,11 +16,11 @@ import {
   readBridgeContext,
   readBridgeStatusForAlias,
   resolveBridgeAlias,
-} from "./bridge.js";
-import { normalizeChatId } from "./chat-bindings.js";
-import { ContinuityNotFoundError } from "./continuity-errors.js";
-import { PolicyError } from "./errors.js";
-import { isLoopbackHost } from "./config.js";
+} from "./bridge/bridge.js";
+import { normalizeChatId } from "./bridge/chat-bindings.js";
+import { ContinuityNotFoundError } from "./continuity/continuity-errors.js";
+import { PolicyError } from "./core/errors.js";
+import { isLoopbackHost } from "./core/config.js";
 import type { RuntimeServices } from "./server.js";
 import { createMcpServer } from "./server.js";
 
@@ -263,7 +262,7 @@ export function startHttp(runtime: RuntimeServices): HttpServer {
     // transport boundary rather than weakening strictness for the whole project.
     void nodeHandler(
       req as unknown as NodeIncomingMessageLike,
-      res as unknown as NodeServerResponseLike,
+      res,
     );
   });
 

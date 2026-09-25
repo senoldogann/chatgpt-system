@@ -5,10 +5,11 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.js";
-import { registerOwnerShellTool } from "../src/owner-shell-tool-registration.js";
+import { loadConfig } from "../src/core/config.js";
+import { registerOwnerShellTool } from "../src/terminal/owner-shell-tool-registration.js";
 import { createRuntimeServices, type RuntimeServices } from "../src/server.js";
 import { startHttp } from "../src/transport.js";
+import { quietLoginShellPath } from "./support/quiet-login-shell.js";
 
 const cleanups: string[] = [];
 const servers: ReturnType<typeof startHttp>[] = [];
@@ -40,7 +41,7 @@ async function fixture(ownerRuntimeEnabled: boolean, legacyCommandTimeoutMs?: nu
     roots: [root],
     auditFile: path.join(auditDir, "audit.jsonl"),
     ownerRuntimeEnabled,
-    ownerShellPath: "/bin/sh",
+    ownerShellPath: quietLoginShellPath,
     terminalEnabled: true,
     commands: ["node"],
     host: "127.0.0.1",
@@ -198,7 +199,7 @@ describe("shell_run MCP tool", () => {
       roots: [root],
       auditFile: path.join(root, "audit.jsonl"),
       ownerRuntimeEnabled: true,
-      ownerShellPath: "/bin/sh",
+      ownerShellPath: quietLoginShellPath,
     });
     const runtime = createRuntimeServices(config);
     runtimes.push(runtime);

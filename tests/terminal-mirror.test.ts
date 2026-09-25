@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { TerminalMirror } from "../src/terminal-mirror.js";
+import { TerminalMirror } from "../src/terminal/terminal-mirror.js";
 
 const cleanups: string[] = [];
 
@@ -32,6 +32,15 @@ describe("terminal mirror", () => {
     expect(sessions[0]).toMatchObject({ cwd: "/tmp/b", state: "running" });
     expect(sessions[0].tail).toBe("ikinci");
     expect(sessions[1].tail).toBe("ilk");
+  });
+
+  it("ayna dizinini yalnizca sahibine acik olusturur", async () => {
+    const { directory } = await fixture(8_192, 8);
+    const streams = path.join(directory, "streams");
+    const mirror = new TerminalMirror(streams, { maxFileBytes: 8_192, maxSessions: 8 });
+    mirror.start("session-a", "/tmp/a");
+    await mirror.flush();
+    expect((await stat(streams)).mode & 0o777).toBe(0o700);
   });
 
   it("biten oturumun durumunu gunceller", async () => {

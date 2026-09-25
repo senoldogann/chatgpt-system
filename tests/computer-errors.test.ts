@@ -3,7 +3,7 @@ import {
   ComputerError,
   isComputerErrorCode,
   normalizeComputerNativeError,
-} from "../src/computer-errors.js";
+} from "../src/computer/computer-errors.js";
 
 describe("computer error normalization", () => {
   it("maps allowlisted native codes to fixed TypeScript-owned messages", () => {

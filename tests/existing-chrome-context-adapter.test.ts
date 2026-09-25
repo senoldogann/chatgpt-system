@@ -1,9 +1,9 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import type { BrowserContext, Page } from "playwright";
-import { BrowserError } from "../src/errors.js";
-import { createExistingChromeContextAdapter } from "../src/existing-chrome-context-adapter.js";
-import { PlaywrightBrowserBackend } from "../src/playwright-browser-backend.js";
+import { BrowserError } from "../src/core/errors.js";
+import { createExistingChromeContextAdapter } from "../src/browser/existing-chrome-context-adapter.js";
+import { PlaywrightBrowserBackend } from "../src/browser/playwright-browser-backend.js";
 
 class FakePage extends EventEmitter {
   closed = false;

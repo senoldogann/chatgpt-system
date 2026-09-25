@@ -1,10 +1,10 @@
 import { performance } from "node:perf_hooks";
-import { ComputerError, type ComputerErrorCode } from "../../src/computer-errors.js";
+import { ComputerError, type ComputerErrorCode } from "../../src/computer/computer-errors.js";
 import type {
   ComputerAction,
   ComputerScrollUntilVisibleResult,
   ComputerTarget,
-} from "../../src/computer-types.js";
+} from "../../src/computer/computer-types.js";
 import {
   COMPUTER_FLOW_BENCHMARK_SCHEMA_VERSION,
   COMPUTER_FLOW_FIXTURE_VERSION,

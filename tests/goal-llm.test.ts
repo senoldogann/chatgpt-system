@@ -7,7 +7,7 @@ import {
   type FetchImpl,
   type GoalLlmConfig,
   type GoalLlmRequest,
-} from "../src/goal-llm.js";
+} from "../src/agent/goal-llm.js";
 
 const config: GoalLlmConfig = {
   baseUrl: "https://opencode.ai/zen/go/v1/chat/completions",

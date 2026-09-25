@@ -11,7 +11,7 @@ import {
   OWNER_TERMINAL_MAX_INPUT_BYTES,
   OWNER_TERMINAL_MAX_OUTPUT_BYTES,
   OWNER_TERMINAL_MAX_SESSIONS,
-} from "../src/config.js";
+} from "../src/core/config.js";
 
 const cleanups: string[] = [];
 

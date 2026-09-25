@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { discoverNativeSwiftTestChecks, isNativeMacosScriptInvocation } from '../src/project-native-checks.ts';
+import { discoverNativeSwiftTestChecks, isNativeMacosScriptInvocation } from '../src/project/project-native-checks.ts';
 
 assert.equal(isNativeMacosScriptInvocation('npm', ['run', 'test:computer:macos']), true);
 assert.equal(isNativeMacosScriptInvocation('pnpm', ['run', 'build:macos']), true);

@@ -6,9 +6,9 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.js";
-import type { ProjectCheckCommandResult, ProjectCheckExecutor } from "../src/project-check-types.js";
-import type { ProjectExecBackend, ProjectExecRequest, ProjectExecResult } from "../src/project-exec-types.js";
+import { loadConfig } from "../src/core/config.js";
+import type { ProjectCheckCommandResult, ProjectCheckExecutor } from "../src/project/project-check-types.js";
+import type { ProjectExecBackend, ProjectExecRequest, ProjectExecResult } from "../src/project/project-exec-types.js";
 import { createRuntimeServices, type RuntimeServices } from "../src/server.js";
 import { startHttp } from "../src/transport.js";
 

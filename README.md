@@ -282,6 +282,17 @@ npm run setup:chatgpt -- \
 
 The `dev` profile keeps filesystem, Git, `code_query`, patch, Project Continuity, `task_state`, `project_check`, `project_exec`, `terminal_run`/`process_*`, skills, goal, worker and handoff tools, and hides `browser_*`, `computer_*`, `computer_run_js`, `shell_run` and `terminal_session_*` even when their gates are enabled. The runtime gates are unchanged; the profile only narrows what is published. `full` (the default) publishes every enabled capability. The server can also read `CHATGPT_SYSTEM_TOOL_PROFILE=dev`. After changing the profile, use the ChatGPT app's **Refresh** action where it is available so the hosted catalog is reloaded.
 
+### IDE-style coding tools
+
+The server exposes the same primitives a desktop IDE agent relies on, and its MCP `instructions` describe the locate → read → edit → verify → review loop:
+
+- `code_query` `files`: list repository files by glob (`src/**/*.ts`; a pattern without `/` such as `*.test.ts` matches file names at any depth).
+- `code_query` `search`: text or `regex: true` search, `caseSensitive`, a path `glob` filter and `contextLines` (0–5). Files are read with bounded parallelism; results stay in repository order.
+- `fs_read` `offset`/`limit`: read a 1-based line range of a large file; `sha256` always covers the whole file and `range.totalLines` reports its length.
+- `fs_read_many`: read up to 20 files (each optionally by line range) in one call, with per-file errors instead of a failed batch.
+- `process_status` / `process_logs` `waitMs`: wait server-side (up to 30 s) for a running command to finish or print new output after a cursor; `process_logs` also returns the process state and exit code, so one call replaces a status + logs poll.
+- `fs_edit`: exact string replacement in an existing file. It fails without writing when `oldString` is missing or ambiguous (unless `replaceAll`), matches LF text against CRLF files, and accepts an optional `expectedSha256` guard. Use `fs_apply_patch_set` for coordinated multi-file changes and `fs_write` for new files.
+
 Tool descriptions state only what each tool does, and annotations (`readOnlyHint`, `destructiveHint`, `openWorldHint`) reflect actual effects. Workflow guidance such as "`project_resume` before mutation" lives in the MCP server `instructions`, not in individual tool descriptions.
 
 The configured `--root` is a **bootstrap/default root**, not a permanent "only this project" restriction. A Project lease may target another explicit repository path outside the bootstrap root with `session_authority_start(profile="project", projectRoots=[...])`; `/` and the entire home directory remain forbidden Project roots. For a new project, the recommended flow is: open the exact Project lease, `project_register` it once for continuity, then use `project_resume` in later chats. Reconfiguring the tunnel is not required for each repository.

@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { readOpencodeGoApiKey, resolveOpencodeAuthPath } from "../src/opencode-auth.js";
+import { readOpencodeGoApiKey, resolveOpencodeAuthPath } from "../src/agent/opencode-auth.js";
 
 async function tempAuthFile(content: string): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), "opencode-auth-"));

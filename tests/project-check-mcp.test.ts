@@ -6,20 +6,20 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AppConfig } from "../src/config.js";
-import type { ContinuityResumeContext } from "../src/continuity-resume-registry.js";
-import { createProjectCheckService } from "../src/project-check-factory.js";
-import { ProjectPublishGate } from "../src/project-publish-gate.js";
-import { CommandTimeoutError, ExecutableNotFoundError, SandboxUnavailableError } from "../src/errors.js";
+import type { AppConfig } from "../src/core/config.js";
+import type { ContinuityResumeContext } from "../src/continuity/continuity-resume-registry.js";
+import { createProjectCheckService } from "../src/project/project-check-factory.js";
+import { ProjectPublishGate } from "../src/project/project-publish-gate.js";
+import { CommandTimeoutError, ExecutableNotFoundError, SandboxUnavailableError } from "../src/core/errors.js";
 import type {
   ProjectCheckCommandResult,
   ProjectCheckExecutor,
-} from "../src/project-check-types.js";
+} from "../src/project/project-check-types.js";
 import type {
   ProjectExecBackend,
   ProjectExecRequest,
   ProjectExecResult,
-} from "../src/project-exec-types.js";
+} from "../src/project/project-exec-types.js";
 import { createRuntimeServices, type RuntimeServices } from "../src/server.js";
 import { startHttp } from "../src/transport.js";
 

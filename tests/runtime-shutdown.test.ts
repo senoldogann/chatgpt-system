@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { closeRuntimeResources } from "../src/runtime-shutdown.js";
+import { closeRuntimeResources } from "../src/core/runtime-shutdown.js";
 
 describe("closeRuntimeResources", () => {
   it("stops computer JavaScript then computer, managed processes and browser before transport", async () => {

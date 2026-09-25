@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { chmod, lstat, mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { SessionEventStore } from "../src/session-event-store.js";
-import { parseStoredSessionEvent } from "../src/session-event-types.js";
+import { SessionEventStore } from "../src/continuity/session-event-store.js";
+import { parseStoredSessionEvent } from "../src/continuity/session-event-types.js";
 
 const cleanup: string[] = [];
 afterEach(async () => {

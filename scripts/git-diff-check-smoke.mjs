@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { buildGitDiffArgs } from '../src/git-diff-command.ts';
+import { buildGitDiffArgs } from '../src/git/git-diff-command.ts';
 
 assert.deepEqual(buildGitDiffArgs(false, false), ['diff', '--no-ext-diff', '--no-textconv']);
 assert.deepEqual(buildGitDiffArgs(true, false), ['diff', '--no-ext-diff', '--no-textconv', '--cached']);

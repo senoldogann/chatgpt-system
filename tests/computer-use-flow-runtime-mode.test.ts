@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { ComputerUseConfig } from "../src/config.js";
-import { ComputerError } from "../src/computer-errors.js";
+import type { ComputerUseConfig } from "../src/core/config.js";
+import { ComputerError } from "../src/computer/computer-errors.js";
 import {
   ComputerRuntime,
   type ComputerHealthResult,
   type ComputerNativeRequesting,
   type ComputerScreenshotResult,
-} from "../src/computer-runtime.js";
+} from "../src/computer/computer-runtime.js";
 import type {
   ComputerAction,
   ComputerActionResult,
@@ -14,7 +14,7 @@ import type {
   ComputerRunResult,
   ComputerScrollUntilVisibleInput,
   ComputerScrollUntilVisibleResult,
-} from "../src/computer-types.js";
+} from "../src/computer/computer-types.js";
 import { verifyComputerFlowRunSignature } from "../benchmarks/computer-use-flow-performance/canonical.js";
 import { deriveRuntimeBuildIdentity } from "../benchmarks/computer-use-flow-performance/identity.js";
 import { evaluateComputerFlowBatch } from "../benchmarks/computer-use-flow-performance/evaluator.js";

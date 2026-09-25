@@ -1,9 +1,10 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { OwnerShellSupervisor } from "../src/owner-shell-supervisor.js";
+import { OwnerShellSupervisor } from "../src/terminal/owner-shell-supervisor.js";
+import { quietLoginShellPath } from "./support/quiet-login-shell.js";
 
-const shellPath = "/bin/sh";
+const shellPath = quietLoginShellPath;
 
 function runInput(script: string, extra: { timeoutMs?: number; signal?: AbortSignal } = {}) {
   return {

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   ComputerNativeSupervisor,
   type ComputerSpawn,
-} from "../src/computer-native-supervisor.js";
+} from "../src/computer/computer-native-supervisor.js";
 
 class FakeChild extends EventEmitter {
   readonly stdin = new PassThrough();

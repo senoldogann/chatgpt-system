@@ -36,7 +36,8 @@
     "auto-update:uninstall": "node scripts/auto-update-runtime.mjs uninstall",
     "setup:extension-bridge": "node scripts/setup-extension-bridge.mjs",
     "test": "vitest run --maxWorkers=50% --no-isolate --testTimeout=30000",
-    "check": "npm run build && npm test",
+    "lint": "eslint src",
+    "check": "npm run build && npm run lint && npm test",
     "setup:computer:macos": "node scripts/setup-macos-computer-runtime.mjs",
     "owner-workstation:status": "npm run build && node scripts/owner-workstation-status.mjs"
   },
@@ -48,14 +49,17 @@
     "node-pty": "1.2.0-beta.15",
     "playwright": "1.63.0",
     "typescript": "^6.0.0",
-    "zod": "^4.6.2"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@modelcontextprotocol/client": "^2.0.0",
-    "@rolldown/binding-wasm32-wasi": "1.2.8",
+    "@rolldown/binding-wasm32-wasi": "1.2.11",
     "@types/better-sqlite3": "9.6.0",
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.2",
+    "eslint": "^10.11.0",
     "tsx": "^4.20.0",
-    "vitest": "^5.0.0"
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.2"
   }
 }

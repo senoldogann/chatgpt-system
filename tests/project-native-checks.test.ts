@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { discoverNativeSwiftTestChecks, isNativeMacosScriptInvocation } from "../src/project-native-checks.js";
+import { discoverNativeSwiftTestChecks, isNativeMacosScriptInvocation } from "../src/project/project-native-checks.js";
 
 describe("native project-check discovery", () => {
   it("classifies macOS package-manager scripts without reclassifying portable checks", () => {

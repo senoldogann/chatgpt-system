@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { discoverXcodeProjectChecks } from "../src/project-xcode-checks.js";
+import { discoverXcodeProjectChecks } from "../src/project/project-xcode-checks.js";
 
 const roots: string[] = [];
 afterEach(async () => {

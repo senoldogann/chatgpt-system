@@ -2,13 +2,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { access, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { AuditLogger } from "../src/audit.js";
-import { AuthorityManager } from "../src/authority.js";
-import type { AppConfig } from "../src/config.js";
-import { CommandTimeoutError, PolicyError } from "../src/errors.js";
-import { PathPolicy } from "../src/policy.js";
-import { ProcessService } from "../src/process-service.js";
-import { createScopedRuntime } from "../src/scoped-runtime.js";
+import { AuditLogger } from "../src/core/audit.js";
+import { AuthorityManager } from "../src/core/authority.js";
+import type { AppConfig } from "../src/core/config.js";
+import { CommandTimeoutError, PolicyError } from "../src/core/errors.js";
+import { PathPolicy } from "../src/core/policy.js";
+import { ProcessService } from "../src/process/process-service.js";
+import { createScopedRuntime } from "../src/core/scoped-runtime.js";
 
 const cleanups: string[] = [];
 

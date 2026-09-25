@@ -4,8 +4,8 @@ import type {
   TerminalPtyExit,
   TerminalPtyHandle,
   TerminalPtySpawnInput,
-} from "../src/terminal-pty-backend.js";
-import { TerminalSessionSupervisor } from "../src/terminal-session-supervisor.js";
+} from "../src/terminal/terminal-pty-backend.js";
+import { TerminalSessionSupervisor } from "../src/terminal/terminal-session-supervisor.js";
 
 class FakePty implements TerminalPtyHandle {
   cols: number;

@@ -5,7 +5,7 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
-import type { BrowserBackend, BrowserTargetMetadata } from "../src/browser-backend.js";
+import type { BrowserBackend, BrowserTargetMetadata } from "../src/browser/browser-backend.js";
 import type {
   BrowserConsoleResult,
   BrowserHealth,
@@ -14,8 +14,8 @@ import type {
   BrowserScreenshot,
   BrowserTabView,
   BrowserTarget,
-} from "../src/browser-types.js";
-import type { AppConfig } from "../src/config.js";
+} from "../src/browser/browser-types.js";
+import type { AppConfig } from "../src/core/config.js";
 import { createRuntimeServices, type RuntimeServices } from "../src/server.js";
 import { startHttp } from "../src/transport.js";
 

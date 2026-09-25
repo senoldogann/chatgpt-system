@@ -1,0 +1,44 @@
+import type { McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod";
+import { OWNER_SHELL_MAX_SCRIPT_BYTES } from "../core/config.js";
+import { AppError } from "../core/errors.js";
+import { createOpenRuntime, createScopedRuntime } from "../core/scoped-runtime.js";
+import type { RuntimeServices } from "../server.js";
+import { shellRunOutputSchema } from "../mcp/tool-output-schemas.js";
+import { createSafeCall } from "../mcp/tool-result.js";
+import { DESTRUCTIVE_OPEN_WORLD } from "../mcp/tool-annotations.js";
+
+function safeErrorPayload(error: unknown): Record<string, unknown> {
+  if (error instanceof AppError) return { error: error.code, message: error.message };
+  return { error: "SHELL_FAILED", message: "Owner shell execution failed." };
+}
+
+const safeCall = createSafeCall(safeErrorPayload);
+
+export function registerOwnerShellTool(server: McpServer, runtime: RuntimeServices): void {
+  server.registerTool(
+    "shell_run",
+    {
+      description: "Run a script with the configured login shell as the current user in the Owner Runtime session. Full host access; not OS-sandboxed.",
+      inputSchema: z.object({
+        authorityLeaseId: z.string().min(40).optional(),
+        script: z.string().min(1).max(runtime.config.ownerRuntime?.maxScriptBytes ?? OWNER_SHELL_MAX_SCRIPT_BYTES),
+        cwd: z.string().min(1).max(16_384).optional(),
+        timeoutMs: z.number().int().positive().nullable().optional(),
+      }).strict(),
+      outputSchema: shellRunOutputSchema,
+      annotations: DESTRUCTIVE_OPEN_WORLD,
+    },
+    async ({ authorityLeaseId, script, cwd, timeoutMs }, ctx) => safeCall(() => {
+      const scope = authorityLeaseId === undefined
+        ? createOpenRuntime(runtime)
+        : createScopedRuntime(runtime, runtime.authority.resolve(authorityLeaseId));
+      return scope.shell.run({
+        script,
+        ...(cwd !== undefined ? { cwd } : {}),
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        ...(ctx.mcpReq.signal ? { signal: ctx.mcpReq.signal } : {}),
+      });
+    }),
+  );
+}

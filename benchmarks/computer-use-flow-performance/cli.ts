@@ -4,8 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { loadConfig } from "../../src/config.js";
-import { COMPUTER_PROTOCOL_VERSION } from "../../src/computer-types.js";
+import { loadConfig } from "../../src/core/config.js";
+import { COMPUTER_PROTOCOL_VERSION } from "../../src/computer/computer-types.js";
 import {
   COMPUTER_FLOW_FAILURE_CATEGORIES,
   COMPUTER_FLOW_OBJECTIVE_RULES,

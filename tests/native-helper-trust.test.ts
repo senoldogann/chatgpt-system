@@ -9,7 +9,7 @@ import {
   MacOSNativeHelperTrustValidator,
   type NativeHelperFileInfo,
   type NativeHelperTrustFs,
-} from "../src/native-helper-trust.js";
+} from "../src/computer/native-helper-trust.js";
 
 const helperBytes = Buffer.from("trusted-native-helper", "utf8");
 const helperHash = createHash("sha256").update(helperBytes).digest("hex");

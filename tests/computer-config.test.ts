@@ -5,7 +5,7 @@ import {
   COMPUTER_MAX_EXPLICIT_RUNTIME_MS,
   COMPUTER_MAX_RUN_STEP_RESULTS,
   loadConfig,
-} from "../src/config.js";
+} from "../src/core/config.js";
 
 describe("computer use configuration", () => {
   it("is disabled by default with fixed bounded runtime defaults", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.js";
+import { loadConfig } from "../src/core/config.js";
 
 function withEnv<T>(overrides: Record<string, string | undefined>, run: () => Promise<T>): Promise<T> {
   const previous: Record<string, string | undefined> = {};

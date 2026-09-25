@@ -1,5 +1,16 @@
 # chatgpt-system — Active Project State
 
+## 2026-09-25 IDE-agent tooling, quality pass and domain layout
+
+- Branch `claude/blissful-euler-gi059j` restarted from `origin/main@3732464` (PR #85 merged). Not deployed.
+- Kept by owner decision: Project roots may target any directory except `/` and the home directory itself, and serbest mod needs no approval. The extension bridge docs now state that its pairing token also grants full `/mcp` access on the bridge daemon.
+- New IDE-agent tools: `fs_edit` (exact replacement, ambiguity/no-match refusal, CRLF-aware, optional hash guard), `fs_read` `offset`/`limit`, `code_query` `search` regex/caseSensitive/glob/contextLines with bounded parallel reads, and `code_query` `files` by glob. The MCP server instructions describe the locate/read/edit/verify/review loop.
+- Fixes: `process_logs` UTF-8 cursor split, a `ProcessSupervisor` late-persist race after `close()` (the flaky ENOTEMPTY test), SQLite WAL for the continuity and session stores, terminal mirror directory 0700, per-file-size scan buffers. Owner-shell and chat-binding tests no longer depend on login-shell banners or non-root.
+- Quality: type-aware ESLint now runs inside `npm run check`; tool-result helpers and annotation presets are centralized; `server.ts` is split into per-domain registrations; `src/` is grouped into domain folders while `dist/cli.js` stays unchanged. A catalog contract test checks annotation invariants and a reviewed description snapshot.
+- Verification (Linux container): `npm run check` PASS, 1045 passed / 3 skipped. The published catalog is byte-identical across the refactor commits. Native macOS lanes were not run here.
+- Deployment note: WAL is persistent in `continuity.db`, and older releases open it transparently. Running releases keep their own `dist` layout; only fresh builds use the new folders.
+- **Next exact step:** on the Mac, `npm ci && npm run check` (plus native lanes), then deploy a fresh release and refresh the ChatGPT app catalog so `fs_edit` and the new `code_query` options appear.
+
 ## 2026-09-25 ChatGPT-safe tool catalog
 
 - Branch `claude/blissful-euler-gi059j` (cloud session, not the authoritative Mac checkout). Not deployed; the live tunnel profile is unchanged until the owner reruns setup.

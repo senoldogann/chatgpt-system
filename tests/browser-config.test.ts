@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { parseCliCommand } from "../src/cli-command.js";
-import { loadConfig, resolveBrowserUserDataDir } from "../src/config.js";
+import { loadConfig, resolveBrowserUserDataDir } from "../src/core/config.js";
 
 const browserEnvKeys = [
   "CHATGPT_SYSTEM_ENABLE_BROWSER",
