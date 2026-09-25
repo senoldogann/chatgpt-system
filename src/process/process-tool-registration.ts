@@ -10,14 +10,16 @@ import { safeCall } from "../mcp/tool-result.js";
 import { authorityLeaseField, withAuthority } from "../mcp/tool-scope.js";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { MAX_PROCESS_WAIT_MS } from "./managed-process-service.js";
 
 const processIdField = { processId: z.string().min(40) };
+const waitField = { waitMs: z.number().int().min(0).max(MAX_PROCESS_WAIT_MS).optional() };
 
 export function registerProcessTools(server: McpServer, runtime: RuntimeServices): void {
   server.registerTool(
     "terminal_run",
     {
-      description: "Run an allowlisted executable with shell=false inside the active scope. It is NOT an OS sandbox.",
+      description: "Run an allowlisted executable with shell=false inside the active scope. It runs directly on the host without OS-level isolation.",
       inputSchema: z.object({
         ...authorityLeaseField,
         command: z.string(),
@@ -61,23 +63,29 @@ export function registerProcessTools(server: McpServer, runtime: RuntimeServices
   server.registerTool(
     "process_status",
     {
-      description: "Read one manageable process state by opaque managed-process ID. Unknown and unauthorized IDs return the same error.",
-      inputSchema: z.object({ ...authorityLeaseField, ...processIdField }).strict(),
+      description: "Read one manageable process state by opaque managed-process ID. Optional waitMs (up to 30000) waits server-side until the process stops running or the time elapses, so a long command needs fewer status calls. Unknown and unauthorized IDs return the same error.",
+      inputSchema: z.object({ ...authorityLeaseField, ...processIdField, ...waitField }).strict(),
       outputSchema: processSummaryOutputSchema,
       annotations: READ_ONLY,
     },
-    async ({ authorityLeaseId, processId }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.status(processId)),
+    async ({ authorityLeaseId, processId, waitMs }, ctx) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.status(processId, {
+      ...(waitMs !== undefined ? { waitMs } : {}),
+      signal: ctx.mcpReq.signal,
+    })),
   );
 
   server.registerTool(
     "process_logs",
     {
-      description: "Read bounded in-memory stdout/stderr tails for one manageable process. No log files or OS PID access are exposed.",
-      inputSchema: z.object({ ...authorityLeaseField, ...processIdField, cursor: z.number().int().nonnegative().optional() }).strict(),
+      description: "Read bounded stdout/stderr tails for one manageable process together with its current state and exit code. With cursor, returns only output after it; adding waitMs (up to 30000) waits server-side until new output arrives, the process stops running, or the time elapses. No log files or OS PID access are exposed.",
+      inputSchema: z.object({ ...authorityLeaseField, ...processIdField, cursor: z.number().int().nonnegative().optional(), ...waitField }).strict(),
       outputSchema: processLogsOutputSchema,
       annotations: READ_ONLY,
     },
-    async ({ authorityLeaseId, processId, cursor }) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.logs(processId, cursor)),
+    async ({ authorityLeaseId, processId, cursor, waitMs }, ctx) => safeCall(() => withAuthority(runtime, authorityLeaseId).processes.logs(processId, cursor, {
+      ...(waitMs !== undefined ? { waitMs } : {}),
+      signal: ctx.mcpReq.signal,
+    })),
   );
 
   server.registerTool(

@@ -47,7 +47,7 @@ export function registerGitTools(server: McpServer, runtime: RuntimeServices): v
   server.registerTool(
     "git_diff",
     {
-      description: "Read a git diff or check it for whitespace errors inside the active authority lease scope with external diff/textconv disabled. Set check=true for git diff --check; combine with staged=true for git diff --cached --check. Nonzero exitCode means the check found errors; it does not bypass Git safety checks.",
+      description: "Read a git diff or check it for whitespace errors inside the active authority lease scope with external diff/textconv disabled. Set check=true for git diff --check; combine with staged=true for git diff --cached --check. Nonzero exitCode means the check found errors.",
       inputSchema: z.object({ ...authorityLeaseField, cwd: z.string().default("."), staged: z.boolean().default(false), check: z.boolean().default(false) }),
       outputSchema: gitResultOutputSchema,
       annotations: READ_ONLY,
@@ -58,7 +58,7 @@ export function registerGitTools(server: McpServer, runtime: RuntimeServices): v
   server.registerTool(
     "git_log",
     {
-      description: "Read recent git commits inside the active authority lease scope without invoking repository hooks or credential prompts.",
+      description: "Read recent git commits inside the active authority lease scope without running repository hooks or interactive prompts.",
       inputSchema: z.object({ ...authorityLeaseField, cwd: z.string().default("."), limit: z.number().int().min(1).max(100).default(20) }),
       outputSchema: gitResultOutputSchema,
       annotations: READ_ONLY,

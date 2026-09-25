@@ -195,3 +195,69 @@ describe("managed process MCP tools", () => {
     }
   });
 });
+
+describe("managed process waiting", () => {
+  it("returns from process_status waitMs as soon as the process exits, and at the deadline while it runs", async () => {
+    const { root, client, transport } = await fixture();
+    try {
+      const quick = await client.callTool({
+        name: "process_start",
+        arguments: { command: "node", args: ["-e", "setTimeout(() => process.exit(3), 300)"], cwd: root },
+      });
+      const quickId = (quick.structuredContent as { processId: string }).processId;
+      const started = Date.now();
+      const exited = await client.callTool({ name: "process_status", arguments: { processId: quickId, waitMs: 20_000 } });
+      expect(exited.isError, textContent(exited)).not.toBe(true);
+      expect(exited.structuredContent).toMatchObject({ state: "exited", exitCode: 3 });
+      expect(Date.now() - started).toBeLessThan(10_000);
+
+      const slow = await client.callTool({
+        name: "process_start",
+        arguments: { command: "node", args: ["-e", "setTimeout(() => {}, 20000)"], cwd: root },
+      });
+      const slowId = (slow.structuredContent as { processId: string }).processId;
+      const waitStarted = Date.now();
+      const still = await client.callTool({ name: "process_status", arguments: { processId: slowId, waitMs: 400 } });
+      expect(still.structuredContent).toMatchObject({ state: "running" });
+      expect(Date.now() - waitStarted).toBeGreaterThanOrEqual(350);
+      await client.callTool({ name: "process_stop", arguments: { processId: slowId } });
+
+      const tooLong = await client.callTool({ name: "process_status", arguments: { processId: quickId, waitMs: 30_001 } });
+      expect(tooLong.isError).toBe(true);
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+
+  it("waits in process_logs for output after the cursor and reports the process state", async () => {
+    const { root, client, transport } = await fixture();
+    try {
+      const started = await client.callTool({
+        name: "process_start",
+        arguments: {
+          command: "node",
+          args: ["-e", "process.stdout.write('first\\n'); setTimeout(() => { process.stdout.write('second\\n'); }, 400); setTimeout(() => process.exit(0), 700)"],
+          cwd: root,
+        },
+      });
+      const processId = (started.structuredContent as { processId: string }).processId;
+      let first = await client.callTool({ name: "process_logs", arguments: { processId, cursor: 0, waitMs: 5_000 } });
+      let firstBody = first.structuredContent as { state: string; stdout: { content: string; nextCursor: number } };
+      expect(firstBody.stdout.content).toBe("first\n");
+      expect(firstBody.state).toBe("running");
+
+      const waited = await client.callTool({ name: "process_logs", arguments: { processId, cursor: firstBody.stdout.nextCursor, waitMs: 10_000 } });
+      const waitedBody = waited.structuredContent as { stdout: { content: string; nextCursor: number } };
+      expect(waitedBody.stdout.content).toBe("second\n");
+
+      first = await client.callTool({ name: "process_logs", arguments: { processId, cursor: waitedBody.stdout.nextCursor, waitMs: 10_000 } });
+      firstBody = first.structuredContent as { state: string; stdout: { content: string; nextCursor: number } };
+      expect(firstBody.stdout.content).toBe("");
+      expect(first.structuredContent).toMatchObject({ state: "exited", exitCode: 0 });
+    } finally {
+      await transport.terminateSession();
+      await client.close();
+    }
+  });
+});

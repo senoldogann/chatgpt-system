@@ -14,6 +14,8 @@ It also distinguishes those symptoms from genuine local Secure MCP Tunnel / MCP 
 | `This conversation does not support developer MCPs` | The current ChatGPT conversation/turn cannot expose developer MCP tools. It does **not** prove the local daemon or tunnel failed, and it does not remove the local Project/Admin authority model. | Stop local-change claims and do not repeatedly retry the unavailable namespace. |
 | `@chatgpt-system-local` no longer appears in the composer or tools surface | The custom app is absent from the current product surface. It does **not** prove the local Mac is unhealthy. | Use a new supported standard text chat in the same Project instead of repeatedly trying `@` in the broken conversation. |
 | `Connection interrupted. Waiting for the complete answer` | The Web response stream was interrupted. It is not evidence of local MCP failure by itself. | Preserve the current work state; do not restart a healthy tunnel solely for this message. |
+| `ChatGPT stream recovery polling timed out` (Desktop/Web, with a retry button) | The client lost a long response stream and gave up polling for its recovery. Tool calls that already ran keep their local effects. | Do not blindly retry mutations; continue ("devam et") so the agent re-reads state first. Shorten turns (see below). |
+| `Our systems are thinking a bit more about this request before responding` | OpenAI's hosted cybersecurity/biology safety check routed or delayed the request. It is not a local failure and cannot be disabled locally. | See [Hosted safety-check notice](#hosted-safety-check-notice). |
 | `MCP_RESPONSE_DEADLINE_EVIDENCE` from `diagnose:chatgpt` | The tunnel logged an expired command response without posting it. A deadline does not by itself prove a daemon crash or a product safety rejection. | Correlate the command duration; use short, bounded tool requests for long workloads. |
 | `npm run diagnose:chatgpt` reports local failure evidence | The inspected local window contains a concrete daily-driver/tunnel/runtime failure signature. | Investigate the specific local signal before retrying. |
 
@@ -53,6 +55,37 @@ When this appears:
 5. If the current conversation also loses developer MCP capability, use the new supported standard text chat path above and resume through Project Continuity.
 
 Do not use container fallback as the user's Mac. If developer MCP tools are unavailable, no agent should claim that local files, tests, Git state, or runtime state were changed or verified through the plugin.
+
+## Stream recovery timeout on long turns
+
+`ChatGPT stream recovery polling timed out` appears when one assistant turn runs for a long time, usually a long agentic loop with many sequential tool calls, and the client can no longer recover the stream. The local runtime is not implicated by this message alone.
+
+- Work already done by tools (file edits, commits, started processes) is kept. Resume with a short "devam et" in the same chat. The server instructions tell the agent to re-read the current state (`git status`, `process_list`, `fs_read`) before continuing, instead of repeating mutations.
+- Fewer model steps make each turn shorter. Each tool call costs a full model step, often many seconds with reasoning models, so:
+  - Wait on long commands with `process_logs` `cursor` + `waitMs` (up to 30 s per call) instead of many quick polls.
+  - Read several files at once with `fs_read_many`, and read large files by line range with `fs_read` `offset`/`limit`.
+  - Locate code with `code_query` `files`/`search` (regex, glob, context) rather than listing directories one by one.
+- The `dev` tool profile (`--tool-profile dev`) halves the tool catalog sent with every request (about 100 KB instead of 200 KB).
+- Split very large requests (for example "review the whole project and refactor it") into a few turns with a checkpoint between them.
+
+## Hosted safety-check notice
+
+`Our systems are thinking a bit more about this request before responding` is OpenAI's hosted safety check for requests that look related to cybersecurity or biology. The check runs on OpenAI's side before the model answers, may route the request to a different model, and can delay or precede MCP tool calls. It is not caused by a local failure, and nothing local can switch it off. See the [OpenAI help article](https://help.openai.com/en/articles/20001326-additional-safety-checks-for-biological-and-cybersecurity-requests-in-chatgpt-codex-and-the-api).
+
+What influences it:
+
+- **The task itself.** Security-audit style requests ("find bypasses", "attack paths", secret/key handling, payment-approval circumvention) are the typical trigger, even for your own code.
+- **Conversation context.** This includes tool descriptions and tool results. `chatgpt-system` keeps its catalog factual and free of unnecessary security wording, and its server instructions state the authorization context: it runs on the owner's own computer, on projects the owner configured. The catalog contract test (`tests/tool-catalog-contract.test.ts`) guards descriptions against steering text.
+- **Account history.** Public reports describe checks that become more frequent after earlier security-related conversations, including discussing the notice itself, and that decline again over time.
+
+Legitimate options:
+
+- If you regularly do security work on your own systems, verify through OpenAI's Trusted Access program at `chatgpt.com/cyber` (enterprise teams use the enterprise Trusted Access form).
+- Report false positives through the product feedback control.
+- For ordinary engineering reviews, ask for what you need (correctness, robustness, missing validation, tests) and state that the project is yours.
+- Use the notice's "retry with a faster model" option when a quick answer is enough.
+
+Do not try to hide or reword genuinely security-relevant work to get past the check. The check is a policy boundary, and this runbook only removes accidental triggers that the plugin itself causes.
 
 ## Safe local diagnostic
 

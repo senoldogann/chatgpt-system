@@ -6,6 +6,7 @@ import {
   fsMoveOutputSchema,
   fsPatchOutputSchema,
   fsEditOutputSchema,
+  fsReadManyOutputSchema,
   fsReadOutputSchema,
   fsRemoveOutputSchema,
   fsStatOutputSchema,
@@ -57,6 +58,28 @@ export function registerFileSystemTools(server: McpServer, runtime: RuntimeServi
       ...(offset !== undefined ? { offset } : {}),
       ...(limit !== undefined ? { limit } : {}),
     })),
+  );
+
+  server.registerTool(
+    "fs_read_many",
+    {
+      description: "Read 1-20 UTF-8 files in one call, each optionally limited to a 1-based line range (offset/limit). Each entry returns content with the whole-file SHA-256, or an error for that file only. Total returned content is bounded by the single-file read limit.",
+      inputSchema: z.object({
+        ...authorityLeaseField,
+        files: z.array(z.object({
+          path: z.string(),
+          offset: z.number().int().positive().optional(),
+          limit: z.number().int().positive().optional(),
+        }).strict()).min(1).max(20),
+      }).strict(),
+      outputSchema: fsReadManyOutputSchema,
+      annotations: READ_ONLY,
+    },
+    async ({ authorityLeaseId, files }) => safeCall(() => withAuthority(runtime, authorityLeaseId).fs.readMany(files.map((file) => ({
+      path: file.path,
+      ...(file.offset !== undefined ? { offset: file.offset } : {}),
+      ...(file.limit !== undefined ? { limit: file.limit } : {}),
+    })))),
   );
 
   server.registerTool(

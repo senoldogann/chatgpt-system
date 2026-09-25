@@ -229,3 +229,42 @@ describe("FileSystemService IDE editing", () => {
     expect(await readFile(path.join(root, "crlf.txt"), "utf8")).toBe("first\r\nchanged\r\nthird\r\n");
   });
 });
+
+describe("FileSystemService batch reads", () => {
+  it("reads several files with per-file ranges and per-file errors", async () => {
+    const { service } = await fixture();
+    const a = await service.write("a.txt", "one\ntwo\nthree\n");
+    await service.write("b.txt", "bee\n");
+    await service.makeDirectory("dir");
+    const result = await service.readMany([
+      { path: "a.txt", offset: 2, limit: 1 },
+      { path: "missing.txt" },
+      { path: "b.txt" },
+      { path: "dir" },
+    ]);
+    const files = result.files as Array<Record<string, unknown>>;
+    expect(files[0]).toMatchObject({ path: "a.txt", content: "two", sha256: a.sha256, range: { totalLines: 3 } });
+    expect(files[1]).toEqual({ path: "missing.txt", error: "NOT_FOUND", message: "File does not exist." });
+    expect(files[2]).toMatchObject({ path: "b.txt", content: "bee\n" });
+    expect(files[3]).toMatchObject({ path: "dir", error: "POLICY_DENIED" });
+  });
+
+  it("bounds the batch by file count and total returned bytes", async () => {
+    const { base, root } = await fixture();
+    const small = new FileSystemService(new PathPolicy([root]), new AuditLogger(path.join(base, "small-audit.jsonl")), {
+      maxReadBytes: 10,
+      maxWriteBytes: 1024,
+      maxDirectoryEntries: 100,
+      maxCommandOutputBytes: 1024,
+      commandTimeoutMs: 5_000,
+    });
+    await small.write("x.txt", "123456");
+    await small.write("y.txt", "abcdef");
+    const result = await small.readMany([{ path: "x.txt" }, { path: "y.txt" }]);
+    const files = result.files as Array<Record<string, unknown>>;
+    expect(files[0]).toMatchObject({ content: "123456" });
+    expect(files[1]).toMatchObject({ path: "y.txt", error: "LIMIT_EXCEEDED" });
+    await expect(small.readMany([])).rejects.toMatchObject({ code: "POLICY_DENIED" });
+    await expect(small.readMany(Array.from({ length: 21 }, () => ({ path: "x.txt" })))).rejects.toMatchObject({ code: "POLICY_DENIED" });
+  });
+});

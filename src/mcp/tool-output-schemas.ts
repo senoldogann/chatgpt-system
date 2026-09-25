@@ -142,6 +142,28 @@ export const fsReadOutputSchema = z.object({
   }).optional(),
 });
 
+export const fsReadManyOutputSchema = z.object({
+  files: z.array(z.union([
+    z.object({
+      path: z.string(),
+      encoding: z.literal("utf8"),
+      content: z.string(),
+      bytes: nonNegativeInt,
+      sha256: sha256Schema,
+      range: z.object({
+        startLine: z.number().int().positive(),
+        endLine: z.number().int().nonnegative(),
+        totalLines: nonNegativeInt,
+      }).optional(),
+    }).strict(),
+    z.object({
+      path: z.string(),
+      error: z.string(),
+      message: z.string(),
+    }).strict(),
+  ])),
+});
+
 export const fsEditOutputSchema = z.object({
   path: z.string(),
   bytes: nonNegativeInt,
@@ -491,6 +513,8 @@ export const processLogsOutputSchema = z.object({
   cursor: z.number().int().nonnegative().optional(),
   stdout: processLogStreamOutputSchema.extend({ nextCursor: z.number().int().nonnegative().optional() }),
   stderr: processLogStreamOutputSchema.extend({ nextCursor: z.number().int().nonnegative().optional() }),
+  state: z.enum(["running", "stopping", "exited", "stopped", "unknown"]).optional(),
+  exitCode: z.number().int().nullable().optional(),
 });
 
 const browserPageIdSchema = z.string().min(40).max(128);

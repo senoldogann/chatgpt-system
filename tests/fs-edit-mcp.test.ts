@@ -75,6 +75,16 @@ describe("IDE editing MCP tools", () => {
       expect(ambiguous.isError).toBe(true);
       expect(JSON.stringify(ambiguous.content)).toContain("more than one location");
 
+      const many = await client.callTool({
+        name: "fs_read_many",
+        arguments: { files: [{ path: "app.ts", offset: 1, limit: 1 }, { path: "nope.ts" }] },
+      });
+      expect(many.isError, JSON.stringify(many.content)).not.toBe(true);
+      expect((many.structuredContent as { files: unknown[] }).files).toEqual([
+        expect.objectContaining({ path: "app.ts", content: "export const a = 1;" }),
+        { path: "nope.ts", error: "NOT_FOUND", message: "File does not exist." },
+      ]);
+
       const { tools } = await client.listTools();
       const tool = tools.find((item) => item.name === "fs_edit");
       expect(tool?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });

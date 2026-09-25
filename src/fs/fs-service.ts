@@ -13,7 +13,7 @@ import {
 import path from "node:path";
 import { applyPatch as applyUnifiedPatch } from "diff";
 import { AuditLogger } from "../core/audit.js";
-import { ConflictError, LimitError, NotFoundError, PolicyError } from "../core/errors.js";
+import { AppError, ConflictError, LimitError, NotFoundError, PolicyError } from "../core/errors.js";
 import type { LimitsConfig } from "../core/config.js";
 import { withPathLock, withPathLocks } from "../core/path-lock.js";
 import { normalizeUnifiedPatchHunkHeaders, patchInvalidError, validateUnifiedPatch } from "./unified-patch.js";
@@ -22,6 +22,8 @@ import { PathPolicy } from "../core/policy.js";
 function sha256(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
+
+const MAX_BATCH_READ_FILES = 20;
 
 function countOccurrences(source: string, search: string): number {
   let count = 0;
@@ -124,6 +126,47 @@ export class FileSystemService {
         range: { startLine, endLine: startLine + selected.length - 1, totalLines: allLines.length },
       };
     });
+  }
+
+  // Birden çok dosyayı tek çağrıda okur; her model turu pahalı olduğundan
+  // bağımsız okumaları toplamak turu kısaltır. Dosya düzeyindeki hata tüm
+  // çağrıyı düşürmez; toplam içerik tek-dosya okuma sınırını aşamaz.
+  async readMany(entries: Array<{ path: string; offset?: number; limit?: number }>): Promise<Record<string, unknown>> {
+    if (entries.length === 0 || entries.length > MAX_BATCH_READ_FILES) {
+      throw new PolicyError(`fs_read_many accepts 1-${MAX_BATCH_READ_FILES} files.`);
+    }
+    const files: Array<Record<string, unknown>> = [];
+    let budget = this.limits.maxReadBytes;
+    for (const entry of entries) {
+      try {
+        const read = await this.read(entry.path, "utf8", {
+          ...(entry.offset !== undefined ? { offset: entry.offset } : {}),
+          ...(entry.limit !== undefined ? { limit: entry.limit } : {}),
+        });
+        const contentBytes = Buffer.byteLength(read.content as string, "utf8");
+        if (contentBytes > budget) {
+          files.push({
+            path: read.path,
+            error: "LIMIT_EXCEEDED",
+            message: "The batch read budget is exhausted; read this file separately or with offset/limit.",
+          });
+          continue;
+        }
+        budget -= contentBytes;
+        files.push(read);
+      } catch (error) {
+        if (error instanceof AppError) {
+          files.push({ path: entry.path, error: error.code, message: error.message });
+          continue;
+        }
+        const code = (error as NodeJS.ErrnoException).code;
+        if (typeof code !== "string") throw error;
+        files.push(code === "ENOENT"
+          ? { path: entry.path, error: "NOT_FOUND", message: "File does not exist." }
+          : { path: entry.path, error: code, message: `File could not be read (${code}).` });
+      }
+    }
+    return { files };
   }
 
   async edit(
