@@ -274,10 +274,10 @@ describe("computer MCP tools", () => {
       expect(byName.get("computer_observe")?.annotations).toMatchObject({ readOnlyHint: true });
       expect(byName.get("computer_click")?.annotations).toMatchObject({ readOnlyHint: false });
 
-      expect(byName.get("computer_health")?.description).toMatch(/explicitly asks for Computer Use/i);
+      expect(byName.get("computer_health")?.description).toMatch(/physical mouse and keyboard/i);
       expect(byName.get("computer_open_app")?.description).toContain("com.google.Chrome");
       expect(byName.get("computer_open_app")?.description).toMatch(/real Google Chrome/i);
-      expect(byName.get("computer_open_app")?.description).toMatch(/do not substitute.*browser_\*/i);
+      expect(byName.get("computer_open_app")?.description).toMatch(/separate from browser_\*/i);
       expect(byName.get("computer_run")?.description).toMatch(/physical mouse.*keyboard/i);
       expect(byName.get("computer_run")?.description).toContain("com.google.Chrome");
       expect(byName.get("computer_observe")?.description).toMatch(/perception\.recommendedTargeting/i);

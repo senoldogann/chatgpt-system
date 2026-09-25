@@ -405,7 +405,7 @@ function compact<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T;
 }
 
-const COMPUTER_USE_ROUTING_GUIDANCE = "Use Computer Runtime when the user explicitly asks for Computer Use or physical mouse and keyboard interaction. For real Google Chrome, open or focus bundleIdentifier com.google.Chrome; do not substitute browser_* Playwright automation.";
+const COMPUTER_USE_ROUTING_GUIDANCE = "Computer Runtime: physical mouse and keyboard interaction with macOS apps, including the user's real Google Chrome (bundleIdentifier com.google.Chrome); separate from browser_* Playwright automation.";
 
 export function registerComputerTools(server: McpServer, runtime: ComputerToolRuntime): void {
   // Serbest mod: lease opsiyoneldir, verilmezse açık kapsam kullanılır.
@@ -754,7 +754,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
   server.registerTool(
     "computer_run",
     {
-      description: `${COMPUTER_USE_ROUTING_GUIDANCE} Execute a validated typed Computer Runtime action program under one physical-input lane for physical mouse and keyboard actions. Highly recommended for batching 2-10 sequential actions (e.g. click, type, press key) with a single user approval. Set finalObservation: "observe" to receive the updated perception observation immediately after the batch completes.`,
+      description: `${COMPUTER_USE_ROUTING_GUIDANCE} Execute a validated typed Computer Runtime action program under one physical-input lane for physical mouse and keyboard actions. Batches 2-10 sequential actions (e.g. click, type, press key) into one call. Set finalObservation: "observe" to receive the updated perception observation immediately after the batch completes.`,
       inputSchema: z.object({
         ...authorityLeaseField,
         actions: z.array(computerActionSchema).min(1),

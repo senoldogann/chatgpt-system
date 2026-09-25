@@ -267,6 +267,23 @@ npm run setup:chatgpt -- \
 
 `--owner-workstation` enables Owner Runtime, structured host terminal/PTY capability, local Docker Project Exec, Computer Use, and full-host JavaScript. It is still current-user authority, **not root** and not an OS sandbox. macOS sudo, TCC, SIP, FileVault/login, and Keychain authentication boundaries remain authoritative. Browser Runtime stays independent and is never enabled by this preset; add `--enable-browser` separately only when the Playwright layer is intentionally wanted. The individual capability flags remain available for narrower configurations: `--enable-terminal`, `--enable-project-exec`, `--enable-owner-runtime`, `--enable-computer-use`, and `--enable-full-host-js`. Omitting the preset preserves the secure defaults.
 
+### Published tool catalog (`--tool-profile`)
+
+ChatGPT sees only the tools the server publishes. Tools of a disabled capability (browser, Computer Use, full-host JS, Owner Runtime shell/PTY, terminal/processes, Project Exec) are never listed, so a narrow configuration also yields a small catalog. For ordinary project development through ChatGPT Web, add `--tool-profile dev`:
+
+```bash
+npm run setup:chatgpt -- \
+  --root /absolute/path/to/disposable-test-project \
+  --tunnel-id tunnel_xxxxxxxxxxxxxxxx \
+  --owner-workstation \
+  --tool-profile dev \
+  --force --doctor
+```
+
+The `dev` profile keeps filesystem, Git, `code_query`, patch, Project Continuity, `task_state`, `project_check`, `project_exec`, `terminal_run`/`process_*`, skills, goal, worker and handoff tools, and hides `browser_*`, `computer_*`, `computer_run_js`, `shell_run` and `terminal_session_*` even when their gates are enabled. The runtime gates are unchanged; the profile only narrows what is published. `full` (the default) publishes every enabled capability. The server can also read `CHATGPT_SYSTEM_TOOL_PROFILE=dev`. After changing the profile, use the ChatGPT app's **Refresh** action where it is available so the hosted catalog is reloaded.
+
+Tool descriptions state only what each tool does, and annotations (`readOnlyHint`, `destructiveHint`, `openWorldHint`) reflect actual effects. Workflow guidance such as "`project_resume` before mutation" lives in the MCP server `instructions`, not in individual tool descriptions.
+
 The configured `--root` is a **bootstrap/default root**, not a permanent "only this project" restriction. A Project lease may target another explicit repository path outside the bootstrap root with `session_authority_start(profile="project", projectRoots=[...])`; `/` and the entire home directory remain forbidden Project roots. For a new project, the recommended flow is: open the exact Project lease, `project_register` it once for continuity, then use `project_resume` in later chats. Reconfiguring the tunnel is not required for each repository.
 
 Headless browser mode is optional:

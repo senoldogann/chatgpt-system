@@ -49,7 +49,7 @@ const expectedAnnotations = {
   terminal_session_close: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
   terminal_session_list: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   terminal_run: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
-  process_start: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  process_start: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   process_list: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   process_status: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   process_logs: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -103,14 +103,14 @@ const expectedAnnotations = {
   skills_list: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   skills_read: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   skills_import: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-  skills_remove: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-  goal_advise: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  skills_remove: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  goal_advise: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   worker_spawn: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   worker_status: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   worker_message: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   worker_sleep: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
   worker_finish: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-  handoff_prepare: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  handoff_prepare: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
 } as const;
 
 const codingHarnessV2ToolNames = [
@@ -171,7 +171,9 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((item) => rm(item, { recursive: true, force: true })));
 });
 
-async function fixture() {
+// allCapabilities: tam katalog anlık görüntüsü için tüm yetenek kapıları açılır;
+// kapalı yeteneklerin araçları kataloğa yayınlanmaz.
+async function fixture(allCapabilities = false) {
   const base = await mkdtemp(path.join(tmpdir(), "chatgpt-system-http-"));
   cleanups.push(base);
   const root = path.join(base, "root");
@@ -185,14 +187,14 @@ async function fixture() {
   const config: AppConfig = {
     roots: [root],
     auditFile: path.join(base, "audit.jsonl"),
-    terminal: { enabled: false, commands: ["node"] },
-    projectExec: { enabled: false },
+    terminal: { enabled: allCapabilities, commands: ["node"] },
+    projectExec: { enabled: allCapabilities },
     // Yeni zorunlu bloklar: bu testin kapsamı dışında, kapalı tutulur.
     skills: { enabled: false, directory: path.join(base, "skills") },
     goal: { enabled: false, maxTranscriptChars: 120_000 },
     workers: { enabled: false, maxWorkers: 8, maxParkedRuns: 16 },
     ownerRuntime: {
-      enabled: false,
+      enabled: allCapabilities,
       shellPath: "/bin/sh",
       maxScriptBytes: 262_144,
       maxTimeoutMs: 120_000,
@@ -203,7 +205,7 @@ async function fixture() {
     jevTargeting: { enabled: false, apiKey: null },
     sessionEvents: { enabled: false },
     browser: {
-      enabled: false,
+      enabled: allCapabilities,
       connectionMode: "managed",
       headless: true,
       timeoutMs: 10_000,
@@ -217,8 +219,8 @@ async function fixture() {
       remoteVerificationTimeoutMs: 1_000,
     },
     computerUse: {
-      enabled: false,
-      fullHostJsEnabled: false,
+      enabled: allCapabilities,
+      fullHostJsEnabled: allCapabilities,
       hostBundlePath: path.join(base, "ChatGPTSystemComputerRuntime.app"),
       requestTimeoutMs: 10_000,
       maxObservationElements: 500,
@@ -319,7 +321,7 @@ describe("HTTP MCP transport", () => {
   });
 
   it("completes a real MCP handshake and exposes structured, safety-described tools", async () => {
-    const { root, baseUrl, token } = await fixture();
+    const { root, baseUrl, token } = await fixture(true);
     const client = new Client({ name: "chatgpt-system-integration-test", version: "1.0.0" });
     const transport = new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`), {
       requestInit: {
@@ -372,8 +374,8 @@ describe("HTTP MCP transport", () => {
           forbiddenBroadRoots: ["filesystem-root", "home-directory"],
           recommendedOpenFlow: ["session_authority_start", "project_register", "project_resume"],
         },
-        terminal: { enabled: false },
-        ownerRuntime: { enabled: false },
+        terminal: { enabled: true },
+        ownerRuntime: { enabled: true },
         limits: {
           maxManagedProcesses: 32,
           maxProcessLogBytesPerStream: 131_072,

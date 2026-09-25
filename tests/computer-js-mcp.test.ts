@@ -166,13 +166,14 @@ describe("computer_run_js MCP tool", () => {
 
     const disabled = await fixture(false);
     try {
+      // Kapalı kapı: araç kataloğa yayınlanmaz ve çağrı runtime'a ulaşmaz.
+      const { tools } = await disabled.client.listTools();
+      expect(tools.map((tool) => tool.name)).not.toContain("computer_run_js");
       const admin = await disabled.runtime.authority.start({ profile: "project", projectRoots: [disabled.root] });
-      const result = await disabled.client.callTool({
+      await expect(disabled.client.callTool({
         name: "computer_run_js",
         arguments: { authorityLeaseId: admin.leaseId, source: "return 1;" },
-      });
-      expect(result.isError).toBe(true);
-      expect(textContent(result)).toContain("COMPUTER_JS_DISABLED");
+      })).rejects.toThrow(/not found/i);
       expect(disabled.fake.calls).toHaveLength(0);
     } finally {
       await disabled.transport.terminateSession();

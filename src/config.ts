@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { defaultExistingChromeUserDataDir } from "./existing-chrome-discovery.js";
+import { TOOL_PROFILES, type ToolProfile } from "./tool-exposure.js";
 
 export const COMPUTER_MAX_JS_SOURCE_BYTES = 262_144;
 export const COMPUTER_MAX_JS_RUNTIME_MS = 30_000;
@@ -107,6 +108,7 @@ export interface WorkersConfig {
 
 export interface AppConfig {
   roots: string[];
+  toolProfile?: ToolProfile;
   auditFile: string;
   terminal: {
     enabled: boolean;
@@ -143,6 +145,7 @@ export interface AppConfig {
 
 export interface ConfigOverrides {
   roots?: string[];
+  toolProfile?: ToolProfile;
   auditFile?: string;
   terminalEnabled?: boolean;
   ownerWorkstationEnabled?: boolean;
@@ -189,6 +192,7 @@ const EnvSchema = z.object({
   CHATGPT_SYSTEM_ROOTS: z.string().optional(),
   CHATGPT_SYSTEM_AUDIT_FILE: z.string().optional(),
   CHATGPT_SYSTEM_ENABLE_TERMINAL: z.enum(["true", "false", "1", "0"]).optional(),
+  CHATGPT_SYSTEM_TOOL_PROFILE: z.enum(TOOL_PROFILES).optional(),
   CHATGPT_SYSTEM_ENABLE_PROJECT_EXEC: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_ENABLE_OWNER_RUNTIME: z.enum(["true", "false", "1", "0"]).optional(),
   CHATGPT_SYSTEM_OWNER_SHELL_PATH: z.string().optional(),
@@ -378,6 +382,7 @@ export async function loadConfig(overrides: ConfigOverrides = {}): Promise<AppCo
 
   const config: AppConfig = {
     roots,
+    toolProfile: effectiveOverrides.toolProfile ?? env.CHATGPT_SYSTEM_TOOL_PROFILE ?? "full",
     auditFile: path.resolve(
       effectiveOverrides.auditFile ?? env.CHATGPT_SYSTEM_AUDIT_FILE ?? path.join(homeDir, ".chatgpt-system", "audit.jsonl"),
     ),

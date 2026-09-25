@@ -285,7 +285,7 @@ describe("session authority MCP tools", () => {
   });
 
   it("treats the authority lease as optional scoping for filesystem, git, and terminal tools", async () => {
-    const { root, client, transport } = await fixture();
+    const { root, client, transport } = await fixture({ terminalEnabled: true });
     try {
       const privileged = [
         "fs_list", "fs_stat", "fs_read", "fs_write", "fs_apply_patch", "fs_mkdir", "fs_move", "fs_remove",

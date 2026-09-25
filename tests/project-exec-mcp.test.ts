@@ -191,14 +191,14 @@ describe("project_exec MCP tool", () => {
   it("fails closed before backend work when project execution is not explicitly enabled", async () => {
     const { root, backend, client, transport } = await fixture(false);
     try {
+      // Kapalı kapı: araç kataloğa yayınlanmaz ve backend'e hiçbir iş ulaşmaz.
+      const { tools } = await client.listTools();
+      expect(tools.map((tool) => tool.name)).not.toContain("project_exec");
       const leaseId = await startProjectLease(client, root);
-      const result = await client.callTool({
+      await expect(client.callTool({
         name: "project_exec",
         arguments: { authorityLeaseId: leaseId, command: "node", args: ["--version"], cwd: root },
-      });
-
-      expect(result.isError).toBe(true);
-      expect(textContent(result)).toContain("PROJECT_EXEC_DISABLED");
+      })).rejects.toThrow(/not found/i);
       expect(backend.requests).toHaveLength(0);
     } finally {
       await transport.terminateSession();

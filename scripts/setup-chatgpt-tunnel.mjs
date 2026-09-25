@@ -18,6 +18,8 @@ Options:
   --root <path>           Explicit bootstrap filesystem root. Required.
   --tunnel-id <id>        OpenAI Secure MCP Tunnel ID. Required.
   --profile <name>        tunnel-client profile name (default: chatgpt-system).
+  --tool-profile <name>   Published tool catalog: full (default) or dev. dev hides browser_*,
+                          computer_*, shell_run and terminal_session_* from ChatGPT.
   --owner-workstation     Enable the trusted private-Mac preset: Owner Runtime, terminal/PTY, Project Exec, Computer Use, and full-host JS. Browser remains independent.
   --enable-terminal       Opt in to bootstrap terminal configuration. Disabled by default.
   --enable-project-exec   Opt in to Docker-sandboxed Project execution. Disabled by default.
@@ -61,6 +63,7 @@ function parseArgs(argv) {
     root: undefined,
     tunnelId: undefined,
     profile: "chatgpt-system",
+    toolProfile: "full",
     ownerWorkstation: false,
     terminal: false,
     projectExec: false,
@@ -147,7 +150,7 @@ function parseArgs(argv) {
       continue;
     }
 
-    if (["--root", "--tunnel-id", "--profile", "--allow-command", "--owner-shell-path", "--browser-existing-chrome-user-data-dir"].includes(arg)) {
+    if (["--root", "--tunnel-id", "--profile", "--tool-profile", "--allow-command", "--owner-shell-path", "--browser-existing-chrome-user-data-dir"].includes(arg)) {
       const value = argv[index + 1];
       if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);
       index += 1;
@@ -157,6 +160,7 @@ function parseArgs(argv) {
       }
       if (arg === "--tunnel-id") options.tunnelId = value;
       if (arg === "--profile") options.profile = value;
+      if (arg === "--tool-profile") options.toolProfile = value;
       if (arg === "--allow-command") options.commands.push(value);
       if (arg === "--owner-shell-path") options.ownerShellPath = value;
       if (arg === "--browser-existing-chrome-user-data-dir") options.browserExistingChromeUserDataDir = value;
@@ -227,6 +231,9 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
   if (!/^[A-Za-z0-9_-]+$/.test(options.profile)) {
     throw new Error("--profile may contain only letters, numbers, '-' and '_'.");
   }
+  if (!["full", "dev"].includes(options.toolProfile)) {
+    throw new Error("--tool-profile must be one of: full, dev.");
+  }
   if (options.commands.length > 0 && !options.terminal) {
     throw new Error("--allow-command requires --enable-terminal.");
   }
@@ -271,6 +278,7 @@ export function buildTunnelSetup(argv, _env = {}, context = {}) {
     "stdio",
     "--root", root,
   ];
+  if (options.toolProfile !== "full") commandParts.push("--tool-profile", options.toolProfile);
   if (options.ownerWorkstation) {
     commandParts.push("--owner-workstation");
   } else {
@@ -396,6 +404,7 @@ async function main() {
   console.log(`  Root: ${setup.root}`);
   console.log(`  Profile: ${setup.profile}`);
   console.log(`  MCP command: ${setup.displayMcpCommand}`);
+  console.log("  Tool profile: " + (setup.mcpCommand.includes("--tool-profile dev") ? "dev (browser/computer/owner-shell tools hidden)" : "full"));
   console.log("  Authority: open, no local approval needed");
   console.log(`  Init: ${printableCommand("tunnel-client", setup.displayInitArgs)}`);
   console.log(`  Doctor: ${printableCommand("tunnel-client", setup.doctorArgs)}`);

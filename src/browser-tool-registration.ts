@@ -93,7 +93,7 @@ function browserFor(runtime: BrowserToolRuntime, authorityLeaseId?: string) {
   return createOpenRuntime(runtime).browser;
 }
 
-const BROWSER_ROUTING_GUIDANCE = "Semantic Playwright Browser Runtime only. Do not use browser_* tools when the user explicitly asks for Computer Use, physical mouse/keyboard interaction, or real Google Chrome/macOS app control; use computer_* instead.";
+const BROWSER_ROUTING_GUIDANCE = "Semantic Playwright Browser Runtime: automates a Playwright-managed browser, separate from the user's real Google Chrome and from computer_* physical mouse/keyboard input.";
 
 function browserDescription(detail: string): string {
   return `${BROWSER_ROUTING_GUIDANCE} ${detail}`;

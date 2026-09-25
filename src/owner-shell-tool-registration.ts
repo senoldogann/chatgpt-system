@@ -41,7 +41,7 @@ export function registerOwnerShellTool(server: McpServer, runtime: RuntimeServic
   server.registerTool(
     "shell_run",
     {
-      description: "Run arbitrary full-host login-shell syntax as the current user inside the open Owner Runtime session. This is not OS-sandboxed.",
+      description: "Run a script with the configured login shell as the current user in the Owner Runtime session. Full host access; not OS-sandboxed.",
       inputSchema: z.object({
         authorityLeaseId: z.string().min(40).optional(),
         script: z.string().min(1).max(runtime.config.ownerRuntime?.maxScriptBytes ?? OWNER_SHELL_MAX_SCRIPT_BYTES),

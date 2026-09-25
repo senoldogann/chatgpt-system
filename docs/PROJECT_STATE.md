@@ -1,5 +1,14 @@
 # chatgpt-system — Active Project State
 
+## 2026-09-25 ChatGPT-safe tool catalog
+
+- Branch `claude/blissful-euler-gi059j` (cloud session, not the authoritative Mac checkout). Not deployed; the live tunnel profile is unchanged until the owner reruns setup.
+- Tools of disabled capabilities are no longer published (`src/tool-exposure.ts`); previously every one of 95 tools (~225 KB of schema) was listed even with all gates off. Calling a hidden tool returns MCP "tool not found" before any runtime work.
+- New `--tool-profile dev` (`CHATGPT_SYSTEM_TOOL_PROFILE`, tunnel setup `--tool-profile`) additionally hides `browser_*`, `computer_*`, `computer_run_js`, `shell_run`, `terminal_session_*`; `full` stays the default.
+- Tool descriptions no longer carry model-steering/recovery text; that guidance moved to MCP server `instructions`. Annotations corrected: `skills_remove` destructive, `process_start` destructive (matches `terminal_run`), `goal_advise`/`handoff_prepare` open-world (OpenCode Go API).
+- Verification: `npm run build` PASS; full vitest run with only pre-existing container-environment failures (login-shell `nvm` banner, root-readable files); owner-shell suites PASS with the banner removed.
+- **Next exact step:** on the Mac, run `npm run check`, then rerun `npm run setup:chatgpt -- ... --owner-workstation --tool-profile dev --force --doctor` and use the ChatGPT app Refresh action if available.
+
 ## 2026-09-21 Documentation accuracy baseline
 
 - Authoritative checkout is `/Users/dogan/Desktop/chatgpt-system` on local `main@7649ee2a7b9a9b378034c92c9238f55640bf248d`; `origin/main` is `830ea921d8d7059f910c95a12f7a55c5cc269f58`. The local-only documentation commit is not pushed.

@@ -1,4 +1,5 @@
 import { applyOwnerWorkstationPreset, type ConfigOverrides } from "./config.js";
+import { TOOL_PROFILES, type ToolProfile } from "./tool-exposure.js";
 
 export interface ServerCliCommand {
   kind: "server";
@@ -44,6 +45,15 @@ export function parseCliCommand(argv: string[]): CliCommand {
     }
     if (arg === "--owner-workstation") {
       overrides = applyOwnerWorkstationPreset({ ...overrides, ownerWorkstationEnabled: true });
+      continue;
+    }
+    if (arg === "--tool-profile") {
+      const value = takeValue(argv, index, arg);
+      if (!(TOOL_PROFILES as readonly string[]).includes(value)) {
+        throw new Error(`--tool-profile must be one of: ${TOOL_PROFILES.join(", ")}.`);
+      }
+      overrides.toolProfile = value as ToolProfile;
+      index += 1;
       continue;
     }
     if (arg === "--enable-terminal") {

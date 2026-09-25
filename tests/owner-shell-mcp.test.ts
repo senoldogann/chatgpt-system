@@ -129,13 +129,14 @@ describe("shell_run MCP tool", () => {
 
     const disabled = await fixture(false);
     try {
+      // Kapalı Owner Runtime: araç kataloğa yayınlanmaz ve çağrılamaz.
+      const { tools } = await disabled.client.listTools();
+      expect(tools.map((tool) => tool.name)).not.toContain("shell_run");
       const project = await disabled.runtime.authority.start({ profile: "project", projectRoots: [disabled.root] });
-      const result = await disabled.client.callTool({
+      await expect(disabled.client.callTool({
         name: "shell_run",
         arguments: { authorityLeaseId: project.leaseId, script: "printf no" },
-      });
-      expect(result.isError).toBe(true);
-      expect(textContent(result)).toContain("OWNER_RUNTIME_DISABLED");
+      })).rejects.toThrow(/not found/i);
     } finally {
       await disabled.transport.terminateSession();
       await disabled.client.close();
