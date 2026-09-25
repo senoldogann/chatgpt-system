@@ -8,6 +8,7 @@ import { draftBriefWithLlm, type HandoffFetchImpl } from "./handoff-llm.js";
 import { defaultOpencodeAuthPath, readOpencodeGoApiKey } from "./opencode-auth.js";
 import { handoffPrepareOutputSchema } from "./tool-output-schemas.js";
 import { safeCall } from "./tool-result.js";
+import { READ_ONLY_OPEN_WORLD } from "./tool-annotations.js";
 
 export interface HandoffToolRuntime {
   config: {
@@ -23,14 +24,6 @@ export interface HandoffToolRuntime {
   // Testlerde gerçek ev dizinindeki auth okunmasın diye ezilir.
   opencodeAuthPath?: string;
 }
-
-// OpenCode Go anahtarı varsa girdi dış API'ye gider; bu yüzden open-world.
-const annotations = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: true,
-};
 
 const MAX_HANDOFF_SUMMARY_CHARS = 8_000;
 const MAX_BOOTSTRAP_CHARS = 12_000;
@@ -146,7 +139,8 @@ export function registerHandoffTool(server: McpServer, runtime?: HandoffToolRunt
       description: "Build the compact handoff brief for the current work plus the exact replacement opening message. Pass summary to carry it over verbatim (center-trimmed with TASK/NEXT preserved), or omit summary and pass goal/activity/planSteps/decisions for an OpenCode Go drafted brief (llmDrafted true). Without summary and without LLM, the call fails closed: it never invents a brief. Persist with project_checkpoint (brief/planSteps/activity). No lease required.",
       inputSchema: handoffPrepareInputSchema,
       outputSchema: handoffPrepareOutputSchema,
-      annotations,
+      // OpenCode Go anahtarı varsa girdi dış API'ye gider; bu yüzden open-world.
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async (input) => safeCall(async () => prepareHandoff(runtime, input)),
   );

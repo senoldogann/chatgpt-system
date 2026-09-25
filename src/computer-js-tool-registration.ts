@@ -8,6 +8,7 @@ import { AppError } from "./errors.js";
 import { ScopedComputerJsService } from "./scoped-computer-js-service.js";
 import { computerJsRunOutputSchema } from "./tool-output-schemas.js";
 import { createSafeCall } from "./tool-result.js";
+import { DESTRUCTIVE_OPEN_WORLD } from "./tool-annotations.js";
 
 export interface ComputerJsToolRuntime {
   config: {
@@ -24,12 +25,6 @@ export interface ComputerJsToolRuntime {
 }
 
 const authorityLeaseField = { authorityLeaseId: z.string().min(40).optional() };
-const mutationAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: true,
-  idempotentHint: false,
-  openWorldHint: true,
-};
 
 function safeErrorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof AppError) return { error: error.code, message: error.message };
@@ -64,7 +59,7 @@ export function registerComputerJsTools(server: McpServer, runtime: ComputerJsTo
         timeoutMs: timeoutSchema.optional(),
       }).strict(),
       outputSchema: computerJsRunOutputSchema,
-      annotations: mutationAnnotations,
+      annotations: DESTRUCTIVE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, source, cwd, timeoutMs }, ctx) => safeCall(() =>
       computerJsFor(runtime, authorityLeaseId).run({

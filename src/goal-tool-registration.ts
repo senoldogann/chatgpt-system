@@ -7,6 +7,7 @@ import { decideGoal, type GoalAdvice } from "./goal-service.js";
 import { defaultOpencodeAuthPath, readOpencodeGoApiKey } from "./opencode-auth.js";
 import { goalAdviseOutputSchema } from "./tool-output-schemas.js";
 import { safeCall } from "./tool-result.js";
+import { READ_ONLY_OPEN_WORLD } from "./tool-annotations.js";
 
 export interface GoalToolRuntime {
   config: {
@@ -21,14 +22,6 @@ export interface GoalToolRuntime {
   // Testlerde gerçek ev dizinindeki auth okunmasın diye ezilir.
   opencodeAuthPath?: string;
 }
-
-// OpenCode Go anahtarı varsa girdi dış API'ye gider; bu yüzden open-world.
-const annotations = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: true,
-};
 
 const planStepSchema = z.object({
   step: z.string().min(1).max(2_048),
@@ -120,7 +113,8 @@ export function registerGoalTool(server: McpServer, runtime: GoalToolRuntime): v
         "Decide whether the whole requested job is clearly complete and, while it is not, draft the exact next instruction covering the largest coherent remaining work. OpenCode Go key present: the supplied goal and transcript are sent to the OpenCode Go API for an LLM-backed decision; otherwise rule-based fallback (reason names the path). Manual only: it never posts chat messages and Loop mode does not exist. No lease required.",
       inputSchema: goalAdviseInputSchema,
       outputSchema: goalAdviseOutputSchema,
-      annotations,
+      // OpenCode Go anahtarı varsa girdi dış API'ye gider; bu yüzden open-world.
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async (input) => safeCall(async () => adviseGoal(runtime, input)),
   );

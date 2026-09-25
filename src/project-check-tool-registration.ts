@@ -8,15 +8,9 @@ import {
 } from "./project-check-factory.js";
 import { projectCheckOutputSchema } from "./tool-output-schemas.js";
 import { safeCall } from "./tool-result.js";
+import { DESTRUCTIVE } from "./tool-annotations.js";
 
 export type ProjectCheckToolRuntime = ProjectCheckRuntimeDependencies;
-
-const annotations = {
-  readOnlyHint: false,
-  destructiveHint: true,
-  idempotentHint: false,
-  openWorldHint: false,
-};
 
 const baseFields = {
   authorityLeaseId: z.string().min(40).optional(),
@@ -48,7 +42,7 @@ export function registerProjectCheckTool(server: McpServer, runtime: ProjectChec
       description: "Detect repository-defined verification checks, run only detected checks through their declared Project-sandbox or explicitly enabled native-host lane, and report freshness-bound evidence without persisting raw command output.",
       inputSchema,
       outputSchema: projectCheckOutputSchema,
-      annotations,
+      annotations: DESTRUCTIVE,
     },
     async (input) => safeCall(async () => {
       const service = input.authorityLeaseId === undefined

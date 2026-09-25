@@ -5,26 +5,13 @@ import type { AppConfig } from "./config.js";
 import { WorkerStore, assertWorkerAliasLive, type AgentMessage, type WorkerRecord, type WorkerRun } from "./worker-store.js";
 import { workerRunOutputSchema } from "./tool-output-schemas.js";
 import { safeCall } from "./tool-result.js";
+import { READ_ONLY, WRITE } from "./tool-annotations.js";
 
 export interface WorkerToolRuntime {
   audit: AuditLogger;
   config: AppConfig;
   taskStateRoot: string;
 }
-
-const annotations = {
-  readOnlyHint: false,
-  destructiveHint: false,
-  idempotentHint: false,
-  openWorldHint: false,
-};
-
-const readAnnotations = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: false,
-};
 
 async function storeFor(runtime: WorkerToolRuntime): Promise<WorkerStore> {
   return WorkerStore.open(
@@ -103,7 +90,7 @@ export function registerWorkerTools(server: McpServer, runtime: WorkerToolRuntim
         workers: z.array(spawnSpecSchema).min(1).max(8),
       }).strict(),
       outputSchema: workerRunOutputSchema,
-      annotations,
+      annotations: WRITE,
     },
     async ({ primeAlias, sharedContext, workers }) => safeCall(async () => publicRun(
       await (await storeFor(runtime)).spawn(primeAlias, sharedContext, workers.map((spec) => ({
@@ -121,7 +108,7 @@ export function registerWorkerTools(server: McpServer, runtime: WorkerToolRuntim
       description: "Read one worker run with the bounded inbox view, states and finish reports. Reading consumes: unread inbox messages are marked read by this call. No lease required.",
       inputSchema: z.object({ runId: z.string().min(1).max(128) }).strict(),
       outputSchema: workerRunOutputSchema,
-      annotations: readAnnotations,
+      annotations: READ_ONLY,
     },
     async ({ runId }) => safeCall(async () => publicRun(await (await storeFor(runtime)).status(runId))),
   );
@@ -137,7 +124,7 @@ export function registerWorkerTools(server: McpServer, runtime: WorkerToolRuntim
         from: z.enum(["prime", "worker"]).default("prime"),
       }).strict(),
       outputSchema: workerRunOutputSchema,
-      annotations,
+      annotations: WRITE,
     },
     async ({ runId, workerId, message, from }) => safeCall(async () => publicRun(
       await (await storeFor(runtime)).message(runId, workerId, message, from),
@@ -153,7 +140,7 @@ export function registerWorkerTools(server: McpServer, runtime: WorkerToolRuntim
         workerId: z.string().min(1).max(64),
       }).strict(),
       outputSchema: workerRunOutputSchema,
-      annotations,
+      annotations: WRITE,
     },
     async ({ runId, workerId }) => safeCall(async () => publicRun(
       await (await storeFor(runtime)).sleep(runId, workerId),
@@ -171,7 +158,7 @@ export function registerWorkerTools(server: McpServer, runtime: WorkerToolRuntim
         failed: z.boolean().default(false),
       }).strict(),
       outputSchema: workerRunOutputSchema,
-      annotations,
+      annotations: WRITE,
     },
     async ({ runId, workerId, report, failed }) => safeCall(async () => publicRun(
       await (await storeFor(runtime)).finish(runId, workerId, report, failed),

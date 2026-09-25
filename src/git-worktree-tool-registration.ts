@@ -7,6 +7,7 @@ import { ManagedWorktreeService } from "./managed-worktree-service.js";
 import { PathPolicy } from "./policy.js";
 import { gitWorktreeOutputSchema } from "./tool-output-schemas.js";
 import { safeCall } from "./tool-result.js";
+import { DESTRUCTIVE } from "./tool-annotations.js";
 
 export interface GitWorktreeToolRuntime {
   authority: AuthorityManager;
@@ -15,13 +16,6 @@ export interface GitWorktreeToolRuntime {
   taskStateRoot: string;
   worktreeRoot: string;
 }
-
-const annotations = {
-  readOnlyHint: false,
-  destructiveHint: true,
-  idempotentHint: false,
-  openWorldHint: false,
-};
 
 const inputSchema = z.discriminatedUnion("operation", [
   z.object({
@@ -49,7 +43,7 @@ export function registerGitWorktreeTool(server: McpServer, runtime: GitWorktreeT
       description: "Create, inspect, or remove plugin-owned Git worktrees. Callers never provide managed filesystem paths; dirty or unmanaged worktrees are never removed.",
       inputSchema,
       outputSchema: gitWorktreeOutputSchema,
-      annotations,
+      annotations: DESTRUCTIVE,
     },
     async (input) => safeCall(async () => {
       const roots = input.authorityLeaseId === undefined

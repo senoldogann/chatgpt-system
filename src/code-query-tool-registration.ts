@@ -4,17 +4,11 @@ import type { AuthorityManager } from "./authority.js";
 import { createOpenRuntime, createScopedRuntime, type ScopedRuntimeBase } from "./scoped-runtime.js";
 import { codeQueryOutputSchema } from "./tool-output-schemas.js";
 import { safeCall } from "./tool-result.js";
+import { READ_ONLY } from "./tool-annotations.js";
 
 export interface CodeQueryToolRuntime extends ScopedRuntimeBase {
   authority: AuthorityManager;
 }
-
-const codeQueryAnnotations = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: false,
-};
 
 const baseFields = {
   authorityLeaseId: z.string().min(40).optional(),
@@ -78,7 +72,7 @@ export function registerCodeQueryTool(server: McpServer, runtime: CodeQueryToolR
       description: "Query current repository code. search: bounded text or regex search (case-insensitive by default) with optional path glob and 0-5 context lines. files: list repository files matching a glob (e.g. src/**/*.ts; a pattern without '/' matches file names at any depth). symbols: lightweight declarations. definition/references/diagnostics: TypeScript semantic operations that fail explicitly with LSP_UNAVAILABLE when unsupported. Results follow .gitignore and skip binary, secret-looking and dependency paths.",
       inputSchema: codeQueryInputSchema,
       outputSchema: codeQueryOutputSchema,
-      annotations: codeQueryAnnotations,
+      annotations: READ_ONLY,
     },
     async (input) => safeCall(async () => {
       const service = codeQueryFor(runtime, input.authorityLeaseId);

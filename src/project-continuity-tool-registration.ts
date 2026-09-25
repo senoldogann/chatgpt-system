@@ -29,6 +29,7 @@ import type {
   ProjectResumeResult,
 } from "./project-continuity-service.js";
 import { createSafeCall } from "./tool-result.js";
+import { READ_ONLY, WRITE_OPEN_WORLD } from "./tool-annotations.js";
 
 const authorityLeaseSchema = z.string().min(40).max(256);
 
@@ -88,20 +89,6 @@ async function assertAliasLive(runtime: ProjectContinuityToolRuntime, alias: str
   );
 }
 
-const mutationAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: false,
-  idempotentHint: false,
-  openWorldHint: true,
-};
-
-const readAnnotations = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: false,
-};
-
 function safeErrorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof AppError) return { error: error.code, message: error.message };
   return { error: "INTERNAL_ERROR", message: "Project continuity operation failed." };
@@ -148,7 +135,7 @@ export function registerProjectContinuityTools(
       description: "Register one exact project alias, Project roots, worktree identity, current goal, decisions, and next step for continuity. Registration does not create an authority lease and never fuzzy-matches aliases.",
       inputSchema: projectRegisterInputSchema,
       outputSchema: projectContinuityResultOutputSchema,
-      annotations: mutationAnnotations,
+      annotations: WRITE_OPEN_WORLD,
     },
     async (input) => safeCall(async () => publicContinuityResult(
       await runtime.continuity.register(input as ProjectRegisterInput),
@@ -161,7 +148,7 @@ export function registerProjectContinuityTools(
       description: "Use when the user asks to continue a registered project by its exact alias in a new or current chat. Never fuzzy-match the alias; when the alias is unknown, call project_list first. After developer MCP capability returns in a new or recovered chat, call project_resume before any project mutation. Revalidates the exact worktree and returns a fresh Project authority lease plus bounded resume context.",
       inputSchema: projectResumeInputSchema,
       outputSchema: projectResumeOutputSchema,
-      annotations: mutationAnnotations,
+      annotations: WRITE_OPEN_WORLD,
     },
     async (input) => safeCall(async () => publicResumeResult(
       await runtime.continuity.resume(input as ProjectResumeInput),
@@ -174,7 +161,7 @@ export function registerProjectContinuityTools(
       description: "Update Project Continuity only for important decisions, changed blockers, verified delivery, ownership transfer or final handoff. A risk checkpoint is appropriate before an exceptional irreversible transition where developer MCP capability could disappear between messages. Do not checkpoint automatically for long commands, tool counts, repeated checks or every final response; consolidate unchanged milestones. Delivery 1 is not automatically logged.",
       inputSchema: projectCheckpointInputSchema,
       outputSchema: projectContinuityResultOutputSchema,
-      annotations: mutationAnnotations,
+      annotations: WRITE_OPEN_WORLD,
     },
     async (input) => safeCall(async () => {
       await assertAliasLive(runtime, input.alias);
@@ -190,7 +177,7 @@ export function registerProjectContinuityTools(
       description: "Read only the current semantic continuity record for the exact registered project. Use when project_resume reports truncated current critical context or when the full current semantic record is required. Delivery 1 has no historical-version selector.",
       inputSchema: projectContextReadInputSchema,
       outputSchema: projectContinuityResultOutputSchema,
-      annotations: readAnnotations,
+      annotations: READ_ONLY,
     },
     async (input) => safeCall(async () => publicContinuityResult(
       await runtime.continuity.contextRead(input),
@@ -203,7 +190,7 @@ export function registerProjectContinuityTools(
       description: "List all registered project aliases with their roots, record versions, and worktree paths. Use first when the user wants to work on a project but the exact alias is unknown. Never fuzzy-match; resume the chosen alias exactly.",
       inputSchema: z.object({}).strict(),
       outputSchema: projectListOutputSchema,
-      annotations: readAnnotations,
+      annotations: READ_ONLY,
     },
     async () => safeCall(async () => runtime.continuity.listProjects()),
   );

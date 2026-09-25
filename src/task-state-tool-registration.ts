@@ -11,6 +11,7 @@ import type { ProjectExecBackend } from "./project-exec-types.js";
 import { TaskStateService } from "./task-state-service.js";
 import { taskStateOutputSchema } from "./tool-output-schemas.js";
 import { safeCall } from "./tool-result.js";
+import { WRITE } from "./tool-annotations.js";
 
 export interface TaskStateToolRuntime {
   authority: AuthorityManager;
@@ -19,13 +20,6 @@ export interface TaskStateToolRuntime {
   projectExecBackend: ProjectExecBackend;
   taskStateRoot: string;
 }
-
-const taskStateAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: false,
-  idempotentHint: false,
-  openWorldHint: false,
-};
 
 const baseFields = {
   authorityLeaseId: z.string().min(40).optional(),
@@ -96,7 +90,7 @@ export function registerTaskStateTool(server: McpServer, runtime: TaskStateToolR
       description: "Persist bounded Project-scoped engineering task state and checkpoints under the dedicated local state subtree. Freshness is bound to repository HEAD and current working-tree content.",
       inputSchema: taskStateInputSchema,
       outputSchema: taskStateOutputSchema,
-      annotations: taskStateAnnotations,
+      annotations: WRITE,
     },
     async (input) => safeCall(async () => {
       const { policy, taskState } = taskContextFor(runtime, input.authorityLeaseId);

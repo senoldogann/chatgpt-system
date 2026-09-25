@@ -7,6 +7,7 @@ import { PatchSetService } from "./patch-set-service.js";
 import { PathPolicy } from "./policy.js";
 import { fsPatchSetOutputSchema } from "./tool-output-schemas.js";
 import { safeCall } from "./tool-result.js";
+import { DESTRUCTIVE } from "./tool-annotations.js";
 
 export interface PatchSetToolRuntime {
   authority: AuthorityManager;
@@ -14,13 +15,6 @@ export interface PatchSetToolRuntime {
   config: AppConfig;
   taskStateRoot: string;
 }
-
-const annotations = {
-  readOnlyHint: false,
-  destructiveHint: true,
-  idempotentHint: false,
-  openWorldHint: false,
-};
 
 const patchInputSchema = z.object({
   path: z.string().min(1).max(8_192),
@@ -38,7 +32,7 @@ export function registerPatchSetTool(server: McpServer, runtime: PatchSetToolRun
         patches: z.array(patchInputSchema).min(1).max(100),
       }).strict(),
       outputSchema: fsPatchSetOutputSchema,
-      annotations,
+      annotations: DESTRUCTIVE,
     },
     async ({ authorityLeaseId, patches }) => safeCall(async () => {
       const roots = authorityLeaseId === undefined

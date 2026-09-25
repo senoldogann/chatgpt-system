@@ -4,17 +4,11 @@ import type { AuthorityManager } from "./authority.js";
 import { createOpenRuntime, createScopedRuntime, type ScopedRuntimeBase } from "./scoped-runtime.js";
 import { projectExecResultOutputSchema } from "./tool-output-schemas.js";
 import { safeCall } from "./tool-result.js";
+import { DESTRUCTIVE } from "./tool-annotations.js";
 
 export interface ProjectExecToolRuntime extends ScopedRuntimeBase {
   authority: AuthorityManager;
 }
-
-const projectExecAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: true,
-  idempotentHint: false,
-  openWorldHint: false,
-};
 
 function projectExecFor(runtime: ProjectExecToolRuntime, authorityLeaseId?: string) {
   if (authorityLeaseId !== undefined) {
@@ -37,7 +31,7 @@ export function registerProjectExecTool(server: McpServer, runtime: ProjectExecT
         timeoutMs: z.number().int().positive().max(600_000).optional(),
       }).strict(),
       outputSchema: projectExecResultOutputSchema,
-      annotations: projectExecAnnotations,
+      annotations: DESTRUCTIVE,
     },
     async ({ authorityLeaseId, command, args, cwd, timeoutMs }) => safeCall(() => projectExecFor(runtime, authorityLeaseId).run(
       command,

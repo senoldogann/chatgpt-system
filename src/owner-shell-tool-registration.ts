@@ -6,13 +6,7 @@ import { createOpenRuntime, createScopedRuntime } from "./scoped-runtime.js";
 import type { RuntimeServices } from "./server.js";
 import { shellRunOutputSchema } from "./tool-output-schemas.js";
 import { createSafeCall } from "./tool-result.js";
-
-const mutationAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: true,
-  idempotentHint: false,
-  openWorldHint: true,
-};
+import { DESTRUCTIVE_OPEN_WORLD } from "./tool-annotations.js";
 
 function safeErrorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof AppError) return { error: error.code, message: error.message };
@@ -33,7 +27,7 @@ export function registerOwnerShellTool(server: McpServer, runtime: RuntimeServic
         timeoutMs: z.number().int().positive().nullable().optional(),
       }).strict(),
       outputSchema: shellRunOutputSchema,
-      annotations: mutationAnnotations,
+      annotations: DESTRUCTIVE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, script, cwd, timeoutMs }, ctx) => safeCall(() => {
       const scope = authorityLeaseId === undefined

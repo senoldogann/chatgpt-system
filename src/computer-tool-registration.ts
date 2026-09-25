@@ -29,6 +29,7 @@ import {
   computerWaitResultOutputSchema,
 } from "./tool-output-schemas.js";
 import { createSafeCall, textResult } from "./tool-result.js";
+import { DESTRUCTIVE_OPEN_WORLD, READ_ONLY_OPEN_WORLD, WRITE_IDEMPOTENT_OPEN_WORLD } from "./tool-annotations.js";
 
 export interface ComputerToolRuntime extends ScopedRuntimeBase {
   authority: AuthorityManager;
@@ -306,25 +307,6 @@ const computerActionSchema = z.union([
   releaseInputsActionSchema,
 ]);
 
-const computerReadAnnotations = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: true,
-};
-const computerMutationAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: true,
-  idempotentHint: false,
-  openWorldHint: true,
-};
-const computerIdempotentMutationAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: true,
-};
-
 function safeErrorDetails(error: ComputerError): Record<string, unknown> | undefined {
   const details = error.details;
   if (!details) return undefined;
@@ -405,7 +387,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       description: `${COMPUTER_USE_ROUTING_GUIDANCE} Report categorical Computer Runtime readiness and passive macOS permission state without an authority lease.`,
       inputSchema: z.object({}).strict(),
       outputSchema: computerHealthOutputSchema,
-      annotations: computerReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async () => safeCall(() => healthService.health()),
   );
@@ -416,7 +398,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       description: "Return the bounded accessibility/perception observation for the frontmost application. Use perception.recommendedTargeting: ax => prefer semantic AX role/text/index targets, including within-scoped targets; ocr => use bounded OCR fallback with target.by=ocrText; visual-point => obtain a fresh screenshot and make at most one explicit verified point attempt. For off-screen targets inside a deterministic container, use scoped computer_scroll_until_visible rather than repeated raw scroll. Do not repeat an unchanged point or scroll attempt, and do not repeat blind point coordinates after failure; re-observe and replan instead. No lease required.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: computerObservationOutputSchema,
-      annotations: computerReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async ({ authorityLeaseId }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).observe() as Promise<object>),
   );
@@ -430,7 +412,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         instruction: z.string().min(1).max(2_000),
       }).strict(),
       outputSchema: computerSemanticTargetResolutionOutputSchema,
-      annotations: computerReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async ({ authorityLeaseId, instruction }) => safeCall(async () => {
       const computer = await computerFor(runtime, authorityLeaseId);
@@ -469,7 +451,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       description: "Capture a bounded selected-display PNG as MCP image content with explicit macOS screen-space bounds and pixel-to-screen scale metadata. Screenshot bytes are not duplicated into structured JSON.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: computerScreenshotMetadataOutputSchema,
-      annotations: computerReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async ({ authorityLeaseId }) => {
       try {
@@ -498,7 +480,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       description: "Read the current pointer position. No lease required.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: computerPointResultOutputSchema,
-      annotations: computerReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async ({ authorityLeaseId }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).pointerPosition() as Promise<object>),
   );
@@ -514,7 +496,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
           timeoutMs: focusTimeoutSchema.optional(),
         }).strict().refine(appSelectorRequired, appSelectorRequirement),
         outputSchema: computerApplicationResultOutputSchema,
-        annotations: computerMutationAnnotations,
+        annotations: DESTRUCTIVE_OPEN_WORLD,
       },
       async ({ authorityLeaseId, bundleIdentifier, name: appName, timeoutMs }) => safeCall(async () =>
         (await computerFor(runtime, authorityLeaseId))[method](compact({ bundleIdentifier, name: appName, timeoutMs }) as never) as Promise<object>),
@@ -542,7 +524,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         }
       }),
       outputSchema: computerActionResultOutputSchema,
-      annotations: computerMutationAnnotations,
+      annotations: DESTRUCTIVE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).moveMouse(compact(input) as never) as Promise<object>),
   );
@@ -570,7 +552,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         }
       }),
       outputSchema: computerActionResultOutputSchema,
-      annotations: computerMutationAnnotations,
+      annotations: DESTRUCTIVE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).click(compact(input) as never) as Promise<object>),
   );
@@ -594,7 +576,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         }
       }),
       outputSchema: computerActionResultOutputSchema,
-      annotations: computerMutationAnnotations,
+      annotations: DESTRUCTIVE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).drag(compact(input) as never) as Promise<object>),
   );
@@ -622,7 +604,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         }
       }),
       outputSchema: computerActionResultOutputSchema,
-      annotations: computerMutationAnnotations,
+      annotations: DESTRUCTIVE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).scroll(compact(input) as never) as Promise<object>),
   );
@@ -640,7 +622,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         maxSteps: scrollMaxStepsSchema.optional(),
       }).strict(),
       outputSchema: computerScrollUntilVisibleOutputSchema,
-      annotations: computerMutationAnnotations,
+      annotations: DESTRUCTIVE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, ...input }) => safeCall(async () =>
       (await computerFor(runtime, authorityLeaseId)).scrollUntilVisible(compact(input) as never) as Promise<object>),
@@ -657,7 +639,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         verify: verificationSchema.optional(),
       }).strict().refine(appSelectorRequired, appSelectorRequirement),
       outputSchema: computerActionResultOutputSchema,
-      annotations: computerMutationAnnotations,
+      annotations: DESTRUCTIVE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).typeText(input) as Promise<object>),
   );
@@ -674,7 +656,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         verify: verificationSchema.optional(),
       }).strict().refine(appSelectorRequired, appSelectorRequirement),
       outputSchema: computerActionResultOutputSchema,
-      annotations: computerMutationAnnotations,
+      annotations: DESTRUCTIVE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).pressKey(input) as Promise<object>),
   );
@@ -685,7 +667,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
       description: "Idempotently release runtime-held keyboard modifiers, keys, and mouse buttons. No lease required.",
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: computerActionResultOutputSchema,
-      annotations: computerIdempotentMutationAnnotations,
+      annotations: WRITE_IDEMPOTENT_OPEN_WORLD,
     },
     async ({ authorityLeaseId }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).releaseInputs() as Promise<object>),
   );
@@ -700,7 +682,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         timeoutMs: verificationTimeoutSchema.optional(),
       }).strict().refine(appSelectorRequired, appSelectorRequirement),
       outputSchema: computerApplicationResultOutputSchema,
-      annotations: computerReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).waitForFrontmost(input) as Promise<object>),
   );
@@ -716,7 +698,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         timeoutMs: verificationTimeoutSchema.optional(),
       }).strict(),
       outputSchema: computerWaitResultOutputSchema,
-      annotations: computerReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).waitForText(input) as Promise<object>),
   );
@@ -731,7 +713,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         timeoutMs: verificationTimeoutSchema.optional(),
       }).strict(),
       outputSchema: computerChangedDigestOutputSchema,
-      annotations: computerReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async ({ authorityLeaseId, ...input }) => safeCall(async () => (await computerFor(runtime, authorityLeaseId)).waitUntilChanged(input) as Promise<object>),
   );
@@ -747,7 +729,7 @@ export function registerComputerTools(server: McpServer, runtime: ComputerToolRu
         timeoutMs: z.number().int().positive().optional(),
       }).strict(),
       outputSchema: computerRunOutputSchema,
-      annotations: computerMutationAnnotations,
+      annotations: DESTRUCTIVE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, actions, finalObservation, timeoutMs }, ctx) => safeCall(async () =>
       (await computerFor(runtime, authorityLeaseId)).run(

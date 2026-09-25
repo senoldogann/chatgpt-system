@@ -18,6 +18,7 @@ import {
   browserWaitOutputSchema,
 } from "./tool-output-schemas.js";
 import { safeCall, textResult } from "./tool-result.js";
+import { READ_ONLY_OPEN_WORLD, WRITE_IDEMPOTENT_OPEN_WORLD, WRITE_OPEN_WORLD } from "./tool-annotations.js";
 
 export interface BrowserToolRuntime extends ScopedRuntimeBase {
   authority: AuthorityManager;
@@ -48,25 +49,6 @@ const browserTargetSchema = z.discriminatedUnion("by", [
   }).strict(),
 ]);
 
-const browserReadAnnotations = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: true,
-};
-const browserMutationAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: false,
-  idempotentHint: false,
-  openWorldHint: true,
-};
-const browserIdempotentMutationAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: true,
-};
-
 function browserFor(runtime: BrowserToolRuntime, authorityLeaseId?: string) {
   if (authorityLeaseId !== undefined) {
     const authority = runtime.authority.resolve(authorityLeaseId);
@@ -88,7 +70,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
       description: browserDescription("Report categorical browser readiness without starting the browser or revealing browser content."),
       inputSchema: z.object({}).strict(),
       outputSchema: browserHealthOutputSchema,
-      annotations: browserReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async () => safeCall(() => runtime.browser.health()),
   );
@@ -99,7 +81,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
       description: browserDescription("List browser tabs using opaque page IDs. No lease required."),
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: browserTabsOutputSchema,
-      annotations: browserReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async ({ authorityLeaseId }) => safeCall(() => browserFor(runtime, authorityLeaseId).tabs()),
   );
@@ -113,7 +95,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
         url: z.string().min(1).max(8_192).optional(),
       }).strict(),
       outputSchema: browserTabOutputSchema,
-      annotations: browserMutationAnnotations,
+      annotations: WRITE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, url }) => safeCall(() => browserFor(runtime, authorityLeaseId).newTab(url)),
   );
@@ -124,7 +106,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
       description: browserDescription("Bring one opaque browser page to the front. No lease required."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserTabOutputSchema,
-      annotations: browserMutationAnnotations,
+      annotations: WRITE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, pageId }) => safeCall(() => browserFor(runtime, authorityLeaseId).selectTab(pageId)),
   );
@@ -135,7 +117,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
       description: browserDescription("Close one opaque browser page. No lease required."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserCloseTabOutputSchema,
-      annotations: browserIdempotentMutationAnnotations,
+      annotations: WRITE_IDEMPOTENT_OPEN_WORLD,
     },
     async ({ authorityLeaseId, pageId }) => safeCall(() => browserFor(runtime, authorityLeaseId).closeTab(pageId)),
   );
@@ -150,7 +132,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
         url: z.string().min(1).max(8_192),
       }).strict(),
       outputSchema: browserTabOutputSchema,
-      annotations: browserMutationAnnotations,
+      annotations: WRITE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, pageId, url }) => safeCall(() => browserFor(runtime, authorityLeaseId).navigate(pageId, url)),
   );
@@ -161,7 +143,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
       description: browserDescription("Return a bounded AI-oriented ARIA snapshot with current editable values removed. No lease required."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserSnapshotOutputSchema,
-      annotations: browserReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async ({ authorityLeaseId, pageId }) => safeCall(() => browserFor(runtime, authorityLeaseId).snapshot(pageId)),
   );
@@ -176,7 +158,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
         target: browserTargetSchema,
       }).strict(),
       outputSchema: browserActionOutputSchema,
-      annotations: browserMutationAnnotations,
+      annotations: WRITE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, pageId, target }) => safeCall(() => browserFor(runtime, authorityLeaseId).click(pageId, target)),
   );
@@ -192,7 +174,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
         text: z.string().max(65_536),
       }).strict(),
       outputSchema: browserActionOutputSchema,
-      annotations: browserMutationAnnotations,
+      annotations: WRITE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, pageId, target, text }) => safeCall(() => browserFor(runtime, authorityLeaseId).fill(pageId, target, text)),
   );
@@ -208,7 +190,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
         value: z.string().max(4_096),
       }).strict(),
       outputSchema: browserActionOutputSchema,
-      annotations: browserMutationAnnotations,
+      annotations: WRITE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, pageId, target, value }) => safeCall(() => browserFor(runtime, authorityLeaseId).selectOption(pageId, target, value)),
   );
@@ -223,7 +205,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
         key: z.enum(BROWSER_KEYS),
       }).strict(),
       outputSchema: browserActionOutputSchema,
-      annotations: browserMutationAnnotations,
+      annotations: WRITE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, pageId, key }) => safeCall(() => browserFor(runtime, authorityLeaseId).pressKey(pageId, key)),
   );
@@ -239,7 +221,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
         timeoutMs: z.number().int().positive().max(600_000).optional(),
       }).strict(),
       outputSchema: browserWaitOutputSchema,
-      annotations: browserReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async ({ authorityLeaseId, pageId, text, timeoutMs }) => safeCall(() => browserFor(runtime, authorityLeaseId).waitForText(pageId, text, timeoutMs)),
   );
@@ -250,7 +232,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
       description: browserDescription("Capture one browser page as in-memory PNG content plus bounded dimensions. Screenshot bytes are never audited."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserScreenshotMetadataOutputSchema,
-      annotations: browserReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async ({ authorityLeaseId, pageId }) => {
       try {
@@ -276,7 +258,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
       description: browserDescription("Read bounded recent console error/warning evidence with generation/sequence correlation and sanitized runtime source metadata when available. Source-map locations are never invented when deterministic mapping is unavailable. Console payload is never audited."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserConsoleOutputSchema,
-      annotations: browserReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async ({ authorityLeaseId, pageId }) => safeCall(() => browserFor(runtime, authorityLeaseId).consoleErrors(pageId)),
   );
@@ -287,7 +269,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
       description: browserDescription("Read bounded recent request/HTTP error evidence with generation/sequence, opaque request correlation, resource metadata, and sanitized initiator/URL fields. Query strings, fragments, headers, cookies, and bodies are not exposed."),
       inputSchema: z.object({ ...authorityLeaseField, ...pageIdField }).strict(),
       outputSchema: browserNetworkOutputSchema,
-      annotations: browserReadAnnotations,
+      annotations: READ_ONLY_OPEN_WORLD,
     },
     async ({ authorityLeaseId, pageId }) => safeCall(() => browserFor(runtime, authorityLeaseId).networkErrors(pageId)),
   );
@@ -298,7 +280,7 @@ export function registerBrowserTools(server: McpServer, runtime: BrowserToolRunt
       description: browserDescription("Idempotently close the owned browser context and clear in-memory browser state. A later action may lazily restart it."),
       inputSchema: z.object(authorityLeaseField).strict(),
       outputSchema: browserCloseOutputSchema,
-      annotations: browserIdempotentMutationAnnotations,
+      annotations: WRITE_IDEMPOTENT_OPEN_WORLD,
     },
     async ({ authorityLeaseId }) => safeCall(() => browserFor(runtime, authorityLeaseId).close()),
   );

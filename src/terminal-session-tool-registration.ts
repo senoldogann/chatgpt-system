@@ -9,36 +9,7 @@ import {
   terminalSessionSummaryOutputSchema,
 } from "./tool-output-schemas.js";
 import { createSafeCall } from "./tool-result.js";
-
-const readAnnotations = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: false,
-};
-
-const openAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: true,
-  idempotentHint: false,
-  openWorldHint: true,
-};
-
-const writeAnnotations = openAnnotations;
-
-const resizeAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: false,
-};
-
-const closeAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: true,
-  idempotentHint: true,
-  openWorldHint: true,
-};
+import { DESTRUCTIVE_IDEMPOTENT_OPEN_WORLD, DESTRUCTIVE_OPEN_WORLD, READ_ONLY, WRITE_IDEMPOTENT } from "./tool-annotations.js";
 
 function safeErrorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof AppError) return { error: error.code, message: error.message };
@@ -69,7 +40,7 @@ export function registerTerminalSessionTools(server: McpServer, runtime: Runtime
         rows: dimension.optional(),
       }).strict(),
       outputSchema: terminalSessionSummaryOutputSchema,
-      annotations: openAnnotations,
+      annotations: DESTRUCTIVE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, cwd, cols, rows }) => safeCall(async () => {
       const scope = scopeFor(runtime, authorityLeaseId);
@@ -91,7 +62,7 @@ export function registerTerminalSessionTools(server: McpServer, runtime: Runtime
         afterSequence: z.number().int().nonnegative().optional(),
       }).strict(),
       outputSchema: terminalSessionReadOutputSchema,
-      annotations: readAnnotations,
+      annotations: READ_ONLY,
     },
     async ({ authorityLeaseId, sessionId: id, afterSequence }) => safeCall(async () => {
       const scope = scopeFor(runtime, authorityLeaseId);
@@ -109,7 +80,7 @@ export function registerTerminalSessionTools(server: McpServer, runtime: Runtime
         data: z.string().min(1).max(runtime.config.ownerRuntime?.maxTerminalInputBytes ?? 65_536),
       }).strict(),
       outputSchema: terminalSessionSummaryOutputSchema,
-      annotations: writeAnnotations,
+      annotations: DESTRUCTIVE_OPEN_WORLD,
     },
     async ({ authorityLeaseId, sessionId: id, data }) => safeCall(async () => {
       const scope = scopeFor(runtime, authorityLeaseId);
@@ -128,7 +99,7 @@ export function registerTerminalSessionTools(server: McpServer, runtime: Runtime
         rows: dimension,
       }).strict(),
       outputSchema: terminalSessionSummaryOutputSchema,
-      annotations: resizeAnnotations,
+      annotations: WRITE_IDEMPOTENT,
     },
     async ({ authorityLeaseId, sessionId: id, cols, rows }) => safeCall(async () => {
       const scope = scopeFor(runtime, authorityLeaseId);
@@ -142,7 +113,7 @@ export function registerTerminalSessionTools(server: McpServer, runtime: Runtime
       description: "Idempotently close one manageable Owner Runtime PTY. The daemon chooses process-group termination and escalation internally.",
       inputSchema: z.object({ ...lease, ...sessionId }).strict(),
       outputSchema: terminalSessionSummaryOutputSchema,
-      annotations: closeAnnotations,
+      annotations: DESTRUCTIVE_IDEMPOTENT_OPEN_WORLD,
     },
     async ({ authorityLeaseId, sessionId: id }) => safeCall(async () => {
       const scope = scopeFor(runtime, authorityLeaseId);
@@ -156,7 +127,7 @@ export function registerTerminalSessionTools(server: McpServer, runtime: Runtime
       description: "List daemon-owned terminal sessions visible to the active scope. Raw OS process identifiers are never returned.",
       inputSchema: z.object(lease).strict(),
       outputSchema: terminalSessionListOutputSchema,
-      annotations: readAnnotations,
+      annotations: READ_ONLY,
     },
     async ({ authorityLeaseId }) => safeCall(async () => {
       const scope = scopeFor(runtime, authorityLeaseId);
