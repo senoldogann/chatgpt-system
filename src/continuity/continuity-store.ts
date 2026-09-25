@@ -14,6 +14,7 @@ import {
   continuitySemanticRecordSchema,
   storedWorktreeIdentitySchema,
   type CheckpointProjectRecord,
+  type RebindProjectRecord,
   type ContinuityLocalState,
   type ContinuityPublishedState,
   type ContinuitySemanticRecord,
@@ -349,6 +350,58 @@ export class ContinuityStore {
 
     if (!row) throw new ContinuityNotFoundError("The requested continuity record was not found.");
     return this.parseSemanticRecord(row);
+  }
+
+  // Taşınan ya da yeniden clone'lanan projenin alias'ını yeni worktree'ye
+  // bağlar; kayıt geçmişi ve sürüm korunur. projects.created_at, git dizini
+  // doğum zamanı denetiminin çıpasıdır; yeni kimlik için bağlama anına çekilir.
+  rebind(input: RebindProjectRecord): void {
+    const roots = continuityProjectRootsSchema.parse(input.roots);
+    const worktree = storedWorktreeIdentitySchema.parse(input.worktree);
+    const localState = continuityLocalStateSchema.parse(input.localState);
+    const publishedState = continuityPublishedStateSchema.parse(input.publishedState);
+    const timestamp = new Date(this.now()).toISOString();
+    const transaction = this.db.transaction(() => {
+      const current = this.db.prepare(
+        "SELECT current_record_version FROM projects WHERE id = ?",
+      ).get(input.projectId) as { current_record_version: number } | undefined;
+      if (!current) throw new ContinuityNotFoundError();
+      if (current.current_record_version !== input.expectedRecordVersion) {
+        throw new ConflictError("Continuity record version changed; reread the current project before rebinding.", {
+          expectedRecordVersion: input.expectedRecordVersion,
+          currentRecordVersion: current.current_record_version,
+        });
+      }
+      this.db.prepare(
+        "UPDATE projects SET roots_json = ?, created_at = ?, updated_at = ? WHERE id = ?",
+      ).run(JSON.stringify(roots), timestamp, timestamp, input.projectId);
+      this.db.prepare(`
+        UPDATE worktrees SET
+          canonical_path = ?, repository_root = ?, common_git_dir = ?, git_dir = ?,
+          repository_identity = ?, worktree_identity = ?, local_state_json = ?,
+          published_state_json = ?, checked_at = ?
+        WHERE project_id = ?
+      `).run(
+        worktree.canonicalPath,
+        worktree.repositoryRoot,
+        worktree.commonGitDir,
+        worktree.gitDir,
+        worktree.repositoryIdentity,
+        worktree.worktreeIdentity,
+        JSON.stringify(localState),
+        JSON.stringify(publishedState),
+        localState.checkedAt,
+        input.projectId,
+      );
+    });
+    try {
+      transaction();
+    } catch (error) {
+      if (error instanceof Database.SqliteError && registrationConflictCodes.has(error.code)) {
+        throw new ConflictError("That worktree is already registered to another continuity project.");
+      }
+      throw error;
+    }
   }
 
   checkpoint(input: CheckpointProjectRecord): ContinuitySemanticRecord {

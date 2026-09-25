@@ -181,6 +181,19 @@ export class AuthorityManager {
     return { leaseId, ...cloneContext(stored) };
   }
 
+  // Serbest mod: açık kapsam, süresi dolmamış Project lease köklerini de kabul
+  // eder. Herkes istediği kök için lease açabildiğinden bu yeni yetki vermez;
+  // modelin authorityLeaseId göndermeyi unuttuğu çağrıları çalışır kılar.
+  activeRoots(): string[] {
+    const nowMs = this.now();
+    const roots = new Set<string>();
+    for (const lease of this.leases.values()) {
+      if (Number.isFinite(lease.expiresAtMs) && nowMs > lease.expiresAtMs) continue;
+      for (const root of lease.roots) roots.add(root);
+    }
+    return [...roots];
+  }
+
   resolve(leaseId: string): AuthorityContext {
     const stored = this.lookup(leaseId);
     return cloneContext(stored);

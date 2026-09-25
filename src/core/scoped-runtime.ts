@@ -42,6 +42,7 @@ export interface ScopedRuntimeBase {
   projectExecBackend: ProjectExecBackend;
   browser: BrowserService;
   computer: ComputerRuntime;
+  authority?: { activeRoots(): string[] };
 }
 
 // Serbest mod: tüm kabiliyetler açıktır. Tek kapı startup flagleridir
@@ -99,7 +100,9 @@ export function createScopedRuntime(base: ScopedRuntimeBase, authority: Authorit
 
 // Lease verilmediğinde bootstrap rootlarla açık kapsam kurulur.
 export function createOpenRuntime(base: ScopedRuntimeBase): ScopedRuntime {
-  const policy = new PathPolicy([...base.config.roots]);
+  // Bootstrap kökleri önce gelir: göreli yollar her zaman onlara göre çözülür.
+  const leasedRoots = base.authority?.activeRoots() ?? [];
+  const policy = new PathPolicy([...new Set([...base.config.roots, ...leasedRoots])]);
   const config: AppConfig = {
     ...base.config,
     terminal: {

@@ -59,7 +59,10 @@ export class PathPolicy {
       if (isInside(canonicalRoot, canonicalCandidate)) return candidate;
     }
 
-    throw new PolicyError("Path is outside all allowed roots.", { requested: input, roots: this.roots });
+    throw new PolicyError(
+      "Path is outside all allowed roots. To work in another project folder, call session_authority_start with projectRoots set to that folder (or project_resume for a registered project); its roots are then allowed for later calls in this session.",
+      { requested: input, roots: this.roots },
+    );
   }
 
   display(candidate: string): string {

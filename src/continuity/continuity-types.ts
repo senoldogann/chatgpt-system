@@ -136,6 +136,15 @@ export interface CheckpointProjectRecord {
   checkedAt: string;
 }
 
+export interface RebindProjectRecord {
+  projectId: string;
+  expectedRecordVersion: number;
+  roots: string[];
+  worktree: StoredWorktreeIdentity;
+  localState: ContinuityLocalState;
+  publishedState: ContinuityPublishedState;
+}
+
 export interface StoredProject {
   id: string;
   alias: string;
