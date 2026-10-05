@@ -43,7 +43,7 @@
     "owner-workstation:status": "npm run build && node scripts/owner-workstation-status.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/node": "^2.1.1",
     "@modelcontextprotocol/server": "^2.0.0",
     "better-sqlite3": "13.0.3",
     "diff": "^9.0.0",
