@@ -55,7 +55,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@modelcontextprotocol/client": "^2.0.0",
-    "@rolldown/binding-wasm32-wasi": "1.2.11",
+    "@rolldown/binding-wasm32-wasi": "1.2.12",
     "@types/better-sqlite3": "9.6.0",
     "@types/node": "^26.6.2",
     "eslint": "^10.11.0",
